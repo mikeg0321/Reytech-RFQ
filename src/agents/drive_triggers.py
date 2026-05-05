@@ -174,9 +174,14 @@ def on_po_received(order: dict):
         year = str(datetime.now().year)
         quarter = _current_quarter()
 
+        # Pass the bare PO — `_create_po_folder_with_contents` writes into
+        # the legacy tree `{year} - Purchase Orders/{quarter}/{po}/` with
+        # bare PO names (matches Mike's filing convention; see Phase 3.5
+        # scope doc PR #756). It strips any 'PO-' / 'PO ' prefix anyway
+        # for safety, but we send the canonical form here.
         enqueue({
             "action": "create_po_folder",
-            "po_number": f"PO-{po}" if not po.startswith("PO") else po,
+            "po_number": po,
             "year": year,
             "quarter": quarter,
             "solicitation_number": sol,
