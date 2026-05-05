@@ -13,15 +13,18 @@ Every meaningful user action or pipeline step calls:
         "duration_ms": 3400,
     })
 
-Events are written to the `utilization_events` SQLite table. An
-admin dashboard at `/api/admin/utilization/summary` aggregates the
-last N days and returns:
+Events are written to the `utilization_events` SQLite table.
 
-    - Top 10 features by usage count
-    - Dead features (zero uses in window)
-    - Average duration per feature
-    - Error rate per feature
-    - Per-user breakdown (for internal attribution)
+The read-side HTTP dashboard at `/api/admin/utilization/*` was
+removed 2026-05-05 (no UI callers, dead surface). The query
+helpers below — `summary`, `top_features`, `dead_features`,
+`feature_series` — still work and can be called directly from
+Python (e.g. ad-hoc `railway run` queries) if needed:
+
+    - top_features(days=N) → list of feature usage rows
+    - dead_features(days=N) → features with zero events
+    - summary(days=N) → aggregate snapshot
+    - feature_series(name, days=N) → daily counts for one feature
 
 Writes are fire-and-forget — a tracking failure can NEVER break
 the user action. The recorder swallows every exception.
