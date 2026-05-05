@@ -114,18 +114,29 @@ function _fireLinkLookup(idx, url, mode) {
   }
   var metaId = (mode === 'rfq') ? 'rfq_link_meta_' + idx : 'link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
-  if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up\u2026</span>';
-  // 15s client-side timeout — spinner can never hang forever.
-  // On timeout we still save: the user may have typed into the link
-  // field and moved on; the link itself is worth persisting even
-  // though the enrichment never arrived.
+  // 45s client-side budget — Mike (2026-05-05): "rather it take time
+  // and work, validate item, then time out." Old 15s cap fell short when
+  // Claude web_search + scrape + semantic-match chained. Server budget
+  // bumped to 42s in lockstep (routes_pricecheck_admin.py). Spinner shows
+  // live elapsed seconds so operator can see it's still working.
+  var _LOOKUP_BUDGET_MS = 45000;
+  var _t0 = Date.now();
   var _done = false;
+  function _renderProgress() {
+    if (!metaEl || _done) return;
+    var _el = Math.floor((Date.now() - _t0) / 1000);
+    metaEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up\u2026 ('
+      + _el + 's / 45s \u2014 validating product)</span>';
+  }
+  _renderProgress();
+  var _progressTimer = setInterval(_renderProgress, 1000);
   var _timer = setTimeout(function() {
     if (_done) return;
     _done = true;
+    clearInterval(_progressTimer);
     if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">Lookup timed out \u2014 paste cost manually</span>';
     _triggerAutosaveForMode(mode);
-  }, 15000);
+  }, _LOOKUP_BUDGET_MS);
   // Send PC description for server-side semantic matching (Claude AI)
   var _pcDescForLookup = '';
   var _pcDescInput = document.querySelector('[name="desc_' + idx + '"]');
@@ -139,7 +150,7 @@ function _fireLinkLookup(idx, url, mode) {
   .then(function(r) { return r.json(); })
   .then(function(d) {
     if (_done) return; // timeout already fired
-    _done = true; clearTimeout(_timer);
+    _done = true; clearTimeout(_timer); clearInterval(_progressTimer);
     if (!d.ok && d.error) {
       if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">\u26A0\uFE0F ' + d.error + '</span>';
       return;
@@ -148,7 +159,7 @@ function _fireLinkLookup(idx, url, mode) {
   })
   .catch(function() {
     if (_done) return;
-    _done = true; clearTimeout(_timer);
+    _done = true; clearTimeout(_timer); clearInterval(_progressTimer);
     if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">Lookup failed</span>';
   });
 }
@@ -300,8 +311,17 @@ function _applyLinkData(idx, d, mode) {
 
   if (costEl && d.price && d.price > 0) {
     var existingCost = parseFloat(costEl.value) || 0;
-    // Block auto-fill if match score < 40% AND server AI didn't verify
-    if (_matchScore < 40 && !_aiVerified) {
+    // Block auto-fill if match score < 40% AND server AI didn't verify.
+    // ALSO hard-block when match score < 30 regardless of AI signal —
+    // 2026-04-23 incident (PR #483) caught Claude inventing "Anker
+    // headphones" for an unrelated ASIN; the prior fix relied on ASIN
+    // appearing in the response trail, which can pass while the rest of
+    // the product details are hallucinated. Description-vs-title token
+    // overlap is the last-line safety net (Mike P0 2026-05-05: "another
+    // URL is still bringing over the anker product").
+    if (_matchScore < 30) {
+      filled.push('cost BLOCKED — match only ' + _matchScore + '% (URL likely returned wrong product)');
+    } else if (_matchScore < 40 && !_aiVerified) {
       filled.push('cost BLOCKED — low match ' + _matchScore + '%, verify product');
     } else {
       // Quotes are valid 45 days; sale prices may expire.
