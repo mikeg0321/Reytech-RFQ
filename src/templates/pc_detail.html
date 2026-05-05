@@ -857,11 +857,22 @@
      </div>
 
      <!-- PRD Feature 10: Price History Intelligence Panel -->
+     <!-- Surface #14 (2026-05-04): the dark band styling reads as a clickable
+          card but only the right-edge button was wired. Mike clicked the band
+          and nothing happened. Fix: whole-band click target + role=button +
+          keyboard support. The Load History button is kept as an explicit
+          affordance for screen-readers and visible cue. -->
      <div id="price-history-panel" style="margin-top:16px">
-       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+       <div role="button" tabindex="0"
+            onclick="loadPriceHistory()"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();loadPriceHistory();}"
+            style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;padding:6px 8px;border-radius:6px"
+            onmouseover="this.style.background='#21262d33'"
+            onmouseout="this.style.background='transparent'"
+            aria-label="Load Price History — click anywhere on this band">
          <span style="font-size:13px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">📊 Price History Intelligence</span>
          <span style="font-size:14px;color:#484f58">Historical prices from all prior quotes & lookups</span>
-         <button onclick="loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:14px" aria-label="Load History">Load History</button>
+         <button onclick="event.stopPropagation();loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:14px" aria-label="Load History">Load History</button>
        </div>
        <div id="ph-content" style="display:none">
          <div id="ph-rows"></div>
