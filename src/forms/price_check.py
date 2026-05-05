@@ -4847,15 +4847,43 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
     """
     import io
 
+    # Detect page size first so we can validate detected rects against it.
+    page_width, page_height = 792.0, 612.0
+    try:
+        mb = writer.pages[0].mediabox
+        page_width, page_height = float(mb.width), float(mb.height)
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
+
     # ── Detect actual field boundaries ──
-    sig_rect = sig_rect_override  # From detected DOCX supplier cells
+    sig_rect = sig_rect_override  # From detected DOCX supplier cells (trusted)
+    _from_detection = False
     if not sig_rect:
         sig_rect = _detect_sig_field_rect(writer)
+        if sig_rect:
+            _from_detection = True
     if not sig_rect and source_pdf_path:
         try:
             sig_rect = _detect_sig_field_rect(PdfReader(source_pdf_path))
+            if sig_rect:
+                _from_detection = True
         except Exception as _e:
             log.debug("suppressed: %s", _e)
+
+    # Validate detected rect: a real signature cell sits in the bottom 70% of
+    # the page. A detected fb in the top 30% (fb > 0.7 * page_height) is
+    # almost certainly a mis-match against a header label and would draw the
+    # signature image floating above the form. Discard and fall back.
+    if _from_detection and sig_rect:
+        _, _fb, _, _ = sig_rect
+        if _fb > 0.7 * page_height:
+            log.warning(
+                "_add_signature_to_pdf: detected sig rect fb=%.1f in top 30%% "
+                "of page (height=%.1f) — discarding as mis-detection, falling "
+                "back to AMS 704 reference coords",
+                _fb, page_height,
+            )
+            sig_rect = None
 
     # Fallback: reference coords from AMS 704 Rev 1/2019
     # Signature field: Rect=[279.144, 388.486, 602.284, 412.005]
@@ -4865,14 +4893,6 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
     field_left, field_bot, field_right, field_top = sig_rect
     field_w = field_right - field_left
     field_h = field_top - field_bot
-
-    # Scale-aware: detect actual page size
-    page_width, page_height = 792.0, 612.0
-    try:
-        mb = writer.pages[0].mediabox
-        page_width, page_height = float(mb.width), float(mb.height)
-    except Exception as _e:
-        log.debug("suppressed: %s", _e)
 
     # Scale factors (reference coords are for 792×612)
     sx = page_width / 792.0
