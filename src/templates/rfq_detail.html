@@ -724,15 +724,18 @@
  <!-- ── Revenue KPI Strip ── -->
  {# Bundle-6 PR-6b (RFQ-UI-2): split the old Revenue+Profit pair into       #}
  {# Subtotal + Tax + Total + Profit so the operator sees the same breakdown #}
- {# they read on the generated quote PDF. Items Priced + Status stay on the #}
- {# right so the primary rhythm (dollar math on the left, state on the right)#}
- {# matches the PC detail page. `recalc()` populates subt/taxt/tot live.    #}
- <div data-testid="rfq-summary-stack" style="display:grid;grid-template-columns:repeat(6, minmax(0,1fr));gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin-top:16px">
+ {# they read on the generated quote PDF. Status stays on the right so the  #}
+ {# primary rhythm (dollar math on the left, state on the right) matches    #}
+ {# the PC detail page. `recalc()` populates subt/taxt/tot live.            #}
+ {# Bug 6 (2026-05-02): the Items Priced cell was removed — the same count  #}
+ {# already lives in the line-items section header (canonical, contextual)  #}
+ {# and the margin-summary-bar above; a third surface in the KPI strip was  #}
+ {# screen real-estate burn that Mike flagged as duplicative.               #}
+ <div data-testid="rfq-summary-stack" style="display:grid;grid-template-columns:repeat(5, minmax(0,1fr));gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin-top:16px">
   <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Subtotal</div><div id="subt" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--tx);margin-top:2px">$0.00</div></div>
   <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Tax{% if r.get('tax_rate') %} <span style="color:#8b949e;font-weight:400">({{ '%.3f'|format(r.tax_rate|float) }}%)</span>{% endif %}</div><div id="taxt" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--tx);margin-top:2px">$0.00</div></div>
   <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Total</div><div id="tot" style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--tx);margin-top:2px">$0.00</div></div>
   <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Profit</div><div id="pft" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;margin-top:2px">—</div></div>
-  <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Items Priced</div><div id="rfq-items-priced-kpi" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--tx);margin-top:2px">—</div></div>
   <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Status</div><div id="rfq-status-kpi" style="font-size:14px;font-weight:700;color:#8b949e;margin-top:4px">{{ r.get('status','new')|title }}</div></div>
  </div>
 
@@ -2464,10 +2467,10 @@ function recalc(){
  if(kpiSubEl)kpiSubEl.textContent=`$${tb.toFixed(2)}`;
  if(kpiTaxEl)kpiTaxEl.textContent=`$${kpiTaxAmount.toFixed(2)}`;
  document.getElementById('tot').textContent=`$${kpiTotalWithTax.toFixed(2)}`;
- // Bundle-6 PR-6b follow-up 2026-04-23: the KPI "Items Priced" cell was
- // introduced by PR-6b but the write was only ever hooked up to the
- // margin-summary-bar's #ms-items-priced. Orphan cell stayed at "—" on
- // every RFQ detail page. Write here too so the KPI matches the bar.
+ // Bug 6 (2026-05-02): #rfq-items-priced-kpi was removed from the KPI
+ // strip — the priced count already shows in the line-items section
+ // header and the margin-summary-bar. The null-safe lookup below keeps
+ // backward-compat in case any rendered template still has the cell.
  const kpiItemsEl=document.getElementById('rfq-items-priced-kpi');
  if(kpiItemsEl)kpiItemsEl.textContent=`${itemsPriced}/${itemsTotal}`;
  const pr=tb-tc;
