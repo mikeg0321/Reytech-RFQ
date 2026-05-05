@@ -867,6 +867,87 @@ def get_cs_drafts(limit: int = 50) -> list:
         return []
 
 
+def purge_stale_cs_drafts(max_age_days: int = 30) -> dict:
+    """Boot backfill (Mike P0 cont. 2026-05-05): remove cs_draft outbox
+    rows older than `max_age_days` whose `status` is still `cs_draft`
+    (i.e. never sent / approved / dismissed).
+
+    Background: prod 2026-05-04 surfaced 132 cs_drafts >30d old. Mike's
+    inbox grew with auto-generated update-request replies that he never
+    triaged. None are time-sensitive — the original buyer email is long
+    past, the operator can re-reply if needed. Keeping them in the
+    outbox inflates the digest count (PR #604 disabled the digest, but
+    the count still surfaces in the agent status card and the inbox UI).
+
+    Idempotent: re-runs are safe because the WHERE clause filters by
+    age. Sent/approved/dismissed drafts are preserved (their `status`
+    moved off `cs_draft` when the operator acted on them).
+
+    Returns dict with counts: {"purged", "kept", "errors"}.
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    try:
+        with open(OUTBOX_FILE) as f:
+            outbox = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"purged": 0, "kept": 0, "errors": 0}
+    if not isinstance(outbox, list):
+        return {"purged": 0, "kept": 0, "errors": 0}
+    purged = 0
+    errors = 0
+    new_outbox = []
+    for entry in outbox:
+        if not isinstance(entry, dict):
+            new_outbox.append(entry)
+            continue
+        is_cs_draft = (
+            entry.get("status") == "cs_draft"
+            or entry.get("type") == "cs_response"
+        )
+        if not is_cs_draft:
+            new_outbox.append(entry)
+            continue
+        # Only purge if status is STILL cs_draft (operator hasn't acted)
+        if entry.get("status") != "cs_draft":
+            new_outbox.append(entry)
+            continue
+        ts = entry.get("created_at") or entry.get("timestamp") or ""
+        try:
+            # Handles both ISO with TZ and naive ISO; assume UTC for naive
+            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            errors += 1
+            new_outbox.append(entry)  # keep on parse error — be conservative
+            continue
+        if dt < cutoff:
+            purged += 1
+            log.info(
+                "CS-DRAFT PURGE: id=%s sender=%s age=%dd subject=%r",
+                entry.get("id", "")[:8],
+                entry.get("to", entry.get("recipient", ""))[:60],
+                (datetime.now(timezone.utc) - dt).days,
+                (entry.get("subject", "") or "")[:60],
+            )
+        else:
+            new_outbox.append(entry)
+    if purged:
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(OUTBOX_FILE, "w") as f:
+                json.dump(new_outbox, f, indent=2, default=str)
+            log.info(
+                "CS-DRAFT PURGE: removed %d stale cs_drafts (>%dd old), %d kept",
+                purged, max_age_days, len(new_outbox),
+            )
+        except Exception as e:
+            log.error("CS-DRAFT PURGE: failed to save outbox: %s", e)
+            return {"purged": 0, "kept": len(outbox), "errors": errors + 1}
+    return {"purged": purged, "kept": len(new_outbox), "errors": errors}
+
+
 def get_agent_status() -> dict:
     return {
         "agent": "cs_agent",
