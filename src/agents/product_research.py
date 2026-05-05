@@ -187,16 +187,30 @@ def _grok_search(query: str) -> Optional[dict]:
     if not api_key or not HAS_REQUESTS:
         return None
 
+    # Surface #7 (2026-05-04 Heel Donut $4 vs $7.99 incident): some listings
+    # show a HEADLINE price plus a parenthesized per-unit derivation, e.g.
+    # "$7.99 ($4.00 / count)" or "$12.50 ($0.25 / oz)". The headline is the
+    # price a buyer would pay at checkout; the parenthesized figure is
+    # derived sub-unit math. Without explicit guidance the model picks the
+    # smaller number and we under-quote by 50%+.
     prompt = f"""Find this product on Amazon or any online retailer. Return the current retail price.
 
 Product: {query}
 
 Search for this exact product. I need:
 1. The exact product name/title as listed
-2. The price (USD)
+2. The price (USD) — the HEADLINE listing price, see rule below
 3. The product URL (prefer Amazon.com)
 4. The ASIN if it's on Amazon (10-character code starting with B0)
 5. The supplier/retailer name
+
+PRICE RULE — CRITICAL:
+* Use the HEADLINE retail price displayed on the listing — the primary
+  price shown in the buy-box that a buyer would pay at checkout.
+* NEVER use parenthesized per-unit annotations such as "$4.00 / count",
+  "$0.25 / oz", "$4 / pair", "$X / pack". Those are derived sub-unit
+  math, not the listing price.
+* If the listing shows "$7.99 ($4.00 / count)" the correct price is $7.99.
 
 Respond in this exact JSON format only, no other text:
 {{"product_name": "exact title", "price": 12.99, "url": "https://...", "asin": "B0XXXXXXXX", "supplier": "Amazon", "confidence": 0.85}}

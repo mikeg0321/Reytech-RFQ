@@ -171,17 +171,37 @@ def search_product_price(
     if part_number and description:
         search_query = f"{part_number} {description}"
     
+    # Always include UOM so the LLM can match the listing's units to what
+    # we're buying. Surface #7 (Mike's 2026-05-04 Heel Donut chain): listing
+    # showed "$7.99 ($4.00 / count)" and the scraper grabbed $4. UOM=PR
+    # means we want price-per-pair — the $7.99 headline — not the
+    # parenthesized "/count" sub-unit derivation.
     prompt = f"""Product: {description}
 {f'Part/Item Number: {part_number}' if part_number else ''}
-{f'Quantity needed: {qty} {uom}' if qty > 1 else ''}
+Quantity needed: {qty} {uom}
+We need the price per 1 {uom} (matching the buyer's unit of measure).
 {f'Context: {context}' if context else ''}"""
 
     # Static system prompt — cached across calls (saves ~60% on repeat calls)
+    # Surface #7 PROMPT-LEVEL FIX: explicitly forbid parenthesized per-unit
+    # annotations. See comment above prompt build for the Heel Donut incident.
     _SYS_PROMPT = (
         "Find the current retail/wholesale price for the product the user describes. "
         "Search Google Shopping, Amazon, and medical supply sites.\n\n"
+        "PRICE EXTRACTION — CRITICAL:\n"
+        "* Use the HEADLINE retail price displayed on the listing — the "
+        "primary price the buyer would pay if they clicked 'Buy Now'.\n"
+        "* NEVER use parenthesized per-unit annotations such as "
+        "'$4.00 / count', '$0.25 / oz', '$4 / pair', '$X / pack'. "
+        "Those are derived sub-unit math, NOT the price you can buy at.\n"
+        "* If the listing shows '$7.99 ($4.00 / count)' the price is $7.99.\n"
+        "* Match the listing's pack size to the user's UOM. If the user "
+        "needs PR (pairs) and the listing is 'Pack of 2 pairs' for $14, "
+        "the unit price is $7 per pair (headline / pack count). If the "
+        "listing IS one pair for $7.99, the unit price is $7.99.\n\n"
         "For each product found, return:\n"
-        "1. The unit price\n2. The retailer/supplier name\n3. The product URL\n"
+        "1. The unit price (headline-derived, per the rules above)\n"
+        "2. The retailer/supplier name\n3. The product URL\n"
         "4. The MFG part number, SKU, or item number\n5. Confidence (0-100%)\n\n"
         "If you find multiple sources, list all sorted by price (lowest first).\n\n"
         "Respond in this exact JSON format only, no other text:\n"
