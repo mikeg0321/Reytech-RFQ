@@ -745,8 +745,15 @@ def _run_pipeline(pc_id: str, force: bool):
                                        f"{_fp_calls}/{_LLM_FIRST_LIMIT} validated")
                         time.sleep(0.5)
                         continue
-                    # Apply to item (set cost if not already set or Grok is more confident)
-                    if not _has_cost or _grok_conf > _best_conf:
+                    # Apply to item — but NEVER overwrite operator-typed cost.
+                    # Mike P0 2026-05-06: enrichment that fires 3s after URL
+                    # paste (`_backgroundEnrichItem`) was using "Grok confidence
+                    # > best match confidence" as license to overwrite the
+                    # cost the operator just typed. Operator-typed cost is the
+                    # ground truth; catalog/Grok confidence values describe
+                    # AUTO sources, not operator sources. Only fill when the
+                    # cost slot is empty.
+                    if not _has_cost:
                         p["unit_cost"] = _price
                         it["vendor_cost"] = _price
                     p["price_source"] = "llm_grok"
