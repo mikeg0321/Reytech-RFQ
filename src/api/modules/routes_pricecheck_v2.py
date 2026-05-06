@@ -50,7 +50,16 @@ def pc_generate_v2(pcid):
     Returns JSON so the caller can display the download path and byte count.
     Never overlaps with the legacy generate route — new filename suffix (_v2)
     prevents clobbering the legacy output.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pc_generate_v2_locked(pcid)
+
+
+def _pc_generate_v2_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     # ── Stage 1: Load the PC dict ──
     try:
         from src.api.data_layer import _load_price_checks
