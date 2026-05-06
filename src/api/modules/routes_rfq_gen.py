@@ -302,81 +302,93 @@ def api_rfq_screenshot_confirm(rid):
 @auth_required
 @safe_route
 def api_rfq_autosave(rid):
-    """AJAX auto-save: persist line item edits without page reload."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "not found"}), 404
+    """AJAX auto-save: persist line item edits without page reload.
 
+    Concurrency model (Mike P0 2026-05-06 RFQ a5b09b56 — operator edits
+    overwritten on refresh): the load → mutate → save sequence is wrapped
+    in `_save_rfqs_lock` so two close-together autosaves cannot both load
+    the same stale snapshot, each apply their own edit, and then both
+    serialize their write — clobbering whichever update committed first.
+    The lock is reentrant so the inner `_save_single_rfq` re-acquires
+    cleanly. Reads outside this lock (other route handlers) are not
+    blocked — SQLite WAL gives them a consistent snapshot.
+    """
     data = request.get_json(force=True, silent=True) or {}
     items_data = data.get("items", [])
 
-    from src.core.validation import validate_rfq_item
-    for update in items_data:
-        idx = update.get("idx")
-        if idx is None or idx >= len(r["line_items"]):
-            continue
-        item = r["line_items"][idx]
-        errs = validate_rfq_item(update, item)
-        if errs:
-            log.warning("RFQ autosave %s item[%s]: %s", rid, idx, "; ".join(errs))
-        # Auto-detect supplier from link
-        if "item_link" in update and item.get("item_link"):
-            try:
-                from src.agents.item_link_lookup import detect_supplier
-                item["item_supplier"] = detect_supplier(item["item_link"])
-            except Exception as _e:
-                log.debug('suppressed in api_rfq_autosave: %s', _e)
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": "not found"}), 404
 
-    # Pricing reconciliation — substrate (PR-1, 2026-05-06 audit).
-    # Same math as PC `_do_save_prices`. Without this, an operator typing
-    # a new OUR PRICE here ships stale markup_pct downstream into the
-    # catalog write-back at `routes_rfq.update:3486-3530`, poisoning
-    # future quotes. Single helper, single semantics on both sides.
-    try:
-        from src.core.pricing_math import reconcile_items as _reconcile
-        _reconcile(r.get("line_items", []))
-    except Exception as _e:
-        log.debug("pricing_math reconcile suppressed: %s", _e)
+        from src.core.validation import validate_rfq_item
+        for update in items_data:
+            idx = update.get("idx")
+            if idx is None or idx >= len(r["line_items"]):
+                continue
+            item = r["line_items"][idx]
+            errs = validate_rfq_item(update, item)
+            if errs:
+                log.warning("RFQ autosave %s item[%s]: %s", rid, idx, "; ".join(errs))
+            # Auto-detect supplier from link
+            if "item_link" in update and item.get("item_link"):
+                try:
+                    from src.agents.item_link_lookup import detect_supplier
+                    item["item_supplier"] = detect_supplier(item["item_link"])
+                except Exception as _e:
+                    log.debug('suppressed in api_rfq_autosave: %s', _e)
 
-    # Save package form checklist if provided
-    pkg_forms = data.get("package_forms")
-    if pkg_forms is not None and isinstance(pkg_forms, dict):
-        r["package_forms"] = pkg_forms
-
-    # Save tax rate if provided
-    tax_rate = data.get("tax_rate")
-    if tax_rate is not None:
-        from src.core.validation import validate_header_field
-        v, _ = validate_header_field("tax_rate", tax_rate)
-        r["tax_rate"] = v
-
-    # Save shipping if provided
-    if data.get("shipping_option") is not None:
-        r["shipping_option"] = str(data["shipping_option"])[:20]
-    if data.get("shipping_amount") is not None:
+        # Pricing reconciliation — substrate (PR-1, 2026-05-06 audit).
+        # Same math as PC `_do_save_prices`. Without this, an operator typing
+        # a new OUR PRICE here ships stale markup_pct downstream into the
+        # catalog write-back at `routes_rfq.update:3486-3530`, poisoning
+        # future quotes. Single helper, single semantics on both sides.
         try:
-            r["shipping_amount"] = max(0, min(99999, float(data["shipping_amount"])))
-        except (ValueError, TypeError) as _e:
-            log.debug("suppressed: %s", _e)
+            from src.core.pricing_math import reconcile_items as _reconcile
+            _reconcile(r.get("line_items", []))
+        except Exception as _e:
+            log.debug("pricing_math reconcile suppressed: %s", _e)
 
-    # Save delivery location if provided (belt-and-suspenders with saveField)
-    if data.get("delivery_location"):
-        r["delivery_location"] = str(data["delivery_location"])[:500]
+        # Save package form checklist if provided
+        pkg_forms = data.get("package_forms")
+        if pkg_forms is not None and isinstance(pkg_forms, dict):
+            r["package_forms"] = pkg_forms
 
-    # Save quote notes — ALWAYS preserve, even if not in this request
-    if "quote_notes" in data:
-        from src.core.validation import validate_text
-        _qn_val, _ = validate_text(data["quote_notes"], max_len=2000)
-        r["quote_notes"] = _qn_val
-    # Ensure quote_notes key exists (prevents None on first save)
-    r.setdefault("quote_notes", "")
+        # Save tax rate if provided
+        tax_rate = data.get("tax_rate")
+        if tax_rate is not None:
+            from src.core.validation import validate_header_field
+            v, _ = validate_header_field("tax_rate", tax_rate)
+            r["tax_rate"] = v
 
-    # Save delivery_location — ensure it persists
-    r.setdefault("delivery_location", "")
+        # Save shipping if provided
+        if data.get("shipping_option") is not None:
+            r["shipping_option"] = str(data["shipping_option"])[:20]
+        if data.get("shipping_amount") is not None:
+            try:
+                r["shipping_amount"] = max(0, min(99999, float(data["shipping_amount"])))
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
-    from src.api.dashboard import _save_single_rfq
-    _save_single_rfq(rid, r)
+        # Save delivery location if provided (belt-and-suspenders with saveField)
+        if data.get("delivery_location"):
+            r["delivery_location"] = str(data["delivery_location"])[:500]
+
+        # Save quote notes — ALWAYS preserve, even if not in this request
+        if "quote_notes" in data:
+            from src.core.validation import validate_text
+            _qn_val, _ = validate_text(data["quote_notes"], max_len=2000)
+            r["quote_notes"] = _qn_val
+        # Ensure quote_notes key exists (prevents None on first save)
+        r.setdefault("quote_notes", "")
+
+        # Save delivery_location — ensure it persists
+        r.setdefault("delivery_location", "")
+
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r, raise_on_error=True)
 
     try:
         from src.core.dal import log_lifecycle_event

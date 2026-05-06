@@ -1863,7 +1863,26 @@ def _recompute_unit_price(item: dict) -> None:
 
 
 def _do_save_prices(pcid):
-    """Inner save handler — separated so exceptions always return JSON."""
+    """Inner save handler — separated so exceptions always return JSON.
+
+    Concurrency: delegates to `_do_save_prices_locked` under `_save_pcs_lock`
+    so two close-together autosaves cannot both load a stale snapshot, each
+    apply their own edit, and then both write — clobbering whichever update
+    committed first. Mirrors the RFQ autosave fix shipped same-PR. The lock
+    is reentrant so the inner `_save_single_pc` re-acquires cleanly.
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _do_save_prices_locked(pcid)
+
+
+def _do_save_prices_locked(pcid):
+    """The actual load → mutate → save body. Always called under
+    `_save_pcs_lock` (see wrapper above). Post-save catalog enrichment
+    runs INSIDE the lock too, since serializing PC autosaves end-to-end
+    is what the operator-facing single-tenant deployment needs to make
+    refresh idempotent — this is the substrate fix for the 'edits
+    overwritten on refresh' incident (Mike P0 2026-05-06)."""
     def _safe_float(v, default=0):
         if v is None: return default
         try: return float(v)

@@ -31,8 +31,14 @@ from src.api.config import DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, BASE_DIR
 
 # ── Thread locks (owned by this module, shared with dashboard) ───────────────
 _json_cache_lock = threading.Lock()
-_save_rfqs_lock = threading.Lock()
-_save_pcs_lock = threading.Lock()
+# RLock so a single thread can acquire across nested load+mutate+save calls
+# without deadlocking on _save_single_rfq's internal acquire. The autosave
+# handler wraps load_rfqs → mutate → _save_single_rfq in this lock to close
+# the read-modify-write race that overwrote in-flight operator edits when
+# two close-together autosaves both loaded the same stale snapshot. (Mike P0
+# 2026-05-06 RFQ a5b09b56.)
+_save_rfqs_lock = threading.RLock()
+_save_pcs_lock = threading.RLock()
 
 # ── TTL JSON cache ───────────────────────────────────────────────────────────
 _json_cache: dict = {}
