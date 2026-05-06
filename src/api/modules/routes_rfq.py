@@ -949,6 +949,18 @@ def api_rfq_mark_won(rid):
                         po_number=po_number, agency=r.get("agency", ""), date=now[:10])
     except Exception as _e:
         log.debug('suppressed in api_rfq_mark_won: %s', _e)
+
+    # Ingest won line items into the Won Quotes KB so the inline
+    # buyer-last-won lookup on rfq_detail / pc_detail (PR-3, #775)
+    # actually reflects this win on the next quote. Without this call,
+    # every RFQ we win is invisible to that lookup. PR-4 substrate fix
+    # from the 2026-05-06 audit. Same helper backs PC mark-won.
+    try:
+        from src.knowledge.won_quotes_db import record_quote_won
+        record_quote_won(r, "rfq")
+    except Exception as _wq_e:
+        log.warning("RFQ won_quotes ingest skipped: %s", _wq_e)
+
     # Notify
     try:
         from src.agents.notify_agent import send_alert

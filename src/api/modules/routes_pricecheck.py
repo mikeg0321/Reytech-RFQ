@@ -3759,41 +3759,20 @@ def pricecheck_generate_quote(pcid):
 
 
 def _ingest_pc_to_won_quotes(pc):
-    """Ingest completed Price Check pricing into Won Quotes KB."""
+    """Ingest completed Price Check pricing into Won Quotes KB.
+
+    Thin wrapper around `won_quotes_db.record_quote_won` — the
+    substrate consolidated 2026-05-06 (PR-4 in the audit). Same
+    helper now backs RFQ mark-won (`routes_rfq.api_rfq_mark_won`)
+    so future knowledge-write fixes land in one place.
+    """
     if not PRICING_ORACLE_AVAILABLE:
         return
     try:
-        items = pc.get("items", [])
-        institution = pc.get("institution", "")
-        pc_num = pc.get("pc_number", "")
-        ingested = 0
-        for item in items:
-            if item.get("no_bid"):
-                continue
-            pricing = item.get("pricing", {})
-            # Price fallback: user-entered → oracle recommended → bid price
-            price = (item.get("unit_price") or pricing.get("recommended_price")
-                     or pricing.get("bid_price") or 0)
-            try:
-                price = float(price)
-            except (ValueError, TypeError):
-                price = 0
-            if not price or price <= 0:
-                continue
-            ingest_scprs_result(
-                po_number=f"PC-{pc_num}",
-                item_number=item.get("item_number", ""),
-                description=item.get("description", ""),
-                unit_price=price,
-                supplier="Reytech Inc.",
-                department=institution,
-                award_date=datetime.now().strftime("%Y-%m-%d"),
-                source="price_check",
-            )
-            ingested += 1
-        log.info("Ingested %d/%d items from PC #%s into Won Quotes KB", ingested, len(items), pc_num)
+        from src.knowledge.won_quotes_db import record_quote_won
+        record_quote_won(pc, "pc")
     except Exception as e:
-        log.error(f"KB ingestion error: {e}")
+        log.error("KB ingestion error (PC): %s", e)
 
 
 @bp.route("/pricecheck/<pcid>/convert-to-quote")
