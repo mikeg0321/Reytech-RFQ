@@ -58,18 +58,6 @@ KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     ("routes_rfq.py", "api_lookup_tax_rate"),
     ("routes_rfq.py", "api_rfq_auto_price"),
     ("routes_rfq.py", "api_rfq_confirm_pc_link"),
-    ("routes_rfq_gen.py", "api_rfq_screenshot_confirm"),
-    ("routes_rfq_gen.py", "api_rfq_unlink_pc"),
-    ("routes_rfq_gen.py", "rfq_lookup_single_item"),
-    ("routes_rfq_gen.py", "rfq_upload_supplier_quote"),
-    ("routes_rfq_gen.py", "api_rfq_manual_submit_704b"),
-    ("routes_rfq_gen.py", "api_rfq_manual_submit_clear"),
-    ("routes_rfq_gen.py", "api_rfq_submit_edited_quote"),
-    ("routes_rfq_gen.py", "api_rfq_submit_edited_quote_clear"),
-    ("routes_rfq_gen.py", "api_rfq_contract_upload"),
-    ("routes_rfq_gen.py", "api_rfq_dismiss"),
-    ("routes_rfq_gen.py", "api_rfq_cancel"),
-    ("routes_rfq_gen.py", "api_rfq_reactivate"),
 })
 
 
