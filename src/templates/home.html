@@ -139,25 +139,12 @@ setTimeout(function(){
    showed inaccurate data per Mike. The /api/triage endpoint is
    intentionally left mounted in case other surfaces consume it. #}
 
-<!-- ═══ Action Items Panel ═══ -->
-{% if action_items|default([])|length > 0 %}
-<div style="margin-bottom:14px;padding:14px 18px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-  <div style="font-size:15px;font-weight:700;color:var(--tx)">Action Items <span style="font-size:13px;color:var(--tx2);font-weight:400">({{ action_items|length }})</span></div>
-  <button onclick="this.closest('div[style]').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:16px;padding:2px 6px">×</button>
- </div>
- {% for item in action_items[:8] %}
- <a href="{{ item.url }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;text-decoration:none;color:var(--tx);font-size:14px;border-bottom:1px solid rgba(139,148,158,.08){% if item.type == 'overdue' %};background:rgba(248,81,73,.06){% elif item.type == 'critical' %};background:rgba(210,153,34,.06){% elif item.type == 'circuit' %};background:rgba(248,81,73,.06){% endif %}" onmouseover="this.style.background='rgba(79,140,255,.06)'" onmouseout="this.style.background=''">
-  <span style="font-size:18px;flex-shrink:0">{{ item.icon }}</span>
-  <span style="flex:1">{{ item.text }}</span>
-  <span style="color:var(--tx2);font-size:13px;flex-shrink:0">→</span>
- </a>
- {% endfor %}
- {% if action_items|length > 8 %}
- <div style="text-align:center;padding:6px;font-size:13px;color:var(--tx2)">+{{ action_items|length - 8 }} more</div>
- {% endif %}
-</div>
-{% endif %}
+<!-- Action Items Panel deleted 2026-05-06 (Mike: "ignore all because of stale
+     data; the action_needed is important but I do step A in the app
+     directly"). Top-of-page widget hadn't earned its real estate.
+     If anyone resurrects this, audit the staleness FIRST — what made
+     Mike ignore it. -->
+
 
 <script>
 // Toast notification — replaces alert() for non-blocking feedback
@@ -344,22 +331,17 @@ function _runAwardTracker(btn){
  <div id="scprs-freshness" style="font-size:13px;color:var(--tx2)"></div>
 </div>
 
-<!-- ═══ Action Dashboard — PRD-28 WI-6 ═══ -->
-<div id="action-dash" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
- <!-- Urgent -->
+<!-- ═══ Urgent (Mike P0 2026-05-06: Home = Urgent ONLY) ═══
+     Killed Action Needed + Progress cards: Mike "ignored all because of
+     stale data; Action Needed is important but I do step A in the app
+     directly". Until quoting flow is reliable, growth/progress widgets
+     compete for attention without driving operator action.
+     Urgent must stay accurate — see routes_prd28.api_dashboard_actions
+     for the cross-table staleness fix that landed in this PR. -->
+<div id="action-dash" style="margin-bottom:14px">
  <div id="ad-urgent" style="background:var(--crd);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:14px;min-height:80px">
   <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:8px">🔴 Urgent</div>
   <div id="ad-urgent-items" style="font-size:14px;color:var(--tx2)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
- </div>
- <!-- Action Needed -->
- <div id="ad-action" style="background:var(--crd);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:14px;min-height:80px">
-  <div style="font-size:13px;font-weight:600;color:#fbbf24;margin-bottom:8px">🟡 Action Needed</div>
-  <div id="ad-action-items" style="font-size:14px;color:var(--tx2)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
- </div>
- <!-- Progress -->
- <div id="ad-progress" style="background:var(--crd);border:1px solid rgba(46,204,113,.3);border-radius:10px;padding:14px;min-height:80px">
-  <div style="font-size:13px;font-weight:600;color:#2ecc71;margin-bottom:8px">🟢 Progress</div>
-  <div id="ad-progress-items" style="font-size:14px;color:var(--tx2)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 </div>
 <script>
@@ -379,8 +361,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
       ).join('');
     }
     renderItems(d.actions.urgent, document.getElementById('ad-urgent-items'));
-    renderItems(d.actions.action_needed, document.getElementById('ad-action-items'));
-    renderItems(d.actions.progress, document.getElementById('ad-progress-items'));
+    // ad-action-items / ad-progress-items deleted from DOM 2026-05-06 (Home = Urgent only)
   }
   // ── Funnel ──
   if(d.funnel && d.funnel.ok) _renderFunnel(d.funnel);
