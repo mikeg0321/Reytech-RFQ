@@ -2464,10 +2464,10 @@ def _api_rfq_clean_slate_locked(rid):
         except Exception as _e:
             log.debug('suppressed in api_rfq_clean_slate: %s', _e)
 
-    # Rebuild RFQ with clean state
+    # Rebuild RFQ with clean state (sync all aliases — alias-drift substrate)
     r.clear()
     r.update(identity)
-    r["line_items"] = preserved_items
+    _sync_rfq_items(r, preserved_items)
     r["templates"] = {}
     r["output_files"] = []
     r["status"] = "ready"
@@ -2941,7 +2941,7 @@ def _rfq_clean_items_locked(rid):
     from src.forms.price_check import _filter_junk_items
     cleaned = _filter_junk_items(items)
 
-    rfq["line_items"] = cleaned
+    _sync_rfq_items(rfq, cleaned)
     if "parsed" in rfq:
         rfq["parsed"]["line_items"] = cleaned
 
@@ -3175,8 +3175,7 @@ def _api_rfq_refill_form_locked(rid, form_id):
                 if form_id == "704b" and k in ("description", "qty", "uom", "department"):
                     continue
                 items[idx][k] = v
-    r["line_items"] = items
-    r["items"] = items
+    _sync_rfq_items(r, items)
 
     # Top-level overrides (solicitation_number, custom_notes, etc.)
     for k, v in overrides.items():

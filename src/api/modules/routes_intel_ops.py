@@ -404,8 +404,8 @@ def api_identify_pc(pcid):
         return jsonify({"ok": False, "error": "No items in PC"})
 
     identified = identify_pc_items(items)
-    # Save back
-    pc["items"] = identified
+    # Save back (sync all aliases — alias-drift substrate)
+    _sync_pc_items(pc, identified)
     _save_price_checks(pcs)
 
     return jsonify({

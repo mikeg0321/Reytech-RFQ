@@ -26,7 +26,8 @@ def api_v1_get_rfq(rfq_id):
         rfq = get_rfq(rfq_id)
         if not rfq:
             return api_response(error="RFQ not found", status=404)
-        rfq["line_items"] = get_line_items(rfq_id, "rfq")
+        # Sync both aliases on response payload (alias-drift substrate)
+        _sync_rfq_items(rfq, get_line_items(rfq_id, "rfq"))
         return api_response(rfq)
     except Exception as e:
         log.error("v1/rfq/%s error: %s", rfq_id, e, exc_info=True)
@@ -166,7 +167,8 @@ def api_v1_create_rfq():
             "items": items,
         }
 
-        rfq["line_items"] = items  # alias — generate endpoint reads line_items
+        # Sync both aliases atomically (alias-drift substrate)
+        _sync_rfq_items(rfq, items)
         rfq["_original_items"] = [dict(i) for i in items]  # snapshot for validation
 
         # Canonical writer — _save_single_rfq writes the full 22-column shape
