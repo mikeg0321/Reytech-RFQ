@@ -114,7 +114,18 @@ def api_pc_revisions(pcid):
 @auth_required
 @safe_route
 def api_pc_revert(pcid):
-    """Revert a price check to a previous revision."""
+    """Revert a price check to a previous revision.
+
+    Race-safe wrapper (PR #778 pattern) — load → mutate → save under
+    `_save_pcs_lock` so a parallel autosave can't lose the revert.
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_revert_locked(pcid)
+
+
+def _api_pc_revert_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     try:
         data = request.get_json(force=True, silent=True) or {}
         rev_num = int(data.get("revision", 0))
@@ -154,7 +165,17 @@ def api_pc_revert(pcid):
 @safe_route
 def pricecheck_trim_items(pcid):
     """Trim items list to keep only the first N items. Used when a multi-page
-    source PDF was parsed into too many items for this PC."""
+    source PDF was parsed into too many items for this PC.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_trim_items_locked(pcid)
+
+
+def _pricecheck_trim_items_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -269,7 +290,17 @@ def pricecheck_split(pcid):
 @safe_route
 def api_pc_merge_items(pcid):
     """Merge an item into the one above it (for false multi-line splits).
-    POST {index: 2} merges item[2] into item[1]."""
+    POST {index: 2} merges item[2] into item[1].
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_merge_items_locked(pcid)
+
+
+def _api_pc_merge_items_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     try:
         data = request.get_json(force=True, silent=True) or {}
         idx = int(data.get("index", -1))
@@ -316,7 +347,17 @@ def api_pc_merge_items(pcid):
 def api_pc_change_status(pcid):
     """Change PC status with history tracking.
     POST {status: "sent"} or {status: "draft"}
-    Valid: new, draft, sent, pending_award, won, lost, no_response, archived"""
+    Valid: new, draft, sent, pending_award, won, lost, no_response, archived
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_change_status_locked(pcid)
+
+
+def _api_pc_change_status_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     try:
         data = request.get_json(force=True, silent=True) or {}
         new_status = (data.get("status") or "").strip().lower()
@@ -1526,7 +1567,19 @@ def _pricecheck_lookup_locked(pcid):
 @auth_required
 @safe_page
 def pricecheck_scprs_lookup(pcid):
-    """Run SCPRS Won Quotes lookup for all items."""
+    """Run SCPRS Won Quotes lookup for all items.
+
+    Race-safe wrapper (PR #778 pattern) — load → mutate → save under
+    `_save_pcs_lock` so a parallel autosave can't lose SCPRS-derived
+    pricing/MFG enrichment.
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_scprs_lookup_locked(pcid)
+
+
+def _pricecheck_scprs_lookup_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -2811,7 +2864,17 @@ def _pricecheck_reparse_locked(pcid):
 @auth_required
 @safe_route
 def api_pc_lookup_tax_rate(pcid):
-    """Look up CA sales tax rate from ship-to address for a PC."""
+    """Look up CA sales tax rate from ship-to address for a PC.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_lookup_tax_rate_locked(pcid)
+
+
+def _api_pc_lookup_tax_rate_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -3014,7 +3077,19 @@ def api_pc_lookup_costs_status(pcid):
 @safe_page
 @rate_limit("heavy")
 def pricecheck_upload_pdf(pcid):
-    """Upload a PDF to a PC and parse it. Use when source PDF is lost after deploy."""
+    """Upload a PDF to a PC and parse it. Use when source PDF is lost after deploy.
+
+    Race-safe wrapper (PR #778 pattern) — load → reparse → save under
+    `_save_pcs_lock` so a parallel autosave can't clobber the freshly
+    parsed items.
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_upload_pdf_locked(pcid)
+
+
+def _pricecheck_upload_pdf_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -3538,16 +3613,22 @@ def pricecheck_source_pdf(pcid):
 @auth_required
 @safe_page
 def pricecheck_generate_original(pcid):
-    """Generate 'Original 704' — company info + pricing only, buyer fields untouched (POST only — writes data)."""
+    """Generate 'Original 704' — company info + pricing only, buyer fields untouched (POST only — writes data).
+
+    Race-safe wrapper (PR #778 pattern) — load → mutate → save under
+    `_save_pcs_lock` so concurrent autosave / generate clicks can't race.
+    """
+    from src.api.data_layer import _save_pcs_lock
     try:
-        return _do_generate_original(pcid)
+        with _save_pcs_lock:
+            return _do_generate_original_locked(pcid)
     except Exception as e:
         log.error("GENERATE-ORIGINAL %s CRASHED: %s", pcid, e)
         import traceback; traceback.print_exc()
         return jsonify({"ok": False, "error": f"Server error: {e}"})
 
 
-def _do_generate_original(pcid):
+def _do_generate_original_locked(pcid):
     if not PRICE_CHECK_AVAILABLE:
         return jsonify({"ok": False, "error": "price_check.py not available"})
     pcs = _load_price_checks()
@@ -3723,10 +3804,23 @@ def _do_generate_original(pcid):
 @auth_required
 @safe_page
 def pricecheck_generate_quote(pcid):
-    """Generate a standalone Reytech-branded quote PDF from a Price Check (POST only — writes data)."""
+    """Generate a standalone Reytech-branded quote PDF from a Price Check (POST only — writes data).
+
+    Race-safe wrapper (PR #778 pattern) — quote-number allocation +
+    PDF-path/quote-number stamping run under `_save_pcs_lock` so a
+    parallel autosave can't blank the freshly stamped fields (the same
+    failure shape that PR #778 closed for autosave-vs-mark-won).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_generate_quote_locked(pcid)
+
+
+def _pricecheck_generate_quote_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     from src.api.trace import Trace
     t = Trace("quote_generation", pc_id=pcid)
-    
+
     if not QUOTE_GEN_AVAILABLE:
         t.fail("quote_generator.py not available")
         return jsonify({"ok": False, "error": "quote_generator.py not available"})
@@ -3839,7 +3933,20 @@ def _ingest_pc_to_won_quotes(pc):
 @auth_required
 @safe_page
 def pricecheck_convert_to_quote(pcid):
-    """Convert a Price Check into a full RFQ with 704A/B and Bid Package."""
+    """Convert a Price Check into a full RFQ with 704A/B and Bid Package.
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH `_save_pcs_lock`
+    and `_save_rfqs_lock` since this handler creates a new RFQ row and
+    flips the PC to `converted` in the same transaction. Either save
+    racing with a parallel autosave would lose data.
+    """
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        return _pricecheck_convert_to_quote_locked(pcid)
+
+
+def _pricecheck_convert_to_quote_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock` + `_save_rfqs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
