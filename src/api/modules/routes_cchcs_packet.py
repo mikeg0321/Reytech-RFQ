@@ -42,7 +42,16 @@ def api_cchcs_packet_generate(pcid):
         dry_run=1 — parse + match but don't write the filled PDF
                     (useful for seeing what the matcher found before
                     committing to a fill)
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_cchcs_packet_generate_locked(pcid)
+
+
+def _api_cchcs_packet_generate_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     try:
         from src.api.dashboard import _load_price_checks
         from src.forms.cchcs_packet_parser import (
@@ -265,7 +274,16 @@ def api_cchcs_packets_backfill():
 
     This is a one-shot admin operation for after initial deployment of
     the CCHCS packet automation. Running it multiple times is safe.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_cchcs_packets_backfill_locked()
+
+
+def _api_cchcs_packets_backfill_locked():
+    """Inner body — always runs under `_save_pcs_lock`."""
     try:
         from src.api.dashboard import _load_price_checks, _save_single_pc
         from src.agents.cchcs_packet_detector import backfill_existing_pcs
