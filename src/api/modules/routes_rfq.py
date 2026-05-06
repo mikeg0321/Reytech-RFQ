@@ -3458,6 +3458,17 @@ def update(rid):
     quote_notes_val, _ = validate_text(request.form.get("quote_notes", ""), max_len=2000)
     r["quote_notes"] = quote_notes_val
 
+    # Pricing reconciliation — substrate (PR-1, 2026-05-06 audit).
+    # Mirror of PC `_do_save_prices` rule: cost+price → derive markup;
+    # cost+markup → derive price. Without this, the catalog write-back
+    # block below (lines 3486+) ingests stale markup_pct from operator
+    # input that didn't trip the client-side reverseMarkup() handler.
+    try:
+        from src.core.pricing_math import reconcile_items as _reconcile
+        _reconcile(r.get("line_items", []))
+    except Exception as _e:
+        log.debug("pricing_math reconcile suppressed: %s", _e)
+
     _transition_status(r, "ready", actor="user", notes="Pricing updated")
     # raise_on_error=True: user-facing pricing save. Silent persistence failure
     # on this path was the 2026-04-16 PC incident; keep RFQ symmetric.
