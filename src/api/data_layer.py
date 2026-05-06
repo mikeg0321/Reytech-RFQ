@@ -265,6 +265,18 @@ def _save_single_rfq(rfq_id, r, raise_on_error=False):
     except Exception as _e:
         log.debug("suppressed: %s", _e)
 
+    # Sync alias keys to the canonical `line_items` BEFORE serialization —
+    # symmetric to the PC-side fix (2026-05-05 pc_177b18e6 incident). The
+    # SQL `items` column and the embedded blob's `line_items`/`items` keys
+    # must agree; otherwise downstream readers (quote_adapter, list views,
+    # exports) silently see different line-item sets. RFQ-side fix landed
+    # 2026-05-06 as part of the alias-drift substrate session.
+    if isinstance(r, dict):
+        if "line_items" in r:
+            r["items"] = list(r["line_items"])
+        elif "items" in r:
+            r["line_items"] = list(r["items"])
+
     with _save_rfqs_lock:
         p = rfq_db_path()
         _invalidate_cache(p)

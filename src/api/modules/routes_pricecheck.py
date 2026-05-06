@@ -30,14 +30,44 @@ def _safe_do_poll_check():
 
 
 def _sync_pc_items(pc, items):
-    """Safely sync items list to both pc['items'] and pc['parsed']['line_items'].
-    Creates pc['parsed'] if it doesn't exist (e.g. after SQLite restore).
-    Uses list() to prevent aliasing — items and line_items must be separate objects."""
+    """Canonical PC items writer — sync items list to ALL THREE aliases:
+
+      - `pc["items"]`              — canonical column on the price_checks table
+      - `pc["line_items"]`         — top-level alias read by quote_adapter
+      - `pc["parsed"]["line_items"]` — embedded blob alias read by render paths
+
+    Uses `list()` for the alias copies so a later in-place mutation of one
+    list (e.g. `items.append(...)`) doesn't silently re-link them — they must
+    be separate Python objects.
+
+    The 2026-05-05 incident (pc_177b18e6) was exactly this class of bug:
+    a save updated `items` (2 entries) but `line_items` stayed stale (1
+    entry), and `quote_model_v2_enabled` adapter read the stale alias →
+    UI row blanked. Mike had to flip the flag off prod 23:13Z. This helper
+    is the substrate fix; route every PC items write through it.
+    """
     pc["items"] = items
+    pc["line_items"] = list(items)
     if "parsed" not in pc:
         pc["parsed"] = {"header": {}, "line_items": list(items)}
     else:
         pc["parsed"]["line_items"] = list(items)
+
+
+def _sync_rfq_items(r, items):
+    """Canonical RFQ items writer — sync items list to BOTH RFQ aliases:
+
+      - `r["line_items"]` — canonical (matches the json column persisted by
+        `_save_single_rfq`)
+      - `r["items"]`      — top-level alias read by some legacy paths +
+        `_normalize_rfq_fields` at load time
+
+    Same shape as `_sync_pc_items`, same incident class. Direct writes to
+    one alias and not the other have the same divergence risk; route every
+    RFQ items mutation through this helper.
+    """
+    r["line_items"] = items
+    r["items"] = list(items)
 
 
 # Price Check Pages (v6.2)
@@ -149,8 +179,8 @@ def _api_pc_revert_locked(pcid):
         # Save current state as a revision before reverting
         _save_pc_revision(pcid, pc, reason=f"before revert to rev#{rev_num}")
 
-        # Apply the revision
-        pc["items"] = target["items"]
+        # Apply the revision (sync all items aliases — alias-drift substrate)
+        _sync_pc_items(pc, target["items"])
         _save_single_pc(pcid, pc)
 
         return jsonify({"ok": True, "reverted_to": rev_num,
@@ -197,11 +227,8 @@ def _pricecheck_trim_items_locked(pcid):
         log.debug("Suppressed: %s", _e)
 
     removed = len(items) - keep
-    pc["items"] = items[:keep]
-
-    # Sync parsed.line_items
-    if "parsed" in pc:
-        pc["parsed"]["line_items"] = pc["items"]
+    # All three aliases (items, line_items, parsed.line_items) sync atomically
+    _sync_pc_items(pc, items[:keep])
 
     # Reset generate count so next generate starts fresh
     pc["_generate_count"] = 0
@@ -241,10 +268,8 @@ def pricecheck_split(pcid):
     new_id = f"pc_{str(_uuid.uuid4())[:8]}"
 
     new_items = items[split_at:]
-    pc["items"] = items[:split_at]
-
-    if "parsed" in pc:
-        pc["parsed"]["line_items"] = list(pc["items"])
+    # Sync all three aliases atomically (alias-drift substrate)
+    _sync_pc_items(pc, items[:split_at])
     pc["_generate_count"] = 0
     if "_split_hint" in pc:
         del pc["_split_hint"]
@@ -325,13 +350,9 @@ def _api_pc_merge_items_locked(pcid):
         if target.get("mfg_number") and not prev.get("mfg_number"):
             prev["mfg_number"] = target["mfg_number"]
 
-        # Remove the merged item
+        # Remove the merged item; sync all aliases atomically
         items.pop(idx)
-        pc["items"] = items
-
-        # Sync parsed
-        if "parsed" in pc:
-            pc["parsed"]["line_items"] = items
+        _sync_pc_items(pc, items)
 
         _save_single_pc(pcid, pc)
         return jsonify({"ok": True, "merged_into": idx - 1, "remaining_items": len(items),
@@ -1515,9 +1536,9 @@ def _pricecheck_lookup_locked(pcid):
                     for k in ("mfg_number", "description_raw"):
                         if fresh.get(k) and not existing_items[i].get(k):
                             existing_items[i][k] = fresh[k]
-                pc["items"] = existing_items
+                _sync_pc_items(pc, existing_items)
             else:
-                pc["items"] = fresh_items
+                _sync_pc_items(pc, fresh_items)
             found = sum(1 for i in pc["items"] if i.get("pricing", {}).get("amazon_price"))
             source = "serpapi"
         except Exception as e:
@@ -2304,11 +2325,12 @@ def _do_save_prices_locked(pcid):
         _summary["discount_profit_note"] = "if discount holds for profit calculation"
     pc["profit_summary"] = _summary
 
-    # Keep parsed.line_items in sync with items (source of truth)
-    if "parsed" not in pc:
-        pc["parsed"] = {"header": {}, "line_items": items}
-    else:
-        pc["parsed"]["line_items"] = items
+    # Sync all aliases atomically. This is the exact path the 2026-05-05
+    # pc_177b18e6 incident took: items mutated, parsed.line_items synced,
+    # but `pc["line_items"]` left stale → quote_adapter read stale alias →
+    # UI row blanked. Routing through `_sync_pc_items` makes that
+    # divergence structurally impossible.
+    _sync_pc_items(pc, items)
 
     # Save ONLY this PC — prevents background agents from overwriting user edits on other PCs.
     # raise_on_error=True is critical here: this is the user-facing autosave path. If the DB
@@ -2556,10 +2578,8 @@ def _sanitize_pc_items(pc):
             elif p_mfg.isdigit() and 0 < int(p_mfg) <= 50:
                 pricing["mfg_number"] = ""
     
-    # Keep parsed.line_items in sync
-    pc["items"] = items
-    if "parsed" in pc:
-        pc["parsed"]["line_items"] = items
+    # Sync all aliases atomically (alias-drift substrate)
+    _sync_pc_items(pc, items)
 
 
 def _enrich_catalog_from_pc(pc):
@@ -3178,7 +3198,6 @@ def _pricecheck_upload_pdf_locked(pcid):
     header = result.get("header", {})
 
     if items:
-        pc["items"] = items
         pc["parsed"] = result
         pc["parse_quality"] = result.get("parse_quality", {})
         # Overwrite ALL header fields from the uploaded doc — user is explicitly
@@ -3303,12 +3322,11 @@ def _generate_pc_pdf(pcid):
         log.warning("GENERATE %s blocked: %s", pcid, msg)
         return {"ok": False, "error": msg, "missing_markup_rows": _missing_markup}
 
-    # ALWAYS sync parsed.line_items from pc.items (the source of truth)
-    if "parsed" not in pc:
-        pc["parsed"] = {"header": {}, "line_items": []}
-    pc["parsed"]["line_items"] = pc.get("items", [])
+    # ALWAYS sync all aliases from pc.items (the source of truth) —
+    # alias-drift substrate
+    _sync_pc_items(pc, pc.get("items", []))
 
-    log.info("GENERATE %s: synced %d items from pc['items'] to parsed['line_items']",
+    log.info("GENERATE %s: synced %d items across all PC aliases",
              pcid, len(pc.get("items", [])))
 
     # Auto-compute missing prices before PDF generation.
@@ -3640,9 +3658,8 @@ def _do_generate_original_locked(pcid):
 
     _sanitize_pc_items(pc)
 
-    if "parsed" not in pc:
-        pc["parsed"] = {"header": {}, "line_items": []}
-    pc["parsed"]["line_items"] = pc.get("items", [])
+    # Sync all aliases atomically (alias-drift substrate)
+    _sync_pc_items(pc, pc.get("items", []))
 
     _auto_priced = 0
     for it in pc.get("items", []):
