@@ -261,10 +261,13 @@ function _applyLinkData(idx, d, mode) {
   var descEl = document.querySelector('[name="desc_' + idx + '"]');
   if (descEl && d.description) {
     var cur = (descEl.value || '').trim();
-    // PC: only fill if substitute mode OR field is truly empty (buyer's 704 is sacred)
-    // RFQ: always overwrite when lookup returns longer/better description
+    // PC: ONLY fill if substitute mode. Buyer's 704 description is sacred —
+    // even on empty fields, URL-derived descriptions can stamp wrong-product
+    // text that then leaks into the catalog write-back. Operators must type
+    // their own description on manual-add rows. (Mike P0 2026-05-06.)
+    // RFQ: always overwrite when lookup returns longer/better description.
     var shouldUpdateDesc = isPC
-      ? (isSubstitute || !cur || cur.length < 3)
+      ? isSubstitute
       : (!cur || cur.length < 5 || d.description.length > cur.length || isAmazon);
     if (shouldUpdateDesc) {
       var descWasReadOnly = descEl.readOnly;
@@ -319,7 +322,16 @@ function _applyLinkData(idx, d, mode) {
     // the product details are hallucinated. Description-vs-title token
     // overlap is the last-line safety net (Mike P0 2026-05-05: "another
     // URL is still bringing over the anker product").
-    if (_matchScore < 30) {
+    // PC mode: when buyer description is missing/short, we can't compute a
+    // token-overlap match score — the default _matchScore=100 would let any
+    // URL fill cost. Require server-side AI verification (Claude semantic
+    // match >= 0.70) before filling cost. Otherwise the wrong product's
+    // cost gets stamped on a buyer line and rides into catalog write-back.
+    // (Mike P0 2026-05-06: "URL paste — don't write wrong-product to catalog".)
+    var _pcDescMissing = isPC && (!_pcDescV || _pcDescV.length < 3);
+    if (_pcDescMissing && !_aiVerified) {
+      filled.push('cost BLOCKED — type description first to verify URL match');
+    } else if (_matchScore < 30) {
       filled.push('cost BLOCKED — match only ' + _matchScore + '% (URL likely returned wrong product)');
     } else if (_matchScore < 40 && !_aiVerified) {
       filled.push('cost BLOCKED — low match ' + _matchScore + '%, verify product');

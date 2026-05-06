@@ -70,6 +70,50 @@ def test_cost_input_onchange_calls_handle_manual_cost_change():
     assert 'name="cost_{idx}"' in source
 
 
+def test_pc_description_only_fills_in_substitute_mode():
+    """PC mode: URL paste must NEVER fill description unless substitute mode.
+    Buyer's 704 description is sacred — even on empty fields, URL-derived
+    text can stamp wrong-product description that leaks into the catalog
+    write-back. Operators must type their own description on manual rows.
+    (Mike P0 2026-05-06.)
+    """
+    import os
+    full = os.path.join(os.path.dirname(__file__), "..", "src/static/shared_item_utils.js")
+    with open(full, encoding="utf-8") as f:
+        source = f.read()
+    # The PC branch of shouldUpdateDesc must be substitute-only.
+    # The OLD form was: isPC ? (isSubstitute || !cur || cur.length < 3) : ...
+    # The NEW form is:  isPC ? isSubstitute : ...
+    assert "isPC\n      ? isSubstitute\n      :" in source, (
+        "PC description fill must only fire in substitute mode — the "
+        "empty-field fallback was leaking wrong-product descriptions into "
+        "buyer lines."
+    )
+    # Make sure the old loophole is gone.
+    assert "isSubstitute || !cur || cur.length < 3" not in source
+
+
+def test_pc_cost_blocked_when_description_missing():
+    """PC mode: when buyer description is empty/<3 chars, we cannot compute
+    token-overlap match score (default _matchScore=100 would let any URL
+    fill cost). Cost-fill must be blocked unless server-side AI verified
+    the match (Claude semantic match >= 0.70).
+
+    Without this gate, a URL paste on a fresh manual row stamps the wrong
+    product's cost on a buyer line and rides into catalog write-back.
+    (Mike P0 2026-05-06.)
+    """
+    import os
+    full = os.path.join(os.path.dirname(__file__), "..", "src/static/shared_item_utils.js")
+    with open(full, encoding="utf-8") as f:
+        source = f.read()
+    # New gate must check both PC-mode and missing description.
+    assert "_pcDescMissing = isPC && (!_pcDescV || _pcDescV.length < 3)" in source
+    # Block path must require AI verification to bypass.
+    assert "_pcDescMissing && !_aiVerified" in source
+    assert "type description first to verify URL match" in source
+
+
 def test_apply_tier_uses_data_base_cost_consistently():
     """applyTier must use data-base-cost when present, fall back to the
     displayed value when not, and PERSIST the base on tier > 0 / clear
