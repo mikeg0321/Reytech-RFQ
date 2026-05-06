@@ -3116,10 +3116,19 @@ def api_rfq_toggle_required_form(rid):
     Stores a per-RFQ `dismissed_required_forms` list. Re-dismiss on
     an already-dismissed form is a no-op. Restore removes the slug
     from the list. Never touches agency config.
+
+    Race-safe: load → mutate → save under `_save_rfqs_lock` (PR #778).
     """
     _bad = _validate_rid(rid)
     if _bad:
         return _bad
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_toggle_required_form_locked(rid)
+
+
+def _api_rfq_toggle_required_form_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3404,16 +3413,26 @@ def api_search_packages():
 @auth_required
 @safe_route
 def rfq_save_restore(rid):
-    """Save template/file restorations. Called via POST from rfq_detail.html, not GET."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False})
-    if r.pop("_needs_save", False):
-        from src.api.dashboard import _save_single_rfq
-        _save_single_rfq(rid, r)
-        return jsonify({"ok": True, "saved": True})
-    return jsonify({"ok": True, "saved": False})
+    """Save template/file restorations. Called via POST from rfq_detail.html, not GET.
+
+    Race-safe: fires on EVERY RFQ detail page load (right after the GET
+    handler set `_needs_save=True` for template restoration). Operator's
+    autosave can be in flight at the same time. Without the lock, a
+    save-restore that loads a stale snapshot (pre-autosave) and writes
+    back would clobber the autosave's edit. (Mike P0 RFQ a5b09b56 was a
+    sibling of this race — see PR #778.)
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False})
+        if r.pop("_needs_save", False):
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
+            return jsonify({"ok": True, "saved": True})
+        return jsonify({"ok": True, "saved": False})
 
 
 @bp.route("/rfq/<rid>/update", methods=["GET"])
@@ -3593,7 +3612,18 @@ def update(rid):
 @auth_required
 @safe_route
 def rfq_update_field(rid):
-    """Update individual header fields (solicitation, requestor, due date, etc.)."""
+    """Update individual header fields (solicitation, requestor, due date, etc.).
+
+    Race-safe wrapper — operator can edit header fields while autosave
+    is mid-flight. See PR #778 for the load-mutate-save race shape.
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _rfq_update_field_locked(rid)
+
+
+def _rfq_update_field_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
