@@ -996,7 +996,18 @@ def quick_price_data(entity_type, eid):
 @auth_required
 @safe_route
 def quick_price_save(entity_type, eid):
-    """Save prices from the quick-price panel without navigating to detail."""
+    """Save prices from the quick-price panel without navigating to detail.
+
+    Race-safe wrapper (PR #778 pattern). Both locks held since this
+    handler dispatches on entity_type.
+    """
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        return _quick_price_save_locked(entity_type, eid)
+
+
+def _quick_price_save_locked(entity_type, eid):
+    """Inner body — always runs under both save locks."""
     data = request.get_json(silent=True) or {}
     prices = data.get("prices", {})  # {idx: price}
 

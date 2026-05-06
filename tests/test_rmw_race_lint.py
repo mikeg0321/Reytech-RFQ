@@ -52,7 +52,6 @@ KNOWN_EXEMPTIONS: set[str] = {
 KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     ("routes_analytics.py", "rfq_auto_lookup"),
     ("routes_analytics.py", "apply_recommendations"),
-    ("routes_analytics.py", "quick_price_save"),
     ("routes_analytics.py", "send_follow_up"),
     ("routes_analytics.py", "link_pc_to_rfq"),
     ("routes_analytics.py", "reclassify_pc_as_rfq"),
@@ -67,11 +66,9 @@ KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     ("routes_pricecheck.py", "pricecheck_trim_items"),
     ("routes_pricecheck.py", "api_pc_merge_items"),
     ("routes_pricecheck.py", "api_pc_change_status"),
-    ("routes_pricecheck.py", "pricecheck_lookup"),
     ("routes_pricecheck.py", "pricecheck_scprs_lookup"),
-    ("routes_pricecheck.py", "pricecheck_rescan_mfg"),
-    ("routes_pricecheck.py", "pricecheck_rename"),
-    ("routes_pricecheck.py", "pricecheck_reparse"),
+    ("routes_pricecheck.py", "api_pc_lookup_tax_rate"),
+    ("routes_pricecheck.py", "pricecheck_upload_pdf"),
     ("routes_pricecheck.py", "api_pc_lookup_tax_rate"),
     ("routes_pricecheck.py", "pricecheck_upload_pdf"),
     ("routes_pricecheck.py", "_do_generate_original"),
@@ -103,8 +100,6 @@ KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     ("routes_rfq.py", "api_discard_draft"),
     ("routes_rfq.py", "api_lookup_tax_rate"),
     ("routes_rfq.py", "api_rfq_auto_price"),
-    ("routes_rfq.py", "api_rfq_bulk_scrape_urls"),
-    ("routes_rfq.py", "api_rfq_bulk_paste_data"),
     ("routes_rfq.py", "api_rfq_confirm_pc_link"),
     ("routes_rfq_admin.py", "api_rfq_update_status_json"),
     ("routes_rfq_admin.py", "api_rfq_mark_sent_manually"),
@@ -150,7 +145,19 @@ def _split_into_functions(src: str) -> list[tuple[str, str]]:
 
 
 def _is_route_handler(body: str) -> bool:
+    """Detect a top-level Flask route handler.
+
+    Excludes:
+      - `_locked` private helpers from the wrapper-rename pattern
+        (PR #778). The outer wrapper holds the lock; the inner body
+        runs under it. Linting the inner body for "lock not present"
+        would be a false positive — the lock is in the wrapper.
+    """
     first_line = body.splitlines()[0] if body else ""
+    # Wrapper-rename pattern: `def _<name>_locked(...)` is the inner
+    # body of a wrapped handler, not a standalone route.
+    if first_line.startswith("def _") and "_locked(" in first_line:
+        return False
     return (
         ("pcid" in first_line or "rid" in first_line or "(self" not in first_line)
         and ("return jsonify" in body or "request.get_json" in body)

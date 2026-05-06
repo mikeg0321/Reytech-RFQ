@@ -1434,7 +1434,18 @@ def _pricecheck_detail_inner(pcid):
 @auth_required
 @safe_page
 def pricecheck_lookup(pcid):
-    """Run product price lookup — SerpApi first, Claude web search fallback."""
+    """Run product price lookup — SerpApi first, Claude web search fallback.
+
+    Race-safe wrapper (PR #778 pattern) — load → mutate → save under
+    `_save_pcs_lock` so a parallel autosave can't lose operator edits.
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_lookup_locked(pcid)
+
+
+def _pricecheck_lookup_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -1588,7 +1599,17 @@ def pricecheck_scprs_lookup(pcid):
 @auth_required
 @safe_page
 def pricecheck_rescan_mfg(pcid):
-    """Re-scan this PC's source PDF and items to extract MFG/part/reference numbers."""
+    """Re-scan this PC's source PDF and items to extract MFG/part/reference numbers.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_rescan_mfg_locked(pcid)
+
+
+def _pricecheck_rescan_mfg_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -1656,7 +1677,17 @@ def pricecheck_client_error(pcid):
 @auth_required
 @safe_page
 def pricecheck_rename(pcid):
-    """Rename a price check's display number."""
+    """Rename a price check's display number.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_rename_locked(pcid)
+
+
+def _pricecheck_rename_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     if pcid not in pcs:
         return jsonify({"ok": False, "error": "PC not found"})
@@ -2596,7 +2627,17 @@ def _enrich_catalog_from_pc(pc):
 @auth_required
 @safe_page
 def pricecheck_reparse(pcid):
-    """Re-parse a price check from its source PDF, preserving user-edited pricing."""
+    """Re-parse a price check from its source PDF, preserving user-edited pricing.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_reparse_locked(pcid)
+
+
+def _pricecheck_reparse_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     # Telemetry: reparse is one of the most-used debug actions
     try:
         from src.core.utilization import record_feature_use

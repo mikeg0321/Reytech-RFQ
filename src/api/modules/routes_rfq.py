@@ -3933,7 +3933,17 @@ def api_rfq_auto_price(rid):
 @auth_required
 @safe_route
 def api_rfq_bulk_scrape_urls(rid):
-    """Bulk paste URLs → scrape each → apply cost + supplier to items by index."""
+    """Bulk paste URLs → scrape each → apply cost + supplier to items by index.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_bulk_scrape_urls_locked(rid)
+
+
+def _api_rfq_bulk_scrape_urls_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -4077,7 +4087,17 @@ def api_rfq_bulk_scrape_urls(rid):
 @auth_required
 @safe_route
 def api_rfq_bulk_paste_data(rid):
-    """Bulk paste multi-column data (description, MFG#, URL, cost, markup) into line items."""
+    """Bulk paste multi-column data (description, MFG#, URL, cost, markup) into line items.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_bulk_paste_data_locked(rid)
+
+
+def _api_rfq_bulk_paste_data_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
