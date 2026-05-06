@@ -59,23 +59,9 @@ KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     # in-flight wrapper-rename PRs (e.g. RMW batches 5, 7) will rename a
     # subset of these once merged; the lint will then surface them as
     # "fixed but not removed" entries that need a baseline update.
-    ("routes_analytics.py", "_api_rfq_import_from_pc_locked"),
-    ("routes_analytics.py", "_api_rfq_upload_pc_locked"),
-    ("routes_analytics.py", "_convert_single_pc_to_rfq"),
-    ("routes_analytics.py", "_rfq_relink_pc_locked"),
-    ("routes_analytics.py", "rfq_auto_lookup"),
-    ("routes_analytics.py", "rfq_retry_auto_price"),
-    ("routes_crm.py", "pricecheck_auto_process"),
-    ("routes_intel_ops.py", "api_identify_pc"),
-    ("routes_pricecheck_admin.py", "_api_admin_reparse_empty_pcs_locked"),
-    ("routes_pricecheck_admin.py", "api_pc_retry_auto_price"),
-    ("routes_pricecheck_pricing.py", "_pricecheck_document_save_locked"),
     ("routes_rfq.py", "api_rfq_upload_parse_doc"),
     ("routes_rfq.py", "detail"),
     ("routes_rfq.py", "upload"),
-    ("routes_rfq_admin.py", "_api_rfq_clean_slate_locked"),
-    ("routes_rfq_admin.py", "_api_rfq_refill_form_locked"),
-    ("routes_rfq_admin.py", "_rfq_clean_items_locked"),
     ("routes_rfq_gen.py", "api_rfq_screenshot_confirm"),
     ("routes_rfq_gen.py", "rfq_add_item"),
     ("routes_rfq_gen.py", "rfq_duplicate_item"),
@@ -83,8 +69,6 @@ KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     ("routes_rfq_gen.py", "rfq_reset_items"),
     ("routes_rfq_gen.py", "rfq_upload_supplier_quote"),
     ("routes_rfq_gen.py", "upload_templates"),
-    ("routes_v1.py", "api_v1_create_rfq"),
-    ("routes_v1.py", "api_v1_get_rfq"),
 })
 
 

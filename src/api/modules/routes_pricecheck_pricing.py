@@ -1418,11 +1418,8 @@ def _pricecheck_document_save_locked(pcid):
                 items[i]["pricing"] = {}
             items[i]["pricing"]["recommended_price"] = edit.get("unit_price", 0)
     
-    # Sync to parsed
-    if "parsed" not in pc:
-        pc["parsed"] = {"header": {}, "line_items": items}
-    else:
-        pc["parsed"]["line_items"] = items
+    # Sync all aliases atomically (alias-drift substrate)
+    _sync_pc_items(pc, items)
     _save_single_pc(pcid, pc)
     
     # Re-generate the PDF

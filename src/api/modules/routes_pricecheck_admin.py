@@ -108,7 +108,7 @@ def api_pc_retry_auto_price(pcid):
                 fresh = parse_ams704(source_pdf)
                 if fresh.get("line_items"):
                     items = fresh["line_items"]
-                    pc["items"] = items
+                    _sync_pc_items(pc, items)
                     pc["parsed"] = fresh
                     if fresh.get("header"):
                         for hk, hv in fresh["header"].items():
@@ -135,7 +135,7 @@ def api_pc_retry_auto_price(pcid):
                             fresh = parse_ams704(tf_path)
                             if fresh.get("line_items"):
                                 items = fresh["line_items"]
-                                pc["items"] = items
+                                _sync_pc_items(pc, items)
                                 pc["parsed"] = fresh
                                 if fresh.get("header"):
                                     for hk, hv in fresh["header"].items():
@@ -155,7 +155,7 @@ def api_pc_retry_auto_price(pcid):
     # Save reparsed items if needed
     reparsed = pc.get("_reparsed", False)
     if reparsed:
-        pc["items"] = items
+        _sync_pc_items(pc, items)
         try:
             _save_single_pc(pcid, pc)
         except Exception as e:
@@ -6047,7 +6047,7 @@ def _api_admin_reparse_empty_pcs_locked():
         # Merge the fresh parse back into the PC without destroying any
         # user-set top-level fields. Empty PCs by definition have no
         # user pricing, so we overwrite items + parsed block cleanly.
-        pc["items"] = fresh_items
+        _sync_pc_items(pc, fresh_items)
         pc["parsed"] = parsed
         pc["source_pdf"] = source_pdf
         pc["status"] = "parsed"
