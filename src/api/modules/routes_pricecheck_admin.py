@@ -1793,7 +1793,17 @@ def api_admin_clean_activity():
 @auth_required
 @safe_route
 def api_admin_undo_mark_won(pcid):
-    """Revert a mark-won: reset PC status to sent, delete winning_prices rows, delete won_quotes rows."""
+    """Revert a mark-won: reset PC status to sent, delete winning_prices rows, delete won_quotes rows.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_admin_undo_mark_won_locked(pcid)
+
+
+def _api_admin_undo_mark_won_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -2079,7 +2089,17 @@ def api_admin_import_contacts():
 @auth_required
 @safe_route
 def api_pricecheck_clear_quote(pcid):
-    """Clear a stale/wrong reytech_quote_number from a PC."""
+    """Clear a stale/wrong reytech_quote_number from a PC.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pricecheck_clear_quote_locked(pcid)
+
+
+def _api_pricecheck_clear_quote_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     if pcid not in pcs:
         return jsonify({"ok": False, "error": "PC not found"})
@@ -2218,7 +2238,17 @@ def api_oracle_weekly_report():
 @auth_required
 @safe_route
 def api_pc_reject_match(pcid, idx):
-    """Reject a source match for an item. Stores in match_feedback blocklist."""
+    """Reject a source match for an item. Stores in match_feedback blocklist.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_reject_match_locked(pcid, idx)
+
+
+def _api_pc_reject_match_locked(pcid, idx):
+    """Inner body — always runs under `_save_pcs_lock`."""
     data = request.get_json(force=True, silent=True) or {}
     match_source = data.get("match_source", "")
     match_desc = data.get("match_description", "")
@@ -4559,7 +4589,17 @@ def _reconcile_mfg_from_descriptions(items):
 @auth_required
 @safe_route
 def api_reconcile_mfg(pcid):
-    """Scan descriptions for embedded supplier item numbers and fix MFG# mismatches."""
+    """Scan descriptions for embedded supplier item numbers and fix MFG# mismatches.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_reconcile_mfg_locked(pcid)
+
+
+def _api_reconcile_mfg_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -4576,7 +4616,17 @@ def api_reconcile_mfg(pcid):
 @auth_required
 @safe_route
 def api_rescrape_unpriced(pcid):
-    """Re-scrape items that have a URL but no price."""
+    """Re-scrape items that have a URL but no price.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_rescrape_unpriced_locked(pcid)
+
+
+def _api_rescrape_unpriced_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -4681,7 +4731,17 @@ def api_rescrape_unpriced(pcid):
 @auth_required
 @safe_route
 def api_pc_auto_price(pcid):
-    """Auto-price all items: catalog match → scrape catalog URLs → Amazon fallback."""
+    """Auto-price all items: catalog match → scrape catalog URLs → Amazon fallback.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_auto_price_locked(pcid)
+
+
+def _api_pc_auto_price_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -4855,7 +4915,17 @@ def api_bulk_scrape_status(pcid):
 @auth_required
 @safe_route
 def api_bulk_scrape_urls(pcid):
-    """Bulk paste URLs → scrape each → apply cost + supplier to items by index."""
+    """Bulk paste URLs → scrape each → apply cost + supplier to items by index.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_bulk_scrape_urls_locked(pcid)
+
+
+def _api_bulk_scrape_urls_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -5213,7 +5283,15 @@ def _process_single_bulk_item(i, raw_line, items, pc, _line_labels, _re_bulk):
 @auth_required
 @safe_route
 def api_bulk_scrape_urls_stream(pcid):
-    """SSE streaming bulk scrape — sends per-item results as they resolve."""
+    """SSE streaming bulk scrape — sends per-item results as they resolve.
+
+    Race-safe pattern (PR #778, SSE variant): the route returns a Flask
+    Response before the generator runs, so wrapping the route with
+    `_save_pcs_lock` does NOT cover the save. Instead, the lock is
+    acquired inside the generator at save time, with a fresh re-load
+    of the PC so any autosave that landed during the stream is merged
+    rather than overwritten.
+    """
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -5293,12 +5371,25 @@ def api_bulk_scrape_urls_stream(pcid):
             result["progress"] = processed
             yield f"data: {_json_sse.dumps(result)}\n\n"
 
-        # Save and sync catalog
+        # Save and sync catalog. Atomic re-load + merge under
+        # `_save_pcs_lock` so concurrent autosaves that landed during
+        # the stream are not lost: keep fresh PC's non-items fields
+        # (status, ship_to, tax_rate, etc.) and replace items with the
+        # scraped-and-mutated version (bulk scrape is authoritative for
+        # the items it touched).
         if applied:
-            _save_single_pc(pcid, pc)
+            from src.api.data_layer import _save_pcs_lock
+            with _save_pcs_lock:
+                _fresh_pcs = _load_price_checks()
+                _save_target = _fresh_pcs.get(pcid)
+                if _save_target is not None:
+                    _save_target["items"] = items
+                else:
+                    _save_target = pc
+                _save_single_pc(pcid, _save_target)
             try:
                 from src.agents.product_catalog import save_pc_items_to_catalog
-                cat_result = save_pc_items_to_catalog(pc)
+                cat_result = save_pc_items_to_catalog(_save_target)
                 log.info("Bulk-scrape SSE catalog sync: added=%d existing=%d skipped=%d",
                          cat_result.get("added", 0), cat_result.get("existing", 0), cat_result.get("skipped", 0))
             except Exception as e:
@@ -5409,7 +5500,17 @@ def _build_pc_quote_email_body(pc, pcid, buyer_email):
 @auth_required
 @safe_route
 def api_pc_send_quote(pcid):
-    """Send the generated PC quote PDF via email."""
+    """Send the generated PC quote PDF via email.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_send_quote_locked(pcid)
+
+
+def _api_pc_send_quote_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -5610,7 +5711,17 @@ def api_pc_email_preview(pcid):
 @auth_required
 @safe_route
 def api_pc_duplicate(pcid):
-    """Duplicate a PC with all items and pricing. New PC number."""
+    """Duplicate a PC with all items and pricing. New PC number.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_duplicate_locked(pcid)
+
+
+def _api_pc_duplicate_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     import uuid, copy
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
@@ -5636,7 +5747,17 @@ def api_pc_duplicate(pcid):
 @auth_required
 @safe_route
 def api_pc_update_status(pcid):
-    """Update PC status (won, lost, sent, etc.)."""
+    """Update PC status (won, lost, sent, etc.).
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_update_status_locked(pcid)
+
+
+def _api_pc_update_status_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -5841,7 +5962,16 @@ def api_admin_reparse_empty_pcs():
     Use case: a batch of PCs was ingested with old parser code that
     failed on their layout. Current code works. One POST unsticks them
     all without having to curl /pricecheck/<id>/reparse in a loop.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_admin_reparse_empty_pcs_locked()
+
+
+def _api_admin_reparse_empty_pcs_locked():
+    """Inner body — always runs under `_save_pcs_lock`."""
     dry_run = request.args.get("dry_run", "0") == "1"
     try:
         limit = int(request.args.get("limit", "100"))
@@ -5973,7 +6103,17 @@ def api_admin_resolve_pc_rfq_dupes():
     2026-04-12 observed case: Drew Sims CalVet #26-04-003 appeared as
     BOTH auto_20260410_1775831475 (PC) AND 20260410_142935_19d77a (RFQ)
     simultaneously. This endpoint dismisses the PC clone automatically.
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH `_save_pcs_lock`
+    and `_save_rfqs_lock` since this handler may dismiss either side.
     """
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        return _api_admin_resolve_pc_rfq_dupes_locked()
+
+
+def _api_admin_resolve_pc_rfq_dupes_locked():
+    """Inner body — always runs under `_save_pcs_lock` + `_save_rfqs_lock`."""
     from src.api.dashboard import _load_price_checks, _save_single_pc, load_rfqs
 
     dry_run = request.args.get("dry_run", "0") == "1"
