@@ -195,6 +195,31 @@ def _cache_store(query: str, result: dict):
     _save_cache(cache)
 
 
+def _cache_evict(query: str) -> bool:
+    """Remove an entry from the research cache. Returns True if evicted.
+
+    Used when the caller has out-of-band evidence the cached entry is wrong
+    (e.g. URL-paste handler sees a cache hit whose title doesn't match the
+    row's description — almost certainly a recycled ASIN). Eviction forces
+    the next lookup to re-fetch from upstream, which gives `_cache_store`
+    a chance to compare new vs. old and set `recycled_suspected`.
+    """
+    try:
+        cache = _load_cache()
+    except Exception:
+        return False
+    key = _cache_key(query)
+    if key in cache:
+        del cache[key]
+        try:
+            _save_cache(cache)
+        except Exception as _e:
+            log.warning("cache evict save failed for %s: %s", query, _e)
+            return False
+        return True
+    return False
+
+
 def is_asin_cache_recycled(asin: str) -> dict:
     """Return recycle-suspicion metadata for a given ASIN, or empty dict.
 
