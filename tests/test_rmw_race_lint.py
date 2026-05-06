@@ -50,18 +50,6 @@ KNOWN_EXEMPTIONS: set[str] = {
 # (filename, function_name) tuple is a handler that needs the lock wrap.
 # Remove entries as they're fixed — adding entries is forbidden by CI.
 KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
-    ("routes_analytics.py", "rfq_auto_lookup"),
-    ("routes_analytics.py", "apply_recommendations"),
-    ("routes_analytics.py", "send_follow_up"),
-    ("routes_analytics.py", "link_pc_to_rfq"),
-    ("routes_analytics.py", "reclassify_pc_as_rfq"),
-    ("routes_analytics.py", "rfq_relink_pc"),
-    ("routes_analytics.py", "api_pcs_list"),
-    ("routes_analytics.py", "api_rfq_import_from_pc"),
-    ("routes_analytics.py", "api_rfq_import_from_catalog"),
-    ("routes_analytics.py", "api_rfq_upload_pc"),
-    ("routes_cchcs_packet.py", "api_cchcs_packet_generate"),
-    ("routes_cchcs_packet.py", "api_cchcs_packets_backfill"),
     ("routes_rfq.py", "api_award_approve"),
     ("routes_rfq.py", "api_rfq_upload_parse_doc"),
     ("routes_rfq.py", "api_bind_email"),

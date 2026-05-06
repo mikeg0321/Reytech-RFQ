@@ -198,7 +198,14 @@ def rfq_auto_lookup(rid):
                 log.error("Auto-lookup margins error: %s", e, exc_info=True)
                 _emit_progress(task_id, "margins_error", f"Margins error: {str(e)[:80]}")
 
-            # Save results
+            # Save results — atomic re-load + merge under `_save_rfqs_lock`
+            # (PR #778, background-thread variant). The route returned its
+            # task_id synchronously before this thread runs, so wrapping the
+            # outer route call would NOT cover this save. Lock here instead,
+            # and re-load to merge with any autosave that landed during the
+            # network calls (kept: fresh r non-items fields; replaced: our
+            # mutated line_items + auto_lookup_results which are
+            # authoritative for what this background lookup wrote).
             r["auto_lookup_results"] = {
                 "scprs_found": sum(1 for i in r["line_items"] if i.get("scprs_last_price")),
                 "amazon_found": sum(1 for i in r["line_items"] if i.get("amazon_price")),
@@ -207,9 +214,16 @@ def rfq_auto_lookup(rid):
                 "total": total,
                 "ran_at": datetime.now().isoformat(),
             }
-            rfqs_fresh = load_rfqs()
-            rfqs_fresh[rid] = r
-            _save_single_rfq(rid, r)
+            from src.api.data_layer import _save_rfqs_lock
+            with _save_rfqs_lock:
+                rfqs_fresh = load_rfqs()
+                _save_target = rfqs_fresh.get(rid)
+                if _save_target is not None:
+                    _save_target["line_items"] = r["line_items"]
+                    _save_target["auto_lookup_results"] = r["auto_lookup_results"]
+                else:
+                    _save_target = r
+                _save_single_rfq(rid, _save_target)
             _emit_progress(task_id, "saved", "Results saved", done=True)
             try:
                 from src.core.dal import log_lifecycle_event
@@ -276,7 +290,17 @@ def _compute_recommended_price(item):
 @auth_required
 @safe_route
 def apply_recommendations(rid):
-    """Apply all recommended prices to RFQ line items."""
+    """Apply all recommended prices to RFQ line items.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _apply_recommendations_locked(rid)
+
+
+def _apply_recommendations_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -1238,7 +1262,18 @@ def stale_quotes():
 @auth_required
 @safe_route
 def send_follow_up(entity_type, eid):
-    """Send a follow-up email for a stale quote."""
+    """Send a follow-up email for a stale quote.
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH `_save_rfqs_lock`
+    and `_save_pcs_lock` since the dispatch branches by entity_type.
+    """
+    from src.api.data_layer import _save_rfqs_lock, _save_pcs_lock
+    with _save_rfqs_lock, _save_pcs_lock:
+        return _send_follow_up_locked(entity_type, eid)
+
+
+def _send_follow_up_locked(entity_type, eid):
+    """Inner body — always runs under both save locks."""
     data = request.get_json(silent=True) or {}
 
     if entity_type == "rfq":
@@ -1432,7 +1467,18 @@ def _get_stale_list(days):
 @auth_required
 @safe_route
 def link_pc_to_rfq(pcid):
-    """Link a Price Check to an RFQ (PC became formal solicitation)."""
+    """Link a Price Check to an RFQ (PC became formal solicitation).
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH locks since this
+    handler writes the bidirectional PC ↔ RFQ link on both sides.
+    """
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        return _link_pc_to_rfq_locked(pcid)
+
+
+def _link_pc_to_rfq_locked(pcid):
+    """Inner body — always runs under both save locks."""
     data = request.get_json(silent=True) or {}
     rfq_id = data.get("rfq_id", "")
 
@@ -1878,7 +1924,17 @@ def reclassify_pc_as_rfq(pcid):
     Unlike convert_pc_to_rfq (which means "PC is done, now make an RFQ"),
     reclassify means "this was never a PC — route it to the RFQ queue."
     Archives the PC and creates a proper RFQ with email context.
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH locks since this
+    archives the PC and creates a new RFQ atomically.
     """
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        return _reclassify_pc_as_rfq_locked(pcid)
+
+
+def _reclassify_pc_as_rfq_locked(pcid):
+    """Inner body — always runs under both save locks."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -2536,8 +2592,19 @@ def rfq_retry_auto_price(rid):
 @auth_required
 @safe_route
 def rfq_relink_pc(rid):
-    """Re-run PC linkage for an existing RFQ. 
-    Clears stale link + zero prices first, then re-matches and ports."""
+    """Re-run PC linkage for an existing RFQ.
+    Clears stale link + zero prices first, then re-matches and ports.
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH locks since this
+    inline-prices PCs and saves them, then writes the linked RFQ.
+    """
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        return _rfq_relink_pc_locked(rid)
+
+
+def _rfq_relink_pc_locked(rid):
+    """Inner body — always runs under both save locks."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2876,7 +2943,18 @@ def rfq_debug_link(rid):
 @auth_required
 @safe_route
 def api_pcs_list():
-    """List PCs for import picker. Pass ?rfq_id=<rid> for smart ranking."""
+    """List PCs for import picker. Pass ?rfq_id=<rid> for smart ranking.
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH locks since the
+    auto-link branch may write to both PC and RFQ records.
+    """
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        return _api_pcs_list_locked()
+
+
+def _api_pcs_list_locked():
+    """Inner body — always runs under both save locks."""
     from src.api.dashboard import _load_price_checks, _save_price_checks, _save_single_pc, _save_single_rfq
     pcs = _load_price_checks()
     rfq_id = request.args.get("rfq_id", "")
@@ -2959,7 +3037,17 @@ def api_pcs_list():
 @safe_route
 def api_rfq_import_from_pc(rid):
     """Import items + prices from a PC directly into an RFQ. No matching logic.
-    Just copies PC items as RFQ line_items with all pricing fields."""
+    Just copies PC items as RFQ line_items with all pricing fields.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_import_from_pc_locked(rid)
+
+
+def _api_rfq_import_from_pc_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3080,7 +3168,17 @@ def api_rfq_import_from_pc(rid):
 def api_rfq_import_from_catalog(rid):
     """Match RFQ line items against the product catalog and auto-fill pricing.
     For each item: search by description + part number → fill cost, bid, supplier, link.
-    Does NOT replace items, only enriches existing ones with catalog data."""
+    Does NOT replace items, only enriches existing ones with catalog data.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_import_from_catalog_locked(rid)
+
+
+def _api_rfq_import_from_catalog_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3177,11 +3275,20 @@ def api_rfq_import_from_catalog(rid):
 @rate_limit("heavy")
 def api_rfq_upload_pc(rid):
     """Upload a filled PC PDF → parse → verify/save to catalog → populate RFQ.
-    
+
     Handles edge case: PC was filled outside app or data was lost.
     The filled PDF has all the pricing data — extract it, save to catalog,
     and populate the RFQ line items.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_upload_pc_locked(rid)
+
+
+def _api_rfq_upload_pc_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     import os
     from src.core.paths import DATA_DIR
 
