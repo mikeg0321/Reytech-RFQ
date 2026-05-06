@@ -3359,70 +3359,16 @@ def api_item_link_lookup():
         from src.agents.item_link_lookup import lookup_from_url
         result = lookup_from_url(url)
 
-        # ── Write-back to catalog DB (skip if near timeout) ──
-        _has_useful_data = result.get("price") or result.get("photo_url") or (result.get("title") and len(result.get("title", "")) > 10)
-        _time_left = _ENDPOINT_BUDGET - (_time.monotonic() - _t0)
-        if result.get("ok") and _has_useful_data and _time_left > 2.0:
-            try:
-                from src.agents.product_catalog import (
-                    match_item, add_to_catalog, add_supplier_price, init_catalog_db
-                )
-                init_catalog_db()
-                desc = result.get("title") or result.get("description", "")
-                pn = result.get("mfg_number") or result.get("part_number", "")
-                supplier = result.get("supplier", "")
-                price = float(result["price"])
-
-                # Find or create catalog product
-                matches = match_item(desc, pn, top_n=1) if (desc or pn) else []
-                if matches and matches[0].get("match_confidence", 0) >= 0.55:
-                    pid = matches[0]["id"]
-                    result["catalog_product_id"] = pid
-                else:
-                    pid = add_to_catalog(
-                        description=desc, part_number=pn,
-                        cost=price, supplier_url=url,
-                        manufacturer=result.get("manufacturer", ""),
-                        mfg_number=result.get("mfg_number", ""),
-                        photo_url=result.get("photo_url", ""),
-                        source=f"link_lookup_{supplier.lower()[:20]}"
-                    )
-                    if pid:
-                        result["catalog_product_id"] = pid
-
-                # Enrich catalog with all available data (flywheel)
-                if pid:
-                    try:
-                        from src.agents.product_catalog import enrich_catalog_product
-                        enrich_catalog_product(
-                            pid,
-                            upc=result.get("upc", ""),
-                            asin=result.get("asin", ""),
-                            mfg_number=pn,
-                            manufacturer=result.get("manufacturer", ""),
-                            photo_url=result.get("photo_url", ""),
-                            supplier_name=supplier,
-                            supplier_sku=pn,
-                            supplier_url=url,
-                            supplier_price=price,
-                            amazon_price=price if result.get("asin") else 0,
-                        )
-                    except Exception as _e:
-                        log.debug("suppressed: %s", _e)
-
-                # Record supplier price
-                if pid and supplier and price > 0:
-                    add_supplier_price(
-                        product_id=pid,
-                        supplier_name=supplier,
-                        price=price,
-                        url=url,
-                        sku=result.get("part_number", ""),
-                        shipping=result.get("shipping") or 0,
-                    )
-                    log.info("link_lookup → catalog pid=%d supplier=%s $%.2f", pid, supplier, price)
-            except Exception as cat_err:
-                log.debug("link_lookup catalog write-back: %s", cat_err)
+        # NO catalog write-back here. The lookup endpoint runs on EVERY URL
+        # paste — including obvious mismatches the operator will reject. The
+        # old write-back turned the catalog into a ratchet of last-pasted
+        # products: paste a wrong URL once, the catalog learns it, and the
+        # next quote auto-fills the wrong cost. (Mike P0 2026-05-06: "URLs
+        # need their own PR — every paste shows wrong description and same
+        # Anker pricing.") Catalog ingestion is operator-confirmed only,
+        # via the `_do_save_prices` flow in routes_pricecheck.py — which
+        # only writes when the operator hits Save with a non-zero cost
+        # they've reviewed.
 
         # ── Claude semantic match: AI product validation ──
         # When client sends pc_description, compare it to found title.
