@@ -318,7 +318,19 @@ def api_won_quotes_seed_status():
 def api_pricecheck_dismiss(pcid):
     """Dismiss a PC from the active queue with a reason.
     Keeps data for SCPRS intelligence. reason=delete does hard delete.
-    Valid reasons: dismissed, archived, duplicate, no_response, delete"""
+    Valid reasons: dismissed, archived, duplicate, no_response, delete
+
+    Race-safe wrapper (PR #778 pattern). RLock is re-entrant so the
+    delete branch (which calls `api_pricecheck_delete` and re-acquires
+    the lock) is safe.
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pricecheck_dismiss_locked(pcid)
+
+
+def _api_pricecheck_dismiss_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     from datetime import datetime
 
     data = request.get_json(force=True) if request.data else {}
@@ -376,7 +388,17 @@ def api_pricecheck_dismiss(pcid):
 @auth_required
 @safe_route
 def api_pricecheck_delete(pcid):
-    """Delete a price check by ID. Also removes linked quote draft and recalculates counter."""
+    """Delete a price check by ID. Also removes linked quote draft and recalculates counter.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pricecheck_delete_locked(pcid)
+
+
+def _api_pricecheck_delete_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
 
     if pcid not in pcs:
@@ -877,7 +899,17 @@ def api_pricecheck_mark_sent(pcid):
 @auth_required
 @safe_route
 def api_pricecheck_mark_sent_manually(pcid):
-    """Mark PC as sent when operator emailed it outside the app's Send flow."""
+    """Mark PC as sent when operator emailed it outside the app's Send flow.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pricecheck_mark_sent_manually_locked(pcid)
+
+
+def _api_pricecheck_mark_sent_manually_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     if pcid not in pcs:
         return jsonify({"ok": False, "error": "PC not found"}), 404
@@ -1060,7 +1092,17 @@ def api_pc_follow_up_scan():
 @auth_required
 @safe_route
 def api_pc_log_follow_up(pcid):
-    """Log that a follow-up was done on a sent PC."""
+    """Log that a follow-up was done on a sent PC.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pc_log_follow_up_locked(pcid)
+
+
+def _api_pc_log_follow_up_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     from datetime import datetime as _dt
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
@@ -1340,7 +1382,17 @@ def pricecheck_document_editor(pcid, doc_id):
 @auth_required
 @safe_page
 def pricecheck_document_save(pcid):
-    """Save edits from document editor → re-generates PDF → creates new version."""
+    """Save edits from document editor → re-generates PDF → creates new version.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _pricecheck_document_save_locked(pcid)
+
+
+def _pricecheck_document_save_locked(pcid):
+    """Inner body — always runs under `_save_pcs_lock`."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
