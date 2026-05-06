@@ -328,6 +328,17 @@ def api_rfq_autosave(rid):
             except Exception as _e:
                 log.debug('suppressed in api_rfq_autosave: %s', _e)
 
+    # Pricing reconciliation — substrate (PR-1, 2026-05-06 audit).
+    # Same math as PC `_do_save_prices`. Without this, an operator typing
+    # a new OUR PRICE here ships stale markup_pct downstream into the
+    # catalog write-back at `routes_rfq.update:3486-3530`, poisoning
+    # future quotes. Single helper, single semantics on both sides.
+    try:
+        from src.core.pricing_math import reconcile_items as _reconcile
+        _reconcile(r.get("line_items", []))
+    except Exception as _e:
+        log.debug("pricing_math reconcile suppressed: %s", _e)
+
     # Save package form checklist if provided
     pkg_forms = data.get("package_forms")
     if pkg_forms is not None and isinstance(pkg_forms, dict):

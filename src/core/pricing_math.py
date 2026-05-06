@@ -83,6 +83,169 @@ def canonical_unit_price(item: dict) -> float:
     return 0.0
 
 
+# ── Write-path reconciliation ──────────────────────────────────────────────
+#
+# 2026-05-06 audit (PR-1): both PC and RFQ save paths must call
+# `reconcile_line_item(item)` after every write that changes cost,
+# markup, or unit_price. This was the core drift instance in the
+# session audit — PR #765 added reverse-markup derivation on the PC
+# side only (`_do_save_prices`), so RFQ kept stale markup that
+# poisoned catalog write-back.
+
+import logging as _pm_logging
+
+_pm_log = _pm_logging.getLogger("reytech.pricing_math")
+
+# Tolerance in markup percentage points for "stale". Sub-tolerance
+# differences are rounding noise from prior writes; we leave them alone.
+_MARKUP_DRIFT_TOLERANCE_PCT = 0.5
+
+
+def _read_cost(item: dict) -> float:
+    """Pull cost from any alias. Priority matches `canonical_unit_price` so
+    derivations use the same source field on read and write."""
+    p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
+    raw = (_coerce_float(p.get("unit_cost"))
+           or _coerce_float(item.get("vendor_cost"))
+           or _coerce_float(item.get("supplier_cost"))
+           or _coerce_float(item.get("cost"))
+           or _coerce_float(p.get("cost")))
+    return float(raw or 0)
+
+
+def _read_price(item: dict) -> float:
+    p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
+    raw = (_coerce_float(item.get("unit_price"))
+           or _coerce_float(item.get("price_per_unit"))
+           or _coerce_float(p.get("recommended_price"))
+           or _coerce_float(p.get("unit_price")))
+    return float(raw or 0)
+
+
+def _read_markup(item: dict):
+    """Returns markup_pct or None (None ≠ 0 — None means absent, 0 means free)."""
+    raw = item.get("markup_pct")
+    if raw is None:
+        p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
+        raw = p.get("markup_pct")
+    if raw is None:
+        raw = item.get("markup")
+    if raw is None:
+        return None
+    return _coerce_float(raw)
+
+
+def _write_cost(item: dict, cost: float) -> None:
+    """Mirror cost to all known aliases so PC and RFQ readers agree."""
+    item["supplier_cost"] = cost
+    item["vendor_cost"] = cost
+    if not isinstance(item.get("pricing"), dict):
+        item["pricing"] = {}
+    item["pricing"]["unit_cost"] = cost
+
+
+def _write_price(item: dict, price: float) -> None:
+    item["unit_price"] = price
+    item["price_per_unit"] = price
+    if not isinstance(item.get("pricing"), dict):
+        item["pricing"] = {}
+    item["pricing"]["recommended_price"] = price
+
+
+def _write_markup(item: dict, markup_pct: float) -> None:
+    item["markup_pct"] = markup_pct
+    if not isinstance(item.get("pricing"), dict):
+        item["pricing"] = {}
+    item["pricing"]["markup_pct"] = markup_pct
+
+
+def _write_margin(item: dict, cost: float, price: float) -> None:
+    if price > 0:
+        item["margin_pct"] = round((price - cost) / price * 100, 1)
+
+
+def reconcile_line_item(item: dict) -> dict:
+    """Make cost / markup / price agree on a single line item.
+
+    Mutates `item` in place and returns it. Skips no-bid items.
+
+    Resolution rules, in order:
+
+    1. **Both cost and price present, markup stale or missing**:
+       reverse-derive markup_pct = (price - cost) / cost * 100.
+       This is the case the 2026-05-05 incident exposed (Mike P0):
+       operator types OUR PRICE directly, expects markup to follow.
+
+    2. **Cost and markup present, price stale or missing**:
+       forward-compute price = cost * (1 + markup_pct/100).
+       Standard quote math — `_recompute_unit_price` legacy path.
+
+    3. **Insufficient signal**: leave alone. Caller hasn't given us
+       enough information to reconcile.
+
+    Both PC and RFQ save paths MUST call this after any write that
+    touches cost, markup, or price. New pricing rules land here once.
+    """
+    if item.get("no_bid"):
+        return item
+
+    cost = _read_cost(item)
+    price = _read_price(item)
+    markup = _read_markup(item)
+
+    # Rule 1: cost + price → derive markup
+    if cost > 0 and price > 0:
+        try:
+            derived_markup = round((price - cost) / cost * 100, 1)
+        except ZeroDivisionError:  # cost > 0 above; defensive
+            return item
+        if markup is None or abs(markup - derived_markup) > _MARKUP_DRIFT_TOLERANCE_PCT:
+            _write_markup(item, derived_markup)
+            _pm_log.info(
+                "reconcile reverse-markup: cost=%.2f price=%.2f → markup=%.1f%% (was %s)",
+                cost, price, derived_markup, markup,
+            )
+        # Always echo cost/price to all aliases + recompute margin so
+        # PC and RFQ readers see the same numbers regardless of which
+        # field name they pick.
+        _write_cost(item, cost)
+        _write_price(item, price)
+        _write_margin(item, cost, price)
+        return item
+
+    # Rule 2: cost + markup → derive price
+    if cost > 0 and markup is not None and price <= 0:
+        derived_price = round(cost * (1 + markup / 100.0), 2)
+        _write_cost(item, cost)
+        _write_price(item, derived_price)
+        _write_margin(item, cost, derived_price)
+        _pm_log.info(
+            "reconcile forward-price: cost=%.2f markup=%.1f%% → price=%.2f",
+            cost, markup, derived_price,
+        )
+        return item
+
+    # Rule 3: insufficient signal — leave alone.
+    return item
+
+
+def reconcile_items(items: list) -> int:
+    """Apply `reconcile_line_item` across a list. Returns count of items
+    that changed (markup or price moved)."""
+    if not isinstance(items, list):
+        return 0
+    touched = 0
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        before_markup = _read_markup(it)
+        before_price = _read_price(it)
+        reconcile_line_item(it)
+        if _read_markup(it) != before_markup or _read_price(it) != before_price:
+            touched += 1
+    return touched
+
+
 def is_unit_price_stale(item: dict, tolerance: float = 0.005) -> bool:
     """True iff the persisted `unit_price` disagrees with the cost×markup
     derivation by more than `tolerance` dollars.
