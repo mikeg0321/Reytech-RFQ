@@ -406,13 +406,19 @@ def _load_price_checks(include_items=True):
             except Exception as e:
                 log.warning("PC JSON migration failed: %s", e)
 
-    # Normalize items/line_items aliases
+    # Sync items/line_items aliases — `items` is the canonical column on
+    # `price_checks`, so when the blob's `line_items` (or parsed.line_items)
+    # has drifted from it, force-realign here. 2026-05-05 incident
+    # (pc_177b18e6): quote_model_v2_enabled adapter read stale `line_items`
+    # while saved-prices wrote to `items`, blanking a row in the UI.
     for pcid, pc in data.items():
         if not isinstance(pc, dict):
             continue
-        if "items" in pc and "line_items" not in pc:
+        if "items" in pc:
             pc["line_items"] = list(pc["items"])
-        if "line_items" in pc and "items" not in pc:
+            if isinstance(pc.get("parsed"), dict):
+                pc["parsed"]["line_items"] = list(pc["items"])
+        elif "line_items" in pc:
             pc["items"] = list(pc["line_items"])
 
     if include_items and len(data) < 500:
@@ -454,6 +460,21 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
         apply_default_if_missing(pc)
     except Exception as _e:
         log.debug("suppressed: %s", _e)
+
+    # Sync alias keys to the canonical `items` BEFORE serialization — the
+    # SQL column `items` and the embedded blob (data_json/pc_data) must
+    # tell the same story or downstream readers (quote_adapter, list views,
+    # exports) silently see different line-item sets. 2026-05-05 incident
+    # pc_177b18e6: a save updated `items` but `line_items` stayed stale
+    # in the blob → quote_model_v2 adapter read the stale alias → row
+    # blanked in UI. Mike had to flip `quote_model_v2_enabled` off to
+    # mitigate. This realign closes the underlying divergence.
+    if isinstance(pc, dict) and "items" in pc:
+        pc["line_items"] = list(pc["items"])
+        if isinstance(pc.get("parsed"), dict):
+            pc["parsed"]["line_items"] = list(pc["items"])
+    elif isinstance(pc, dict) and "line_items" in pc:
+        pc["items"] = list(pc["line_items"])
 
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
