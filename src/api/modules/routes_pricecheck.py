@@ -2126,6 +2126,40 @@ def _do_save_prices(pcid):
             log.info("SAVE-PRICES auto-price: cost=%.2f × (1+%d%%) = %.2f",
                      cost, markup, computed_price)
 
+    # Reverse-derive markup from cost+price. Mike's 2026-05-05 23:50Z report:
+    # typed OUR PRICE $16 with cost $8, markup field stayed at 20% — should be
+    # 100%. Mike: "reverse markup does not fire and save when i fill out our
+    # price, it should calculate markup if markup is not filled out, or filled
+    # out incorrectly. pricing line items informs the catalog, which needs to
+    # be accurate as well as pricing oracle."
+    #
+    # Rule: cost and price are operator-input ground truth; markup_pct is
+    # always derived from them on save. The client-side reverseMarkup() handler
+    # only fires reliably on blur — autosave that fires from oninput captures
+    # stale markup. Server-side reconciliation makes that timing irrelevant
+    # and ensures catalog/Oracle always read the correct markup.
+    for it in items:
+        if it.get("no_bid"):
+            continue
+        cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+        price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+        if cost and price and float(cost) > 0 and float(price) > 0:
+            try:
+                derived_markup = round((float(price) - float(cost)) / float(cost) * 100, 1)
+            except (ValueError, TypeError, ZeroDivisionError):
+                continue
+            stored_markup = it.get("markup_pct") or it.get("pricing", {}).get("markup_pct")
+            if stored_markup is None or abs(float(stored_markup) - derived_markup) > 0.5:
+                if not it.get("pricing"):
+                    it["pricing"] = {}
+                it["pricing"]["markup_pct"] = derived_markup
+                it["markup_pct"] = derived_markup
+                # Re-compute margin_pct (the inverse view) to stay in sync.
+                if float(price) > 0:
+                    it["margin_pct"] = round((float(price) - float(cost)) / float(price) * 100, 1)
+                log.info("SAVE-PRICES reverse-markup: cost=%.2f price=%.2f → markup=%.1f%% (was %s)",
+                         float(cost), float(price), derived_markup, stored_markup)
+
     # Log what we're about to save for debugging
     for i, it in enumerate(items[:3]):  # first 3 items
         log.info("SAVE-PRICES %s item[%d]: desc='%s' mfg='%s' cost=%s price=%s link='%s'",

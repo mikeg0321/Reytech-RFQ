@@ -208,3 +208,138 @@ class TestCortechLiveIncident:
             f"$567.79 after save (matches UI render), got "
             f"${item['unit_price']}"
         )
+
+
+class TestReverseMarkupDerivation:
+    """Mike's 2026-05-05 23:50Z incident: typed OUR PRICE $16 with cost $8,
+    markup field stayed at 20% (should be 100%). Stale markup poisons the
+    catalog write-back (cost_source='operator' enrich_catalog_product) and
+    Pricing Oracle, which feeds the recommendation loop.
+
+    Rule: cost and price are operator-input ground truth; markup_pct is
+    always derived from them on save. Whenever both cost > 0 and price > 0,
+    server reconciles markup = (price - cost) / cost * 100, persisted to
+    both `item.markup_pct` and `item.pricing.markup_pct`."""
+
+    def test_price_change_recomputes_stale_markup(self, client, temp_data_dir):
+        """The exact pc_177b18e6 / Heel Donut scenario: cost=$8, stale
+        markup=20%, operator types price=$16. Persisted markup must flip
+        to 100% to match the typed price."""
+        pcid = "test-reverse-markup-stale"
+        _seed_pc(temp_data_dir, pcid,
+                 vendor_cost=8.0, markup_pct=20, unit_price=9.6)
+
+        # Operator types price=$16 (overriding the cost*1.20=$9.60 default).
+        resp = client.post(
+            f"/pricecheck/{pcid}/save-prices",
+            json={"price_0": 16.00},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+
+        item = _load_item0(pcid)
+        assert item["unit_price"] == 16.00
+        assert item["pricing"]["recommended_price"] == 16.00
+        # ($16 - $8) / $8 * 100 = 100.0
+        assert item["markup_pct"] == 100.0, (
+            f"Operator typed price=$16 with cost=$8; markup must reverse-"
+            f"derive to 100.0, got {item.get('markup_pct')}. Catalog flywheel "
+            f"and Oracle now learn the wrong markup signal."
+        )
+        assert item["pricing"]["markup_pct"] == 100.0, (
+            f"pricing.markup_pct must stay in sync with markup_pct, got "
+            f"{item['pricing'].get('markup_pct')}"
+        )
+
+    def test_consistent_markup_left_alone(self, client, temp_data_dir):
+        """When stored markup already matches cost+price (within 0.5
+        tolerance), the reconciler must NOT churn the value — avoids
+        pointless write traffic and downstream change-detection noise."""
+        pcid = "test-reverse-markup-noop"
+        # cost=$8, markup=100, price=$16 — fully consistent.
+        _seed_pc(temp_data_dir, pcid,
+                 vendor_cost=8.0, markup_pct=100, unit_price=16.0)
+
+        resp = client.post(
+            f"/pricecheck/{pcid}/save-prices",
+            json={"price_0": 16.00},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        item = _load_item0(pcid)
+        # Markup stays at 100, not "100.0001" or any noisy reformat.
+        assert item["markup_pct"] in (100, 100.0)
+
+    def test_reconciler_runs_after_full_trio_post(self, client, temp_data_dir):
+        """When operator's autosave POSTs cost + price + markup all at once
+        with stale markup, the post-loop reconciliation must override the
+        operator's wrong markup field. Cost+price win."""
+        pcid = "test-reverse-markup-trio-stale"
+        _seed_pc(temp_data_dir, pcid,
+                 vendor_cost=8.0, markup_pct=25, unit_price=10.0)
+
+        # Operator's autosave fires before client-side reverseMarkup —
+        # captures the stale markup field while sending the new price.
+        resp = client.post(
+            f"/pricecheck/{pcid}/save-prices",
+            json={
+                "cost_0": 8.00,
+                "price_0": 16.00,
+                "markup_0": 25,  # stale — client reverseMarkup hadn't fired
+            },
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        item = _load_item0(pcid)
+        # Server reconciles regardless of what client sent for markup.
+        assert item["markup_pct"] == 100.0
+        assert item["pricing"]["markup_pct"] == 100.0
+        assert item["unit_price"] == 16.00
+
+    def test_zero_cost_does_not_zero_divide(self, client, temp_data_dir):
+        """Zero/missing cost can't derive markup — reconciler must skip
+        without raising, leaving any prior markup_pct intact."""
+        pcid = "test-reverse-markup-zero-cost"
+        _seed_pc(temp_data_dir, pcid,
+                 vendor_cost=0, markup_pct=25, unit_price=10.0)
+
+        resp = client.post(
+            f"/pricecheck/{pcid}/save-prices",
+            json={"price_0": 16.00},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        item = _load_item0(pcid)
+        # markup_pct stays at the seeded 25 (or whatever) — no crash.
+        assert item.get("markup_pct") == 25 or item.get("markup_pct") == 25.0
+
+    def test_no_bid_item_skipped(self, client, temp_data_dir):
+        """no_bid items don't participate in catalog/Oracle learning, so
+        the reverse-markup reconciler shouldn't touch their markup."""
+        pcid = "test-reverse-markup-no-bid"
+        _seed_pc(temp_data_dir, pcid,
+                 vendor_cost=8.0, markup_pct=20, unit_price=9.6)
+
+        # Mark no_bid then save a price change.
+        from src.api.data_layer import _load_price_checks
+        pcs = _load_price_checks()
+        pcs[pcid]["items"][0]["no_bid"] = True
+        # Persist via the same path
+        import json as _json, os as _os
+        _path = _os.path.join(temp_data_dir, "price_checks.json")
+        with open(_path, "w") as _f:
+            _json.dump(pcs, _f)
+
+        resp = client.post(
+            f"/pricecheck/{pcid}/save-prices",
+            json={"price_0": 16.00},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        item = _load_item0(pcid)
+        # markup stays at 20 since no_bid skips the reconciler.
+        assert item.get("markup_pct") in (20, 20.0)
