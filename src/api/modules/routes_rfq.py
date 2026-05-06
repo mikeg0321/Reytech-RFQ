@@ -806,7 +806,17 @@ def awards_page():
 @auth_required
 @safe_route
 def api_award_approve(idx):
-    """Approve a pending PO — creates order and marks RFQ/quote as won."""
+    """Approve a pending PO — creates order and marks RFQ/quote as won.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_award_approve_locked(idx)
+
+
+def _api_award_approve_locked(idx):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from src.api.dashboard import _load_pending_pos, _save_pending_pos, _pending_po_reviews, _create_order_from_po_email
     pending = _load_pending_pos()
     if idx < 0 or idx >= len(pending):
@@ -1485,7 +1495,16 @@ def api_rfq_upload_parse_doc(rid):
     1. AMS 704 (if PDF looks like a 704)
     2. Generic RFQ parser (XFA + text extraction)
     3. Vision parser (Claude vision for scanned/image docs)
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_upload_parse_doc_locked(rid)
+
+
+def _api_rfq_upload_parse_doc_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     # Telemetry: every manual upload recorded
     try:
         from src.core.utilization import record_feature_use
@@ -2793,7 +2812,16 @@ def api_bind_email(rid):
     Body: {"message_id": "<...>", "thread_id": "..."} — both required.
     The frontend's locate-email picker calls this once the operator
     selects which thread is the original RFQ email.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_bind_email_locked(rid)
+
+
+def _api_bind_email_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2831,7 +2859,16 @@ def api_create_draft(rid):
 
     Returns:
       {ok, draft_id, gmail_draft_url, thread_id, attachments, ...}
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_create_draft_locked(rid)
+
+
+def _api_create_draft_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2999,7 +3036,17 @@ def api_backfill_email_thread_ids():
 @auth_required
 @safe_route
 def api_discard_draft(rid):
-    """Discard the current Gmail draft for this RFQ (operator escape hatch)."""
+    """Discard the current Gmail draft for this RFQ (operator escape hatch).
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_discard_draft_locked(rid)
+
+
+def _api_discard_draft_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3199,7 +3246,17 @@ def _api_rfq_toggle_required_form_locked(rid):
 @auth_required
 @safe_route
 def api_lookup_tax_rate(rid):
-    """Look up CA sales tax rate from delivery address via CDTFA API."""
+    """Look up CA sales tax rate from delivery address via CDTFA API.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_lookup_tax_rate_locked(rid)
+
+
+def _api_lookup_tax_rate_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3767,7 +3824,17 @@ def _rfq_update_field_locked(rid):
 @auth_required
 @safe_route
 def api_rfq_auto_price(rid):
-    """Auto-price all items: catalog match → scrape catalog URLs → Amazon fallback."""
+    """Auto-price all items: catalog match → scrape catalog URLs → Amazon fallback.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_auto_price_locked(rid)
+
+
+def _api_rfq_auto_price_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -4263,7 +4330,17 @@ def api_rfq_pc_link_suggestions(rid):
 @safe_route
 def api_rfq_confirm_pc_link(rid):
     """Operator-confirmed PC→RFQ promote. Ports prices verbatim; optional
-    selective reprice for qty-changed lines only."""
+    selective reprice for qty-changed lines only.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_confirm_pc_link_locked(rid)
+
+
+def _api_rfq_confirm_pc_link_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     bad = _validate_rid(rid)
     if bad:
         return bad
