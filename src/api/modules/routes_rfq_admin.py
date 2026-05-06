@@ -131,7 +131,17 @@ def api_rfq_qa(rid):
 @auth_required
 @safe_route
 def api_rfq_update_status_json(rid):
-    """Update RFQ status via JSON (AJAX)."""
+    """Update RFQ status via JSON (AJAX).
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_update_status_json_locked(rid)
+
+
+def _api_rfq_update_status_json_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -264,7 +274,16 @@ def api_rfq_mark_sent_manually(rid):
     Writes: status=sent, sent_at, sent_to, sent_method="manual",
             manual_sent_metadata={source, attachment, actor, timestamp}.
     Fires: Drive archive hook, lifecycle event, CRM activity entry.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_mark_sent_manually_locked(rid)
+
+
+def _api_rfq_mark_sent_manually_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from src.api.data_layer import load_rfqs, _save_single_rfq
     rfqs = load_rfqs()
     r = rfqs.get(rid)
@@ -1927,7 +1946,17 @@ def api_nuke_rfq(rid):
 @auth_required
 @safe_route
 def api_rfq_clear_quote(rid):
-    """Clear the quote number on an RFQ so regeneration assigns a new one."""
+    """Clear the quote number on an RFQ so regeneration assigns a new one.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_clear_quote_locked(rid)
+
+
+def _api_rfq_clear_quote_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -1946,7 +1975,17 @@ def api_rfq_clear_quote(rid):
 @auth_required
 @safe_route
 def api_rfq_set_quote_number(rid):
-    """Force-set the quote number on an RFQ. Used to fix counter drift."""
+    """Force-set the quote number on an RFQ. Used to fix counter drift.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_set_quote_number_locked(rid)
+
+
+def _api_rfq_set_quote_number_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -1969,7 +2008,17 @@ def api_rfq_set_quote_number(rid):
 def api_rfq_revise_quote(rid):
     """Regenerate ONLY the quote PDF with current pricing — keep all other
     package docs unchanged. Saves revision to quote_revisions table.
-    Preserves quote number — never burns a new one."""
+    Preserves quote number — never burns a new one.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_revise_quote_locked(rid)
+
+
+def _api_rfq_revise_quote_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from src.api.trace import Trace
     t = Trace("quote_revision", rfq_id=rid)
 
@@ -2129,7 +2178,17 @@ def api_rfq_revision_history(rid):
 @auth_required
 @safe_route
 def api_rfq_revert_pricing(rid):
-    """Revert line item prices to the last generated quote snapshot."""
+    """Revert line item prices to the last generated quote snapshot.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_revert_pricing_locked(rid)
+
+
+def _api_rfq_revert_pricing_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2162,7 +2221,16 @@ def api_rfq_revert_pricing(rid):
 def api_admin_relink_rfq(rid):
     """Re-run auto-linking on an existing RFQ to find its matching PC.
     GET-accessible for browser use. Example: /api/admin/relink-rfq/abc123
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_admin_relink_rfq_locked(rid)
+
+
+def _api_admin_relink_rfq_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2198,7 +2266,16 @@ def api_admin_fix_quote_number(rid, new_qn, counter_seq):
 
     Example: /api/admin/fix-quote-number/cab4bad5/R26Q31/31
     Sets RFQ cab4bad5 to R26Q31, counter to 31 (next = R26Q32).
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_admin_fix_quote_number_locked(rid, new_qn, counter_seq)
+
+
+def _api_admin_fix_quote_number_locked(rid, new_qn, counter_seq):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2236,7 +2313,16 @@ def api_rfq_clear_generated(rid):
     Force-clear all generated files for an RFQ from both DB and JSON.
     Resets status to 'ready' so the full generate-package pipeline re-runs cleanly.
     Use this when Railway redeploys cached the old output and Regenerate doesn't help.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_clear_generated_locked(rid)
+
+
+def _api_rfq_clear_generated_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2294,7 +2380,17 @@ def api_rfq_clear_generated(rid):
 @safe_route
 def api_rfq_clean_slate(rid):
     """Nuclear clean: keep ONLY line_items with pricing. Clear everything else.
-    Use when package is broken — stale templates, wrong forms, old data."""
+    Use when package is broken — stale templates, wrong forms, old data.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_clean_slate_locked(rid)
+
+
+def _api_rfq_clean_slate_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2822,7 +2918,17 @@ def api_clear_ghost_quote_bindings():
 @auth_required
 @safe_route
 def rfq_clean_items(rid):
-    """Remove junk items (legal text, instructions, boilerplate) from an RFQ."""
+    """Remove junk items (legal text, instructions, boilerplate) from an RFQ.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _rfq_clean_items_locked(rid)
+
+
+def _rfq_clean_items_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from src.api.dashboard import load_rfqs, save_rfqs
     rfqs = load_rfqs()
     rfq = rfqs.get(rid)
@@ -2887,7 +2993,17 @@ def api_rfq_review_form(rid, manifest_id):
 @safe_route
 def api_rfq_approve_package(rid, manifest_id):
     """Approve the entire package (all forms must be reviewed first).
-    Pass ?force=1 to skip pending/rejected/QA checks."""
+    Pass ?force=1 to skip pending/rejected/QA checks.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_approve_package_locked(rid, manifest_id)
+
+
+def _api_rfq_approve_package_locked(rid, manifest_id):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from src.core.dal import get_package_manifest, update_manifest_status, log_lifecycle_event
     manifest = get_package_manifest(manifest_id)
     if not manifest:
@@ -2940,7 +3056,17 @@ def api_rfq_approve_package(rid, manifest_id):
 @auth_required
 @safe_route
 def api_rfq_remove_form(rid, manifest_id):
-    """Remove a form from the package manifest and delete its file."""
+    """Remove a form from the package manifest and delete its file.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_remove_form_locked(rid, manifest_id)
+
+
+def _api_rfq_remove_form_locked(rid, manifest_id):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     data = request.get_json(force=True, silent=True) or {}
     form_id = data.get("form_id", "")
     if not form_id:
@@ -3018,7 +3144,16 @@ def api_rfq_refill_form(rid, form_id):
 
     Accepts field_overrides in JSON body, merges into RFQ data, regenerates
     only the specified form, runs QA, and resets verdict to pending.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_refill_form_locked(rid, form_id)
+
+
+def _api_rfq_refill_form_locked(rid, form_id):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3627,7 +3762,16 @@ def api_rfq_re_extract_requirements(rid):
 
     Used when: user manually uploads new email, forwards changed, or wants
     to refresh extraction after body edits.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_re_extract_requirements_locked(rid)
+
+
+def _api_rfq_re_extract_requirements_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3721,7 +3865,16 @@ def api_rfq_upload_edited_quote(rid):
     row, audit-log the diff, store the flattened bytes as the buyer copy.
 
     Returns JSON: {ok, applied, diff, flat_pdf_path, edits}
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_upload_edited_quote_locked(rid)
+
+
+def _api_rfq_upload_edited_quote_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from src.api.dashboard import load_rfqs, _save_single_rfq
     from src.forms.quote_pdf_flatten import diff_to_quote_fields, flatten_quote_pdf
 
