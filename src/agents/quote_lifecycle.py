@@ -120,11 +120,24 @@ def check_expirations() -> dict:
 
 
 def get_expiring_soon(days: int = 7) -> list:
-    """Get quotes expiring within N days."""
+    """Get quotes expiring within N days.
+
+    Cross-table accuracy (Mike P0 2026-05-06: "ignored urgent card because
+    it showed stale data"): `quotes.status` is set to 'sent' when we ship
+    the 704, but `api_rfq_mark_won/lost` writes `rfqs.status` only and
+    never propagates to the quotes table. Without this filter, an RFQ
+    Mike just marked won keeps showing as "expiring in 2 days" on the
+    home Urgent card.
+
+    Filter: skip any quote whose linked RFQ has terminal status
+    (won / lost / cancelled / no_bid). Single read-side fix — no
+    write-side ripple to mark-won that could regress other consumers.
+    """
     cutoff = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     now = datetime.now(timezone.utc).isoformat()
     try:
         with get_db() as conn:
+            # Pull candidates from quotes
             rows = conn.execute("""
                 SELECT quote_number, agency, institution, total, contact_email,
                        created_at, expires_at, status, follow_up_count
@@ -134,7 +147,30 @@ def get_expiring_soon(days: int = 7) -> list:
                   AND expires_at BETWEEN ? AND ?
                 ORDER BY expires_at ASC
             """, (now, cutoff)).fetchall()
-            return [dict(r) for r in rows]
+            results = [dict(r) for r in rows]
+            if not results:
+                return results
+            # Cross-check against rfqs table — drop quotes whose RFQ is
+            # terminal. The link key is reytech_quote_number on the RFQ.
+            quote_numbers = [r["quote_number"] for r in results]
+            placeholders = ",".join("?" * len(quote_numbers))
+            terminal_rfq_quote_nums = set()
+            try:
+                terminal_rows = conn.execute(
+                    f"""SELECT reytech_quote_number FROM rfqs
+                        WHERE reytech_quote_number IN ({placeholders})
+                          AND status IN ('won', 'lost', 'cancelled', 'no_bid')""",
+                    quote_numbers,
+                ).fetchall()
+                terminal_rfq_quote_nums = {
+                    row[0] for row in terminal_rows if row[0]
+                }
+            except Exception as _e:
+                log.debug("get_expiring_soon RFQ cross-check: %s", _e)
+            return [
+                r for r in results
+                if r["quote_number"] not in terminal_rfq_quote_nums
+            ]
     except Exception as e:
         log.error("get_expiring_soon: %s", e)
         return []
