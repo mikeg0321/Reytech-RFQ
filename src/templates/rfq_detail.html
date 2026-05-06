@@ -4501,4 +4501,79 @@ function submitMarkSent(ev) {
 })();
 </script>
 
+{# ═══ Growth Signals Panel — PR-3 (2026-05-06 audit) ════════════════
+   Per-line buyer-last-won + SCPRS ceiling, fetched once on page load
+   and rendered as a sticky right-side strip. The data already lived
+   on `/growth-intel/quote?id=...` cost-trace and `/buyers` ceiling
+   queries; this surfaces them where the operator decides the price
+   instead of forcing a side-tab navigation.
+   Mike's stated KPI: data to win. The strip answers two questions
+   per item: "what did this buyer pay last time we won this?" and
+   "what's the state-paid ceiling we should price under?"
+   Null/missing signals show as a dash so an empty panel is informative
+   ("no prior on this item") rather than broken. #}
+<div id="growth-signals-strip" data-testid="growth-signals-strip"
+     style="display:none;position:fixed;bottom:8px;right:8px;width:300px;max-height:60vh;overflow:auto;background:#161b22;border:1px solid rgba(167,139,250,.3);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.4;color:#c9d1d9;z-index:30;box-shadow:0 4px 16px rgba(0,0,0,.4)">
+ <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+  <div style="font-size:10px;font-weight:700;letter-spacing:.5px;color:#a78bfa">📈 GROWTH SIGNALS</div>
+  <button type="button" onclick="document.getElementById('growth-signals-strip').style.display='none'"
+          style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:14px;padding:0 2px"
+          aria-label="Hide growth signals">✕</button>
+ </div>
+ <div id="gs-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+</div>
+<script>
+(function(){
+  var rid = {{ rid|tojson }};
+  if (!rid) return;
+  fetch('/api/quote/rfq/' + encodeURIComponent(rid) + '/growth-signals',
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d || !d.ok || !d.items || !d.items.length) return;
+      // Only paint if at least one item has a non-null signal — otherwise
+      // an empty buyer + empty SCPRS strip is just visual noise.
+      var anyHit = d.items.some(function(it){ return it.last_won || it.scprs; });
+      if (!anyHit) return;
+      var rowsEl = document.getElementById('gs-rows');
+      var stripEl = document.getElementById('growth-signals-strip');
+      if (!rowsEl || !stripEl) return;
+      function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+      function fmt$(v){ return '$' + Number(v).toFixed(2); }
+      var html = '';
+      d.items.forEach(function(it){
+        var lw = it.last_won;
+        var sc = it.scprs;
+        if (!lw && !sc) return; // skip lines with no signal
+        var lwCell = lw
+          ? ('<span style="color:#3fb950"><b>' + fmt$(lw.price) + '</b></span>'
+             + ' <span style="color:#8b949e">' + esc(lw.quote_number || '') + ' '
+             + esc(lw.won_at || '') + '</span>')
+          : '<span style="color:#586069">—</span>';
+        var scCell = sc
+          ? ('<span style="color:#a78bfa"><b>' + fmt$(sc.price) + '</b></span>'
+             + ' <span style="color:#8b949e">'
+             + esc((sc.supplier || '').slice(0, 24)) + ' '
+             + esc(sc.po_date || '') + '</span>')
+          : '<span style="color:#586069">—</span>';
+        html += '<div style="border-bottom:1px solid #21262d;padding-bottom:5px">'
+              + '<div style="font-size:11px;color:#c9d1d9;margin-bottom:2px">#'
+              + esc(it.line_no) + ' ' + esc((it.description || '').slice(0, 40))
+              + '</div>'
+              + '<div style="font-size:10px;color:#8b949e">won</div>'
+              + '<div>' + lwCell + '</div>'
+              + '<div style="font-size:10px;color:#8b949e;margin-top:2px">scprs ceiling</div>'
+              + '<div>' + scCell + '</div>'
+              + '</div>';
+      });
+      if (html) {
+        rowsEl.innerHTML = html;
+        stripEl.style.display = 'block';
+      }
+    })
+    .catch(function(e){ console.debug('growth-signals fetch failed:', e); });
+})();
+</script>
+
 {% endblock %}

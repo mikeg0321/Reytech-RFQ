@@ -5537,6 +5537,7 @@ _ROUTE_MODULES = [
     "routes_prd28",           # PRD-28: Quote lifecycle, email overhaul, leads, revenue, vendor intel
     "routes_analytics",       # PRD-29: Pipeline analytics, buyer intel, margin optimizer, settings, API v1
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
+    "routes_growth_signals",  # PR-3 (2026-05-06 audit): inline buyer-last-won + SCPRS ceiling on quote detail
     "routes_v1",              # MCP-ready /api/v1/ endpoints for external AI agents
     "routes_search",          # Universal search across all record types
     "routes_intelligence",    # Intelligence layer: documents, NL query, compliance matrix
