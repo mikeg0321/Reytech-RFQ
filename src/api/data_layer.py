@@ -525,6 +525,18 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
             # smoke 2026-04-19.
             _pc_cache = None
             _pc_cache_time = 0
+            # Also invalidate the home page combined-init cache. 2026-05-06
+            # incident: Mike marked a PC as duplicate but "Ready to Review"
+            # stayed at 2 for the full 90s cache window because /api/dashboard/init
+            # holds its own snapshot. Reach in defensively — module load order
+            # means the cache may not exist yet when this fires.
+            try:
+                from src.api.modules import routes_prd28 as _rprd
+                if hasattr(_rprd, "_dash_init_cache"):
+                    _rprd._dash_init_cache["data"] = None
+                    _rprd._dash_init_cache["ts"] = 0
+            except Exception as _e:
+                log.debug("dash_init_cache invalidation suppressed: %s", _e)
 
 
 def _save_price_checks(pcs, raise_on_error=False):
@@ -576,6 +588,13 @@ def _save_price_checks(pcs, raise_on_error=False):
             # Invalidate AFTER write commits (see _save_single_pc note).
             _pc_cache = None
             _pc_cache_time = 0
+            try:
+                from src.api.modules import routes_prd28 as _rprd
+                if hasattr(_rprd, "_dash_init_cache"):
+                    _rprd._dash_init_cache["data"] = None
+                    _rprd._dash_init_cache["ts"] = 0
+            except Exception as _e:
+                log.debug("dash_init_cache invalidation suppressed: %s", _e)
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):
