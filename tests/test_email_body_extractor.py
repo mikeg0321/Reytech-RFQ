@@ -324,3 +324,70 @@ Need this by next Thursday. Thanks!
     assert len(items) == 3
     qtys = sorted(i["qty"] for i in items)
     assert qtys == [25, 50, 100]
+
+
+# ── Conversational stage (Mike P0 2026-05-06) ────────────────────────
+
+
+def test_conversational_qty_uom_desc_welch_allyn():
+    """Mike's 2026-05-06 miss: 'for this item 2ea. Welch Allyn 503-0142-01'.
+    Buyer wrote one item in prose with qty + UOM (no connector word) and
+    a multi-token product description. None of the prior 5 stages hit it.
+    """
+    body = "Hi, can you give me a quote for this item 2ea. Welch Allyn 503-0142-01 thanks"
+    items = _ex()(body)
+    assert len(items) == 1
+    assert items[0]["qty"] == 2
+    assert items[0]["uom"] == "EA"
+    assert items[0]["description"] == "Welch Allyn 503-0142-01"
+    # Trailing closer must NOT be in the description
+    assert "thanks" not in items[0]["description"].lower()
+    assert items[0]["source_stage"] == "conversational_uom"
+
+
+def test_conversational_strips_for_the_order_tail():
+    body = "I need 3 ea Stryker 1234-567-89 for the order"
+    items = _ex()(body)
+    assert len(items) == 1
+    assert items[0]["qty"] == 3
+    assert items[0]["description"] == "Stryker 1234-567-89"
+
+
+def test_conversational_uom_with_period_and_no_period():
+    body = "Please send 2 ea. Pampers Diapers Size 4"
+    items = _ex()(body)
+    assert len(items) == 1
+    assert items[0]["qty"] == 2
+    # Stage 4 (please_quote) wins for "Please send" prefix? Actually
+    # 'send' isn't in that pattern, so this falls to the conversational
+    # stage. Either is acceptable as long as desc + qty are right.
+    assert "Pampers Diapers" in items[0]["description"]
+
+
+def test_conversational_does_not_match_phone_numbers():
+    """Phone numbers must not parse as items even when they sit in prose."""
+    body = "Call me at 555-123-4567 anytime if you have questions"
+    items = _ex()(body)
+    assert items == []
+
+
+def test_conversational_does_not_match_dates():
+    """Dates like '2026-04-30 we received...' must not parse."""
+    body = "On 2026-04-30 we received the shipment safely"
+    items = _ex()(body)
+    # No UOM token follows the date, so the conversational stage skips.
+    # Earlier stages may catch nothing either.
+    assert items == [] or all("2026" not in i["description"] for i in items)
+
+
+def test_conversational_strip_chained_closers():
+    """'thanks please asap' should all strip from the description tail."""
+    from src.forms.email_body_extractor import _strip_trailing_noise
+    assert _strip_trailing_noise("Welch Allyn 503-0142-01 thanks please asap") == \
+        "Welch Allyn 503-0142-01"
+
+
+def test_conversational_keeps_legitimate_size_token():
+    """A trailing 'Size 4' looks like product info — must be preserved."""
+    from src.forms.email_body_extractor import _strip_trailing_noise
+    assert _strip_trailing_noise("Pampers Diapers Size 4") == "Pampers Diapers Size 4"

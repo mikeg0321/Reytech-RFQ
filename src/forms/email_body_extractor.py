@@ -181,6 +181,29 @@ _BULLET_QTY_DESC = re.compile(
     re.IGNORECASE,
 )
 
+# Conversational: "for this item 2ea. Welch Allyn 503-0142-01"
+# Mike P0 2026-05-06: a buyer wrote one item in prose with qty + UOM
+# (no connector word like "x"/"of"/"each") immediately followed by a
+# multi-token product description / brand + MFG#. The 5 prior stages
+# all required either tabular structure, a bullet, a "please quote"
+# marker, or an "x"/"of"/"each" connector, so the line silently
+# extracted zero items.
+#
+# The signature is qty + UOM-token (with optional trailing period)
+# + at least 2 description tokens. UOM is mandatory because that's
+# what disambiguates this from generic prose; the inline_qty_x_desc
+# stage handles the no-UOM case via the connector requirement.
+_CONVERSATIONAL_QTY_UOM_DESC = re.compile(
+    r"(?:^|[\s,;:.])"                  # boundary
+    r"(\d{1,5})"                        # qty
+    r"\s*"                              # optional space (e.g. "2ea")
+    r"(" + _UOM_TOKENS + r")\.?"        # mandatory UOM, optional trailing period
+    r"\s+"                              # space before description
+    r"([A-Za-z][\w\-/.]*"               # first description token
+    r"(?:\s+[\w\-/.]+){1,7})",          # 1-7 more tokens (brand + product + MFG#)
+    re.IGNORECASE,
+)
+
 
 # Lines that SHOULD NOT match — header rows, disclaimer fragments, etc.
 _NEGATIVE_TOKENS = re.compile(
@@ -192,6 +215,32 @@ _NEGATIVE_TOKENS = re.compile(
 
 # Description-quality filter: at least one alphabetic token of length >= 3
 _DESC_QUALITY = re.compile(r"\b[A-Za-z]{3,}\b")
+
+# Trailing email-prose noise to strip from extracted descriptions: closers
+# ("thanks", "asap"), context tails ("for the order", "for the patient"),
+# and timing words ("next week"). Without this, conversational matches like
+# "2ea Welch Allyn 503-0142-01 thanks" leak the closer into the description.
+_TRAILING_NOISE = re.compile(
+    r"\s+(?:"
+    r"thanks?|thx|please|appreciate|kindly|"
+    r"asap|soon|today|tomorrow|"
+    r"for\s+(?:the\s+|this\s+)?(?:order|job|project|patient|location|facility|item)s?|"
+    r"next\s+(?:week|month|day)|"
+    r"this\s+(?:week|month)"
+    r")\b[\s.,;!?]*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_trailing_noise(desc: str) -> str:
+    """Strip trailing email-prose closers from an extracted description.
+    Loops because chained closers exist ("thanks please asap")."""
+    prev = None
+    cur = desc
+    while prev != cur:
+        prev = cur
+        cur = _TRAILING_NOISE.sub("", cur).rstrip(" .,;!?")
+    return cur
 
 
 def _is_real_description(desc: str) -> bool:
@@ -305,6 +354,29 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
                                         source_stage="please_quote"))
     if items:
         log.info("body_extract: please_quote found %d items", len(items))
+        return items
+
+    # Stage 4.5: conversational qty + UOM + description (no connector)
+    # Catches "for this item 2ea. Welch Allyn 503-0142-01" — buyer prose
+    # where a single item is named with qty + UOM but no "x"/"of"/"each"
+    # connector word. UOM is the structural anchor.
+    seen_descs_conv = set()
+    for ln in lines:
+        if _NEGATIVE_TOKENS.search(ln):
+            continue
+        for m in _CONVERSATIONAL_QTY_UOM_DESC.finditer(ln):
+            qty = int(m.group(1))
+            uom = m.group(2).upper()
+            desc = _strip_trailing_noise(m.group(3).strip())
+            key = desc.lower()
+            if key in seen_descs_conv:
+                continue
+            if 1 <= qty <= 99999 and _is_real_description(desc):
+                items.append(_make_item(qty, desc, item_no=len(items) + 1,
+                                        uom=uom, source_stage="conversational_uom"))
+                seen_descs_conv.add(key)
+    if items:
+        log.info("body_extract: conversational_uom found %d items", len(items))
         return items
 
     # Stage 5: inline qty x desc — most permissive, last resort
