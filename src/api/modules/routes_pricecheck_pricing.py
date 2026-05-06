@@ -794,58 +794,65 @@ def api_pricechecks_list():
 @auth_required
 @safe_route
 def api_pricecheck_mark_sent(pcid):
-    """Mark PC as sent — creates versioned document record in DB."""
-    pcs = _load_price_checks()
-    if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
-    pc = pcs[pcid]
+    """Mark PC as sent — creates versioned document record in DB.
+
+    Concurrency: load → mutate → save under `_save_pcs_lock` so the
+    final autosave's pricing edits aren't lost when mark-sent races
+    against them. (Same race shape as PR #778.)
+    """
     data = request.get_json(force=True, silent=True) or {}
-    
-    now = datetime.now().isoformat()
-    _transition_status(pc, "sent", actor="user", 
-                      notes=data.get("notes", "704 sent to requestor"))
-    pc["sent_at"] = now
-    pc["award_status"] = "pending"
-    pc["sent_to"] = data.get("sent_to", pc.get("requestor", ""))
-    pc["sent_method"] = data.get("method", "email")
-    
-    # Create versioned document record
-    doc_id = 0
-    output_pdf = pc.get("output_pdf", "")
-    if output_pdf and os.path.exists(output_pdf):
-        import shutil
-        # Copy to versioned filename: PC_BLS_IT_{pcid}_v1_sent_20260224.pdf
-        pc_num = pc.get("pc_number", "") or ""
-        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
-        safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
-        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Get next version
-        try:
-            from src.core.db import get_sent_documents
-            existing = get_sent_documents(pcid)
-            ver = len(existing) + 1
-        except Exception:
-            ver = 1
-        
-        versioned_name = f"PC_{safe_name}_v{ver}_sent_{date_str}.pdf"
-        versioned_path = os.path.join(DATA_DIR, versioned_name)
-        shutil.copy2(output_pdf, versioned_path)
-        
-        # Store in DB with full item snapshot
-        try:
-            from src.core.db import create_sent_document
-            doc_id = create_sent_document(
-                pc_id=pcid, filepath=versioned_path,
-                items=pc.get("items", []),
-                header=pc.get("parsed", {}).get("header", {}),
-                notes=data.get("notes", "Initial send"),
-                created_by="user"
-            )
-            pc["current_doc_id"] = doc_id
-        except Exception as e:
-            log.warning("sent_document DB write failed: %s", e)
-    
-    _save_single_pc(pcid, pc)
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        pcs = _load_price_checks()
+        if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
+        pc = pcs[pcid]
+
+        now = datetime.now().isoformat()
+        _transition_status(pc, "sent", actor="user",
+                          notes=data.get("notes", "704 sent to requestor"))
+        pc["sent_at"] = now
+        pc["award_status"] = "pending"
+        pc["sent_to"] = data.get("sent_to", pc.get("requestor", ""))
+        pc["sent_method"] = data.get("method", "email")
+
+        # Create versioned document record
+        doc_id = 0
+        output_pdf = pc.get("output_pdf", "")
+        if output_pdf and os.path.exists(output_pdf):
+            import shutil
+            # Copy to versioned filename: PC_BLS_IT_{pcid}_v1_sent_20260224.pdf
+            pc_num = pc.get("pc_number", "") or ""
+            safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+            safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
+            date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Get next version
+            try:
+                from src.core.db import get_sent_documents
+                existing = get_sent_documents(pcid)
+                ver = len(existing) + 1
+            except Exception:
+                ver = 1
+
+            versioned_name = f"PC_{safe_name}_v{ver}_sent_{date_str}.pdf"
+            versioned_path = os.path.join(DATA_DIR, versioned_name)
+            shutil.copy2(output_pdf, versioned_path)
+
+            # Store in DB with full item snapshot
+            try:
+                from src.core.db import create_sent_document
+                doc_id = create_sent_document(
+                    pc_id=pcid, filepath=versioned_path,
+                    items=pc.get("items", []),
+                    header=pc.get("parsed", {}).get("header", {}),
+                    notes=data.get("notes", "Initial send"),
+                    created_by="user"
+                )
+                pc["current_doc_id"] = doc_id
+            except Exception as e:
+                log.warning("sent_document DB write failed: %s", e)
+
+        _save_single_pc(pcid, pc)
 
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
@@ -1092,14 +1099,17 @@ def api_pc_log_follow_up(pcid):
 @safe_route
 def api_pc_mark_no_response(pcid):
     """Mark a PC as not responding after follow-up attempts."""
-    pcs = _load_price_checks()
-    pc = pcs.get(pcid)
-    if not pc:
-        return jsonify({"ok": False, "error": "PC not found"})
+    # RMW under lock — see PR #778.
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
 
-    _transition_status(pc, "not_responding", actor="user",
-                       notes=f"No response after {pc.get('follow_up_count', 0)} follow-ups")
-    _save_single_pc(pcid, pc)
+        _transition_status(pc, "not_responding", actor="user",
+                           notes=f"No response after {pc.get('follow_up_count', 0)} follow-ups")
+        _save_single_pc(pcid, pc)
     return jsonify({"ok": True, "status": "not_responding"})
 
 
@@ -1425,12 +1435,15 @@ def pricecheck_document_save(pcid):
 @safe_route
 def api_pc_mark_auto_priced(pcid):
     """Mark a PC as auto-priced so the on-load auto-pricing doesn't re-run."""
-    pcs = _load_price_checks()
-    pc = pcs.get(pcid)
-    if not pc:
-        return jsonify({"ok": False, "error": "PC not found"})
-    pc["auto_priced"] = True
-    _save_single_pc(pcid, pc)
+    # RMW under lock — see PR #778.
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+        pc["auto_priced"] = True
+        _save_single_pc(pcid, pc)
     return jsonify({"ok": True})
 
 

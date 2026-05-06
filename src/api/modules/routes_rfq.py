@@ -912,21 +912,25 @@ def api_awards_purge_dupes():
 @safe_route
 def api_rfq_mark_won(rid):
     """Mark an RFQ as won with PO number."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "RFQ not found"}), 404
     data = request.get_json(force=True, silent=True) or {}
     po_number = data.get("po_number", "")
-    now = datetime.now().isoformat()
-    r["status"] = "won"
-    r["outcome"] = "won"
-    r["outcome_date"] = now
-    r["po_number"] = po_number
-    r["closed_at"] = now
-    r["closed_reason"] = f"Manually marked won — PO {po_number}" if po_number else "Manually marked won"
-    from src.api.dashboard import _save_single_rfq
-    _save_single_rfq(rid, r)
+    # RMW under lock: prevents two clicks from clobbering each other's
+    # po_number/closed_reason. (Same race shape as PR #778 autosave fix.)
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+        now = datetime.now().isoformat()
+        r["status"] = "won"
+        r["outcome"] = "won"
+        r["outcome_date"] = now
+        r["po_number"] = po_number
+        r["closed_at"] = now
+        r["closed_reason"] = f"Manually marked won — PO {po_number}" if po_number else "Manually marked won"
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
     # Log activity
     try:
         from src.api.dashboard import _log_crm_activity
@@ -1054,21 +1058,24 @@ def api_rfq_mark_won(rid):
 @safe_route
 def api_rfq_mark_lost(rid):
     """Mark an RFQ as lost."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "RFQ not found"}), 404
     data = request.get_json(force=True, silent=True) or {}
-    now = datetime.now().isoformat()
-    r["status"] = "lost"
-    r["outcome"] = "lost"
-    r["outcome_date"] = now
-    r["competitor_name"] = data.get("competitor", "")
-    r["competitor_price"] = data.get("competitor_price", "")
-    r["closed_at"] = now
-    r["closed_reason"] = data.get("reason", "Lost to competitor")
-    from src.api.dashboard import _save_single_rfq
-    _save_single_rfq(rid, r)
+    # RMW under lock — see PR #778 (autosave race).
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+        now = datetime.now().isoformat()
+        r["status"] = "lost"
+        r["outcome"] = "lost"
+        r["outcome_date"] = now
+        r["competitor_name"] = data.get("competitor", "")
+        r["competitor_price"] = data.get("competitor_price", "")
+        r["closed_at"] = now
+        r["closed_reason"] = data.get("reason", "Lost to competitor")
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
 
     # CRM Activity
     try:

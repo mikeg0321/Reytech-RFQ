@@ -232,14 +232,17 @@ def api_pc_enrichment_status(pcid):
 @safe_route
 def api_pricecheck_mark_won(pcid):
     """Manually mark PC as won — records to DB, catalog, CRM."""
-    pcs = _load_price_checks()
-    if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
     data = request.get_json(force=True, silent=True) or {}
-    pc = pcs[pcid]
-    _transition_status(pc, "sent", actor="user", notes=data.get("notes", "Won"))
-    pc.update({"award_status": "won",
-        "closed_at": datetime.now().isoformat(), "closed_reason": data.get("notes", "Won")})
-    _save_single_pc(pcid, pc)
+    # RMW under lock — see PR #778 (autosave race).
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        pcs = _load_price_checks()
+        if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
+        pc = pcs[pcid]
+        _transition_status(pc, "sent", actor="user", notes=data.get("notes", "Won"))
+        pc.update({"award_status": "won",
+            "closed_at": datetime.now().isoformat(), "closed_reason": data.get("notes", "Won")})
+        _save_single_pc(pcid, pc)
     try:
         upsert_price_check(pcid, pc)
     except Exception as _e:
@@ -389,20 +392,23 @@ def api_pricecheck_mark_won(pcid):
 @safe_route
 def api_pricecheck_mark_lost(pcid):
     """Mark PC as lost with competitor details — records to DB, competitor tracking."""
-    pcs = _load_price_checks()
-    if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
     data = request.get_json(force=True, silent=True) or {}
-    pc = pcs[pcid]
     comp_name = data.get("competitor_name", "Unknown")
-    _transition_status(pc, "not_responding", actor="user", 
-                      notes=f"Lost to {comp_name}")
-    pc.update({"award_status": "lost",
-        "competitor_name": comp_name,
-        "competitor_price": data.get("competitor_price", 0),
-        "competitor_po": data.get("po_number", ""),
-        "closed_at": datetime.now().isoformat(),
-        "closed_reason": f"Lost to {comp_name}"})
-    _save_single_pc(pcid, pc)
+    # RMW under lock — see PR #778 (autosave race).
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        pcs = _load_price_checks()
+        if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
+        pc = pcs[pcid]
+        _transition_status(pc, "not_responding", actor="user",
+                          notes=f"Lost to {comp_name}")
+        pc.update({"award_status": "lost",
+            "competitor_name": comp_name,
+            "competitor_price": data.get("competitor_price", 0),
+            "competitor_po": data.get("po_number", ""),
+            "closed_at": datetime.now().isoformat(),
+            "closed_reason": f"Lost to {comp_name}"})
+        _save_single_pc(pcid, pc)
     try:
         upsert_price_check(pcid, pc)
     except Exception as _e:
