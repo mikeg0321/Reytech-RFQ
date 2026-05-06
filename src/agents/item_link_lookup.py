@@ -128,7 +128,31 @@ def detect_supplier(url: str) -> str:
 
 
 def _extract_asin(url: str) -> str:
-    """Extract Amazon ASIN or ISBN from URL."""
+    """Extract Amazon ASIN or ISBN from URL.
+
+    Host-gated: only Amazon-family hosts. Without this gate, any URL with
+    a `/dp/<10-char>` or `/product/<10-char>` segment (Staples, Walmart,
+    HD Supply, even unrelated CDN paths) would mint a fake ASIN that the
+    rest of the pipeline then treats as Amazon — pulling Amazon catalog
+    data for a totally different product. Mike P0 2026-05-06.
+    """
+    try:
+        from urllib.parse import urlparse as _urlparse
+        host = (_urlparse(url).hostname or "").lower()
+    except Exception:
+        return ""
+    if not host:
+        return ""
+    is_amazon = (
+        host == "amazon.com"
+        or host.endswith(".amazon.com")
+        or host == "amzn.to"
+        or host == "amzn.com"
+        or host == "a.co"
+        or ("amazon." in host and host.split(".")[0] in ("www", "smile", "amazon"))
+    )
+    if not is_amazon:
+        return ""
     patterns = [
         r"/dp/([A-Z0-9]{10,13})",
         r"/gp/aw/d/([A-Z0-9]{10,13})",
@@ -1915,39 +1939,39 @@ def claude_product_lookup(url: str, supplier: str = "") -> dict:
     if not text:
         return {}
 
-    # Hallucination guard (mirrors claude_amazon_lookup ASIN check from
-    # PR #483). When web_search returns nothing useful for the URL,
-    # the model sometimes invents a totally different product. The
-    # full response trail (text + tool_use input + tool_result content)
-    # should reference the URL host (e.g. "hdsupplysolutions.com")
-    # since the prompt and tool_use both pin to the URL. If the host
-    # is nowhere in the conversation, discard the result.
-    full_trail = ""
+    # Hallucination guard. When web_search returns nothing useful for the
+    # URL, the model sometimes invents a totally different product. Earlier
+    # versions of this guard accepted ANY mention of the host root substring
+    # (e.g., "amazon") anywhere in the response trail — including free-form
+    # text where Claude can fabricate references to "I searched amazon.com"
+    # without actually calling a tool. Mike P0 2026-05-06: tighten to
+    # require the FULL host (e.g., "amazon.com", not just "amazon") to
+    # appear specifically in tool_use input or tool_result content — the
+    # only blocks that prove Claude actually grounded against the URL.
+    tool_evidence = ""
     for block in (data.get("content") or []):
         if isinstance(block, dict):
-            if block.get("type") == "text":
-                full_trail += block.get("text", "") or ""
-            elif block.get("type") == "tool_use":
-                full_trail += _json.dumps(block.get("input") or {})
+            if block.get("type") == "tool_use":
+                tool_evidence += _json.dumps(block.get("input") or {})
             elif block.get("type") == "tool_result":
                 _tc = block.get("content")
                 if isinstance(_tc, list):
                     for _b in _tc:
                         if isinstance(_b, dict) and _b.get("type") == "text":
-                            full_trail += _b.get("text", "") or ""
+                            tool_evidence += _b.get("text", "") or ""
                 elif isinstance(_tc, str):
-                    full_trail += _tc
+                    tool_evidence += _tc
     try:
         from urllib.parse import urlparse as _urlparse
         _host = (_urlparse(url).hostname or "").lower()
-        # "hdsupplysolutions.com" → "hdsupplysolutions"
-        _host_root = _host.split(".")[-2] if _host.count(".") >= 1 else _host
     except Exception:
         _host = ""
-        _host_root = ""
-    if _host_root and len(_host_root) >= 4 and _host_root not in full_trail.lower():
+    # Strip leading "www." so "amazon.com" matches against trails that
+    # quote "www.amazon.com" (or vice-versa).
+    _host_norm = _host[4:] if _host.startswith("www.") else _host
+    if _host_norm and len(_host_norm) >= 6 and _host_norm not in tool_evidence.lower():
         log.warning(
-            "claude_product_lookup: host %r absent from response trail "
+            "claude_product_lookup: host %r absent from tool evidence "
             "(likely hallucinated product) — discarding result",
             _host or url[:60],
         )

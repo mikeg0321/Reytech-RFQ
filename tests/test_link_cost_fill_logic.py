@@ -93,24 +93,28 @@ def test_pc_description_only_fills_in_substitute_mode():
     assert "isSubstitute || !cur || cur.length < 3" not in source
 
 
-def test_pc_cost_blocked_when_description_missing():
-    """PC mode: when buyer description is empty/<3 chars, we cannot compute
+def test_cost_blocked_when_description_missing():
+    """When buyer description is empty/<3 chars, we cannot compute
     token-overlap match score (default _matchScore=100 would let any URL
     fill cost). Cost-fill must be blocked unless server-side AI verified
     the match (Claude semantic match >= 0.70).
 
-    Without this gate, a URL paste on a fresh manual row stamps the wrong
+    PR-5 (2026-05-06): symmetric across PC and RFQ — manual-add RFQ rows
+    have empty description too, same contamination risk. Renamed the
+    sentinel from _pcDescMissing → _origDescMissing and dropped the
+    isPC-only gate.
+
+    Without this guard, a URL paste on a fresh manual row stamps the wrong
     product's cost on a buyer line and rides into catalog write-back.
-    (Mike P0 2026-05-06.)
     """
     import os
     full = os.path.join(os.path.dirname(__file__), "..", "src/static/shared_item_utils.js")
     with open(full, encoding="utf-8") as f:
         source = f.read()
-    # New gate must check both PC-mode and missing description.
-    assert "_pcDescMissing = isPC && (!_pcDescV || _pcDescV.length < 3)" in source
+    # Guard runs for BOTH PC and RFQ — old PC-only gate must be gone.
+    assert "_pcDescMissing = isPC && (!_pcDescV || _pcDescV.length < 3)" not in source
     # Block path must require AI verification to bypass.
-    assert "_pcDescMissing && !_aiVerified" in source
+    assert "_origDescMissing && !_aiVerified" in source
     assert "type description first to verify URL match" in source
 
 

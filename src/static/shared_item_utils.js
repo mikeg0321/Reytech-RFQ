@@ -242,6 +242,14 @@ function _applyLinkData(idx, d, mode) {
   var isPC = (mode === 'pc');
   var isAmazon = d.supplier === 'Amazon';
 
+  // CAPTURE _origDesc BEFORE any DOM mutation. The match-score gate below
+  // compares buyer description vs lookup title — but if we read the desc
+  // input AFTER overwriting it with the lookup's own title, we score the
+  // title against itself and get 100%, defeating the gate. (Mike P0
+  // 2026-05-06: "URL paste — same Anker pricing keeps showing up".)
+  var _origDescEl = document.querySelector('[name="desc_' + idx + '"]');
+  var _origDesc = _origDescEl ? (_origDescEl.value || '').trim() : '';
+
   // S&S Worldwide: always open popup for price extraction via extension
   // (server can't scrape S&S due to Cloudflare, extension reads the real page)
   var _url = d.url || '';
@@ -249,26 +257,46 @@ function _applyLinkData(idx, d, mode) {
     window.open(_url, '_ssww_' + idx, 'width=500,height=400,left=50,top=50');
   }
 
+  // Compute match score up-front against the ORIGINAL description, so it
+  // governs every gate below regardless of read order.
+  var _matchScore = 100;
+  var _lookupT = d.title || d.description || '';
+  if (_lookupT && _origDesc && typeof _productMatchScore === 'function') {
+    _matchScore = _productMatchScore(_origDesc, _lookupT);
+  }
+  var _serverConf = parseFloat(d.server_confidence) || 0;
+  var _serverMatch = !!d.server_match;
+  var _aiVerified = (_serverMatch && _serverConf >= 0.70);
+  var _origDescMissing = (!_origDesc || _origDesc.length < 3);
+
   // On PC: NEVER overwrite description or MFG# — buyer's 704 data is sacred.
   // Only overwrite if substitute checkbox is checked (replacement item mode).
-  // On RFQ: Amazon overwrites (structured format), others only if empty.
+  // On RFQ: Amazon overwrites (structured format), others only if empty AND
+  // match score >= 40 AND original was empty/short. Without the score gate,
+  // a wrong-product URL on a manual-add RFQ row would stamp the wrong title
+  // (incident: "Anker Soundcore Life Q20" appearing on a medical bracelet
+  // line). The original desc takes precedence even when short.
   var isSubstitute = false;
   if (isPC) {
     var subEl = document.querySelector('[name="substitute_' + idx + '"]');
     isSubstitute = subEl && subEl.checked;
   }
 
-  var descEl = document.querySelector('[name="desc_' + idx + '"]');
+  var descEl = _origDescEl;
   if (descEl && d.description) {
-    var cur = (descEl.value || '').trim();
     // PC: ONLY fill if substitute mode. Buyer's 704 description is sacred —
     // even on empty fields, URL-derived descriptions can stamp wrong-product
     // text that then leaks into the catalog write-back. Operators must type
     // their own description on manual-add rows. (Mike P0 2026-05-06.)
-    // RFQ: always overwrite when lookup returns longer/better description.
+    // RFQ: only fill if original was empty/short. Amazon's structured format
+    // is preferred only when match score passes the same gate as cost.
+    // Never blindly overwrite a short-but-typed buyer description with a
+    // longer-but-wrong lookup title.
+    var rfqShouldFill = !_origDesc || _origDesc.length < 5;
+    var rfqMatchOK = (_matchScore >= 40) || _aiVerified || _origDescMissing;
     var shouldUpdateDesc = isPC
       ? isSubstitute
-      : (!cur || cur.length < 5 || d.description.length > cur.length || isAmazon);
+      : (rfqShouldFill && rfqMatchOK);
     if (shouldUpdateDesc) {
       var descWasReadOnly = descEl.readOnly;
       descEl.readOnly = false; // temporarily unlock for auto-fill
@@ -276,6 +304,8 @@ function _applyLinkData(idx, d, mode) {
       descEl.readOnly = descWasReadOnly; // restore lock state
       filled.push('desc');
       if (descEl.tagName === 'TEXTAREA') { descEl.style.height = 'auto'; descEl.style.height = Math.min(descEl.scrollHeight, 120) + 'px'; }
+    } else if (!isPC && rfqShouldFill && !rfqMatchOK) {
+      filled.push('desc BLOCKED — match only ' + _matchScore + '% (URL likely wrong product)');
     }
   }
 
@@ -299,18 +329,6 @@ function _applyLinkData(idx, d, mode) {
 
   // Cost: update when URL pasted, but NOT if match confidence is too low
   var costEl = document.querySelector('[name="cost_' + idx + '"]');
-  // Pre-compute match score to gate cost fill
-  var _matchScore = 100;
-  var _lookupT = d.title || d.description || '';
-  var _pcDescE = document.querySelector('[name="desc_' + idx + '"]');
-  var _pcDescV = _pcDescE ? (_pcDescE.value || '').trim() : '';
-  if (_lookupT && _pcDescV && typeof _productMatchScore === 'function') {
-    _matchScore = _productMatchScore(_pcDescV, _lookupT);
-  }
-  // Server-side AI confidence (Claude semantic match) can override token score
-  var _serverConf = parseFloat(d.server_confidence) || 0;
-  var _serverMatch = !!d.server_match;
-  var _aiVerified = (_serverMatch && _serverConf >= 0.70);
 
   if (costEl && d.price && d.price > 0) {
     var existingCost = parseFloat(costEl.value) || 0;
@@ -322,14 +340,15 @@ function _applyLinkData(idx, d, mode) {
     // the product details are hallucinated. Description-vs-title token
     // overlap is the last-line safety net (Mike P0 2026-05-05: "another
     // URL is still bringing over the anker product").
-    // PC mode: when buyer description is missing/short, we can't compute a
-    // token-overlap match score — the default _matchScore=100 would let any
-    // URL fill cost. Require server-side AI verification (Claude semantic
-    // match >= 0.70) before filling cost. Otherwise the wrong product's
-    // cost gets stamped on a buyer line and rides into catalog write-back.
-    // (Mike P0 2026-05-06: "URL paste — don't write wrong-product to catalog".)
-    var _pcDescMissing = isPC && (!_pcDescV || _pcDescV.length < 3);
-    if (_pcDescMissing && !_aiVerified) {
+    // PC + RFQ mode: when buyer description is missing/short, we can't
+    // compute a token-overlap match score — the default _matchScore=100
+    // would let any URL fill cost. Require server-side AI verification
+    // (Claude semantic match >= 0.70) before filling cost. Otherwise the
+    // wrong product's cost gets stamped on a buyer line and rides into
+    // catalog write-back. (Mike P0 2026-05-06: "URL paste — don't write
+    // wrong-product to catalog". Symmetric across PC and RFQ — RFQ
+    // operators paste URLs from manual-add rows just like PC.)
+    if (_origDescMissing && !_aiVerified) {
       filled.push('cost BLOCKED — type description first to verify URL match');
     } else if (_matchScore < 30) {
       filled.push('cost BLOCKED — match only ' + _matchScore + '% (URL likely returned wrong product)');
