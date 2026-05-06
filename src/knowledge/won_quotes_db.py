@@ -671,6 +671,102 @@ def ingest_scprs_result(
     return record
 
 
+def record_quote_won(record: dict, doc_type: str) -> int:
+    """Record a won PC or RFQ's line items into the won_quotes KB.
+
+    PR-4 from the 2026-05-06 audit. Both PC mark-won (in
+    `routes_pricecheck.py:_ingest_pc_to_won_quotes`) and RFQ mark-won
+    (in `routes_rfq.py:api_rfq_mark_won`) MUST call this — without it,
+    every win we ship is invisible to the inline buyer-last-won lookup
+    on rfq_detail / pc_detail (PR-3).
+
+    Single substrate helper means future fixes to the won-knowledge
+    write path land once and apply to both sides. New PRs that add
+    side-specific ingestion logic should be funneled here instead.
+
+    Args:
+        record: the PC dict (from `_load_price_checks`) or the RFQ
+                dict (from `load_rfqs`). Must have `items` /
+                `line_items` and `institution` / `agency`.
+        doc_type: "pc" or "rfq" — controls which fields to read for
+                  pc_number / solicitation_number / unit_price aliases.
+
+    Returns:
+        Count of items written. 0 if the record has no biddable items
+        or all writes failed (logged).
+    """
+    if doc_type not in ("pc", "rfq"):
+        log.warning("record_quote_won: unknown doc_type %r", doc_type)
+        return 0
+
+    if doc_type == "pc":
+        items = record.get("items") or record.get("line_items") or []
+        po_prefix = "PC-"
+        po_id = record.get("pc_number", "") or record.get("id", "")
+        source_tag = "price_check"
+    else:  # rfq
+        items = record.get("line_items") or record.get("items") or []
+        po_prefix = "RFQ-"
+        # Prefer the actual PO number when the operator provided it on
+        # mark-won (the buyer-side identifier). Fall back to the
+        # solicitation # / record id so the row still has a key.
+        po_id = (record.get("po_number")
+                 or record.get("solicitation_number")
+                 or record.get("reytech_quote_number")
+                 or record.get("id", ""))
+        source_tag = "rfq_won"
+
+    institution = (record.get("institution")
+                   or record.get("agency")
+                   or "")
+
+    ingested = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("no_bid"):
+            continue
+        # Read the unit price using the same alias chain
+        # `pricing_math.canonical_unit_price` would. Both PC and RFQ
+        # naming covered.
+        pricing = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
+        price = (item.get("unit_price")
+                 or item.get("price_per_unit")
+                 or pricing.get("recommended_price")
+                 or pricing.get("bid_price")
+                 or 0)
+        try:
+            price = float(price or 0)
+        except (TypeError, ValueError):
+            price = 0
+        if price <= 0:
+            continue
+        desc = (item.get("description") or "").strip()
+        if not desc:
+            continue
+        item_no = (item.get("item_number")
+                   or item.get("part_number")
+                   or item.get("mfg_number") or "")
+        try:
+            ingest_scprs_result(
+                po_number=f"{po_prefix}{po_id}",
+                item_number=str(item_no),
+                description=desc,
+                unit_price=price,
+                quantity=float(item.get("qty") or item.get("quantity") or 1),
+                supplier="Reytech Inc.",
+                department=institution,
+                award_date=datetime.now().strftime("%Y-%m-%d"),
+                source=source_tag,
+            )
+            ingested += 1
+        except Exception as e:
+            log.warning("record_quote_won %s line write: %s", doc_type, e)
+    log.info("record_quote_won: ingested %d/%d items from %s %s",
+             ingested, len(items), doc_type, po_id)
+    return ingested
+
+
 def ingest_scprs_bulk(results: list) -> dict:
     """
     Bulk ingest SCPRS results.
