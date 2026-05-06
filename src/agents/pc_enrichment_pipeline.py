@@ -766,7 +766,11 @@ def _run_pipeline(pc_id: str, force: bool):
                         p["amazon_price"] = _price
                         p["amazon_url"] = _url
                         p["amazon_title"] = _prod_name
-                    if _url and (not it.get("item_link") or _grok_conf > _best_conf):
+                    # Same operator-protection rule as cost: only fill item_link
+                    # when slot is empty. Grok's self-confidence doesn't license
+                    # overwriting the operator-pasted URL. (Sibling to the cost
+                    # fix at line ~749. Mike P0 2026-05-06.)
+                    if _url and not it.get("item_link"):
                         it["item_link"] = _url
                         it["item_supplier"] = result.get("supplier", "Amazon")
                     # Catalog write-back (flywheel)
