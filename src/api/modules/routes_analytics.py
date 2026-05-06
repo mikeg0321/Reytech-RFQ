@@ -1597,44 +1597,52 @@ def convert_pc_to_rfq(pcid):
 
     This is a status + DB change — the PC record IS the RFQ data.
     No field remapping. Same items, same prices, same everything.
+
+    Concurrency: holds both PC and RFQ save locks for the entire
+    load-convert-save sequence (PR #778 race shape, 2-store variant).
+    Without this, a parallel autosave on the source PC could mutate the
+    PC dict that this conversion is mid-snapshot of, leaving a wrong
+    pricing state on the new RFQ.
     """
-    pcs = _load_price_checks()
-    pc = pcs.get(pcid)
-    if not pc:
-        return jsonify({"ok": False, "error": "PC not found"}), 404
+    from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+    with _save_pcs_lock, _save_rfqs_lock:
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"}), 404
 
-    # Fix-C (2026-04-24): observability for race-fence — log the most
-    # recent `/save-prices` timestamp so a regression where Convert
-    # snapshots stale state is debuggable from logs alone (incident
-    # f81c4e9b: convert pulled $329.92 state instead of operator's
-    # restored $2,252.21). Client also calls `_flushPcAutosave()`
-    # before POSTing here to drain the in-flight save.
-    log.info(
-        "CONVERT %s: last_save_at=%s last_save_seq=%s items=%d agency=%s",
-        pcid,
-        pc.get("last_save_at", "<never>"),
-        pc.get("last_save_seq", 0),
-        len(pc.get("items", []) or []),
-        pc.get("agency_key", "<none>"),
-    )
+        # Fix-C (2026-04-24): observability for race-fence — log the most
+        # recent `/save-prices` timestamp so a regression where Convert
+        # snapshots stale state is debuggable from logs alone (incident
+        # f81c4e9b: convert pulled $329.92 state instead of operator's
+        # restored $2,252.21). Client also calls `_flushPcAutosave()`
+        # before POSTing here to drain the in-flight save.
+        log.info(
+            "CONVERT %s: last_save_at=%s last_save_seq=%s items=%d agency=%s",
+            pcid,
+            pc.get("last_save_at", "<never>"),
+            pc.get("last_save_seq", 0),
+            len(pc.get("items", []) or []),
+            pc.get("agency_key", "<none>"),
+        )
 
-    rfq_id, rfq_data, files_copied, agency_info = _convert_single_pc_to_rfq(pcid, pc)
-    _agency_key = agency_info["agency_key"]
-    _agency_cfg = agency_info["agency_cfg"]
-    _req_forms = agency_info["req_forms"]
-    _conversion_warnings = agency_info["warnings"]
+        rfq_id, rfq_data, files_copied, agency_info = _convert_single_pc_to_rfq(pcid, pc)
+        _agency_key = agency_info["agency_key"]
+        _agency_cfg = agency_info["agency_cfg"]
+        _req_forms = agency_info["req_forms"]
+        _conversion_warnings = agency_info["warnings"]
 
-    # ── Save to RFQ store ────────────────────────────────────────────────
-    rfqs = load_rfqs()
-    rfqs[rfq_id] = rfq_data
-    _save_single_rfq(rfq_id, rfq_data)
+        # ── Save to RFQ store ────────────────────────────────────────────────
+        rfqs = load_rfqs()
+        rfqs[rfq_id] = rfq_data
+        _save_single_rfq(rfq_id, rfq_data)
 
-    # ── Update PC with link ──────────────────────────────────────────────
-    now = datetime.now().isoformat()
-    pc["linked_rfq_id"] = rfq_id
-    pc["linked_rfq_at"] = now
-    pc["converted_to_rfq"] = True
-    _save_single_pc(pcid, pc)
+        # ── Update PC with link ──────────────────────────────────────────────
+        now = datetime.now().isoformat()
+        pc["linked_rfq_id"] = rfq_id
+        pc["linked_rfq_at"] = now
+        pc["converted_to_rfq"] = True
+        _save_single_pc(pcid, pc)
 
     # ── Audit logging ────────────────────────────────────────────────────
     item_count = len(rfq_data.get("line_items", rfq_data.get("items", [])))

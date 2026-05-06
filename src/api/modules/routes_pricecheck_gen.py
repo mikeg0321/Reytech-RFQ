@@ -229,46 +229,51 @@ def api_bundle_send(bundle_id):
 def api_bundle_convert_each(bundle_id):
     """Convert each PC in a bundle into its own RFQ. All RFQs get bundle_id for sibling awareness."""
     try:
-        bundle_pcs = _load_bundle_pcs(bundle_id)
-        if not bundle_pcs:
-            return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
+        # Hold both locks for the bundle conversion. Without these, a parallel
+        # PC autosave or concurrent click could race the read of
+        # `converted_to_rfq` and create duplicate RFQs for the same PC.
+        from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+        with _save_pcs_lock, _save_rfqs_lock:
+            bundle_pcs = _load_bundle_pcs(bundle_id)
+            if not bundle_pcs:
+                return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
 
-        from src.api.modules.routes_analytics import _convert_single_pc_to_rfq
-        from src.api.dashboard import _save_single_rfq
+            from src.api.modules.routes_analytics import _convert_single_pc_to_rfq
+            from src.api.dashboard import _save_single_rfq
 
-        created = []
-        now = datetime.now().isoformat()
+            created = []
+            now = datetime.now().isoformat()
 
-        for pc in bundle_pcs:
-            pcid = pc["id"]
-            if pc.get("converted_to_rfq"):
-                created.append({"pc_id": pcid, "rfq_id": pc.get("linked_rfq_id", ""),
-                                "skipped": True, "reason": "already converted"})
-                continue
+            for pc in bundle_pcs:
+                pcid = pc["id"]
+                if pc.get("converted_to_rfq"):
+                    created.append({"pc_id": pcid, "rfq_id": pc.get("linked_rfq_id", ""),
+                                    "skipped": True, "reason": "already converted"})
+                    continue
 
-            rfq_id, rfq_data, files_copied = _convert_single_pc_to_rfq(pcid, pc)
-            _save_single_rfq(rfq_id, rfq_data)
+                rfq_id, rfq_data, files_copied = _convert_single_pc_to_rfq(pcid, pc)
+                _save_single_rfq(rfq_id, rfq_data)
 
-            # Update PC with link
-            pc["linked_rfq_id"] = rfq_id
-            pc["linked_rfq_at"] = now
-            pc["converted_to_rfq"] = True
-            _save_single_pc(pc["id"], pc)
+                # Update PC with link
+                pc["linked_rfq_id"] = rfq_id
+                pc["linked_rfq_at"] = now
+                pc["converted_to_rfq"] = True
+                _save_single_pc(pc["id"], pc)
 
-            created.append({"pc_id": pcid, "rfq_id": rfq_id,
-                            "items": len(rfq_data.get("line_items", [])),
-                            "url": f"/rfq/{rfq_id}"})
+                created.append({"pc_id": pcid, "rfq_id": rfq_id,
+                                "items": len(rfq_data.get("line_items", [])),
+                                "url": f"/rfq/{rfq_id}"})
 
-        # Cross-reference sibling RFQ IDs on each created RFQ
-        rfq_ids = [c["rfq_id"] for c in created if not c.get("skipped") and c.get("rfq_id")]
-        if len(rfq_ids) > 1:
-            from src.api.dashboard import load_rfqs
-            rfqs = load_rfqs()
-            for rid in rfq_ids:
-                rfq = rfqs.get(rid)
-                if rfq:
-                    rfq["sibling_rfq_ids"] = [r for r in rfq_ids if r != rid]
-                    _save_single_rfq(rid, rfq)
+            # Cross-reference sibling RFQ IDs on each created RFQ
+            rfq_ids = [c["rfq_id"] for c in created if not c.get("skipped") and c.get("rfq_id")]
+            if len(rfq_ids) > 1:
+                from src.api.dashboard import load_rfqs
+                rfqs = load_rfqs()
+                for rid in rfq_ids:
+                    rfq = rfqs.get(rid)
+                    if rfq:
+                        rfq["sibling_rfq_ids"] = [r for r in rfq_ids if r != rid]
+                        _save_single_rfq(rid, rfq)
 
         log.info("BUNDLE %s: converted %d PCs to separate RFQs", bundle_id, len(created))
         return jsonify({"ok": True, "created": created, "total": len(created)})
@@ -283,50 +288,53 @@ def api_bundle_convert_each(bundle_id):
 def api_bundle_convert_single(bundle_id):
     """Convert all PCs in a bundle into ONE combined RFQ with all items."""
     try:
-        bundle_pcs = _load_bundle_pcs(bundle_id)
-        if not bundle_pcs:
-            return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
+        # Hold both locks — same race shape as PR #778, two-store variant.
+        from src.api.data_layer import _save_pcs_lock, _save_rfqs_lock
+        with _save_pcs_lock, _save_rfqs_lock:
+            bundle_pcs = _load_bundle_pcs(bundle_id)
+            if not bundle_pcs:
+                return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
 
-        from src.core.pc_rfq_linker import auto_link_rfq_to_bundle
-        from src.api.dashboard import _save_single_rfq
-        import uuid as _uuid
+            from src.core.pc_rfq_linker import auto_link_rfq_to_bundle
+            from src.api.dashboard import _save_single_rfq
+            import uuid as _uuid
 
-        rfq_id = str(_uuid.uuid4())[:8]
-        now = datetime.now().isoformat()
+            rfq_id = str(_uuid.uuid4())[:8]
+            now = datetime.now().isoformat()
 
-        # Build RFQ from first PC's metadata
-        first_pc = bundle_pcs[0]
-        rfq_data = {
-            "id": rfq_id,
-            "solicitation_number": first_pc.get("pc_number", ""),
-            "status": "new",
-            "source": "bundle_conversion",
-            "requestor_name": first_pc.get("requestor", ""),
-            "requestor_email": first_pc.get("requestor_email", ""),
-            "department": first_pc.get("institution", ""),
-            "delivery_location": first_pc.get("ship_to", ""),
-            "due_date": first_pc.get("due_date", ""),
-            "line_items": [],  # will be populated by auto_link_rfq_to_bundle
-            "created_at": now,
-            "bundle_id": bundle_id,
-        }
+            # Build RFQ from first PC's metadata
+            first_pc = bundle_pcs[0]
+            rfq_data = {
+                "id": rfq_id,
+                "solicitation_number": first_pc.get("pc_number", ""),
+                "status": "new",
+                "source": "bundle_conversion",
+                "requestor_name": first_pc.get("requestor", ""),
+                "requestor_email": first_pc.get("requestor_email", ""),
+                "department": first_pc.get("institution", ""),
+                "delivery_location": first_pc.get("ship_to", ""),
+                "due_date": first_pc.get("due_date", ""),
+                "line_items": [],  # will be populated by auto_link_rfq_to_bundle
+                "created_at": now,
+                "bundle_id": bundle_id,
+            }
 
-        # Import items from ALL bundle PCs
-        pc_tuples = [(pc["id"], pc) for pc in bundle_pcs]
-        imported = auto_link_rfq_to_bundle(rfq_data, pc_tuples)
+            # Import items from ALL bundle PCs
+            pc_tuples = [(pc["id"], pc) for pc in bundle_pcs]
+            imported = auto_link_rfq_to_bundle(rfq_data, pc_tuples)
 
-        # Check if any items got priced
-        if any(li.get("price_per_unit") for li in rfq_data.get("line_items", [])):
-            rfq_data["status"] = "priced"
+            # Check if any items got priced
+            if any(li.get("price_per_unit") for li in rfq_data.get("line_items", [])):
+                rfq_data["status"] = "priced"
 
-        _save_single_rfq(rfq_id, rfq_data)
+            _save_single_rfq(rfq_id, rfq_data)
 
-        # Mark all PCs as converted
-        for pc in bundle_pcs:
-            pc["linked_rfq_id"] = rfq_id
-            pc["linked_rfq_at"] = now
-            pc["converted_to_rfq"] = True
-            _save_single_pc(pc["id"], pc)
+            # Mark all PCs as converted
+            for pc in bundle_pcs:
+                pc["linked_rfq_id"] = rfq_id
+                pc["linked_rfq_at"] = now
+                pc["converted_to_rfq"] = True
+                _save_single_pc(pc["id"], pc)
 
         log.info("BUNDLE %s: converted to single RFQ %s with %d items from %d PCs",
                  bundle_id, rfq_id, len(rfq_data.get("line_items", [])), len(bundle_pcs))
