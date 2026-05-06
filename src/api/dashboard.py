@@ -2360,14 +2360,31 @@ def process_rfq_email(rfq_email):
                             _trace.append(f"DEDUP: PC #{pc_num} already exists as {dup_id}")
                             result = {"dedup": True, "existing_id": dup_id}
                         else:
-                            # Cross-queue dedup
+                            # Cross-queue dedup. Mike P0 2026-05-06 (sol 10838974
+                            # double-classified as pc_5d8c296f AND rfq a5b09b56):
+                            # the previous check only compared pc_number → rfq
+                            # solicitation_number, so a PC with pc_number=AUTO_xxx
+                            # (no PRICE CHECK # on the form) couldn't match the
+                            # RFQ side. Now ALSO compare the email's solicitation
+                            # hint against the same RFQ sol# set, so the email-
+                            # level identity (which both sides see) is the bridge.
                             _rfq_sols = {v.get("solicitation_number") for v in rfqs.values() if v.get("solicitation_number")}
+                            _pc_sol_hint = rfq_email.get("solicitation_hint", "")
                             if pc_num in _rfq_sols:
                                 _trace.append(f"SKIP PC: pc_number '{pc_num}' already in RFQ queue")
+                                continue  # Skip this PDF, process next
+                            if _pc_sol_hint and _pc_sol_hint not in ("", "unknown", "RFQ") and _pc_sol_hint in _rfq_sols:
+                                _trace.append(f"SKIP PC: sol_hint '{_pc_sol_hint}' already in RFQ queue")
                                 continue  # Skip this PDF, process next
 
                             pcs[pc_id] = {
                                 "id": pc_id, "pc_number": pc_num,
+                                # Store the email-level solicitation hint as a
+                                # first-class field so cross-queue dedup at RFQ
+                                # creation can match against it (Mike P0 2026-
+                                # 05-06: pc_number is often AUTO_xxx and can't
+                                # carry the sol#).
+                                "solicitation_number": _pc_sol_hint or "",
                                 "institution": institution, "due_date": due_date,
                                 "requestor": header.get("requestor", "") or _buyer_name,
                                 "requestor_email": _buyer_email,
@@ -2584,12 +2601,22 @@ def process_rfq_email(rfq_email):
                 POLL_STATUS.setdefault("_email_traces", []).append(_trace)
                 t.ok("Skipped: email already processed as PC", pc_id=_xq_pid)
                 return None
-            # Match by solicitation/PC number
+            # Match by solicitation/PC number — check BOTH pc_number and the
+            # explicit solicitation_number field on the PC. The latter was
+            # added 2026-05-06 (Mike P0) so PCs with AUTO_xxx pc_numbers
+            # still carry the email's sol hint and dedup catches them.
             if _sol_hint_xq and _sol_hint_xq not in ("", "unknown", "RFQ"):
                 _xq_pcnum = (_xq_pc.get("pc_number") or "").strip()
+                _xq_pcsol = (_xq_pc.get("solicitation_number") or "").strip()
                 if _xq_pcnum and _xq_pcnum == _sol_hint_xq:
                     _trace.append(f"SKIP RFQ: sol_hint '{_sol_hint_xq}' matches PC {_xq_pid} pc_number")
                     log.info("Cross-queue dedup: sol %s matches PC %s — skipping RFQ", _sol_hint_xq, _xq_pid)
+                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    t.ok("Skipped: solicitation matches existing PC", pc_id=_xq_pid)
+                    return None
+                if _xq_pcsol and _xq_pcsol == _sol_hint_xq:
+                    _trace.append(f"SKIP RFQ: sol_hint '{_sol_hint_xq}' matches PC {_xq_pid} solicitation_number")
+                    log.info("Cross-queue dedup: sol %s matches PC %s solicitation_number — skipping RFQ", _sol_hint_xq, _xq_pid)
                     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
                     t.ok("Skipped: solicitation matches existing PC", pc_id=_xq_pid)
                     return None
