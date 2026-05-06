@@ -394,11 +394,26 @@ def _match_cdcr(text: str) -> dict:
 
     # Check for CDCR/CCHCS keyword + city/facility
     if any(kw in text for kw in ("cdcr", "cchcs", "corrections", "correctional", "prison", "state prison")):
+        # 2026-05-06 (Mike P0): try CDCR abbreviations BEFORE city keywords.
+        # pc_e06e345d had institution text "cdcr csp sac" (CSP-SAC after
+        # normalization) and fell through to generic "CDCR" because the
+        # _CDCR_CITIES map indexes by city name, not by abbreviation.
+        # Scan abbreviations (whole-word, longest-first to avoid CSP eating
+        # CSP-SAC) so the more specific facility code wins.
+        words = set(text.split())
+        for abbr in sorted(_CDCR_FACILITIES.keys(), key=len, reverse=True):
+            if abbr.lower() in words and abbr != "CSP":
+                name, _ = _CDCR_FACILITIES[abbr]
+                return {"canonical": name, "agency": "cchcs", "facility_code": abbr}
         # Try to find facility by city name
         for city, code in _CDCR_CITIES.items():
             if city in text:
                 name, _ = _CDCR_FACILITIES[code]
                 return {"canonical": name, "agency": "cchcs", "facility_code": code}
+        # CSP standalone (no facility suffix found anywhere) — better than
+        # generic "CDCR" because at minimum the form is on the prison side.
+        if "csp" in words:
+            return {"canonical": "California State Prison", "agency": "cchcs", "facility_code": "CSP"}
         # Generic CDCR
         return {"canonical": "CDCR", "agency": "cchcs", "facility_code": ""}
 
