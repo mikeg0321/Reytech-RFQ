@@ -82,6 +82,8 @@ def process_buyer_request(
     existing_record_id: str = "",
     existing_record_type: str = "",
     email_received_at: str = "",
+    gmail_thread_id: str = "",
+    gmail_message_id: str = "",
 ) -> IngestResult:
     """Single entry point for every buyer request.
 
@@ -246,10 +248,24 @@ def process_buyer_request(
 
     # ── Step 4: create or update the record ──
     try:
+        # Pass the FULL list of files (not just primary_path) so the
+        # template registration step inside both record-handlers can run
+        # `identify_attachments` over every sibling attachment. Pre-fix,
+        # only the primary file was ever classified — buyer emails with
+        # 703B + 704B + bidpkg as separate PDFs landed with only one
+        # template slot filled (or none, if the primary was the wrong shape).
+        # Mike P0 2026-05-06 RFQ a5b09b56 hit this: buyer attached
+        # AMS_703B_*.pdf + AMS_704B_*.pdf + BID_PACKAGE_*.pdf and operator
+        # saw "Missing required templates: 704B" at package-generation
+        # time even though the 704B was right there in the email.
+        all_paths = list(files) if files else None
         if existing_record_id and existing_record_type:
             record_id = _update_existing_record(
                 existing_record_id, existing_record_type,
                 items, header, classification, primary_path,
+                all_paths=all_paths,
+                gmail_thread_id=gmail_thread_id,
+                gmail_message_id=gmail_message_id,
             )
         else:
             record_id = _create_record(
@@ -257,6 +273,9 @@ def process_buyer_request(
                 primary_path, email_subject, email_sender, email_uid,
                 email_body=email_body,
                 email_received_at=email_received_at,
+                gmail_thread_id=gmail_thread_id,
+                gmail_message_id=gmail_message_id,
+                all_paths=all_paths,
             )
         result.record_id = record_id
     except Exception as e:
@@ -744,6 +763,9 @@ def _create_record(
     email_uid: str,
     email_body: str = "",
     email_received_at: str = "",
+    all_paths: Optional[List[str]] = None,
+    gmail_thread_id: str = "",
+    gmail_message_id: str = "",
 ) -> str:
     """Create a new PC or RFQ with the classification stored on it."""
     now = datetime.now().isoformat()
@@ -805,6 +827,12 @@ def _create_record(
         "email_sender": email_sender,
         "source_pdf": primary_path or "",
         "_classification": classification.to_dict(),
+        # PR-A 2026-05-07 (post-quote queue item 24, thread-aware ingest):
+        # capture Gmail thread id + initial message id so subsequent buyer
+        # replies can be matched against this record by thread membership
+        # rather than each spawning a new RFQ/PC.
+        "email_thread_id": gmail_thread_id or "",
+        "gmail_message_ids": [gmail_message_id] if gmail_message_id else [],
         # Common header fields pulled from either the classifier or parser
         "solicitation_number": classification.solicitation_number or header.get("solicitation_number", "") or header.get("pc_number", ""),
         "institution": canonical_institution,
@@ -858,6 +886,30 @@ def _create_record(
             or f"AUTO_{short_id}"
         )
         record["line_items"] = items
+
+        # Register every classifiable sibling attachment as a template
+        # slot (703b / 704b / bidpkg / dsh_attA-C / 703c). Pre-fix this
+        # only ran on _update_existing_record for re-ingests; new RFQs
+        # via classifier_v2 had EMPTY templates dict even when the buyer
+        # attached the right PDFs. Result: package generator hit
+        # "Missing required templates" at gen-time even though the
+        # email had everything. Mike P0 2026-05-06 RFQ a5b09b56.
+        try:
+            from src.forms.rfq_parser import identify_attachments
+            _paths_for_classify = all_paths or ([primary_path] if primary_path else [])
+            if _paths_for_classify:
+                _new_templates = identify_attachments(_paths_for_classify)
+                if _new_templates:
+                    record["templates"] = _new_templates
+                    log.info(
+                        "ingest create: registered templates for %s: %s "
+                        "(from %d sibling attachment(s))",
+                        record["id"], list(_new_templates.keys()),
+                        len(_paths_for_classify),
+                    )
+        except Exception as _e:
+            log.warning("ingest create: template registration failed: %s", _e)
+
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(record["id"], record)
 
@@ -1018,6 +1070,9 @@ def _update_existing_record(
     header: Dict[str, Any],
     classification: "RequestClassification",  # noqa: F821
     primary_path: Optional[str],
+    all_paths: Optional[List[str]] = None,
+    gmail_thread_id: str = "",
+    gmail_message_id: str = "",
 ) -> str:
     """Re-run classification + parsing on an existing record.
     Used when the operator clicks 'Re-parse' on an already-created PC/RFQ
@@ -1041,6 +1096,20 @@ def _update_existing_record(
             )
         if primary_path:
             pc["source_pdf"] = primary_path
+        # PR-A 2026-05-07: append the new message_id to the thread's
+        # message-graph so the RFQ holds the full conversation history.
+        # Backfill thread_id when the existing record is missing it (e.g.
+        # legacy records from before threadId capture was wired in).
+        if gmail_thread_id and not pc.get("email_thread_id"):
+            pc["email_thread_id"] = gmail_thread_id
+        if gmail_message_id:
+            _msgs = pc.get("gmail_message_ids") or []
+            if isinstance(_msgs, str):
+                try: _msgs = __import__("json").loads(_msgs) or []
+                except Exception: _msgs = []
+            if gmail_message_id not in _msgs:
+                _msgs.append(gmail_message_id)
+            pc["gmail_message_ids"] = _msgs
         pc["updated_at"] = datetime.now().isoformat()
         _save_single_pc(record_id, pc)
         # Re-parse replaces items — refresh catalog MSRP for the merged set too
@@ -1071,18 +1140,37 @@ def _update_existing_record(
             # across multiple uploads on the same RFQ.
             try:
                 from src.forms.rfq_parser import identify_attachments
-                new_templates = identify_attachments([primary_path])
+                # Classify EVERY sibling attachment, not just the primary.
+                # Pre-fix only the primary file was classified — buyer
+                # emails with multiple attachments only ever filled one
+                # template slot. Mike P0 2026-05-06 RFQ a5b09b56.
+                _paths_for_classify = all_paths or [primary_path]
+                new_templates = identify_attachments(_paths_for_classify)
                 if new_templates:
                     existing = rfq.get("templates") or {}
                     for _k, _v in new_templates.items():
                         existing[_k] = _v
                     rfq["templates"] = existing
                     log.info(
-                        "ingest update: registered templates for %s: %s",
+                        "ingest update: registered templates for %s: %s "
+                        "(from %d sibling attachment(s))",
                         record_id, list(new_templates.keys()),
+                        len(_paths_for_classify),
                     )
             except Exception as _e:
                 log.warning("ingest update: template registration failed: %s", _e)
+        # PR-A 2026-05-07: append the new message_id to the thread's
+        # message-graph so the RFQ holds the full conversation history.
+        if gmail_thread_id and not rfq.get("email_thread_id"):
+            rfq["email_thread_id"] = gmail_thread_id
+        if gmail_message_id:
+            _msgs = rfq.get("gmail_message_ids") or []
+            if isinstance(_msgs, str):
+                try: _msgs = __import__("json").loads(_msgs) or []
+                except Exception: _msgs = []
+            if gmail_message_id not in _msgs:
+                _msgs.append(gmail_message_id)
+            rfq["gmail_message_ids"] = _msgs
         rfq["updated_at"] = datetime.now().isoformat()
         _save_single_rfq(record_id, rfq)
         if items:

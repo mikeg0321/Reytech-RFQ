@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>PR-pricing-tier-row-cost — verify fixture</title>
+<style>
+body{font-family:sans-serif;background:#0d1117;color:#c9d1d9;padding:20px;font-size:14px}
+table{border-collapse:collapse;margin:6px 0;background:#161b22}
+td,th{border:1px solid #30363d;padding:6px 10px}
+input{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:4px 8px;width:90px}
+.scenario{border:1px solid #30363d;padding:14px;margin:18px 0;border-radius:6px}
+h2{color:#58a6ff;margin:6px 0}
+h3{color:#d29922;margin:4px 0}
+.pass{color:#3fb950;font-weight:600}
+.fail{color:#f85149;font-weight:600}
+#tierComparison{margin-top:6px}
+</style>
+</head><body>
+<h1>Tier-comparison fixture — exercises showTierComparison() from pc_detail.html</h1>
+<p>Each scenario builds a minimal row table that mirrors the pc_detail.html shape,
+runs the FIXED <code>showTierComparison()</code>, and asserts the output Cost Basis
+matches the operator's TRUE cost (not the catalog Amazon price).</p>
+
+<div id="results"></div>
+
+<script>
+// ── Inlined copy of the FIXED function from pc_detail.html ─────────────
+function showTierComparison(rootEl, markupValue) {
+ const markup = parseInt(markupValue) || 25;
+ let pricedItems = [];
+ rootEl.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+  var idx = row.getAttribute('data-row');
+  var costInp = row.querySelector('[name=cost_'+idx+']');
+  var baseCost = 0;
+  if(costInp) {
+   var baseAttr = costInp.getAttribute('data-base-cost');
+   if(baseAttr) {
+    baseCost = parseFloat(baseAttr) || 0;
+   } else {
+    var typed = parseFloat(String(costInp.value).replace(/[^0-9.\-]/g,'')) || 0;
+    if(typed > 0) baseCost = typed;
+   }
+  }
+  if(baseCost <= 0) {
+   var amazonCell = row.querySelector('td[data-amazon]');
+   if(amazonCell) baseCost = parseFloat(amazonCell.getAttribute('data-amazon')) || 0;
+  }
+  if(baseCost <= 0) return;
+  var qtyInp = row.querySelector('[name=qty_'+idx+']');
+  var qty = parseInt(qtyInp ? qtyInp.value : '1') || 1;
+  pricedItems.push({cost: baseCost, qty: qty});
+ });
+ const tiers = [
+  {name:'Current', buf:0},
+  {name:'Light +10%', buf:10},
+  {name:'Standard +15%', buf:15},
+  {name:'Safe +20%', buf:20},
+ ];
+ const projections = tiers.map(function(t){
+  var totalCost = 0, totalRev = 0;
+  pricedItems.forEach(function(it){
+   var c = it.cost * (1 + t.buf/100);
+   var p = c * (1 + markup/100);
+   totalCost += c * it.qty;
+   totalRev += p * it.qty;
+  });
+  return {tier: t.name, buf: t.buf, totalCost: totalCost, totalRev: totalRev,
+          item_count: pricedItems.length};
+ });
+ return projections;
+}
+
+// ── Scenario builders ──────────────────────────────────────────────────
+function buildRow(rowIdx, opts) {
+ // opts: {amazon, costValue, baseCost, qty}
+ const tr = document.createElement('tr');
+ tr.setAttribute('data-row', rowIdx);
+ // Amazon cell
+ const amazonTd = document.createElement('td');
+ if (opts.amazon !== undefined && opts.amazon !== null) {
+  amazonTd.setAttribute('data-amazon', String(opts.amazon));
+  amazonTd.textContent = '$' + opts.amazon;
+ } else {
+  amazonTd.textContent = '—';
+ }
+ tr.appendChild(amazonTd);
+ // Cost input
+ const costTd = document.createElement('td');
+ const costInp = document.createElement('input');
+ costInp.setAttribute('name', 'cost_' + rowIdx);
+ costInp.value = opts.costValue !== undefined ? opts.costValue : '';
+ if (opts.baseCost !== undefined) costInp.setAttribute('data-base-cost', opts.baseCost);
+ costTd.appendChild(costInp);
+ tr.appendChild(costTd);
+ // Qty input
+ const qtyTd = document.createElement('td');
+ const qtyInp = document.createElement('input');
+ qtyInp.setAttribute('name', 'qty_' + rowIdx);
+ qtyInp.value = String(opts.qty !== undefined ? opts.qty : 1);
+ qtyTd.appendChild(qtyInp);
+ tr.appendChild(qtyTd);
+ return tr;
+}
+
+function runScenario(name, rows, expected, markupVal) {
+ markupVal = markupVal || 25;
+ const wrapper = document.createElement('div');
+ wrapper.className = 'scenario';
+ const h = document.createElement('h2');
+ h.textContent = name;
+ wrapper.appendChild(h);
+
+ const table = document.createElement('table');
+ const thead = document.createElement('thead');
+ thead.innerHTML = '<tr><th>Amazon (data-amazon)</th><th>Cost input (cost_N)</th><th>Qty</th></tr>';
+ table.appendChild(thead);
+ const tbody = document.createElement('tbody');
+ rows.forEach(function(r,i){ tbody.appendChild(buildRow(i, r)); });
+ table.appendChild(tbody);
+ wrapper.appendChild(table);
+
+ const projections = showTierComparison(table, markupVal);
+ // Find the +15% tier projection
+ const t15 = projections.find(function(p){ return p.buf === 15; });
+
+ const result = document.createElement('div');
+ const passCost = Math.abs(t15.totalCost - expected.totalCost) < 0.01;
+ const passRev = Math.abs(t15.totalRev - expected.totalRev) < 0.01;
+ const passCount = t15.item_count === expected.itemCount;
+ const allPass = passCost && passRev && passCount;
+ result.innerHTML = '<h3>+15% tier projection at ' + markupVal + '% markup</h3>'
+  + '<p>Item count:  expected ' + expected.itemCount + ', got '
+  + t15.item_count + ' <span class="' + (passCount?'pass':'fail') + '">'
+  + (passCount?'✅':'❌') + '</span></p>'
+  + '<p>Total cost:  expected $' + expected.totalCost.toFixed(2)
+  + ', got $' + t15.totalCost.toFixed(2)
+  + ' <span class="' + (passCost?'pass':'fail') + '">'
+  + (passCost?'✅':'❌') + '</span></p>'
+  + '<p>Total rev:   expected $' + expected.totalRev.toFixed(2)
+  + ', got $' + t15.totalRev.toFixed(2)
+  + ' <span class="' + (passRev?'pass':'fail') + '">'
+  + (passRev?'✅':'❌') + '</span></p>'
+  + '<p><strong class="' + (allPass?'pass':'fail') + '">'
+  + (allPass?'PASS':'FAIL') + '</strong></p>';
+ wrapper.appendChild(result);
+
+ document.getElementById('results').appendChild(wrapper);
+ return allPass;
+}
+
+// ── Scenarios ──────────────────────────────────────────────────────────
+
+// 1: Operator typed cost on a row WITHOUT Amazon data
+//    OLD bug: row would be excluded entirely.
+//    FIX: row uses typed cost.
+//    Cost basis = $10 × 1.15 = $11.50  qty=5  →  total cost $57.50
+//    Price = $11.50 × 1.25 = $14.375  →  total rev $71.875
+runScenario('1. Manual cost on row WITHOUT Amazon (was excluded entirely)',
+ [{amazon: null, costValue: '10.00', qty: 5}],
+ {itemCount: 1, totalCost: 57.50, totalRev: 71.875});
+
+// 2: Operator edited cost cell over a stale Amazon catalog price
+//    OLD bug: tier panel projected from Amazon $8, ignoring operator's $10.
+//    FIX: tier panel uses operator's $10.
+//    Same expected output as scenario 1.
+runScenario('2. Operator-edited cost overrides stale Amazon (was using catalog)',
+ [{amazon: 8.00, costValue: '10.00', qty: 5}],
+ {itemCount: 1, totalCost: 57.50, totalRev: 71.875});
+
+// 3: data-base-cost present (operator already applied a tier)
+//    The unbuffered baseline is $10, displayed value is buffered $11.50.
+//    Tier panel must use $10, not the displayed $11.50.
+//    +15% projection: $10 × 1.15 = $11.50 cost, $14.375 price, qty=5
+runScenario('3. data-base-cost wins over displayed value (idempotent re-tier)',
+ [{amazon: 8.00, costValue: '11.50', baseCost: '10.00', qty: 5}],
+ {itemCount: 1, totalCost: 57.50, totalRev: 71.875});
+
+// 4: Catalog-only fallback (no operator cost, no data-base-cost)
+//    Amazon $8, qty 3, +15% → $9.20 × 3 = $27.60 cost, price $11.50 × 3 = $34.50 rev
+runScenario('4. Amazon catalog fallback (operator hasn\'t touched cost)',
+ [{amazon: 8.00, costValue: '', qty: 3}],
+ {itemCount: 1, totalCost: 27.60, totalRev: 34.50});
+
+// 5: Mixed bag — manual cost + Amazon-only + zero-cost row
+runScenario('5. Mixed: 1 manual + 1 Amazon-only + 1 zero (skipped)',
+ [
+  {amazon: null, costValue: '10.00', qty: 5},   // manual: 11.50 cost, 14.375 price × 5
+  {amazon: 8.00, costValue: '', qty: 3},        // catalog: 9.20 cost, 11.50 price × 3
+  {amazon: null, costValue: '', qty: 1},        // zero: skipped
+ ],
+ {itemCount: 2,
+  totalCost: 11.50*5 + 9.20*3,    // 57.50 + 27.60 = 85.10
+  totalRev: 14.375*5 + 11.50*3});  // 71.875 + 34.50 = 106.375
+</script>
+</body></html>

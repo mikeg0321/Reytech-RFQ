@@ -1407,9 +1407,9 @@ def pricecheck_auto_process(pcid):
 
     result = auto_process_price_check(source_pdf, pc_id=pcid)
 
-    # Update PC record with results
+    # Update PC record with results (sync all aliases — alias-drift substrate)
     if result.get("ok"):
-        pc["items"] = result.get("parsed", {}).get("line_items", [])
+        _sync_pc_items(pc, result.get("parsed", {}).get("line_items", []))
         pc["parsed"] = result.get("parsed", {})
         pc["output_pdf"] = result.get("output_pdf")
         pc["confidence"] = result.get("confidence", {})

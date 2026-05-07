@@ -1224,6 +1224,95 @@ MIGRATIONS = [
                'dismissed', 'archived', 'duplicate', 'no_response',
                'not_responding', 'expired', 'reclassified');
     """),
+    (40, "active_queue_views_exclude_thread_duplicates", """
+        -- PR-D of thread-aware-ingest arc (2026-05-07). PR #808 added
+        -- the `gmail_thread_duplicate_of` column on rfqs/price_checks.
+        -- Records where this column is non-empty are buyer-replies that
+        -- the legacy ingest dedup mistook for new requests (Mike P0
+        -- 2026-05-07: pc_93edc64e from Valentina's question on RFQ
+        -- a5b09b56, plus #10838974 refired as PC after buyer reply).
+        -- Reytech Law 22 — never delete buyer-source data — so the rows
+        -- stay around for audit but disappear from the operator's
+        -- active queue. Keep view + Python predicate `is_active_queue`
+        -- in lockstep (PR-3 / migration 39 doctrine).
+        --
+        -- Note: an index on the column would help when the dismissed
+        -- count grows; today the prod count is 2 so a full-scan in the
+        -- view is fine. Add an index in a future migration if the
+        -- count grows past ~100 dismissed rows.
+        DROP VIEW IF EXISTS v_active_queue_rfqs;
+        CREATE VIEW v_active_queue_rfqs AS
+        SELECT *
+        FROM rfqs
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled',
+               'dismissed', 'archived', 'duplicate', 'no_response',
+               'not_responding', 'expired', 'reclassified')
+          AND COALESCE(gmail_thread_duplicate_of, '') = '';
+
+        DROP VIEW IF EXISTS v_active_queue_pcs;
+        CREATE VIEW v_active_queue_pcs AS
+        SELECT *
+        FROM price_checks
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled',
+               'dismissed', 'archived', 'duplicate', 'no_response',
+               'not_responding', 'expired', 'reclassified')
+          AND COALESCE(gmail_thread_duplicate_of, '') = '';
+    """),
+    (41, "observed_sends_table", """
+        -- PR-G2 of post-quote queue item 23 (2026-05-07).
+        -- The "Mark-Sent-Manually" modal is single-file, lossy, not
+        -- searchable — operators send a real quote then forget to
+        -- click the modal, leaving the record stuck at status='generated'
+        -- forever. PR-G1 (#814) added the detector; this migration
+        -- gives the detector a place to persist its findings so a
+        -- confirm/reject UI (PR-G3) can act on them and so the
+        -- 8-week confirm-rate metric (PR-G4) has data to query.
+        --
+        -- Schema notes:
+        -- * `gmail_message_id` is the dedup key — same outbound
+        --   message scanned again must update existing row, not insert.
+        -- * `status` lifecycle: pending → confirmed | rejected |
+        --   auto_attached. `auto_attached` is reserved for the future
+        --   PR-G4 auto-flip after 100% over 8 weeks.
+        -- * `match_signal` mirrors observed_send.py's match priority
+        --   (quote_number, thread_id, solicitation_number,
+        --   solicitation_number_ambiguous, no_match).
+        -- * `confidence` is the detector's score (0.40-0.95) —
+        --   informational; status is what gates auto-attach.
+        CREATE TABLE IF NOT EXISTS observed_sends (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            gmail_message_id      TEXT NOT NULL UNIQUE,
+            thread_id             TEXT NOT NULL DEFAULT '',
+            subject               TEXT NOT NULL DEFAULT '',
+            to_email              TEXT NOT NULL DEFAULT '',
+            sent_at               TEXT NOT NULL DEFAULT '',
+            matched_record_id     TEXT NOT NULL DEFAULT '',
+            matched_record_kind   TEXT NOT NULL DEFAULT '',
+            match_signal          TEXT NOT NULL DEFAULT '',
+            match_value           TEXT NOT NULL DEFAULT '',
+            confidence            REAL NOT NULL DEFAULT 0,
+            status                TEXT NOT NULL DEFAULT 'pending',
+            decided_by            TEXT NOT NULL DEFAULT '',
+            decided_at            TEXT NOT NULL DEFAULT '',
+            notes                 TEXT NOT NULL DEFAULT '',
+            created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_observed_sends_status
+            ON observed_sends(status);
+        CREATE INDEX IF NOT EXISTS idx_observed_sends_record
+            ON observed_sends(matched_record_id);
+        CREATE INDEX IF NOT EXISTS idx_observed_sends_decided_at
+            ON observed_sends(decided_at);
+    """),
 ]
 
 

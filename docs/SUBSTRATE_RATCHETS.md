@@ -173,6 +173,51 @@ when one of them recurs.
   code path that fills `cost` / `price` / `markup` / `item_link` must
   gate on `if not <field>:`, never on confidence comparisons.
 
+- **Classifier predicates need both positive AND negative markers.**
+  Mike P0 2026-05-06 RFQ a5b09b56: `_is_cchcs_it_rfq` page-1 marker
+  list contained `"Request For Quotation"` — too generic, matched
+  every standard CCHCS 703B header. Filename token `"rfq "` matched
+  every RFQ filename including NON-IT 703Bs. Result: standard
+  NON-IT 703B Rev 03/2025 was mis-routed to the LPA IT filler →
+  blank Bidder Information section → operator hand-fill at deadline.
+  Closed in PR #798 by removing the generic positive marker AND
+  adding negative markers (`"NON-IT GOODS"` page-1 text disqualifier,
+  `"non-it"` filename disqualifier).
+  **Doctrine**: every classifier predicate that fires on a generic
+  positive marker MUST have a corresponding negative marker for the
+  templates that should NOT match. Shape A — when a 3rd
+  classifier-marker bug surfaces, this becomes a ratcheting lint:
+  scan `src/forms/**/*.py` for `_PAGE1_MARKERS` / `_FILENAME_MARKERS`
+  / `_MARKERS` / `*_signal` predicates and require each module to
+  also declare a `*_NEGATIVE_MARKERS` set (even if empty) — forces
+  the author to think about disqualifiers.
+
+- **Form row capacity invisible to operator.** Mike P0 2026-05-06
+  RFQ a5b09b56: CalRecycle 74 form has 6 rows; quote had 8 items;
+  items 7-8 silently dropped with only a server-log warning the
+  operator never sees. Mike has had 37-item quotes — every form
+  whose row capacity is exceeded silently drops on every quote.
+  Closed in PR #801 with `src/forms/form_capacity.py` registry +
+  pre-fill `check_required_forms` + completeness-gate merge so
+  capacity overflow becomes a first-class QA blocker. **Future
+  ratchet**: a lint that forbids hardcoded `range(1, N+1)` row
+  loops outside the registry — every row-iterating filler must
+  look up `FORM_CAPACITY[form_id]` instead. Shape A. Hold until
+  3rd instance.
+
+- **Address-construction by string concat.** Mike P0 2026-05-06
+  RFQ a5b09b56: quote PDF Ship-to clipped past margin because
+  institution + street were jammed into a single ` - ` line and
+  city/state/zip arrived as separate single-token lines (4 lines
+  for one address). Closed in PR #800 by routing through
+  `src/core/address_format.format_address_canonical`. Audit list
+  in `project_address_canonical_format_2026_05_07.md` enumerates
+  7 more callers that still build addresses inline. **Future
+  ratchet**: when 3 callers have been migrated, write a lint
+  that forbids `" - ".join([institution, street])` and similar
+  string-concat patterns outside `src/core/address_format.py`.
+  Shape A.
+
 ---
 
 ## Operating cadence

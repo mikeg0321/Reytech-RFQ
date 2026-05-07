@@ -196,12 +196,19 @@ def validate_ready_to_send(rfq_data):
 
 VALID_TRANSITIONS = {
     "new":       ["draft", "parsed", "dismissed"],
-    "draft":     ["parsed", "priced", "dismissed"],
-    "parsed":    ["draft", "priced", "auto_priced", "dismissed"],
-    "auto_priced": ["priced", "ready", "dismissed"],
-    "priced":    ["ready", "generated", "draft", "dismissed"],
-    "ready":     ["generated", "priced", "draft", "dismissed"],
-    "generated": ["sent", "ready", "priced", "draft"],
+    "draft":     ["parsed", "priced", "generated_incomplete", "dismissed"],
+    "parsed":    ["draft", "priced", "auto_priced", "generated_incomplete", "dismissed"],
+    "auto_priced": ["priced", "ready", "generated_incomplete", "dismissed"],
+    "priced":    ["ready", "generated", "generated_incomplete", "draft", "dismissed"],
+    "ready":     ["generated", "generated_incomplete", "priced", "draft", "dismissed"],
+    "generated": ["sent", "generated_incomplete", "ready", "priced", "draft"],
+    # generated_incomplete is the package-incomplete state set by
+    # routes_rfq_gen.py:2742 when QA fails or pre-fill capacity check
+    # blocks the package. Operator can: fix issues + regenerate
+    # (→generated), edit upstream (→ready/priced/draft), mark sent
+    # manually (→sent), or dismiss. Without this row the transition
+    # was silently rejected and status stuck at the prior value.
+    "generated_incomplete": ["generated", "generated_incomplete", "sent", "ready", "priced", "draft", "dismissed"],
     "sent":      ["won", "lost", "expired", "generated"],
     "won":       ["sent"],
     "lost":      ["sent"],

@@ -111,7 +111,7 @@ def rfq_auto_lookup(rid):
             scprs_found = 0
             try:
                 from src.agents.scprs_lookup import bulk_lookup
-                r["line_items"] = bulk_lookup(items)
+                _sync_rfq_items(r, bulk_lookup(items))
                 # Carry SCPRS cost to vendor_cost — NEVER overwrite supplier quote costs
                 for _item in r["line_items"]:
                     _sp = _item.get("scprs_last_price") or 0
@@ -135,7 +135,7 @@ def rfq_auto_lookup(rid):
             amazon_found = 0
             try:
                 from src.agents.web_price_research import research_items
-                r["line_items"] = research_items(r["line_items"])
+                _sync_rfq_items(r, research_items(r["line_items"]))
                 # Carry Amazon cost to vendor_cost — NEVER overwrite supplier quote costs
                 for _item in r["line_items"]:
                     _ap = _item.get("amazon_price") or 0
@@ -1577,7 +1577,7 @@ def _convert_single_pc_to_rfq(pcid, pc, extra_fields=None):
     # parsed.line_items the deepcopy carried so downstream consumers
     # (quote_generator reads line_items first, parsed.line_items as
     # fallback) can never resurrect the stale state.
-    rfq_data["line_items"] = _copy.deepcopy(pc.get("items", []))
+    _sync_rfq_items(rfq_data, _copy.deepcopy(pc.get("items", [])))
     if isinstance(rfq_data.get("parsed"), dict):
         rfq_data["parsed"]["line_items"] = _copy.deepcopy(pc.get("items", []))
     rfq_data.setdefault("requestor_name", pc.get("requestor", ""))
@@ -2541,7 +2541,7 @@ def rfq_retry_auto_price(rid):
         # 1. SCPRS
         try:
             from src.agents.scprs_lookup import bulk_lookup
-            r["line_items"] = bulk_lookup(items)
+            _sync_rfq_items(r, bulk_lookup(items))
             items = r["line_items"]
             scprs = sum(1 for i in items if i.get("scprs_last_price"))
             found += scprs
@@ -2698,7 +2698,7 @@ def _rfq_relink_pc_locked(rid):
                         except Exception as _e:
                             log.debug('suppressed in rfq_relink_pc: %s', _e)
                     if priced > 0:
-                        pc["items"] = pc_items
+                        _sync_pc_items(pc, pc_items)
                         pcs[pid] = pc
                         _save_single_pc(pid, pc)
                 except Exception as pe:
@@ -3112,8 +3112,8 @@ def _api_rfq_import_from_pc_locked(rid):
 
         imported.append(rfq_item)
 
-    # Replace RFQ line items with PC items
-    r["line_items"] = imported
+    # Replace RFQ line items with PC items (sync all aliases — alias-drift substrate)
+    _sync_rfq_items(r, imported)
     r["linked_pc_id"] = pc_id
     r["linked_pc_number"] = pc.get("pc_number", "")
     r["linked_pc_match_reason"] = "manual_import"
@@ -3386,8 +3386,8 @@ def _api_rfq_upload_pc_locked(rid):
             except Exception as e:
                 log.debug("Catalog write from PC upload: %s", e)
 
-    # Replace RFQ line items
-    r["line_items"] = imported
+    # Replace RFQ line items (sync all aliases — alias-drift substrate)
+    _sync_rfq_items(r, imported)
     r["linked_pc_number"] = pc_number
     r["linked_pc_match_reason"] = "pdf_upload"
     r["uploaded_pc_pdf"] = pdf_path

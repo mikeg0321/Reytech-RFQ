@@ -806,7 +806,17 @@ def awards_page():
 @auth_required
 @safe_route
 def api_award_approve(idx):
-    """Approve a pending PO — creates order and marks RFQ/quote as won."""
+    """Approve a pending PO — creates order and marks RFQ/quote as won.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_award_approve_locked(idx)
+
+
+def _api_award_approve_locked(idx):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from src.api.dashboard import _load_pending_pos, _save_pending_pos, _pending_po_reviews, _create_order_from_po_email
     pending = _load_pending_pos()
     if idx < 0 or idx >= len(pending):
@@ -1485,7 +1495,16 @@ def api_rfq_upload_parse_doc(rid):
     1. AMS 704 (if PDF looks like a 704)
     2. Generic RFQ parser (XFA + text extraction)
     3. Vision parser (Claude vision for scanned/image docs)
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_upload_parse_doc_locked(rid)
+
+
+def _api_rfq_upload_parse_doc_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     # Telemetry: every manual upload recorded
     try:
         from src.core.utilization import record_feature_use
@@ -2793,7 +2812,16 @@ def api_bind_email(rid):
     Body: {"message_id": "<...>", "thread_id": "..."} — both required.
     The frontend's locate-email picker calls this once the operator
     selects which thread is the original RFQ email.
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_bind_email_locked(rid)
+
+
+def _api_bind_email_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2831,7 +2859,16 @@ def api_create_draft(rid):
 
     Returns:
       {ok, draft_id, gmail_draft_url, thread_id, attachments, ...}
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_create_draft_locked(rid)
+
+
+def _api_create_draft_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2999,7 +3036,17 @@ def api_backfill_email_thread_ids():
 @auth_required
 @safe_route
 def api_discard_draft(rid):
-    """Discard the current Gmail draft for this RFQ (operator escape hatch)."""
+    """Discard the current Gmail draft for this RFQ (operator escape hatch).
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_discard_draft_locked(rid)
+
+
+def _api_discard_draft_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3199,7 +3246,17 @@ def _api_rfq_toggle_required_form_locked(rid):
 @auth_required
 @safe_route
 def api_lookup_tax_rate(rid):
-    """Look up CA sales tax rate from delivery address via CDTFA API."""
+    """Look up CA sales tax rate from delivery address via CDTFA API.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_lookup_tax_rate_locked(rid)
+
+
+def _api_lookup_tax_rate_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -3523,16 +3580,66 @@ def update(rid):
     except Exception as _e:
         log.debug('suppressed in update: %s', _e)
 
-    # Save SCPRS prices for future lookups
-    save_prices_from_rfq(r)
-    
-    # Record ALL prices to history + auto-ingest to catalog
+    # ─────────────────────────────────────────────────────────────────
+    # Catalog write-back gate (Mike P0 2026-05-06: "i hit finalize
+    # pricing and all my pricing changed again....whats the point of
+    # that step.")
+    #
+    # Finalize Pricing was previously aggressive on every save: it
+    # ran SCPRS save, history record, catalog write-back, and
+    # `lock_cost`. Combined with stale catalog data, the round-trip
+    # surfaced as "my typed pricing reverted to catalog values" and
+    # cost Mike data mid-quote.
+    #
+    # This block now defaults to OFF — Finalize Pricing becomes a
+    # pure save (form values → items → autosave-style persist).
+    # Operators who want the catalog learnings can flip
+    # `rfq.finalize_aggressive_catalog_sync=true` via /api/admin/flags
+    # OR the deploy env var. The pure-save path remains a no-data-loss
+    # operation; the aggressive path is opt-in for the rare case
+    # where the operator explicitly wants to push their pricing into
+    # the catalog as truth.
+    cat_added, cat_updated = 0, 0
     try:
-        _record_rfq_prices(r, source="rfq_finalize")
-    except Exception as _e:
-        log.debug("Price recording: %s", _e)
-    
-    # Sync all priced items to product catalog
+        from src.core.flags import get_flag
+        _aggressive = bool(get_flag("rfq.finalize_aggressive_catalog_sync", False))
+    except Exception:
+        _aggressive = False
+
+    if not _aggressive:
+        log.info(
+            "Finalize %s: catalog sync skipped (rfq.finalize_aggressive_"
+            "catalog_sync=False — pure save). Set the flag to True via "
+            "/api/admin/flags to opt in to aggressive write-back.", rid,
+        )
+    else:
+        # Save SCPRS prices for future lookups
+        save_prices_from_rfq(r)
+
+        # Record ALL prices to history + auto-ingest to catalog
+        try:
+            _record_rfq_prices(r, source="rfq_finalize")
+        except Exception as _e:
+            log.debug("Price recording: %s", _e)
+
+        # Sync all priced items to product catalog
+        cat_added, cat_updated = _legacy_aggressive_catalog_sync(r)
+
+    _log_rfq_activity(rid, "pricing_finalized",
+        f"Pricing finalized for #{r.get('solicitation_number','?')} "
+        f"({len(r.get('line_items',[]))} items, catalog "
+        f"{'pure-save (no sync)' if not _aggressive else f'+{cat_added}/~{cat_updated}'})",
+        actor="user")
+
+    flash("Pricing saved" + ("" if not _aggressive else " — synced to catalog"), "success")
+    return redirect(f"/rfq/{rid}")
+
+
+def _legacy_aggressive_catalog_sync(r):
+    """Pre-2026-05-07 Finalize-Pricing catalog write-back path. Extracted
+    here so the safe-default path in update() reads cleanly. Only runs
+    when `rfq.finalize_aggressive_catalog_sync=True` flag is set."""
+    rid = r.get("id", "")
     cat_added, cat_updated = 0, 0
     try:
         from src.agents.product_catalog import match_item, add_to_catalog, add_supplier_price, init_catalog_db
@@ -3600,12 +3707,7 @@ def update(rid):
     except Exception as _e:
         log.debug('suppressed in update: %s', _e)
 
-    _log_rfq_activity(rid, "pricing_finalized",
-        f"Pricing finalized for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items, catalog +{cat_added}/~{cat_updated})",
-        actor="user")
-    
-    flash("Pricing finalized — saved to catalog", "success")
-    return redirect(f"/rfq/{rid}")
+    return cat_added, cat_updated
 
 
 @bp.route("/api/rfq/<rid>/update-field", methods=["POST"])
@@ -3767,7 +3869,17 @@ def _rfq_update_field_locked(rid):
 @auth_required
 @safe_route
 def api_rfq_auto_price(rid):
-    """Auto-price all items: catalog match → scrape catalog URLs → Amazon fallback."""
+    """Auto-price all items: catalog match → scrape catalog URLs → Amazon fallback.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_auto_price_locked(rid)
+
+
+def _api_rfq_auto_price_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -4263,7 +4375,17 @@ def api_rfq_pc_link_suggestions(rid):
 @safe_route
 def api_rfq_confirm_pc_link(rid):
     """Operator-confirmed PC→RFQ promote. Ports prices verbatim; optional
-    selective reprice for qty-changed lines only."""
+    selective reprice for qty-changed lines only.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_confirm_pc_link_locked(rid)
+
+
+def _api_rfq_confirm_pc_link_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     bad = _validate_rid(rid)
     if bad:
         return bad

@@ -1862,19 +1862,46 @@
     }
 
     function showTierComparison() {
-     // Gather all Amazon-priced items to compute totals per tier
+     // Gather every priced row, using the operator's TRUE cost basis as the
+     // tier-projection input. Bug closed 2026-05-07 (post-quote queue #4):
+     // previously this read `td[data-amazon]` only, so (1) rows without an
+     // Amazon price were excluded entirely and (2) when the operator edited
+     // the cost cell to override a stale catalog price, the tier panel kept
+     // projecting from the un-edited Amazon number. Result: tier projections
+     // diverged from what `applyTier()` actually does, breaking the
+     // "displayed == acted-upon" invariant.
+     //
+     // Cost basis priority per row (matches applyTier):
+     //   1. data-base-cost on cost input (operator already applied a tier;
+     //      this attribute holds the unbuffered baseline)
+     //   2. cost_<idx> input value (operator typed it; this IS the
+     //      baseline since no buffer was applied yet)
+     //   3. td[data-amazon] (catalog fallback; only when nothing else known)
      const markup=parseInt(document.getElementById('markupDefault').value)||25;
-     let amazonItems=[];
-     document.querySelectorAll('tr[data-row]').forEach((row,i)=>{
-      const amazonCell=row.querySelector('td[data-amazon]');
-      if(!amazonCell) return;
-      const ap=parseFloat(amazonCell.getAttribute('data-amazon'))||0;
-      if(ap<=0) return;
-      const qtyInp=row.querySelector('[name=qty_'+i+']');
-      const qty=parseInt(qtyInp?.value)||1;
-      amazonItems.push({ap,qty});
+     let pricedItems=[];
+     document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+      var idx=row.getAttribute('data-row');
+      var costInp=row.querySelector('[name=cost_'+idx+']');
+      var baseCost=0;
+      if(costInp) {
+       var baseAttr=costInp.getAttribute('data-base-cost');
+       if(baseAttr) {
+        baseCost=parseFloat(baseAttr)||0;
+       } else {
+        var typed=parseFloat(String(costInp.value).replace(/[^0-9.\-]/g,''))||0;
+        if(typed>0) baseCost=typed;
+       }
+      }
+      if(baseCost<=0) {
+       var amazonCell=row.querySelector('td[data-amazon]');
+       if(amazonCell) baseCost=parseFloat(amazonCell.getAttribute('data-amazon'))||0;
+      }
+      if(baseCost<=0) return;
+      var qtyInp=row.querySelector('[name=qty_'+idx+']');
+      var qty=parseInt(qtyInp?.value)||1;
+      pricedItems.push({cost:baseCost,qty:qty});
      });
-     if(amazonItems.length===0) { document.getElementById('tierComparison').style.display='none'; return; }
+     if(pricedItems.length===0) { document.getElementById('tierComparison').style.display='none'; return; }
 
      const tiers=[
       {name:'Current',buf:0,color:'#8b949e'},
@@ -1891,8 +1918,8 @@
      html+='<th style="border:none;color:#8b949e;font-size:14px;padding:3px 8px;text-align:right">Margin</th></tr>';
      tiers.forEach(t=>{
       let totalCost=0,totalRev=0;
-      amazonItems.forEach(item=>{
-       let cost=item.ap*(1+t.buf/100);
+      pricedItems.forEach(item=>{
+       let cost=item.cost*(1+t.buf/100);
        let price=cost*(1+markup/100);
        totalCost+=cost*item.qty;
        totalRev+=price*item.qty;
@@ -1914,6 +1941,73 @@
      const comp=document.getElementById('tierComparison');
      comp.innerHTML=html;
      comp.style.display='block';
+
+     // ── Path-1 delta telemetry (post-quote item #6, 2026-05-07) ──
+     // The tier panel projects revenue at the active buffer × markup.
+     // The actual quote total is sum(price_<idx> × qty_<idx>) across
+     // every row. Those should agree within rounding noise after the
+     // operator clicks Apply. They diverge silently when:
+     //   * operator manually overrides a row's price field after a
+     //     tier was applied (so price ≠ cost × markup)
+     //   * per-row markup is non-default
+     //   * a tier was applied but a cost was edited since (stale
+     //     panel state)
+     // We fire a beacon when the absolute delta exceeds $0.50 for the
+     // currently-displayed projection. Server-side aggregator at
+     // /api/pricing-tier-delta/summary surfaces frequency. Path-1
+     // logging only — no operator-facing toast.
+     try {
+      const activeProj = tiers.find(function(t){return t.buf===activeBuf;});
+      // activeProj here is the tier descriptor; we need to recompute
+      // its totalRev. Since the loop above already iterated, recompute
+      // the active-tier totals once for clarity:
+      let panelRev=0, panelCost=0;
+      pricedItems.forEach(function(it){
+       const c=it.cost*(1+activeBuf/100);
+       const p=c*(1+markup/100);
+       panelRev += p*it.qty;
+       panelCost += c*it.qty;
+      });
+      // Sum actual row bid extensions.
+      let actualRev=0, rowCount=0;
+      document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+       var idx=row.getAttribute('data-row');
+       var priceInp=row.querySelector('[name=price_'+idx+']');
+       var qtyInp=row.querySelector('[name=qty_'+idx+']');
+       if(!priceInp||!qtyInp) return;
+       var pr=parseFloat(String(priceInp.value).replace(/[^0-9.\-]/g,''))||0;
+       var qt=parseInt(qtyInp.value)||1;
+       if(pr>0) { actualRev += pr*qt; rowCount++; }
+      });
+      const delta = panelRev - actualRev;
+      if (Math.abs(delta) > 0.50 && rowCount > 0) {
+       const meta = window.PC_META || {};
+       const payload = {
+        context: 'pc',
+        record_id: meta.pcid || '',
+        active_buf: activeBuf,
+        tier_revenue: Math.round(panelRev*100)/100,
+        row_revenue: Math.round(actualRev*100)/100,
+        tier_cost: Math.round(panelCost*100)/100,
+        item_count: rowCount,
+        delta: Math.round(delta*100)/100,
+        url: window.location.pathname,
+       };
+       try {
+        if (navigator.sendBeacon) {
+         const blob = new Blob([JSON.stringify(payload)], {type:'text/plain'});
+         navigator.sendBeacon('/api/pricing-tier-delta', blob);
+        } else {
+         fetch('/api/pricing-tier-delta', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload),
+          keepalive: true,
+         });
+        }
+       } catch(_) { /* fire-and-forget */ }
+      }
+     } catch(_e) { /* never let telemetry break the panel */ }
     }
     // Show comparison on load
     setTimeout(showTierComparison, 200);

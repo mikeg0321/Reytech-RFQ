@@ -239,25 +239,19 @@ def _lookup_facility(text: str) -> dict | None:
 
 def _parse_address_parts(raw: str) -> tuple:
     """Parse a raw address string into (name, [address_lines]).
-    Splits on newlines first, then commas. First part is name, rest is address.
-    If it looks like the first part IS an address (has a number), treats the whole thing as address."""
-    if not raw:
-        return "", []
-    lines = [l.strip() for l in raw.replace("\\r\\n", "\\n").replace("\r\n", "\n").split("\n") if l.strip()]
-    if len(lines) > 1:
-        # Multi-line: first line is name, rest is address
-        # But check if first line looks like a street address (starts with number)
-        if lines[0] and lines[0][0].isdigit():
-            return "", lines  # All address, no name
-        return lines[0], lines[1:]
-    # Single line: split on commas
-    parts = [p.strip() for p in raw.split(",") if p.strip()]
-    if len(parts) > 1:
-        # First part is name, rest is address
-        if parts[0] and parts[0][0].isdigit():
-            return "", parts
-        return parts[0], parts[1:]
-    return raw.strip(), []
+
+    2026-05-07: routed through `src.core.address_format.parse_address_blob`
+    — single source of truth for every customer-facing address render.
+    Closes the Mike P0 RFQ a5b09b56 quote-PDF margin overflow where the
+    institution + street + city + state + zip were getting jammed into a
+    super-long "INST - STREET" first line followed by `[City, ST, ZIP,
+    Country]` as separate lines. The canonical helper unsplits that
+    mash-up, folds City/ST/ZIP onto one line, and drops implied-country
+    tokens. Tests in `tests/test_address_format.py` pin every wild shape
+    seen on prod.
+    """
+    from src.core.address_format import parse_address_blob, format_for_pdf
+    return format_for_pdf(parse_address_blob(raw))
 
 def _load_counter():
     """Load counter from SQLite — the single source of truth."""
