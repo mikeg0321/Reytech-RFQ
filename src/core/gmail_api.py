@@ -156,6 +156,44 @@ def clear_cache():
 # Gmail API Operations
 # ═══════════════════════════════════════════════════════════════════════
 
+# B-3 (audit 2026-05-07): Gmail's HTTP client surfaces `IncompleteRead` and
+# `[SSL] record layer failure` as transient transport errors. Without retry,
+# affected messages got silently skipped. This minimal retry only covers
+# transport-layer failures — not 4xx/5xx from Gmail itself, which already
+# surface useful errors. Substrate `external_call.with_retry()` (per audit
+# C-7) will subsume this when it lands.
+_GMAIL_TRANSIENT_ERRORS = ("IncompleteRead", "record layer failure",
+                           "Connection reset", "Connection aborted",
+                           "EOF occurred", "TimeoutError")
+
+
+def _is_transient_gmail_error(err: BaseException) -> bool:
+    msg = str(err)
+    return any(needle in msg for needle in _GMAIL_TRANSIENT_ERRORS)
+
+
+def _with_gmail_retry(fn, *, op: str, attempts: int = 3, base_delay: float = 0.5):
+    """Run `fn()` with up to `attempts` tries on transient transport errors.
+    Backoff: 0.5s, 1.0s, 2.0s. Non-transient errors raise immediately."""
+    import time
+    last_err = None
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            if not _is_transient_gmail_error(e):
+                raise
+            if i == attempts - 1:
+                break
+            delay = base_delay * (2 ** i)
+            log.warning("Gmail %s transient error (attempt %d/%d): %s — "
+                        "retry in %.1fs", op, i + 1, attempts, e, delay)
+            time.sleep(delay)
+    log.error("Gmail %s failed after %d attempts: %s", op, attempts, last_err)
+    raise last_err  # type: ignore[misc]
+
+
 def list_message_ids(service, query: str = "", max_results: int = 500) -> List[str]:
     """List message IDs matching a query.
 
@@ -172,7 +210,8 @@ def list_message_ids(service, query: str = "", max_results: int = 500) -> List[s
             userId="me", q=query, maxResults=min(max_results, 500)
         )
         while request and len(ids) < max_results:
-            response = request.execute()
+            response = _with_gmail_retry(request.execute,
+                                         op="list_message_ids")
             messages = response.get("messages", [])
             ids.extend(m["id"] for m in messages)
             request = service.users().messages().list_next(request, response)
@@ -196,9 +235,12 @@ def get_raw_message(service, msg_id: str, return_thread_id: bool = False):
     `users.messages.send` / `users.drafts.create` body.
     """
     try:
-        result = service.users().messages().get(
-            userId="me", id=msg_id, format="raw"
-        ).execute()
+        result = _with_gmail_retry(
+            service.users().messages().get(
+                userId="me", id=msg_id, format="raw"
+            ).execute,
+            op="get_raw_message",
+        )
         raw = result.get("raw", "")
         # Gmail API returns base64url-encoded RFC 2822
         raw_bytes = base64.urlsafe_b64decode(raw)
