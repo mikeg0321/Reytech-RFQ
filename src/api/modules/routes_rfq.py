@@ -4506,3 +4506,79 @@ def _api_rfq_confirm_pc_link_locked(rid):
     })
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Buyer-reply diff extraction (PR-F2 of post-quote queue item 24, 2026-05-07)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# PR-E (#813) routes buyer-reply emails matched on Gmail thread_id onto
+# the existing primary record's `buyer_replies` array. PR-F1 (#816)
+# shipped the pure-function `extract_quote_diff(text, items)` Claude
+# helper. This endpoint is the bridge: read the indexed buyer reply,
+# call the helper with the record's current items, return a structured
+# diff for the operator-review panel on /rfq/<id>.
+
+@bp.route("/api/rfq/<rid>/buyer-replies/<int:idx>/extract-diff",
+          methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_extract_buyer_reply_diff(rid, idx):
+    """Extract a structured quote-diff from the indexed buyer reply.
+
+    Returns:
+      {
+        "ok": bool,
+        "diff": {price_changes, qty_changes, items_added,
+                 items_removed, notes, _empty},
+        "skipped_reason": str | None,
+        "reply_meta": {from, subject, at, gmail_message_id},
+      }
+    """
+    invalid = _validate_rid(rid)
+    if invalid:
+        return invalid
+    from src.api.data_layer import load_rfqs
+    rfqs = load_rfqs() or {}
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    replies = r.get("buyer_replies") or []
+    if idx < 0 or idx >= len(replies):
+        return jsonify({
+            "ok": False,
+            "error": f"buyer_reply index {idx} out of range "
+                     f"(record has {len(replies)})",
+        }), 404
+    reply = replies[idx] or {}
+    body = reply.get("body_excerpt") or reply.get("body") or ""
+
+    try:
+        from src.agents.buyer_reply_diff import extract_quote_diff
+    except Exception as e:
+        log.error("buyer_reply_diff import failed: %s", e)
+        return jsonify({
+            "ok": False,
+            "error": f"diff helper unavailable: {e}",
+        }), 503
+
+    current_items = r.get("line_items") or r.get("items") or []
+    diff, skipped_reason = extract_quote_diff(
+        body, current_items,
+        current_totals={
+            "subtotal": r.get("subtotal"),
+            "tax": r.get("tax"),
+            "total": r.get("total"),
+        },
+    )
+    return jsonify({
+        "ok": True,
+        "diff": diff,
+        "skipped_reason": skipped_reason,
+        "reply_meta": {
+            "from": reply.get("from", ""),
+            "subject": reply.get("subject", ""),
+            "at": reply.get("at", ""),
+            "gmail_message_id": reply.get("gmail_message_id", ""),
+        },
+    })

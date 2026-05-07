@@ -1326,6 +1326,137 @@
  <div id="scprs-body" style="margin-top:12px"></div>
 </div>
 
+{# ── Buyer-reply diff panel (PR-F2 of post-quote item 24, 2026-05-07) ── #}
+{# PR-E (#813) routes buyer-reply emails to this record's buyer_replies #}
+{# array; PR-F1 (#816) extracts a structured quote-diff via Claude. This #}
+{# panel is the operator surface — one row per reply, click "Extract     #}
+{# changes" to render price/qty/add/remove deltas inline.                 #}
+{% set _replies = r.buyer_replies|default([]) %}
+{% if _replies %}
+<div class="card" data-testid="buyer-replies-card">
+ <div class="card-t">💬 Buyer Replies on this Thread ({{ _replies|length }})</div>
+ <div style="font-size:12px;color:var(--tx2,#8b949e);margin-top:4px;margin-bottom:10px">
+  Reytech routed these replies onto this RFQ via Gmail threadId match. Click
+  <strong>Extract changes</strong> to surface what the buyer is asking for —
+  price changes, qty changes, items added/removed.
+ </div>
+ {% for reply in _replies %}
+ <div class="buyer-reply-row" data-testid="buyer-reply-{{ loop.index0 }}"
+      style="border:1px solid var(--bd,#30363d);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--sf2,#161b22)">
+  <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+   <div style="flex:1;min-width:200px">
+    <div style="font-size:13px;font-weight:600">{{ reply.subject|default('(no subject)') }}</div>
+    <div style="font-size:11px;color:var(--tx2,#8b949e);margin-top:2px">
+     from {{ reply.from|default('?') }} · {{ reply.at|default('—') }}
+     {% if reply.attachments %} · 📎 {{ reply.attachments|length }} attachment(s){% endif %}
+    </div>
+   </div>
+   <button onclick="extractReplyDiff({{ loop.index0 }})"
+           data-testid="extract-diff-{{ loop.index0 }}"
+           class="btn btn-sm" style="background:#1f6feb;color:#fff;font-size:13px;padding:5px 12px;border:none;border-radius:4px;cursor:pointer">
+    🔎 Extract changes
+   </button>
+  </div>
+  {% if reply.body_excerpt %}
+  <div style="margin-top:8px;font-size:12px;color:var(--tx,#c9d1d9);white-space:pre-wrap;font-family:monospace;background:#0d1117;padding:8px 10px;border-radius:4px;max-height:120px;overflow:auto">{{ reply.body_excerpt }}</div>
+  {% endif %}
+  <div id="reply-diff-{{ loop.index0 }}" style="margin-top:10px;display:none"></div>
+ </div>
+ {% endfor %}
+</div>
+
+<script>
+(function(){
+ // Helper to render the diff result in a per-reply container.
+ window.extractReplyDiff = function(idx) {
+  var btn = document.querySelector('[data-testid="extract-diff-' + idx + '"]');
+  var out = document.getElementById('reply-diff-' + idx);
+  if (!out) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Extracting…'; }
+  out.style.display = 'block';
+  out.innerHTML = '<div style="color:#8b949e;font-size:12px">Asking Claude for a structured diff…</div>';
+
+  fetch('/api/rfq/{{ rid }}/buyer-replies/' + idx + '/extract-diff', {
+   method: 'POST',
+   headers: {'Content-Type': 'application/json'},
+   credentials: 'same-origin',
+   body: '{}',
+  }).then(function(r){ return r.json(); })
+  .then(function(j){
+   if (btn) { btn.disabled = false; btn.textContent = '🔎 Re-extract'; }
+   if (!j || !j.ok) {
+    out.innerHTML = '<div style="color:#f85149;font-size:12px">'
+     + 'Extract failed: ' + (j && j.error || 'unknown') + '</div>';
+    return;
+   }
+   if (j.skipped_reason) {
+    out.innerHTML = '<div style="color:#d29922;font-size:12px">'
+     + 'Skipped: ' + j.skipped_reason + '</div>';
+    return;
+   }
+   var d = j.diff || {};
+   if (d._empty) {
+    out.innerHTML = '<div style="color:#3fb950;font-size:12px">'
+     + '✓ No changes detected — buyer reply has no quote-impacting asks.</div>';
+    return;
+   }
+   var html = '<div style="background:#0d1117;border:1px solid var(--bd,#30363d);border-radius:4px;padding:10px">';
+   var anySection = false;
+   var sections = [
+    ['price_changes', '💲 Price changes', '#d29922'],
+    ['qty_changes',   '📊 Qty changes',   '#58a6ff'],
+    ['items_added',   '➕ Items added',    '#3fb950'],
+    ['items_removed', '➖ Items removed',  '#f85149'],
+    ['notes',         '📝 Notes',         '#8b949e'],
+   ];
+   sections.forEach(function(s){
+    var key = s[0], label = s[1], color = s[2];
+    var arr = d[key] || [];
+    if (!arr.length) return;
+    anySection = true;
+    html += '<div style="margin-bottom:8px"><div style="font-size:12px;font-weight:600;color:' + color + ';margin-bottom:4px">'
+     + label + ' (' + arr.length + ')</div><ul style="margin:0;padding-left:20px;font-size:12px">';
+    arr.forEach(function(entry){
+     var line = '';
+     if (key === 'price_changes') {
+      line = 'Line ' + (entry.line_no || '?') + ': '
+       + (entry.current_unit_price !== undefined ? '$' + entry.current_unit_price : '?')
+       + ' → <strong>$' + (entry.requested_unit_price || 0).toFixed(2) + '</strong>';
+      if (entry.rationale) line += ' <span style="color:#8b949e">— ' + entry.rationale + '</span>';
+     } else if (key === 'qty_changes') {
+      line = 'Line ' + (entry.line_no || '?') + ': '
+       + (entry.current_qty !== undefined ? entry.current_qty : '?')
+       + ' → <strong>' + entry.requested_qty + '</strong>';
+      if (entry.rationale) line += ' <span style="color:#8b949e">— ' + entry.rationale + '</span>';
+     } else if (key === 'items_added') {
+      line = '<strong>' + (entry.description || '?') + '</strong> · qty ' + (entry.qty || '?');
+      if (entry.unit_price_hint) line += ' @ ~$' + entry.unit_price_hint;
+      if (entry.rationale) line += ' <span style="color:#8b949e">— ' + entry.rationale + '</span>';
+     } else if (key === 'items_removed') {
+      line = 'Line ' + (entry.line_no || '?') + ': ' + (entry.description || '?');
+      if (entry.rationale) line += ' <span style="color:#8b949e">— ' + entry.rationale + '</span>';
+     } else if (key === 'notes') {
+      line = '<span style="color:#d29922">[' + (entry.category || 'other') + ']</span> ' + entry.note;
+     }
+     html += '<li style="margin-bottom:2px">' + line + '</li>';
+    });
+    html += '</ul></div>';
+   });
+   if (!anySection) {
+    html += '<div style="color:#8b949e;font-size:12px">(All buckets empty.)</div>';
+   }
+   html += '</div>';
+   out.innerHTML = html;
+  }).catch(function(e){
+   if (btn) { btn.disabled = false; btn.textContent = '🔎 Extract changes'; }
+   out.innerHTML = '<div style="color:#f85149;font-size:12px">Network error: '
+    + (e && e.message || 'unknown') + '</div>';
+  });
+ };
+})();
+</script>
+{% endif %}
+
 {% if r.status in ('generated','generated_incomplete','ready_to_send','sent','won','lost') and r.output_files %}
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:center">
