@@ -3580,16 +3580,66 @@ def update(rid):
     except Exception as _e:
         log.debug('suppressed in update: %s', _e)
 
-    # Save SCPRS prices for future lookups
-    save_prices_from_rfq(r)
-    
-    # Record ALL prices to history + auto-ingest to catalog
+    # ─────────────────────────────────────────────────────────────────
+    # Catalog write-back gate (Mike P0 2026-05-06: "i hit finalize
+    # pricing and all my pricing changed again....whats the point of
+    # that step.")
+    #
+    # Finalize Pricing was previously aggressive on every save: it
+    # ran SCPRS save, history record, catalog write-back, and
+    # `lock_cost`. Combined with stale catalog data, the round-trip
+    # surfaced as "my typed pricing reverted to catalog values" and
+    # cost Mike data mid-quote.
+    #
+    # This block now defaults to OFF — Finalize Pricing becomes a
+    # pure save (form values → items → autosave-style persist).
+    # Operators who want the catalog learnings can flip
+    # `rfq.finalize_aggressive_catalog_sync=true` via /api/admin/flags
+    # OR the deploy env var. The pure-save path remains a no-data-loss
+    # operation; the aggressive path is opt-in for the rare case
+    # where the operator explicitly wants to push their pricing into
+    # the catalog as truth.
+    cat_added, cat_updated = 0, 0
     try:
-        _record_rfq_prices(r, source="rfq_finalize")
-    except Exception as _e:
-        log.debug("Price recording: %s", _e)
-    
-    # Sync all priced items to product catalog
+        from src.core.flags import get_flag
+        _aggressive = bool(get_flag("rfq.finalize_aggressive_catalog_sync", False))
+    except Exception:
+        _aggressive = False
+
+    if not _aggressive:
+        log.info(
+            "Finalize %s: catalog sync skipped (rfq.finalize_aggressive_"
+            "catalog_sync=False — pure save). Set the flag to True via "
+            "/api/admin/flags to opt in to aggressive write-back.", rid,
+        )
+    else:
+        # Save SCPRS prices for future lookups
+        save_prices_from_rfq(r)
+
+        # Record ALL prices to history + auto-ingest to catalog
+        try:
+            _record_rfq_prices(r, source="rfq_finalize")
+        except Exception as _e:
+            log.debug("Price recording: %s", _e)
+
+        # Sync all priced items to product catalog
+        cat_added, cat_updated = _legacy_aggressive_catalog_sync(r)
+
+    _log_rfq_activity(rid, "pricing_finalized",
+        f"Pricing finalized for #{r.get('solicitation_number','?')} "
+        f"({len(r.get('line_items',[]))} items, catalog "
+        f"{'pure-save (no sync)' if not _aggressive else f'+{cat_added}/~{cat_updated}'})",
+        actor="user")
+
+    flash("Pricing saved" + ("" if not _aggressive else " — synced to catalog"), "success")
+    return redirect(f"/rfq/{rid}")
+
+
+def _legacy_aggressive_catalog_sync(r):
+    """Pre-2026-05-07 Finalize-Pricing catalog write-back path. Extracted
+    here so the safe-default path in update() reads cleanly. Only runs
+    when `rfq.finalize_aggressive_catalog_sync=True` flag is set."""
+    rid = r.get("id", "")
     cat_added, cat_updated = 0, 0
     try:
         from src.agents.product_catalog import match_item, add_to_catalog, add_supplier_price, init_catalog_db
@@ -3657,12 +3707,7 @@ def update(rid):
     except Exception as _e:
         log.debug('suppressed in update: %s', _e)
 
-    _log_rfq_activity(rid, "pricing_finalized",
-        f"Pricing finalized for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items, catalog +{cat_added}/~{cat_updated})",
-        actor="user")
-    
-    flash("Pricing finalized — saved to catalog", "success")
-    return redirect(f"/rfq/{rid}")
+    return cat_added, cat_updated
 
 
 @bp.route("/api/rfq/<rid>/update-field", methods=["POST"])
