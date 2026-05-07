@@ -151,8 +151,8 @@ def _api_rfq_update_status_json_locked(rid):
     new_status = data.get("status", "").strip()
     notes = data.get("notes", "").strip()
 
-    valid = {"new", "ready", "generated", "ready_to_send", "sent", "won", "lost", "no_bid", "cancelled"}
-    if new_status not in valid:
+    from src.core.status_taxonomy import is_valid_status_for
+    if not is_valid_status_for("rfq", new_status):
         return jsonify({"ok": False, "error": f"Invalid status: {new_status}"})
 
     old_status = r.get("status", "?")
@@ -191,8 +191,8 @@ def rfq_update_status(rid):
         return redirect("/")
     
     new_status = request.form.get("status", "").strip()
-    valid = {"new", "ready", "generated", "ready_to_send", "sent", "won", "lost", "no_bid", "cancelled"}
-    if new_status not in valid:
+    from src.core.status_taxonomy import is_valid_status_for
+    if not is_valid_status_for("rfq", new_status):
         flash(f"Invalid status: {new_status}", "error")
         return redirect(f"/rfq/{rid}")
     
