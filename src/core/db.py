@@ -1705,6 +1705,28 @@ def _migrate_columns():
         # created, open in Gmail" state and lets re-create supersede.
         ("rfqs", "gmail_draft_id", "TEXT DEFAULT ''"),
         ("price_checks", "gmail_draft_id", "TEXT DEFAULT ''"),
+        # ── Thread-aware ingest substrate (post-quote queue item 24,
+        #    2026-05-07 — Mike P0 RFQ a5b09b56 spurious-PC pattern) ──
+        # `gmail_message_ids` is a JSON list of every Gmail message-id
+        # that landed in this thread (initial ingest + every detected
+        # reply). Used by the dedup logic in process_buyer_request and
+        # by the buyer-reply attachment routing to maintain a complete
+        # message-graph per record.
+        ("rfqs", "gmail_message_ids", "TEXT DEFAULT '[]'"),
+        ("price_checks", "gmail_message_ids", "TEXT DEFAULT '[]'"),
+        # `gmail_thread_duplicate_of` is set when the dedup detects this
+        # record is a thread-duplicate of another (Q1=A: dismiss + cross-link
+        # rather than delete). Empty for primary records; carries the
+        # parent record_id for dismissed duplicates so audit / UI can
+        # show "this was a follow-up to RFQ X".
+        ("rfqs", "gmail_thread_duplicate_of", "TEXT DEFAULT ''"),
+        ("price_checks", "gmail_thread_duplicate_of", "TEXT DEFAULT ''"),
+        # `gmail_message_id` on rfq_files links an attachment to the
+        # specific message it arrived in (vs. just the thread). Required
+        # for buyer-reply attachment routing — operator can see "this
+        # PDF came from the buyer's reply at HH:MM" rather than just
+        # "from somewhere in the thread".
+        ("rfq_files", "gmail_message_id", "TEXT DEFAULT ''"),
         # ── Orders V2: structured columns on orders (currently only in data_json blob) ──
         ("orders", "buyer_name", "TEXT DEFAULT ''"),
         ("orders", "buyer_email", "TEXT DEFAULT ''"),
