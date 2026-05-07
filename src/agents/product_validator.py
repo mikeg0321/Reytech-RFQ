@@ -247,94 +247,126 @@ Respond in this exact JSON format (no markdown, no code blocks):
     }
 
     breaker = get_breaker("grok")
-    for attempt in range(_MAX_RETRIES):
+
+    # ── Tier 1d PR-3 (audit 2026-05-07): migrate inline retry loop to
+    # `src.core.external_call.with_retry`. Three transient conditions
+    # — 429, 5xx, and Timeout — each map to a sentinel exception so
+    # the substrate's transient predicate retries them uniformly.
+    # CircuitOpenError and generic Exception still surface at the
+    # outer layer with the original error-dict contract.
+    #
+    # Behavior change: 5xx and Timeout retries previously did NOT
+    # sleep between attempts. They now follow the substrate's linear
+    # backoff (2s, 4s) so a hammered xAI gets breathing room. The
+    # circuit breaker still independently counts 5xx + Timeout failures
+    # globally; this only affects pacing within a single call.
+    class _GrokRateLimited(Exception):
+        """Sentinel: HTTP 429 — rate limited."""
+
+    class _GrokTransport5xx(Exception):
+        """Sentinel: HTTPError raised by `_post_xai` on 5xx."""
+
+    class _GrokTimeoutError(Exception):
+        """Sentinel: requests.exceptions.Timeout from `_post_xai`."""
+
+    def _grok_attempt():
         try:
             resp = breaker.call(_post_xai, headers, payload)
-            if resp.status_code == 429:
-                # Rate limited — wait and retry (429 doesn't trip the breaker)
-                time.sleep(2 * (attempt + 1))
-                continue
-            if resp.status_code != 200:
-                # 4xx — client error, non-retryable, doesn't trip breaker
-                log.warning("Grok API %d: %s", resp.status_code, resp.text[:200])
-                return {"ok": False, "error": f"API {resp.status_code}"}
-
-            data = resp.json()
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            tokens = data.get("usage", {}).get("total_tokens", 0)
-
-            # Parse JSON from response — handle markdown code blocks
-            content = content.strip()
-            if content.startswith("```"):
-                content = content.split("\n", 1)[-1]
-                if content.endswith("```"):
-                    content = content[:-3]
-                content = content.strip()
-
-            try:
-                result = json.loads(content)
-            except json.JSONDecodeError:
-                # Try to extract JSON from mixed content
-                import re
-                json_match = re.search(r'\{[^{}]*\}', content, re.DOTALL)
-                if json_match:
-                    result = json.loads(json_match.group())
-                else:
-                    log.warning("Grok response not JSON: %s", content[:200])
-                    return {"ok": False, "error": "Response not JSON", "raw": content[:200]}
-
-            # Normalize and validate
-            result["ok"] = True
-            result["tokens_used"] = tokens
-            result["price"] = float(result.get("price") or 0)
-            result["confidence"] = float(result.get("confidence") or 0)
-            result["is_correct_match"] = bool(result.get("is_correct_match"))
-            result.setdefault("product_name", "")
-            result.setdefault("url", "")
-            result.setdefault("asin", "")
-            result.setdefault("supplier", "")
-            result.setdefault("reasoning", "")
-
-            # Extract ASIN from URL if not provided
-            if not result["asin"] and "amazon.com" in result.get("url", ""):
-                import re
-                asin_m = re.search(r'/dp/([A-Z0-9]{10})', result["url"])
-                if asin_m:
-                    result["asin"] = asin_m.group(1)
-
-            log.info("Grok validated: '%s' → %s (conf=%.0f%%, $%.2f, %d tokens)",
-                     description[:40],
-                     "CORRECT" if result["is_correct_match"] else result["product_name"][:40],
-                     result["confidence"] * 100,
-                     result["price"],
-                     tokens)
-
-            # Cache successful results with price > 0
-            if result.get("price", 0) > 0 and result.get("confidence", 0) >= 0.50:
-                _cache_store(description, upc, mfg_number, result)
-
-            return result
-
-        except CircuitOpenError as e:
-            # xAI is failing consistently — stop hammering. The breaker
-            # auto-tests recovery after 120s, so the next PC may succeed.
-            log.warning("Grok circuit open — skipping validate: %s", e)
-            return {"ok": False, "error": "grok circuit open",
-                    "circuit_open": True}
         except requests.exceptions.HTTPError as e:
-            # Only raised on 5xx (see _post_xai). Counted as breaker failure;
-            # we retry within this call but the breaker is tracking globally.
-            log.warning("Grok 5xx (attempt %d/%d): %s",
-                        attempt + 1, _MAX_RETRIES, e)
-            continue
-        except requests.exceptions.Timeout:
-            log.warning("Grok API timeout (attempt %d/%d)", attempt + 1, _MAX_RETRIES)
-            continue
-        except Exception as e:
-            log.error("Grok API error: %s", e)
-            return {"ok": False, "error": str(e)}
+            raise _GrokTransport5xx(str(e)) from e
+        except requests.exceptions.Timeout as e:
+            raise _GrokTimeoutError(str(e)) from e
 
-    return {"ok": False, "error": "Max retries exceeded"}
+        if resp.status_code == 429:
+            # 429 doesn't trip the breaker; substrate retries with backoff.
+            raise _GrokRateLimited(f"429 rate-limited")
+        if resp.status_code != 200:
+            # 4xx (other than 429) — client error, non-retryable, no breaker hit.
+            log.warning("Grok API %d: %s", resp.status_code, resp.text[:200])
+            return {"ok": False, "error": f"API {resp.status_code}"}
+
+        data = resp.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+
+        # Parse JSON from response — handle markdown code blocks
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[-1]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            # Try to extract JSON from mixed content
+            import re
+            json_match = re.search(r'\{[^{}]*\}', content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                log.warning("Grok response not JSON: %s", content[:200])
+                return {"ok": False, "error": "Response not JSON", "raw": content[:200]}
+
+        # Normalize and validate
+        result["ok"] = True
+        result["tokens_used"] = tokens
+        result["price"] = float(result.get("price") or 0)
+        result["confidence"] = float(result.get("confidence") or 0)
+        result["is_correct_match"] = bool(result.get("is_correct_match"))
+        result.setdefault("product_name", "")
+        result.setdefault("url", "")
+        result.setdefault("asin", "")
+        result.setdefault("supplier", "")
+        result.setdefault("reasoning", "")
+
+        # Extract ASIN from URL if not provided
+        if not result["asin"] and "amazon.com" in result.get("url", ""):
+            import re
+            asin_m = re.search(r'/dp/([A-Z0-9]{10})', result["url"])
+            if asin_m:
+                result["asin"] = asin_m.group(1)
+
+        log.info("Grok validated: '%s' → %s (conf=%.0f%%, $%.2f, %d tokens)",
+                 description[:40],
+                 "CORRECT" if result["is_correct_match"] else result["product_name"][:40],
+                 result["confidence"] * 100,
+                 result["price"],
+                 tokens)
+
+        # Cache successful results with price > 0
+        if result.get("price", 0) > 0 and result.get("confidence", 0) >= 0.50:
+            _cache_store(description, upc, mfg_number, result)
+
+        return result
+
+    from src.core.external_call import with_retry
+    _GROK_TRANSIENT = (_GrokRateLimited, _GrokTransport5xx, _GrokTimeoutError)
+    try:
+        return with_retry(
+            _grok_attempt,
+            op="Grok validate",
+            attempts=_MAX_RETRIES,
+            base_delay=2.0,
+            backoff="linear",
+            is_transient=lambda e: isinstance(e, _GROK_TRANSIENT),
+            logger=log,
+        )
+    except CircuitOpenError as e:
+        # xAI is failing consistently — stop hammering. The breaker
+        # auto-tests recovery after 120s, so the next PC may succeed.
+        log.warning("Grok circuit open — skipping validate: %s", e)
+        return {"ok": False, "error": "grok circuit open",
+                "circuit_open": True}
+    except _GROK_TRANSIENT:
+        # All attempts exhausted on a transient error — preserve the
+        # original "Max retries exceeded" error-dict contract. The
+        # substrate has already logged the final-failure ERROR.
+        return {"ok": False, "error": "Max retries exceeded"}
+    except Exception as e:
+        log.error("Grok API error: %s", e)
+        return {"ok": False, "error": str(e)}
 
 
 def validate_batch(items: list, max_calls: int = 5) -> list:
