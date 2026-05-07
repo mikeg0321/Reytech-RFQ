@@ -1266,6 +1266,53 @@ MIGRATIONS = [
                'not_responding', 'expired', 'reclassified')
           AND COALESCE(gmail_thread_duplicate_of, '') = '';
     """),
+    (41, "observed_sends_table", """
+        -- PR-G2 of post-quote queue item 23 (2026-05-07).
+        -- The "Mark-Sent-Manually" modal is single-file, lossy, not
+        -- searchable — operators send a real quote then forget to
+        -- click the modal, leaving the record stuck at status='generated'
+        -- forever. PR-G1 (#814) added the detector; this migration
+        -- gives the detector a place to persist its findings so a
+        -- confirm/reject UI (PR-G3) can act on them and so the
+        -- 8-week confirm-rate metric (PR-G4) has data to query.
+        --
+        -- Schema notes:
+        -- * `gmail_message_id` is the dedup key — same outbound
+        --   message scanned again must update existing row, not insert.
+        -- * `status` lifecycle: pending → confirmed | rejected |
+        --   auto_attached. `auto_attached` is reserved for the future
+        --   PR-G4 auto-flip after 100% over 8 weeks.
+        -- * `match_signal` mirrors observed_send.py's match priority
+        --   (quote_number, thread_id, solicitation_number,
+        --   solicitation_number_ambiguous, no_match).
+        -- * `confidence` is the detector's score (0.40-0.95) —
+        --   informational; status is what gates auto-attach.
+        CREATE TABLE IF NOT EXISTS observed_sends (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            gmail_message_id      TEXT NOT NULL UNIQUE,
+            thread_id             TEXT NOT NULL DEFAULT '',
+            subject               TEXT NOT NULL DEFAULT '',
+            to_email              TEXT NOT NULL DEFAULT '',
+            sent_at               TEXT NOT NULL DEFAULT '',
+            matched_record_id     TEXT NOT NULL DEFAULT '',
+            matched_record_kind   TEXT NOT NULL DEFAULT '',
+            match_signal          TEXT NOT NULL DEFAULT '',
+            match_value           TEXT NOT NULL DEFAULT '',
+            confidence            REAL NOT NULL DEFAULT 0,
+            status                TEXT NOT NULL DEFAULT 'pending',
+            decided_by            TEXT NOT NULL DEFAULT '',
+            decided_at            TEXT NOT NULL DEFAULT '',
+            notes                 TEXT NOT NULL DEFAULT '',
+            created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_observed_sends_status
+            ON observed_sends(status);
+        CREATE INDEX IF NOT EXISTS idx_observed_sends_record
+            ON observed_sends(matched_record_id);
+        CREATE INDEX IF NOT EXISTS idx_observed_sends_decided_at
+            ON observed_sends(decided_at);
+    """),
 ]
 
 
