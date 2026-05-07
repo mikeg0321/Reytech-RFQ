@@ -260,10 +260,14 @@ def get_message_metadata(service, msg_id: str) -> dict:
     for reply-on-thread when sending or drafting.
     """
     try:
-        result = service.users().messages().get(
-            userId="me", id=msg_id, format="metadata",
-            metadataHeaders=["Subject", "From", "Date", "Message-ID", "To", "Cc"]
-        ).execute()
+        result = _with_gmail_retry(
+            service.users().messages().get(
+                userId="me", id=msg_id, format="metadata",
+                metadataHeaders=["Subject", "From", "Date", "Message-ID",
+                                 "To", "Cc"]
+            ).execute,
+            op="get_message_metadata",
+        )
         headers = {h["name"].lower(): h["value"]
                    for h in result.get("payload", {}).get("headers", [])}
         return {
