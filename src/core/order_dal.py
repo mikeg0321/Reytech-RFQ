@@ -1115,8 +1115,15 @@ def get_order_detail(order_id: str) -> dict:
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════
 
-def _item_status(item: dict) -> str:
-    """Get sourcing status from either normalized row or blob dict."""
+def _item_status(item) -> str:
+    """Get sourcing status from a line item.
+
+    B-1 (audit 2026-05-07): legacy line items occasionally arrive as bare
+    strings (description-only). Calling `.get` on them crashed `list_orders`
+    on every dashboard init. Guard with isinstance — non-dict items have no
+    sourcing status, so they're treated as pending."""
+    if not isinstance(item, dict):
+        return "pending"
     return item.get("sourcing_status", "pending")
 
 

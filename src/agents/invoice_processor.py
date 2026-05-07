@@ -271,6 +271,20 @@ def _poll_loop():
             break
 
 
+def _get_email_config() -> dict:
+    """Return Gmail credentials from env.
+
+    B-2 (audit 2026-05-07): a prior refactor removed this helper but left
+    the call site at `start_invoice_poller`. Result: the poller raised
+    `NameError: name '_get_email_config' is not defined` at boot and
+    silently never ran in prod. Inline the helper here — the only caller
+    is two lines below."""
+    return {
+        "email": os.environ.get("GMAIL_ADDRESS", ""),
+        "password": os.environ.get("GMAIL_PASSWORD", ""),
+    }
+
+
 def start_invoice_poller():
     """Start background thread to poll for QB invoice emails."""
     cfg = _get_email_config()
