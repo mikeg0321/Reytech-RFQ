@@ -85,15 +85,24 @@ def _is_route_handler(body: str) -> bool:
         (PR #778). The outer wrapper holds the lock; the inner body
         runs under it. Linting the inner body for "lock not present"
         would be a false positive — the lock is in the wrapper.
+
+    JSON-returning detection: `return jsonify(...)` is the canonical
+    signal, but several handlers route through helpers that wrap
+    `jsonify()` internally. Today's three-dots-delete RMW race (Mike
+    P0 2026-05-06 RFQ a5b09b56) hid because `rfq_remove_item`
+    returned via `_item_response()` and the lint never noticed the
+    handler at all. Detect those helpers explicitly so future
+    `_item_response`-using handlers cannot regress silently.
     """
     first_line = body.splitlines()[0] if body else ""
     # Wrapper-rename pattern: `def _<name>_locked(...)` is the inner
     # body of a wrapped handler, not a standalone route.
     if first_line.startswith("def _") and "_locked(" in first_line:
         return False
+    JSON_HELPERS = ("return jsonify", "request.get_json", "_item_response(")
     return (
         ("pcid" in first_line or "rid" in first_line or "(self" not in first_line)
-        and ("return jsonify" in body or "request.get_json" in body)
+        and any(h in body for h in JSON_HELPERS)
     )
 
 

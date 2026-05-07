@@ -752,7 +752,7 @@
  {% set _phase_classified = (r.get('classification') or r.get('shape') or r.get('agency') or r.get('agency_key') or r.get('department')) %}
  {% set _phase_priced = (_rfq_n_items > 0 and _stepns.priced >= _rfq_n_items) %}
  {% set _phase_finalized = (r.get('pricing_snapshot') or r.status in ('ready','generated','ready_to_send','sent','won','lost')) %}
- {% set _phase_generated = (r.get('output_files') or r.get('reytech_quote_pdf') or r.status in ('generated','ready_to_send','sent','won','lost')) %}
+ {% set _phase_generated = (r.get('output_files') or r.get('reytech_quote_pdf') or r.status in ('generated','generated_incomplete','ready_to_send','sent','won','lost')) %}
  {% set _phase_sent = r.status in ('sent','won','lost') %}
  {% set _phase_post_send = r.status in ('won','lost','no_bid') %}
  {% set _stepper_phases = [
@@ -1326,7 +1326,7 @@
  <div id="scprs-body" style="margin-top:12px"></div>
 </div>
 
-{% if r.status in ('generated','ready_to_send','sent','won','lost') and r.output_files %}
+{% if r.status in ('generated','generated_incomplete','ready_to_send','sent','won','lost') and r.output_files %}
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:center">
   <div class="card-t" style="margin-bottom:0">📦 Generated Package ({{ r.output_files|length }} files)</div>
@@ -1350,7 +1350,7 @@
   {% endfor %}
  </div>
 </div>
-{% elif r.status in ('generated','ready_to_send','sent','won','lost') %}
+{% elif r.status in ('generated','generated_incomplete','ready_to_send','sent','won','lost') %}
 <!-- No output_files in memory — JS will load from DB via rfq-files-card above -->
 <div class="card">
  <div class="card-t">📦 Generated Package</div>
@@ -1385,7 +1385,7 @@
 </div>
 
 <!-- Email Composer with Template Selector -->
-{% if r.status in ('generated','ready_to_send','sent','won','lost') %}
+{% if r.status in ('generated','generated_incomplete','ready_to_send','sent','won','lost') %}
 <div class="card">
  <div class="card-t" style="font-size:15px">📧 Email Composer</div>
  
@@ -2295,7 +2295,14 @@ function _doAutosave(){
  _fetchWithRetry('/api/rfq/'+RID+'/autosave',{method:'POST',headers:{'Content-Type':'application/json'},body:data,credentials:'same-origin'})
  .then(r=>r.json()).then(d=>{
   if(d.ok){_lastSaveData=data;_showSaveStatus('saved');_showGuardrails(d.guardrails);
-   /* Keep localStorage backup as insurance — don't remove on success */}
+   /* Keep localStorage backup as insurance — don't remove on success */
+   // Re-evaluate the QA gate: if the operator just typed a value that
+   // clears a "No cost" / "No price" blocker, the Generate Package button
+   // should re-enable without requiring a full page reload. Was: gate
+   // fetched once on DOMContentLoaded, never refreshed → operator typed
+   // a fix and the button stayed disabled (Mike P0 2026-05-06).
+   try{ if(typeof window.refreshRfqQaGate === 'function') window.refreshRfqQaGate(); }catch(_e){}
+  }
   else{_showSaveStatus('error')}
  }).catch(()=>_showSaveStatus('error'));
 }
