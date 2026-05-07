@@ -3102,11 +3102,69 @@ document.addEventListener('click',function(){
 
 function itemAction(path){
  document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');
+ var isRemove = path.indexOf('remove-item/') === 0;
  fetch('/rfq/'+RID+'/'+path,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
  .then(r=>r.json()).then(d=>{
-  if(d.ok) location.reload();
-  else alert('Error: '+(d.message||'Failed'));
+  if(d.ok){
+   if(isRemove && d.removed){
+    try{ sessionStorage.setItem('_undo_rm_'+RID, JSON.stringify({desc:d.removed.description||'',ts:Date.now()})); }catch(e){}
+   }
+   location.reload();
+  } else alert('Error: '+(d.message||'Failed'));
  }).catch(e=>alert('Error: '+e.message));
+}
+
+// Undo toast — fires on page load if the prior action was a line-delete.
+// Snapshot is server-side on r._last_removed_item; clicking Undo POSTs
+// /restore-item which pops it and re-inserts at the original index.
+(function(){
+ try{
+  if(typeof RID === 'undefined') return;
+  var key = '_undo_rm_'+RID;
+  var raw = sessionStorage.getItem(key);
+  if(!raw) return;
+  var data = JSON.parse(raw||'{}');
+  sessionStorage.removeItem(key);
+  if(!data || !data.ts || (Date.now()-data.ts) > 30000) return;
+  if(document.readyState === 'loading'){
+   document.addEventListener('DOMContentLoaded', function(){ _showUndoToast(data.desc); });
+  } else {
+   _showUndoToast(data.desc);
+  }
+ }catch(e){}
+})();
+
+function _showUndoToast(desc){
+ var t = document.createElement('div');
+ t.id = '_undoToast';
+ t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;z-index:99999;box-shadow:0 4px 18px rgba(0,0,0,.4);font-size:14px;max-width:640px';
+ var label = document.createElement('span');
+ label.textContent = '🗑 Removed: ';
+ var name = document.createElement('strong');
+ name.style.cssText = 'color:#fff;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:bottom';
+ name.textContent = desc || '(item)';
+ var btn = document.createElement('button');
+ btn.id = '_undoBtn';
+ btn.textContent = '↶ Undo';
+ btn.style.cssText = 'background:#238636;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:600';
+ var x = document.createElement('button');
+ x.textContent = '✕';
+ x.style.cssText = 'background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer;line-height:1;padding:0 4px';
+ t.appendChild(label); t.appendChild(name); t.appendChild(btn); t.appendChild(x);
+ document.body.appendChild(t);
+ var done = false;
+ var dismiss = function(){ if(done) return; done = true; if(t.parentNode) t.parentNode.removeChild(t); };
+ var timer = setTimeout(dismiss, 12000);
+ x.onclick = function(){ clearTimeout(timer); dismiss(); };
+ btn.onclick = function(){
+  clearTimeout(timer);
+  btn.textContent = 'Restoring…'; btn.disabled = true;
+  fetch('/rfq/'+RID+'/restore-item',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+   .then(r=>r.json()).then(d=>{
+    if(d.ok){ location.reload(); }
+    else { alert('Undo failed: '+(d.message||'Unknown')); dismiss(); }
+   }).catch(e=>{ alert('Undo failed: '+e.message); dismiss(); });
+ };
 }
 
 function lookupSingleItem(idx){
@@ -3940,13 +3998,31 @@ function loadIntel(){
 }
 setTimeout(loadIntel,500);
 
+// Closes the Price Intelligence popup + its sibling backdrop together.
+// 2026-05-06 incident: X button only removed the popup, leaving the
+// backdrop covering the screen. The next click then hit the backdrop's
+// own onclick which did `getElementById('intel-popup').remove()` —
+// popup was already gone, so .remove() on null threw `Uncaught
+// TypeError: Cannot read properties of null (reading 'remove')` and
+// the page errored out mid-quote.
+//
+// This helper is null-safe and logs a console.warn if called when
+// neither element exists (so future regressions surface immediately
+// in the browser console rather than crashing on the next click).
+window._closeIntelPopup=function(){
+ var p=document.getElementById('intel-popup');
+ var b=document.getElementById('intel-backdrop');
+ if(p)p.remove();
+ if(b)b.remove();
+ if(!p&&!b)console.warn('[intel-popup] close called but neither popup nor backdrop in DOM');
+};
 function showIntel(idx){
  var existing=document.getElementById('intel-popup');
  if(existing)existing.remove();
  if(!_intelData||!_intelData[idx])return;
  var info=_intelData[idx];
  var html='<div id="intel-popup" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;z-index:10000;min-width:380px;max-width:500px;box-shadow:0 8px 32px rgba(0,0,0,.6)">';
- html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:15px;font-weight:700;color:#f0f6fc">📊 Price Intelligence</span><button onclick="this.closest(\'#intel-popup\').remove()" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">✕</button></div>';
+ html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:15px;font-weight:700;color:#f0f6fc">📊 Price Intelligence</span><button onclick="window._closeIntelPopup()" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">✕</button></div>';
  html+='<div style="font-size:14px;color:#8b949e;margin-bottom:10px">'+info.description+'</div>';
  if(info.catalog){
   html+='<div style="padding:8px 10px;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;margin-bottom:10px;font-size:14px">';
