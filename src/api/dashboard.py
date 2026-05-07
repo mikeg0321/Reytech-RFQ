@@ -2641,12 +2641,102 @@ def process_rfq_email(rfq_email):
         _trace.append(f"FORWARD from self: {_sender_email} — processing as RFQ with {len(rfq_email.get('attachments',[]))} attachments")
         log.info("Processing forwarded email from self: %s — %s", _sender_email, _subj)
     
+    # ── Thread-dedup TELEMETRY (PR-B 2026-05-07, post-quote queue item 24) ──
+    # Path 1: log-only. NO behavior change. Detects buyer-reply emails
+    # that share a Gmail thread_id with an existing RFQ or PC, and records
+    # the match to data/thread_dedup_log.jsonl. After ~1 week of clean
+    # accuracy data we flip to Path 2 (route as activity, never new
+    # record) — see PR-B-flip in the arc plan.
+    #
+    # Reasoning: Mike's 2026-05-06 incident created `pc_93edc64e` from
+    # Valentina's follow-up question because the existing dedup at lines
+    # 2644+ only checks solicitation_number, never thread_id. Path 1
+    # gives us the data to confirm Gmail thread_id is the right primary
+    # key before we start absorbing emails into existing records.
+    try:
+        _incoming_thread = rfq_email.get("gmail_thread_id", "")
+        if _incoming_thread:
+            _matched_rfqs = [
+                (_eid, _erfq) for _eid, _erfq in rfqs.items()
+                if _erfq.get("email_thread_id") == _incoming_thread
+                and _erfq.get("status") not in ("dismissed",)
+            ]
+            _matched_pcs = []
+            try:
+                _all_pcs_for_thread = _load_price_checks() or {}
+                _matched_pcs = [
+                    (_pid, _pc) for _pid, _pc in _all_pcs_for_thread.items()
+                    if _pc.get("email_thread_id") == _incoming_thread
+                    and _pc.get("status") not in ("dismissed",)
+                ]
+            except Exception as _pce:
+                log.debug("thread-dedup PC scan suppressed: %s", _pce)
+
+            if _matched_rfqs or _matched_pcs:
+                _matched_summary = {
+                    "ts": datetime.now().isoformat(),
+                    "incoming": {
+                        "email_uid": rfq_email.get("email_uid", ""),
+                        "gmail_thread_id": _incoming_thread,
+                        "subject": (rfq_email.get("subject", "") or "")[:120],
+                        "sender": rfq_email.get("sender_email", ""),
+                        "sol_hint": rfq_email.get("solicitation_hint", ""),
+                        "is_reply_subject": (rfq_email.get("subject", "") or "").lower().startswith("re:"),
+                    },
+                    "matched_rfqs": [
+                        {
+                            "id": _eid,
+                            "sol": _erfq.get("solicitation_number", ""),
+                            "status": _erfq.get("status", ""),
+                            "created": _erfq.get("created_at", ""),
+                        }
+                        for _eid, _erfq in _matched_rfqs
+                    ],
+                    "matched_pcs": [
+                        {
+                            "id": _pid,
+                            "sol": _pc.get("pc_number", _pc.get("solicitation_number", "")),
+                            "status": _pc.get("status", ""),
+                            "created": _pc.get("created_at", ""),
+                        }
+                        for _pid, _pc in _matched_pcs
+                    ],
+                    "would_route_as_activity_to": (
+                        _matched_rfqs[0][0] if _matched_rfqs
+                        else (_matched_pcs[0][0] if _matched_pcs else "")
+                    ),
+                }
+                # Append to JSONL — open-append-close so concurrent
+                # pollers don't corrupt the file. Path 1 is logging only;
+                # we don't need a lock around this.
+                try:
+                    _tdlog = os.path.join(DATA_DIR, "thread_dedup_log.jsonl")
+                    with open(_tdlog, "a", encoding="utf-8") as _tdfh:
+                        _tdfh.write(json.dumps(_matched_summary) + "\n")
+                except Exception as _wee:
+                    log.debug("thread-dedup log write suppressed: %s", _wee)
+                log.info(
+                    "thread-dedup-candidate: thread=%s incoming=%s matched_rfqs=%d matched_pcs=%d "
+                    "would_route_to=%s (Path 1 — logging only, NO behavior change)",
+                    _incoming_thread,
+                    rfq_email.get("email_uid", ""),
+                    len(_matched_rfqs), len(_matched_pcs),
+                    _matched_summary["would_route_as_activity_to"],
+                )
+                _trace.append(
+                    f"thread-dedup-candidate: thread={_incoming_thread} "
+                    f"would-route-to={_matched_summary['would_route_as_activity_to']} "
+                    f"(Path 1, logging only)"
+                )
+    except Exception as _tde:
+        log.debug("thread-dedup telemetry suppressed: %s", _tde)
+
     # Block: solicitation number already exists in active RFQ queue
     # E12: Enhanced duplicate detection — detect amendments and link revisions
     _sol_hint = rfq_email.get("solicitation_hint", "")
     if _sol_hint and _sol_hint != "unknown":
         for _eid, _erfq in rfqs.items():
-            if (_erfq.get("solicitation_number") == _sol_hint 
+            if (_erfq.get("solicitation_number") == _sol_hint
                     and _erfq.get("status") not in ("dismissed",)):
                 # Check if this is an amendment (different attachments or later date)
                 _existing_uid = _erfq.get("email_uid", "")
