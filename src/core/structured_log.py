@@ -95,6 +95,13 @@ def setup_structured_logging(level: str = None):
     # Quiet noisy libraries
     for lib in ["urllib3", "werkzeug", "httpcore", "httpx", "openai"]:
         logging.getLogger(lib).setLevel(logging.WARNING)
+    # pypdf logs `Ignoring padding error: Invalid padding bytes` at WARNING
+    # for almost every encrypted-PDF read we do (CCHCS templates etc).
+    # The error is benign — pypdf falls back successfully — and the noise
+    # buries real warnings. Bump to ERROR so only actual decrypt failures
+    # surface.
+    logging.getLogger("pypdf._crypt_providers._cryptography").setLevel(
+        logging.ERROR)
 
     logging.getLogger("reytech").info(
         "Logging configured: level=%s format=%s env=%s",
