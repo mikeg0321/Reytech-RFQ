@@ -953,28 +953,40 @@ async def _scrape_full_async(search_params, seen_pos, max_rows=500):
 
 
 def _scrape_with_retry(search_params, seen_pos, max_rows=500, max_retries=3):
-    """Scrape with retry logic."""
-    import time as _time
-    for attempt in range(1, max_retries + 1):
+    """Scrape with retry logic.
+
+    Thin wrapper over `src.core.external_call.with_retry` so the function
+    signature `(search_params, seen_pos, max_rows, max_retries)` is
+    preserved for existing callers. Behavior is identical to the
+    pre-Tier-1d implementation: max_retries attempts, linear backoff
+    (10s, 20s between retries), retries on any Exception.
+    """
+    from src.core.external_call import with_retry
+
+    def _do_scrape():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            results = loop.run_until_complete(
+            return loop.run_until_complete(
                 _scrape_full_async(
                     search_params=search_params,
                     seen_pos=seen_pos,
                     max_rows=max_rows,
                 )
             )
+        finally:
             loop.close()
-            return results
-        except Exception as e:
-            log.warning("Scrape attempt %d/%d failed: %s", attempt, max_retries, e)
-            if attempt < max_retries:
-                _time.sleep(10 * attempt)
-            else:
-                raise
-    return []
+
+    return with_retry(
+        _do_scrape,
+        op="SCPRS scrape",
+        attempts=max_retries,
+        base_delay=10.0,
+        backoff="linear",
+        # is_transient=None → retry on any Exception (preserves the
+        # prior "retry every error" behavior; tightening is a follow-on)
+        logger=log,
+    )
 
 
 def _cleanup_old_po_records():
