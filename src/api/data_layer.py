@@ -283,14 +283,31 @@ def _save_single_rfq(rfq_id, r, raise_on_error=False):
         try:
             from src.core.db import get_db
             with get_db() as conn:
+                # Audit 2026-05-07: 7 columns (`email_thread_id`, `email_message_id`,
+                # `original_sender`, `gmail_draft_id`, `gmail_message_ids`,
+                # `gmail_thread_duplicate_of`, `requirements_json`) were declared
+                # by `_migrate_columns` but NEVER written by this INSERT — the
+                # data lived only in the `data_json` blob, so any SQL-side query
+                # (`WHERE email_thread_id=?`, JOIN on thread, observed-send link)
+                # silently saw empty strings. The thread-aware-ingest substrate
+                # (PRs #808–#821) was relying on backfill scripts to populate
+                # these. Closing the gap so new RFQs land with the columns set.
+                _gmail_msg_ids = r.get("gmail_message_ids", [])
+                if not isinstance(_gmail_msg_ids, str):
+                    _gmail_msg_ids = json.dumps(_gmail_msg_ids, default=str)
+                _requirements = r.get("requirements_json", {})
+                if not isinstance(_requirements, str):
+                    _requirements = json.dumps(_requirements, default=str)
                 conn.execute("""
                     INSERT OR REPLACE INTO rfqs
                     (id, received_at, agency, institution, requestor_name, requestor_email,
                      rfq_number, items, status, source, email_uid, notes,
                      solicitation_number, due_date, email_subject, body_text, form_type,
                      reytech_quote_number, shipping_option, shipping_amount, delivery_location,
+                     email_thread_id, email_message_id, original_sender, gmail_draft_id,
+                     gmail_message_ids, gmail_thread_duplicate_of, requirements_json,
                      updated_at, data_json)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
                 """, (
                     rfq_id, r.get("received_at", ""), r.get("agency", ""),
                     r.get("institution", ""), r.get("requestor_name", ""),
@@ -308,6 +325,13 @@ def _save_single_rfq(rfq_id, r, raise_on_error=False):
                     r.get("shipping_option", "included"),
                     r.get("shipping_amount", 0),
                     r.get("delivery_location", ""),
+                    r.get("email_thread_id", ""),
+                    r.get("email_message_id", ""),
+                    r.get("original_sender", ""),
+                    r.get("gmail_draft_id", ""),
+                    _gmail_msg_ids,
+                    r.get("gmail_thread_duplicate_of", ""),
+                    _requirements,
                     json.dumps(r, default=str),
                 ))
         except Exception as e:
@@ -331,14 +355,24 @@ def save_rfqs(rfqs, raise_on_error=False):
             from src.core.db import get_db
             with get_db() as conn:
                 for rid, r in rfqs.items():
+                    # See _save_single_rfq above for why these 7 columns are
+                    # explicitly written (audit 2026-05-07 column-write gap).
+                    _gmail_msg_ids = r.get("gmail_message_ids", [])
+                    if not isinstance(_gmail_msg_ids, str):
+                        _gmail_msg_ids = json.dumps(_gmail_msg_ids, default=str)
+                    _requirements = r.get("requirements_json", {})
+                    if not isinstance(_requirements, str):
+                        _requirements = json.dumps(_requirements, default=str)
                     conn.execute("""
                         INSERT OR REPLACE INTO rfqs
                         (id, received_at, agency, institution, requestor_name, requestor_email,
                          rfq_number, items, status, source, email_uid, notes,
                          solicitation_number, due_date, email_subject, body_text, form_type,
                          reytech_quote_number, shipping_option, shipping_amount, delivery_location,
+                         email_thread_id, email_message_id, original_sender, gmail_draft_id,
+                         gmail_message_ids, gmail_thread_duplicate_of, requirements_json,
                          updated_at, data_json)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
                     """, (
                         rid, r.get("received_at", ""), r.get("agency", ""),
                         r.get("institution", ""), r.get("requestor_name", ""),
@@ -356,6 +390,13 @@ def save_rfqs(rfqs, raise_on_error=False):
                         r.get("shipping_option", "included"),
                         r.get("shipping_amount", 0),
                         r.get("delivery_location", ""),
+                        r.get("email_thread_id", ""),
+                        r.get("email_message_id", ""),
+                        r.get("original_sender", ""),
+                        r.get("gmail_draft_id", ""),
+                        _gmail_msg_ids,
+                        r.get("gmail_thread_duplicate_of", ""),
+                        _requirements,
                         json.dumps(r, default=str),
                     ))
         except Exception as e:
@@ -503,12 +544,29 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
                 items_json = json.dumps(pc.get("items", []), default=str)
                 _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
                 pc_blob = json.dumps(_pc_clean, default=str)
+                # Audit 2026-05-07: 8 columns (`email_thread_id`,
+                # `email_message_id`, `original_sender`, `gmail_draft_id`,
+                # `gmail_message_ids`, `gmail_thread_duplicate_of`,
+                # `requirements_json`, `bundle_id`) declared by
+                # `_migrate_columns` but never written by this INSERT.
+                # Same fix as RFQ-side; closes the substrate write-gap that
+                # made the thread-aware-ingest queries silently see empty
+                # strings on freshly-written PCs.
+                _gmail_msg_ids = pc.get("gmail_message_ids", [])
+                if not isinstance(_gmail_msg_ids, str):
+                    _gmail_msg_ids = json.dumps(_gmail_msg_ids, default=str)
+                _requirements = pc.get("requirements_json", {})
+                if not isinstance(_requirements, str):
+                    _requirements = json.dumps(_requirements, default=str)
                 conn.execute("""
                     INSERT OR REPLACE INTO price_checks
                     (id, created_at, requestor, agency, institution, items, source_file,
                      quote_number, pc_number, total_items, status,
-                     email_uid, email_subject, due_date, pc_data, ship_to, data_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     email_uid, email_subject, due_date, pc_data, ship_to,
+                     email_thread_id, email_message_id, original_sender, gmail_draft_id,
+                     gmail_message_ids, gmail_thread_duplicate_of, requirements_json,
+                     bundle_id, data_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     pc_id,
                     pc.get("created_at", ""),
@@ -526,6 +584,14 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
                     pc.get("due_date", ""),
                     pc_blob,
                     pc.get("ship_to", ""),
+                    pc.get("email_thread_id", ""),
+                    pc.get("email_message_id", ""),
+                    pc.get("original_sender", ""),
+                    pc.get("gmail_draft_id", ""),
+                    _gmail_msg_ids,
+                    pc.get("gmail_thread_duplicate_of", ""),
+                    _requirements,
+                    pc.get("bundle_id", ""),
                     json.dumps(pc, default=str),
                 ))
 
@@ -573,12 +639,23 @@ def _save_price_checks(pcs, raise_on_error=False):
                     items_json = json.dumps(pc.get("items", []), default=str)
                     _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
                     pc_blob = json.dumps(_pc_clean, default=str)
+                    # See _save_single_pc above for why these 8 columns are
+                    # explicitly written (audit 2026-05-07 column-write gap).
+                    _gmail_msg_ids = pc.get("gmail_message_ids", [])
+                    if not isinstance(_gmail_msg_ids, str):
+                        _gmail_msg_ids = json.dumps(_gmail_msg_ids, default=str)
+                    _requirements = pc.get("requirements_json", {})
+                    if not isinstance(_requirements, str):
+                        _requirements = json.dumps(_requirements, default=str)
                     conn.execute("""
                         INSERT OR REPLACE INTO price_checks
                         (id, created_at, requestor, agency, institution, items, source_file,
                          quote_number, pc_number, total_items, status,
-                         email_uid, email_subject, due_date, pc_data, ship_to, data_json)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         email_uid, email_subject, due_date, pc_data, ship_to,
+                         email_thread_id, email_message_id, original_sender, gmail_draft_id,
+                         gmail_message_ids, gmail_thread_duplicate_of, requirements_json,
+                         bundle_id, data_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         pc_id,
                         pc.get("created_at", ""),
@@ -596,6 +673,14 @@ def _save_price_checks(pcs, raise_on_error=False):
                         pc.get("due_date", ""),
                         pc_blob,
                         pc.get("ship_to", ""),
+                        pc.get("email_thread_id", ""),
+                        pc.get("email_message_id", ""),
+                        pc.get("original_sender", ""),
+                        pc.get("gmail_draft_id", ""),
+                        _gmail_msg_ids,
+                        pc.get("gmail_thread_duplicate_of", ""),
+                        _requirements,
+                        pc.get("bundle_id", ""),
                         json.dumps(pc, default=str),
                     ))
         except Exception as e:
