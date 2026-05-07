@@ -256,8 +256,40 @@ class Quote(BaseModel):
 
     # ── Typed mutation methods ──
 
-    def set_price(self, line_no: int, unit_cost: Decimal, markup_pct: Decimal = Decimal("35")):
-        """Set pricing on a line item. Validates 3x sanity rule."""
+    def set_price(
+        self,
+        line_no: int,
+        unit_cost: Decimal,
+        markup_pct: Decimal = Decimal("35"),
+        bid_price: Optional[Decimal] = None,
+    ):
+        """Set pricing on a line item. Reconcile-aware (Tier 1b, audit 2026-05-07).
+
+        Three-way arg pattern that mirrors `pricing_math.reconcile_items`:
+
+          * `unit_cost` (required) — cost basis, subject to 3x sanity cap.
+          * `markup_pct` (default 35) — used when `bid_price` is None.
+          * `bid_price` (optional) — when provided alongside a positive
+            `unit_cost`, the operator's bid is preserved and `markup_pct`
+            is *derived* from `(bid_price - unit_cost) / unit_cost * 100`.
+
+        Why the new param: prior to 2026-05-07 the model could not represent
+        "preserve operator bid when cost changes" — the audit traced a real
+        prod failure shape (the 2026-04-21 Cortech mattress incident) where a
+        catalog auto-correct flipped cost from $82.24 → $80.00 and the model
+        silently re-derived a *lower* bid because it had no way to hold the
+        bid constant. `reconcile_items` already does this on the dict side;
+        `Quote.set_price` is the pydantic mirror. Routes that adopt the
+        canonical model (PR-1 follow-on) will use this path so the operator's
+        bid survives every cost change that isn't an explicit re-bid.
+
+        Edge case: `bid_price` is honoured only when `unit_cost > 0`; with
+        zero cost there's no defined markup. The bid is silently ignored
+        in that case and `markup_pct` falls back to the explicit/default
+        value. (A separate model gap — `unit_price` as a computed-only
+        field — is the substrate fix for cost==0 bid-only quotes; out of
+        scope for this PR.)
+        """
         for item in self.line_items:
             if item.line_no == line_no:
                 # 3x sanity check against reference prices
@@ -270,9 +302,26 @@ class Quote(BaseModel):
                     unit_cost = ref  # Cap to reference (CLAUDE.md: auto-correct to ref)
 
                 item.unit_cost = unit_cost
-                item.markup_pct = markup_pct
+                if bid_price is not None and unit_cost > 0:
+                    # Preserve operator's bid → derive markup. Quantize to 2dp
+                    # so the round-trip back through unit_price (cost × markup)
+                    # lands on the same number the operator typed.
+                    bp = Decimal(str(bid_price))
+                    derived = ((bp - unit_cost) / unit_cost * Decimal("100")).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
+                    item.markup_pct = derived
+                    self._audit(
+                        f"set_price line {line_no}: cost=${unit_cost}, "
+                        f"bid=${bp} (markup derived: {derived}%)"
+                    )
+                else:
+                    item.markup_pct = markup_pct
+                    self._audit(
+                        f"set_price line {line_no}: cost=${unit_cost}, "
+                        f"markup={markup_pct}%"
+                    )
                 item.price_source = "manual"
-                self._audit(f"set_price line {line_no}: cost=${unit_cost}, markup={markup_pct}%")
                 return
         raise ValueError(f"Line {line_no} not found")
 
