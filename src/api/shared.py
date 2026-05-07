@@ -131,6 +131,11 @@ def _global_auth_guard():
     if (_path.startswith("/static/") or
         _path.startswith("/api/email/track/") or
         _path == "/api/v1/harvest/status" or
+        # Path-1 telemetry beacon — must accept after session expiry
+        # so the operator's last edit before logout still surfaces in
+        # the divergence aggregator. The endpoint rate-limits per
+        # record_id and never reads operator state. (Item #6, 2026-05-07.)
+        _path == "/api/pricing-tier-delta" or
         _path in ("/health", "/api/health", "/api/health/startup", "/ping",
                    "/favicon.ico", "/login",
                    "/api/qb/callback", "/api/voice/webhook", "/api/build",
