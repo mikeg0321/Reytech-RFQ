@@ -599,24 +599,29 @@ def rfq_restore_item(rid):
 @auth_required
 @safe_route
 def rfq_duplicate_item(rid, idx):
-    """Duplicate a line item (insert copy right after the original)."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return _item_response(rid, False, "RFQ not found")
+    """Duplicate a line item (insert copy right after the original).
+    Wrapped in `_save_rfqs_lock` so a concurrent autosave can't load a
+    pre-duplicate snapshot and clobber the post-duplicate write — same
+    RMW class as remove/move."""
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return _item_response(rid, False, "RFQ not found")
 
-    items = r.get("line_items") or r.get("items") or []
-    if 0 <= idx < len(items):
-        import copy
-        dupe = copy.deepcopy(items[idx])
-        dupe.pop("_catalog_product_id", None)
-        items.insert(idx + 1, dupe)
-        _renumber_items(items)
-        r["line_items"] = items
-        from src.api.dashboard import _save_single_rfq
-        _save_single_rfq(rid, r)
-        return _item_response(rid, True, f"Item duplicated at #{idx + 2}")
-    return _item_response(rid, False, "Invalid item index")
+        items = r.get("line_items") or r.get("items") or []
+        if 0 <= idx < len(items):
+            import copy
+            dupe = copy.deepcopy(items[idx])
+            dupe.pop("_catalog_product_id", None)
+            items.insert(idx + 1, dupe)
+            _renumber_items(items)
+            r["line_items"] = items
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
+            return _item_response(rid, True, f"Item duplicated at #{idx + 2}")
+        return _item_response(rid, False, "Invalid item index")
 
 
 @bp.route("/rfq/<rid>/move-item/<int:idx>/<direction>", methods=["POST"])
@@ -652,25 +657,28 @@ def rfq_move_item(rid, idx, direction):
 @auth_required
 @safe_route
 def rfq_reset_items(rid):
-    """Clear all line items from an RFQ so it can be re-imported."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return _item_response(rid, False, "RFQ not found")
+    """Clear all line items from an RFQ so it can be re-imported.
+    Wrapped in `_save_rfqs_lock` (same RMW class as remove/move/duplicate)."""
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return _item_response(rid, False, "RFQ not found")
 
-    old_count = len(r.get("line_items") or r.get("items") or [])
-    r["line_items"] = []
-    r.pop("items", None)  # Remove legacy key to avoid confusion
-    r.pop("linked_pc_id", None)
-    r.pop("linked_pc_number", None)
-    r.pop("linked_pc_match_reason", None)
-    r.pop("uploaded_pc_pdf", None)
-    from src.api.dashboard import _save_single_rfq
-    _save_single_rfq(rid, r)
-    _log_rfq_activity(rid, "items_reset",
-        f"All {old_count} line items cleared for re-import",
-        actor="user")
-    return _item_response(rid, True, f"Cleared {old_count} items")
+        old_count = len(r.get("line_items") or r.get("items") or [])
+        r["line_items"] = []
+        r.pop("items", None)  # Remove legacy key to avoid confusion
+        r.pop("linked_pc_id", None)
+        r.pop("linked_pc_number", None)
+        r.pop("linked_pc_match_reason", None)
+        r.pop("uploaded_pc_pdf", None)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+        _log_rfq_activity(rid, "items_reset",
+            f"All {old_count} line items cleared for re-import",
+            actor="user")
+        return _item_response(rid, True, f"Cleared {old_count} items")
 
 
 @bp.route("/api/rfq/<rid>/unlink-pc", methods=["POST"])
