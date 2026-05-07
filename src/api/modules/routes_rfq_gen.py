@@ -1640,6 +1640,31 @@ def generate_rfq_package(rid):
             log.info("GENERATE %s: contract added forms %s (now %d total)",
                      rid, sorted(_net_added), len(_req_forms))
 
+        # Pre-fill capacity check (Mike P0 2026-05-06 CalRecycle 74 incident):
+        # walk every required form against the line-item count and surface
+        # a structured blocker for any form whose row capacity will silently
+        # drop items. Today's bug: 8 items vs CalRecycle's 6-row form →
+        # items 7-8 dropped with only a server-log warning. Operator now
+        # sees the overflow as a package-incomplete blocker BEFORE fill.
+        _capacity_blockers = []
+        try:
+            from src.forms.form_capacity import check_required_forms
+            _items_for_capacity = r.get("line_items") or r.get("items") or []
+            _capacity_result = check_required_forms(
+                list(_req_forms), len(_items_for_capacity)
+            )
+            for _blocker in _capacity_result["blockers"]:
+                _msg = (
+                    f"Capacity overflow: {_blocker['message']} "
+                    f"({_blocker['items_dropped']} item(s) dropped)"
+                )
+                _capacity_blockers.append(_blocker)
+                errors.append(_msg)
+                t.warn(_msg)
+                log.warning("PACKAGE %s capacity blocker: %s", rid, _msg)
+        except Exception as _ce:
+            log.debug("capacity pre-fill check suppressed: %s", _ce)
+
         # Helper: should this form be included?
         _user_forms = r.get("package_forms", {})
         def _include(form_id):
@@ -2724,7 +2749,22 @@ def generate_rfq_package(rid):
     _package_complete = _completeness["complete"]
     _missing_required = _completeness["missing_required"]
     _failed_required = _completeness["failed_required"]
-    _package_incomplete_reasons = _completeness["reasons"]
+    _package_incomplete_reasons = list(_completeness["reasons"])
+
+    # Merge pre-fill capacity blockers into the completeness gate. A
+    # capacity overflow means line items were silently dropped from a
+    # required form (e.g. CalRecycle 74 = 6 rows, quote has 8 items)
+    # — the operator must hand-fill the overflow before the package is
+    # send-eligible. Without this merge the completeness gate would
+    # only see post-fill QA failures and would miss the upstream drop.
+    if _capacity_blockers:
+        _package_complete = False
+        for _cb in _capacity_blockers:
+            _package_incomplete_reasons.append(
+                f"{_cb['form_id']}: capacity {_cb['items_capacity']} "
+                f"< items {_cb['items_total']} ({_cb['items_dropped']} dropped)"
+            )
+
     _incomplete_msg = "; ".join(_package_incomplete_reasons)
 
     if not _package_complete:
