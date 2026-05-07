@@ -3999,6 +3999,11 @@ def _api_rfq_auto_price_locked(rid):
                 markup = 25
             item["markup_pct"] = markup
             item["price_per_unit"] = round(price * (1 + markup / 100), 2)
+            # #18 TP/FP telemetry: stamp the auto-priced value so we can later
+            # measure how often Mike kept it vs. overrode it.
+            item["auto_priced_value"] = item["price_per_unit"]
+            item["auto_priced_at"] = datetime.now(timezone.utc).isoformat()
+            item["auto_priced_source"] = source
             priced += 1
             results.append({
                 "line": i + 1, "status": "ok", "source": source,
@@ -4506,8 +4511,6 @@ def _api_rfq_confirm_pc_link_locked(rid):
     })
 
 
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Buyer-reply diff extraction (PR-F2 of post-quote queue item 24, 2026-05-07)
 # ═══════════════════════════════════════════════════════════════════════
@@ -4582,3 +4585,111 @@ def api_rfq_extract_buyer_reply_diff(rid, idx):
             "gmail_message_id": reply.get("gmail_message_id", ""),
         },
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# #18 — Auto-pricing TP/FP rate telemetry
+#
+# The auto-pricer stamps `auto_priced_value` on every line item it sets.
+# Operators routinely override that value before sending. These admin
+# endpoints walk sent/won/lost RFQs and PCs to measure how often the
+# auto-priced value "stuck" (TP) vs. was overridden (FP).
+# ═══════════════════════════════════════════════════════════════════════
+
+_AUTO_TP_FP_LOG = "auto_pricing_tp_fp_log.jsonl"
+
+
+def _auto_tp_fp_log_path():
+    """Per-instance JSONL log; lives in DATA_DIR so Railway volume keeps it.
+
+    `AUTO_PRICING_TP_FP_LOG_PATH` env var override exists for tests and for
+    pointing to an alternate location during ops review.
+    """
+    import os
+    override = os.environ.get("AUTO_PRICING_TP_FP_LOG_PATH")
+    if override:
+        return override
+    return os.path.join(DATA_DIR, _AUTO_TP_FP_LOG)
+
+
+@bp.route("/api/admin/auto-pricing-tp-fp/scan", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_auto_pricing_tp_fp_scan():
+    """Walk RFQs (and PCs) in `sent`/`won`/`lost` status, compute TP/FP,
+    and append one JSONL row per record. Idempotent: safe to re-run.
+
+    Body (optional JSON):
+      include_pcs: bool — also scan price checks (default False)
+      statuses:    list — override the default ('sent','won','lost')
+    """
+    from src.agents.auto_pricing_tp_fp import scan_records
+    body = request.get_json(silent=True) or {}
+    include_pcs = bool(body.get("include_pcs", False))
+    statuses = tuple(body.get("statuses") or ("sent", "won", "lost"))
+
+    # Load RFQs
+    from src.api.data_layer import load_rfqs
+    rfqs = load_rfqs() or {}
+    rfq_records = [{**r, "_kind": "rfq"} for r in rfqs.values()
+                   if isinstance(r, dict)]
+
+    pc_records = []
+    if include_pcs:
+        try:
+            from src.api.data_layer import load_pcs
+            pcs = load_pcs() or {}
+            pc_records = [{**p, "_kind": "pc"} for p in pcs.values()
+                          if isinstance(p, dict)]
+        except Exception as _e:
+            log.debug("auto-tp-fp pc load suppressed: %s", _e)
+
+    rfq_results = scan_records(rfq_records, status_allowlist=statuses)
+    pc_results = scan_records(pc_records, status_allowlist=statuses)
+
+    # Append to JSONL log with kind tag + scan timestamp
+    import json as _json
+    scanned_at = datetime.now(timezone.utc).isoformat()
+    log_path = _auto_tp_fp_log_path()
+    appended = 0
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            for kind, rows in (("rfq", rfq_results), ("pc", pc_results)):
+                for row in rows:
+                    row["_kind"] = kind
+                    row["_scanned_at"] = scanned_at
+                    f.write(_json.dumps(row) + "\n")
+                    appended += 1
+    except OSError as e:
+        log.error("auto-tp-fp scan write failed: %s", e)
+        return jsonify({"ok": False, "error": "log write failed"}), 500
+
+    # In-memory roll-up for the response so the caller doesn't have to
+    # re-read the file
+    def _roll(rows):
+        tp = sum(r["tp"] for r in rows)
+        fp = sum(r["fp"] for r in rows)
+        total = tp + fp
+        return {
+            "records": len(rows), "tp": tp, "fp": fp,
+            "tp_rate": (tp / total) if total > 0 else None,
+        }
+
+    return jsonify({
+        "ok": True,
+        "appended": appended,
+        "scanned_at": scanned_at,
+        "rfq": _roll(rfq_results),
+        "pc": _roll(pc_results) if include_pcs else None,
+    })
+
+
+@bp.route("/api/admin/auto-pricing-tp-fp/summary", methods=["GET"])
+@auth_required
+@safe_route
+def api_admin_auto_pricing_tp_fp_summary():
+    """Aggregate the JSONL log into a single TP/FP rate + per-source breakdown."""
+    from src.agents.auto_pricing_tp_fp import summarise_jsonl
+    log_path = _auto_tp_fp_log_path()
+    return jsonify({"ok": True, **summarise_jsonl(log_path)})
+
