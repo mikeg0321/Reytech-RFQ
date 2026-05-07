@@ -1224,6 +1224,48 @@ MIGRATIONS = [
                'dismissed', 'archived', 'duplicate', 'no_response',
                'not_responding', 'expired', 'reclassified');
     """),
+    (40, "active_queue_views_exclude_thread_duplicates", """
+        -- PR-D of thread-aware-ingest arc (2026-05-07). PR #808 added
+        -- the `gmail_thread_duplicate_of` column on rfqs/price_checks.
+        -- Records where this column is non-empty are buyer-replies that
+        -- the legacy ingest dedup mistook for new requests (Mike P0
+        -- 2026-05-07: pc_93edc64e from Valentina's question on RFQ
+        -- a5b09b56, plus #10838974 refired as PC after buyer reply).
+        -- Reytech Law 22 — never delete buyer-source data — so the rows
+        -- stay around for audit but disappear from the operator's
+        -- active queue. Keep view + Python predicate `is_active_queue`
+        -- in lockstep (PR-3 / migration 39 doctrine).
+        --
+        -- Note: an index on the column would help when the dismissed
+        -- count grows; today the prod count is 2 so a full-scan in the
+        -- view is fine. Add an index in a future migration if the
+        -- count grows past ~100 dismissed rows.
+        DROP VIEW IF EXISTS v_active_queue_rfqs;
+        CREATE VIEW v_active_queue_rfqs AS
+        SELECT *
+        FROM rfqs
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled',
+               'dismissed', 'archived', 'duplicate', 'no_response',
+               'not_responding', 'expired', 'reclassified')
+          AND COALESCE(gmail_thread_duplicate_of, '') = '';
+
+        DROP VIEW IF EXISTS v_active_queue_pcs;
+        CREATE VIEW v_active_queue_pcs AS
+        SELECT *
+        FROM price_checks
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled',
+               'dismissed', 'archived', 'duplicate', 'no_response',
+               'not_responding', 'expired', 'reclassified')
+          AND COALESCE(gmail_thread_duplicate_of, '') = '';
+    """),
 ]
 
 

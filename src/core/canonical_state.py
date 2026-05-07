@@ -202,12 +202,28 @@ def _normalize_status(record: Mapping[str, Any]) -> str:
 # Active queue
 # ─────────────────────────────────────────────────────────────────────────
 
+def is_thread_duplicate(record: Mapping[str, Any]) -> bool:
+    """Was this record dismissed as a Gmail-thread duplicate of another?
+
+    PR-D of the thread-aware-ingest arc (2026-05-07). When the email
+    poller's thread-dedup detects a buyer-reply that the legacy code
+    treated as a "new request" (because dedup keyed off
+    solicitation_number, not threadId), the resulting spurious record
+    gets `gmail_thread_duplicate_of` set to the parent record_id.
+    Reytech Law 22 — dismiss + cross-link, never delete buyer-source
+    data — so the row stays around for audit but disappears from the
+    operator's active queue.
+    """
+    return bool((record.get("gmail_thread_duplicate_of") or "").strip())
+
+
 def is_active_queue(record: Mapping[str, Any]) -> bool:
     """Should this RFQ/PC appear in the operator's active work queue?
 
     True when the record's status is *not* in the excluded set
-    (sent / won / lost / no_bid / cancelled). Test/cancelled rows
-    are also excluded via `is_test`.
+    (sent / won / lost / no_bid / cancelled / dismissed states) AND
+    the record is *not* a Gmail-thread duplicate of another record.
+    Test rows are also excluded via `is_test`.
 
     Works for both RFQ and Price Check records — they share the
     `status` and `is_test` shape. PCs that became RFQs (via convert)
@@ -215,6 +231,8 @@ def is_active_queue(record: Mapping[str, Any]) -> bool:
     side; that de-dup is the consumer's job, not this predicate.
     """
     if record.get("is_test"):
+        return False
+    if is_thread_duplicate(record):
         return False
     return _normalize_status(record) not in ACTIVE_QUEUE_EXCLUDED_STATUSES
 
@@ -389,8 +407,9 @@ def is_year_revenue(
 #: SQL fragment placed after WHERE for active-queue records (RFQs/PCs).
 #: Uses parameter substitution for the excluded-status list.
 SQL_ACTIVE_QUEUE_FRAGMENT = (
-    "is_test = 0 AND LOWER(COALESCE(status, '')) NOT IN "
-    "({placeholders})"
+    "is_test = 0 "
+    "AND LOWER(COALESCE(status, '')) NOT IN ({placeholders}) "
+    "AND COALESCE(gmail_thread_duplicate_of, '') = ''"
 )
 
 #: SQL fragment for "real sent" quotes — status=sent AND has real sent_at.
@@ -449,6 +468,7 @@ def revenue_year_sql_clause(
 
 
 __all__ = [
+    "is_thread_duplicate",
     "REVENUE_YEAR",
     "ACTIVE_QUEUE_EXCLUDED_STATUSES",
     "AWAITING_BUYER_STATUSES",
