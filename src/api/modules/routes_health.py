@@ -583,6 +583,102 @@ def _build_body_extract_card():
     }
 
 
+# ── Thread-dedup observability (PR-B 2026-05-07, post-quote queue item 24) ──
+# Path 1 of the thread-aware ingest arc logs every detected match to
+# data/thread_dedup_log.jsonl WITHOUT changing routing. This endpoint
+# surfaces the rolling counts so Mike can audit accuracy before the flip
+# to Path 2 (route as activity).
+
+
+def _read_thread_dedup_log(days: int) -> list:
+    """Tail the JSONL log; return entries within `days` of now."""
+    from src.core.paths import DATA_DIR
+    import os as _os
+    path = _os.path.join(DATA_DIR, "thread_dedup_log.jsonl")
+    if not _os.path.exists(path):
+        return []
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    rows = []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if str(row.get("ts", "")) >= cutoff:
+                    rows.append(row)
+    except Exception as _e:
+        log.debug("thread_dedup_log read suppressed: %s", _e)
+    return rows
+
+
+@bp.route("/api/thread-dedup/summary")
+@auth_required
+def thread_dedup_summary():
+    """JSON summary of thread-dedup-candidate matches over the last N days.
+
+    Response:
+      {
+        days: int,
+        total_matches: int,
+        reply_subject_matches: int,    # matches where subject starts "Re:"
+        same_thread_multiple_matches: int,  # ambiguity (>1 record matched)
+        by_day: [{date, count}],
+        recent: [<latest 20 raw rows>],
+      }
+
+    Mike uses this to audit Path-1 logging before flipping to Path 2
+    (routing). When `total_matches > 0` and `reply_subject_matches == total_matches`
+    consistently, the matcher's accuracy is confirmable and we can flip.
+    """
+    from flask import jsonify
+    try:
+        days = int(request.args.get("days", "14"))
+    except (TypeError, ValueError):
+        days = 14
+    days = max(1, min(90, days))
+
+    rows = _read_thread_dedup_log(days)
+    total = len(rows)
+    reply_subj = sum(
+        1 for r in rows
+        if r.get("incoming", {}).get("is_reply_subject")
+    )
+    multi = sum(
+        1 for r in rows
+        if (len(r.get("matched_rfqs") or []) + len(r.get("matched_pcs") or [])) > 1
+    )
+    by_day_counts: dict[str, int] = {}
+    for r in rows:
+        d = (r.get("ts", "") or "")[:10]
+        if d:
+            by_day_counts[d] = by_day_counts.get(d, 0) + 1
+    by_day = [{"date": d, "count": c} for d, c in sorted(by_day_counts.items())]
+
+    return jsonify({
+        "days": days,
+        "total_matches": total,
+        "reply_subject_matches": reply_subj,
+        "reply_subject_pct": (
+            round(reply_subj / total * 100, 1) if total else 0
+        ),
+        "same_thread_multiple_matches": multi,
+        "by_day": by_day,
+        "recent": rows[-20:],
+        "interpretation": (
+            "Path 1 — telemetry only. Each entry is a buyer email whose "
+            "Gmail thread_id matched an existing RFQ/PC. With reply_subject_pct "
+            "consistently near 100% and same_thread_multiple_matches near 0, "
+            "we have confidence to flip to Path 2 (route as activity, no new "
+            "record). See post-quote queue item 24, PR-B-flip in the arc plan."
+        ),
+    })
+
+
 # ── Route ───────────────────────────────────────────────────────────────
 
 @bp.route("/health/quoting")
