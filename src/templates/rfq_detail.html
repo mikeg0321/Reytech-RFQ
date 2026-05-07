@@ -4367,11 +4367,40 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
   });
-  // Navigate-away warning for unsaved changes
+  // Navigate-away handler: prefer SILENT keepalive fetch over a blocking
+  // confirm prompt. The prompt was over-aggressive (Mike P0 2026-05-06):
+  // every cross-RFQ navigation popped a "Leave site?" dialog because the
+  // 1500ms autosave debounce hadn't flushed yet, even though the typed
+  // value was less than a second old. Prompt-driven friction added up
+  // across 20+ RFQ navigations per quoting session.
+  //
+  // New shape: send the autosave via fetch keepalive — the request
+  // survives page unload and writes the in-flight data on the server.
+  // We also optimistically advance _lastSaveData so the next time this
+  // handler runs (rapid back-forward) it sees no diff. Prompt only fires
+  // if even queuing the keepalive throws (i.e. the browser refuses to
+  // accept the request at all).
   window.addEventListener('beforeunload', function(e) {
-    if (typeof _lastSaveData !== 'undefined' && _lastSaveData !== null &&
-        typeof _getFormData === 'function' && _getFormData() !== _lastSaveData) {
-      e.preventDefault(); e.returnValue = 'You have unsaved changes.';
+    if (typeof _lastSaveData === 'undefined' || _lastSaveData === null) return;
+    if (typeof _getFormData !== 'function') return;
+    var current;
+    try { current = _getFormData(); } catch (_ge) { return; }
+    if (current === _lastSaveData) return;
+    try {
+      fetch('/api/rfq/' + RID + '/autosave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: current,
+        credentials: 'same-origin',
+        keepalive: true,
+      });
+      _lastSaveData = current;
+    } catch (_e) {
+      // Browser refused to queue the keepalive — fall back to the
+      // pre-2026-05-07 prompt so the operator at least knows they
+      // had unsaved changes.
+      e.preventDefault();
+      e.returnValue = 'You have unsaved changes.';
     }
   });
 });
