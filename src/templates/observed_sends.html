@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}Observed Sends — Reytech{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap">
+  <div>
+    <h1 style="margin:0">Observed Sends</h1>
+    <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:4px">
+      Outbound RFQ-quote messages detected in your Sent folder, matched
+      back to existing RFQ/PC records. Confirm to attach the
+      gmail_message_id to the record; reject to dismiss; backup to
+      archive the full package on Drive.
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    {% for s in ['pending', 'confirmed', 'rejected', 'all'] %}
+      <a href="/admin/observed-sends?status={{ s if s != 'all' else '' }}"
+         data-testid="filter-{{ s }}"
+         style="padding:6px 14px;border-radius:6px;font-size:13px;
+                background:{% if status_filter == s or (s == 'all' and not status_filter) %}#1f6feb{% else %}var(--sf2,#161b22){% endif %};
+                color:{% if status_filter == s or (s == 'all' and not status_filter) %}#fff{% else %}var(--tx2,#8b949e){% endif %};
+                text-decoration:none;border:1px solid var(--bd,#30363d)">
+        {{ s }}{% if s == 'all' %} ({{ total_count }}){% endif %}
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Scan trigger card ─────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:14px;padding:14px">
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <strong style="color:#58a6ff">🔎 Scan Sent folder</strong>
+      <div style="font-size:12px;color:var(--tx2,#8b949e);margin-top:2px">
+        Look back N days, match outbound messages to existing records,
+        save matches as <code>pending</code> for review.
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <label style="font-size:13px;color:var(--tx2,#8b949e)">days</label>
+      <input id="scanDays" type="number" min="1" max="90" value="14"
+             data-testid="scan-days"
+             style="width:70px;padding:5px 8px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px">
+      <button id="scanBtn" onclick="runScan()" data-testid="scan-btn"
+              style="padding:6px 14px;background:#238636;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">
+        Run Scan
+      </button>
+    </div>
+  </div>
+  <div id="scanResult" style="margin-top:10px;font-size:13px;display:none"></div>
+</div>
+
+{# ── Observation rows ──────────────────────────────────────────────── #}
+{% if rows %}
+<div class="card" style="padding:0;overflow:hidden">
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr style="background:var(--sf2,#161b22);border-bottom:1px solid var(--bd,#30363d)">
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Status</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Subject / To</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Match → Record</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Conf</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Sent</th>
+        <th style="padding:8px 10px;text-align:right;font-size:12px;color:var(--tx2,#8b949e)">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr id="row-{{ r.id }}" data-testid="obs-row-{{ r.id }}"
+          style="border-bottom:1px solid var(--bd,#30363d)">
+        <td style="padding:10px;vertical-align:top">
+          {% if r.status == 'pending' %}
+            <span style="background:#d2992233;color:#d29922;padding:2px 8px;border-radius:10px;font-size:11px">⏳ pending</span>
+          {% elif r.status == 'confirmed' %}
+            <span style="background:#3fb95033;color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px">✓ confirmed</span>
+          {% elif r.status == 'rejected' %}
+            <span style="background:#f8514933;color:#f85149;padding:2px 8px;border-radius:10px;font-size:11px">✗ rejected</span>
+          {% else %}
+            <span style="background:#30363d;color:#8b949e;padding:2px 8px;border-radius:10px;font-size:11px">{{ r.status }}</span>
+          {% endif %}
+          {% if r.drive_backup_url %}
+            <a href="{{ r.drive_backup_url }}" target="_blank"
+               data-testid="drive-link-{{ r.id }}"
+               style="display:block;margin-top:4px;font-size:11px;color:#58a6ff;text-decoration:none">📁 Drive</a>
+          {% endif %}
+        </td>
+        <td style="padding:10px;vertical-align:top;max-width:380px">
+          <div style="font-size:13px;font-weight:500">{{ r.subject|default('(no subject)') }}</div>
+          <div style="font-size:11px;color:var(--tx2,#8b949e);margin-top:2px">
+            → {{ r.to_email|default('?') }}
+          </div>
+          {% if r.thread_id %}
+          <a href="https://mail.google.com/mail/u/0/#sent/{{ r.thread_id }}" target="_blank"
+             style="font-size:11px;color:#58a6ff;text-decoration:none">↗ Gmail thread</a>
+          {% endif %}
+        </td>
+        <td style="padding:10px;vertical-align:top">
+          <div style="font-size:11px;color:var(--tx2,#8b949e)">{{ r.match_signal|default('?')|replace('_', ' ') }}</div>
+          <div style="font-size:13px;font-family:monospace">
+            {% if r.match_value %}<span style="color:#d29922">{{ r.match_value }}</span> →{% endif %}
+            {% if r.matched_record_id %}
+              <a href="{{ '/pricecheck/' + r.matched_record_id if r.matched_record_kind == 'pc' else '/rfq/' + r.matched_record_id }}"
+                 style="color:#58a6ff;text-decoration:none">{{ r.matched_record_id }}</a>
+            {% else %}
+              <em style="color:var(--tx2,#8b949e)">(no match)</em>
+            {% endif %}
+          </div>
+        </td>
+        <td style="padding:10px;vertical-align:top;font-size:13px;font-family:monospace">
+          {% if r.confidence %}{{ '%0.2f'|format(r.confidence) }}{% else %}—{% endif %}
+        </td>
+        <td style="padding:10px;vertical-align:top;font-size:11px;color:var(--tx2,#8b949e)">
+          {{ r.sent_at|default('—') }}
+        </td>
+        <td style="padding:10px;vertical-align:top;text-align:right">
+          {% if r.status == 'pending' %}
+            <button onclick="confirmObs({{ r.id }})" data-testid="confirm-{{ r.id }}"
+                    style="padding:4px 10px;background:#238636;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin:2px">
+              ✓ Confirm
+            </button>
+            <button onclick="rejectObs({{ r.id }})" data-testid="reject-{{ r.id }}"
+                    style="padding:4px 10px;background:#21262d;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:12px;margin:2px">
+              ✗ Reject
+            </button>
+          {% elif r.status == 'confirmed' and not r.drive_backup_url %}
+            <button onclick="backupObs({{ r.id }})" data-testid="backup-{{ r.id }}"
+                    style="padding:4px 10px;background:#1f6feb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin:2px">
+              📁 Backup to Drive
+            </button>
+          {% elif r.status == 'confirmed' and r.drive_backup_url %}
+            <span style="font-size:11px;color:#3fb950">✓ archived</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% if r.notes %}
+      <tr style="border-bottom:1px solid var(--bd,#30363d)" data-testid="notes-{{ r.id }}">
+        <td colspan="6" style="padding:0 10px 8px 10px;font-size:11px;color:var(--tx2,#8b949e);font-family:monospace;white-space:pre-wrap">{{ r.notes }}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card" style="padding:30px;text-align:center" data-testid="empty-state">
+  <div style="font-size:18px;color:var(--tx2,#8b949e)">No observations
+    {% if status_filter %}with status <strong>{{ status_filter }}</strong>{% endif %}.
+  </div>
+  <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:6px">
+    Click <strong>Run Scan</strong> above to look at the last 14 days
+    of Sent.
+  </div>
+</div>
+{% endif %}
+
+{# ── Inline action handlers ───────────────────────────────────────── #}
+<script>
+function showToast(msg, ok) {
+ var el = document.getElementById('actionToast');
+ if (!el) {
+  el = document.createElement('div');
+  el.id = 'actionToast';
+  el.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+  document.body.appendChild(el);
+ }
+ el.style.background = ok ? '#238636' : '#da3633';
+ el.style.color = '#fff';
+ el.textContent = msg;
+ el.style.display = 'block';
+ clearTimeout(el._timer);
+ el._timer = setTimeout(function(){ el.style.display = 'none'; }, 3500);
+}
+
+function postJson(url, body) {
+ return fetch(url, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify(body || {}),
+  credentials: 'same-origin',
+ }).then(function(r){
+  return r.json().then(function(j){ return {status: r.status, body: j}; });
+ });
+}
+
+function confirmObs(id) {
+ var btn = document.querySelector('[data-testid="confirm-' + id + '"]');
+ if (btn) btn.disabled = true;
+ postJson('/api/admin/observed-sends/' + id + '/confirm', {by: 'mike'})
+  .then(function(r){
+   if (r.body && r.body.ok) {
+    showToast('Confirmed — gmail_message_id attached to record', true);
+    setTimeout(function(){ window.location.reload(); }, 700);
+   } else {
+    showToast('Confirm failed: ' + (r.body && r.body.error || 'unknown'), false);
+    if (btn) btn.disabled = false;
+   }
+  })
+  .catch(function(e){
+   showToast('Network error: ' + e.message, false);
+   if (btn) btn.disabled = false;
+  });
+}
+
+function rejectObs(id) {
+ var reason = prompt('Reject reason (optional, recorded in notes):', '');
+ if (reason === null) return;
+ var btn = document.querySelector('[data-testid="reject-' + id + '"]');
+ if (btn) btn.disabled = true;
+ postJson('/api/admin/observed-sends/' + id + '/reject',
+          {by: 'mike', reason: reason || ''})
+  .then(function(r){
+   if (r.body && r.body.ok) {
+    showToast('Rejected — row stays in table for audit', true);
+    setTimeout(function(){ window.location.reload(); }, 700);
+   } else {
+    showToast('Reject failed: ' + (r.body && r.body.error || 'unknown'), false);
+    if (btn) btn.disabled = false;
+   }
+  })
+  .catch(function(e){
+   showToast('Network error: ' + e.message, false);
+   if (btn) btn.disabled = false;
+  });
+}
+
+function backupObs(id) {
+ var btn = document.querySelector('[data-testid="backup-' + id + '"]');
+ if (btn) { btn.disabled = true; btn.textContent = '⏳ Uploading…'; }
+ postJson('/api/admin/observed-sends/' + id + '/backup-to-drive', {})
+  .then(function(r){
+   if (r.body && r.body.ok) {
+    var n = (r.body.uploaded || []).length;
+    showToast('Backed up — ' + n + ' file(s) on Drive', true);
+    setTimeout(function(){ window.location.reload(); }, 800);
+   } else {
+    showToast('Backup failed: ' + (r.body && r.body.error || 'unknown'), false);
+    if (btn) { btn.disabled = false; btn.textContent = '📁 Backup to Drive'; }
+   }
+  })
+  .catch(function(e){
+   showToast('Network error: ' + e.message, false);
+   if (btn) { btn.disabled = false; btn.textContent = '📁 Backup to Drive'; }
+  });
+}
+
+function runScan() {
+ var daysEl = document.getElementById('scanDays');
+ var btn = document.getElementById('scanBtn');
+ var result = document.getElementById('scanResult');
+ var days = parseInt(daysEl ? daysEl.value : 14) || 14;
+ if (btn) { btn.disabled = true; btn.textContent = '⏳ Scanning…'; }
+ if (result) {
+  result.style.display = 'block';
+  result.style.color = '#8b949e';
+  result.textContent = 'Scanning Sent folder for last ' + days + ' days…';
+ }
+ postJson('/api/admin/observed-sends/scan', {since_days: days})
+  .then(function(r){
+   if (btn) { btn.disabled = false; btn.textContent = 'Run Scan'; }
+   if (r.body && r.body.ok) {
+    var d = r.body.detection || {};
+    var u = r.body.upsert || {};
+    if (result) {
+     result.style.color = '#3fb950';
+     result.textContent =
+      'Scan complete: ' + (d.scanned || 0) + ' messages, ' +
+      (d.matches || 0) + ' matched, ' +
+      (d.unmatched || 0) + ' unmatched, ' +
+      (d.skipped_non_quote || 0) + ' skipped (non-quote subject). ' +
+      'Upsert: +' + (u.inserted || 0) + ' new, ' +
+      (u.updated || 0) + ' refreshed, ' +
+      (u.skipped_already_decided || 0) + ' already decided.';
+    }
+    showToast('Scan saved ' + (u.inserted || 0) + ' new pending observations', true);
+    setTimeout(function(){ window.location.reload(); }, 1200);
+   } else {
+    if (result) {
+     result.style.color = '#f85149';
+     result.textContent = 'Scan failed: ' + (r.body && r.body.error || 'unknown error');
+    }
+    showToast('Scan failed', false);
+   }
+  })
+  .catch(function(e){
+   if (btn) { btn.disabled = false; btn.textContent = 'Run Scan'; }
+   if (result) {
+    result.style.color = '#f85149';
+    result.textContent = 'Network error: ' + e.message;
+   }
+   showToast('Network error', false);
+  });
+}
+</script>
+
+{% endblock %}
