@@ -2376,8 +2376,35 @@ document.addEventListener('DOMContentLoaded',function(){
  _lastSaveData=_getFormData(); // snapshot on load
  document.querySelectorAll('#pf input').forEach(function(inp){
   inp.addEventListener('change',triggerAutosave);
-  if(inp.type==='text')inp.addEventListener('input',function(){clearTimeout(_autosaveTimer);_autosaveTimer=setTimeout(triggerAutosave,1500)});
+  // Keystroke-level autosave: was previously gated to type==='text', which
+  // excluded `<input type="number">` (cost / markup / bid / qty) — operators
+  // who typed a value and clicked Generate without tabbing out hit a stale
+  // QA blocker because autosave never fired. Apply to number too. Skip
+  // checkbox/radio where 'change' is already the correct event.
+  if(inp.type==='text' || inp.type==='number'){
+   inp.addEventListener('input',function(){
+    clearTimeout(_autosaveTimer);
+    _autosaveTimer=setTimeout(triggerAutosave,1500);
+   });
+  }
  });
+ // Telemetry hook: log when autosave fires from a number-cell keystroke so
+ // future "I typed it but it didn't save" complaints are traceable in the
+ // browser console without instrumenting on the spot.
+ (function(){
+  var _origTrigger = window.triggerAutosave;
+  if(typeof _origTrigger === 'function'){
+   window.triggerAutosave = function(){
+    try{
+     var ae = document.activeElement;
+     if(ae && ae.tagName === 'INPUT' && ae.type === 'number' && ae.name){
+      console.log('[autosave] number-cell keystroke autosave from '+ae.name+'='+ae.value);
+     }
+    }catch(e){}
+    return _origTrigger.apply(this, arguments);
+   };
+  }
+ })();
  recalc(); // Show margin summary on load
 });
 
