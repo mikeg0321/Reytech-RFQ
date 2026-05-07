@@ -5801,9 +5801,9 @@ def _api_pc_update_status_locked(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
     data = request.get_json(force=True, silent=True) or {}
     new_status = data.get("status", "").strip()
-    valid = ("new", "parsed", "draft", "priced", "ready", "sent", "won", "lost", "expired", "no_response")
-    if new_status not in valid:
-        return jsonify({"ok": False, "error": f"Invalid status. Valid: {', '.join(valid)}"})
+    from src.core.status_taxonomy import is_valid_status_for, valid_statuses_for
+    if not is_valid_status_for("pc", new_status):
+        return jsonify({"ok": False, "error": f"Invalid status. Valid: {', '.join(sorted(valid_statuses_for('pc')))}"})
     old = pc.get("status", "")
     pc["status"] = new_status
     if new_status in ("won", "lost", "expired"):

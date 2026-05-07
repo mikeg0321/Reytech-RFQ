@@ -346,12 +346,15 @@ def _api_pricecheck_dismiss_locked(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
 
     pc = pcs[pcid]
-    # Use the reason as the status directly for known actions
-    valid_statuses = {"not_responding", "dismissed", "archived", "duplicate", "no_response", "won", "lost"}
+    # Use the reason as the status directly for known actions.
+    # Narrow set on purpose: this endpoint is reached via the
+    # "Did not respond / Archive / Duplicate" UI buttons, not arbitrary
+    # status changes. See src/core/status_taxonomy.PC_DISMISSAL_STATUSES.
+    from src.core.status_taxonomy import PC_DISMISSAL_STATUSES
     # Map UI reasons to appropriate statuses
     _reason_map = {"cs_question": "dismissed", "other": "dismissed"}
-    new_status = _reason_map.get(reason, reason) if reason not in valid_statuses else reason
-    if new_status not in valid_statuses:
+    new_status = _reason_map.get(reason, reason) if reason not in PC_DISMISSAL_STATUSES else reason
+    if new_status not in PC_DISMISSAL_STATUSES:
         new_status = "dismissed"
     pc["status"] = new_status
     pc["dismiss_reason"] = reason

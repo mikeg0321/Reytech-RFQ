@@ -382,11 +382,9 @@ def _api_pc_change_status_locked(pcid):
     try:
         data = request.get_json(force=True, silent=True) or {}
         new_status = (data.get("status") or "").strip().lower()
-        valid = {"new", "draft", "sent", "pending_award", "won", "lost",
-                 "no_response", "archived", "duplicate", "completed", "converted",
-                 "expired", "parsed", "priced", "ready"}
-        if new_status not in valid:
-            return jsonify({"ok": False, "error": f"Invalid status: {new_status}. Valid: {sorted(valid)}"})
+        from src.core.status_taxonomy import is_valid_status_for, valid_statuses_for
+        if not is_valid_status_for("pc", new_status):
+            return jsonify({"ok": False, "error": f"Invalid status: {new_status}. Valid: {sorted(valid_statuses_for('pc'))}"})
 
         pcs = _load_price_checks()
         pc = pcs.get(pcid)
