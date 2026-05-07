@@ -1560,6 +1560,42 @@ def record_package_delivery(manifest_id, rfq_id, recipient_email, recipient_name
         return False
 
 
+def recently_delivered(manifest_id, recipient_email, package_hash,
+                       window_seconds: int = 60) -> bool:
+    """Return True iff a `package_delivery` row matches
+    `(manifest_id, recipient_email, package_hash)` and was recorded within
+    the last `window_seconds`. Used by send-idempotency gates so a
+    double-click on the resend button can't deliver two identical emails.
+
+    Tier 2c (audit 2026-05-07). Backed by the existing `package_delivery`
+    table — no new schema. Exact-hash match means a regenerated package
+    (different bytes) is still allowed through; only true byte-for-byte
+    duplicates within the window are blocked.
+
+    Fail-open: any DB error or empty arg returns False. We'd rather risk
+    an accidental duplicate than block a legitimate send when the
+    idempotency check itself is broken.
+    """
+    if not manifest_id or not recipient_email or not package_hash:
+        return False
+    try:
+        from datetime import timedelta
+        cutoff = (datetime.now() - timedelta(seconds=window_seconds)).isoformat()
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT 1 FROM package_delivery
+                WHERE manifest_id = ?
+                  AND recipient_email = ?
+                  AND package_hash = ?
+                  AND delivered_at > ?
+                LIMIT 1
+            """, (manifest_id, recipient_email, package_hash, cutoff)).fetchone()
+            return row is not None
+    except Exception as e:
+        log.error("recently_delivered check failed: %s", e)
+        return False
+
+
 def log_lifecycle_event(entity_type, entity_id, event_type, summary,
                         actor="system", detail=None, metadata=None):
     """Log an immutable lifecycle event. INSERT-only, never updated or deleted."""

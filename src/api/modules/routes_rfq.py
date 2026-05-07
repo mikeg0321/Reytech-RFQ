@@ -3356,7 +3356,8 @@ def api_resend_package(rid):
         return jsonify({"ok": False, "error": f"Invalid recipient: {ve}"}), 400
     sol = r.get("solicitation_number", "") or "RFQ"
 
-    from src.core.dal import get_latest_manifest, log_lifecycle_event, record_package_delivery
+    from src.core.dal import (get_latest_manifest, log_lifecycle_event,
+                                record_package_delivery, recently_delivered)
     manifest = get_latest_manifest(rid)
     if not manifest:
         return jsonify({"ok": False, "error": "No package generated"})
@@ -3380,6 +3381,21 @@ def api_resend_package(rid):
             log.debug('suppressed in api_resend_package: %s', _e)
     if not pkg_data:
         return jsonify({"ok": False, "error": f"Package file not found: {pkg_filename}"})
+
+    # Idempotency gate (Tier 2c, audit 2026-05-07): if the same manifest +
+    # recipient + package-bytes was sent in the last 60s, skip the Gmail
+    # call. This catches double-click and "is the spinner stuck?" reloads
+    # without affecting legitimate resends to a different buyer or a
+    # regenerated package.
+    import hashlib
+    package_hash = hashlib.sha256(pkg_data).hexdigest()
+    if manifest.get("id") and recently_delivered(
+            manifest["id"], to_email, package_hash, window_seconds=60):
+        log.info("Resend dedup hit: RFQ %s → %s (hash %s)", rid, to_email,
+                 package_hash[:12])
+        return jsonify({"ok": True, "deduped": True, "sent_to": to_email,
+                        "size": len(pkg_data),
+                        "message": "Already sent within last 60s — not re-sending"})
 
     # Send via Gmail API (OAuth refresh token — replaces smtplib.SMTP_SSL
     # + GMAIL_PASSWORD app-password. Same pattern as the PR #365 bundle-send
@@ -3411,10 +3427,9 @@ def api_resend_package(rid):
             f"Resent to {to_email} (support view)", actor="user",
             detail={"recipient": to_email, "subject": subject, "resend": True})
         if manifest.get("id"):
-            import hashlib
             record_package_delivery(manifest["id"], rid, to_email,
                 recipient_name=r.get("requestor_name", ""), email_subject=subject,
-                package_hash=hashlib.sha256(pkg_data).hexdigest())
+                package_hash=package_hash)
         return jsonify({"ok": True, "sent_to": to_email, "size": len(pkg_data)})
     except Exception as e:
         log.error("Resend RFQ %s: %s", rid, e)
