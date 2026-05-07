@@ -59,15 +59,21 @@ KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
     # in-flight wrapper-rename PRs (e.g. RMW batches 5, 7) will rename a
     # subset of these once merged; the lint will then surface them as
     # "fixed but not removed" entries that need a baseline update.
-    ("routes_rfq.py", "api_rfq_upload_parse_doc"),
+    # 2026-05-07 baseline refresh: RMW lock-wrap PRs renamed three of the
+    # original entries by moving the body into `_<name>_locked` inner
+    # functions (the outer route is now just a `with _save_*_lock:` wrapper).
+    # The inner still writes the alias directly, so the violation moved
+    # rather than disappeared. Updated entries below — same handlers, new
+    # function names per current main HEAD.
+    ("routes_rfq.py", "_api_rfq_upload_parse_doc_locked"),
     ("routes_rfq.py", "detail"),
     ("routes_rfq.py", "upload"),
-    ("routes_rfq_gen.py", "api_rfq_screenshot_confirm"),
+    ("routes_rfq_gen.py", "_api_rfq_screenshot_confirm_locked"),
     ("routes_rfq_gen.py", "rfq_add_item"),
     ("routes_rfq_gen.py", "rfq_duplicate_item"),
     ("routes_rfq_gen.py", "rfq_move_item"),
     ("routes_rfq_gen.py", "rfq_reset_items"),
-    ("routes_rfq_gen.py", "rfq_upload_supplier_quote"),
+    ("routes_rfq_gen.py", "_rfq_upload_supplier_quote_locked"),
     ("routes_rfq_gen.py", "upload_templates"),
 })
 

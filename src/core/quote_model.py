@@ -404,8 +404,36 @@ class Quote(BaseModel):
         zip_str = h.get("zip_code") or d.get("delivery_zip") or ""
         ship_to = Address(full=ship_str, zip_code=zip_str)
 
-        # Line items — handle both PC and RFQ field conventions
-        raw_items = d.get("line_items") or d.get("items") or d.get("parsed", {}).get("line_items") or []
+        # Line items — handle both PC and RFQ field conventions.
+        #
+        # Canonical-first read order (was line_items-first prior to 2026-05-07):
+        # `items` is the canonical column on `price_checks` SQLite, and PR #796
+        # made every writer sync `line_items` and `parsed.line_items` to it.
+        # Reading `items` first means a stale `line_items` (from a writer that
+        # somehow bypasses the sync helper) can no longer silently shadow the
+        # truth at render time — which is the 2026-05-05 pc_177b18e6 incident
+        # shape that forced `quote_model_v2_enabled` off prod.
+        #
+        # Defensive divergence detection: if the two aliases disagree, log
+        # WARNING with both lengths so the bug surfaces in CI/prod logs
+        # before it reaches a user. Resolver still picks `items` (canonical).
+        items_alias = d.get("items")
+        line_items_alias = d.get("line_items")
+        if (items_alias and line_items_alias
+                and len(items_alias) != len(line_items_alias)):
+            log.warning(
+                "quote_adapter alias drift: items=%d vs line_items=%d "
+                "for record id=%s — picking canonical `items`. Sync helper "
+                "may have been bypassed; check writer call sites.",
+                len(items_alias), len(line_items_alias),
+                d.get("id") or d.get("pc_number") or d.get("rfq_number"),
+            )
+        raw_items = (
+            items_alias
+            or line_items_alias
+            or d.get("parsed", {}).get("line_items")
+            or []
+        )
         line_items = []
         for i, it in enumerate(raw_items):
             if isinstance(it, str):
