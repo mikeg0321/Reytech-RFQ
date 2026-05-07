@@ -5642,6 +5642,7 @@ _ROUTE_MODULES = [
     "routes_feature_flags",   # P0 resilience Item C: runtime flag admin endpoints
     "routes_health",          # Quoting Health Dashboard: /health/quoting + /api/health/quoting
     "routes_observed_sends",  # PR-G2 (item 23): admin endpoints for observed-send detector / store
+    "routes_pricing_tier_delta",  # post-quote item #6: tier-vs-row-bid delta beacon + summary
     "routes_simple_submit",   # Phase 0: Simple Submit — fast-path quoting for PCs + RFQs
     "routes_deadlines",       # Phase 0.5: Deadline tracking API + hard alerts
     "routes_shadow",          # Phase 2: Shadow mode admin dashboard + diff API

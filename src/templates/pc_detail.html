@@ -1941,6 +1941,73 @@
      const comp=document.getElementById('tierComparison');
      comp.innerHTML=html;
      comp.style.display='block';
+
+     // ── Path-1 delta telemetry (post-quote item #6, 2026-05-07) ──
+     // The tier panel projects revenue at the active buffer × markup.
+     // The actual quote total is sum(price_<idx> × qty_<idx>) across
+     // every row. Those should agree within rounding noise after the
+     // operator clicks Apply. They diverge silently when:
+     //   * operator manually overrides a row's price field after a
+     //     tier was applied (so price ≠ cost × markup)
+     //   * per-row markup is non-default
+     //   * a tier was applied but a cost was edited since (stale
+     //     panel state)
+     // We fire a beacon when the absolute delta exceeds $0.50 for the
+     // currently-displayed projection. Server-side aggregator at
+     // /api/pricing-tier-delta/summary surfaces frequency. Path-1
+     // logging only — no operator-facing toast.
+     try {
+      const activeProj = tiers.find(function(t){return t.buf===activeBuf;});
+      // activeProj here is the tier descriptor; we need to recompute
+      // its totalRev. Since the loop above already iterated, recompute
+      // the active-tier totals once for clarity:
+      let panelRev=0, panelCost=0;
+      pricedItems.forEach(function(it){
+       const c=it.cost*(1+activeBuf/100);
+       const p=c*(1+markup/100);
+       panelRev += p*it.qty;
+       panelCost += c*it.qty;
+      });
+      // Sum actual row bid extensions.
+      let actualRev=0, rowCount=0;
+      document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+       var idx=row.getAttribute('data-row');
+       var priceInp=row.querySelector('[name=price_'+idx+']');
+       var qtyInp=row.querySelector('[name=qty_'+idx+']');
+       if(!priceInp||!qtyInp) return;
+       var pr=parseFloat(String(priceInp.value).replace(/[^0-9.\-]/g,''))||0;
+       var qt=parseInt(qtyInp.value)||1;
+       if(pr>0) { actualRev += pr*qt; rowCount++; }
+      });
+      const delta = panelRev - actualRev;
+      if (Math.abs(delta) > 0.50 && rowCount > 0) {
+       const meta = window.PC_META || {};
+       const payload = {
+        context: 'pc',
+        record_id: meta.pcid || '',
+        active_buf: activeBuf,
+        tier_revenue: Math.round(panelRev*100)/100,
+        row_revenue: Math.round(actualRev*100)/100,
+        tier_cost: Math.round(panelCost*100)/100,
+        item_count: rowCount,
+        delta: Math.round(delta*100)/100,
+        url: window.location.pathname,
+       };
+       try {
+        if (navigator.sendBeacon) {
+         const blob = new Blob([JSON.stringify(payload)], {type:'text/plain'});
+         navigator.sendBeacon('/api/pricing-tier-delta', blob);
+        } else {
+         fetch('/api/pricing-tier-delta', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload),
+          keepalive: true,
+         });
+        }
+       } catch(_) { /* fire-and-forget */ }
+      }
+     } catch(_e) { /* never let telemetry break the panel */ }
     }
     // Show comparison on load
     setTimeout(showTierComparison, 200);
