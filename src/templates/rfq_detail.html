@@ -621,8 +621,8 @@
     <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
      <button type="button" onclick="lookupSingleItem({{loop.index0}})" style="display:block;width:100%;text-align:left;background:none;border:none;color:#58a6ff;padding:6px 14px;font-size:13px;cursor:pointer;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Price Lookup</button>
      <hr style="border:none;border-top:1px solid #21262d;margin:4px 0">
-     <button type="button" onclick="itemAction('move-item/{{loop.index0}}/up')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬆ Move Up</button>
-     <button type="button" onclick="itemAction('move-item/{{loop.index0}}/down')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬇ Move Down</button>
+     <button type="button" onclick="moveItemRow(this,'up')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬆ Move Up</button>
+     <button type="button" onclick="moveItemRow(this,'down')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬇ Move Down</button>
      <button type="button" onclick="itemAction('duplicate-item/{{loop.index0}}')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">📋 Duplicate</button>
      <hr style="border:none;border-top:1px solid #21262d;margin:4px 0">
      <button type="button" onclick="if(confirm('Remove this line item?'))itemAction('remove-item/{{loop.index0}}')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#f85149;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🗑 Delete</button>
@@ -3099,6 +3099,65 @@ function toggleItemMenu(e,idx){
 document.addEventListener('click',function(){
  document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');
 });
+
+// Optimistic move-up/move-down: swap rows in DOM immediately, POST in
+// background, no full-page reload. Avoids the 5-20s reload tail
+// (price-intel + fill-plan AJAX) Mike was seeing every move click.
+function moveItemRow(btn, direction){
+ document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');
+ var tr = btn.closest('tr');
+ if(!tr) return;
+ var tbody = tr.parentElement;
+ if(!tbody) return;
+ var rows = Array.prototype.slice.call(tbody.children).filter(function(n){return n.tagName==='TR';});
+ var fromIdx = rows.indexOf(tr);
+ var toIdx = direction === 'up' ? fromIdx - 1 : fromIdx + 1;
+ if(fromIdx < 0 || toIdx < 0 || toIdx >= rows.length) return;
+ var swapWith = rows[toIdx];
+
+ // Optimistic DOM swap
+ if(direction === 'up'){ tbody.insertBefore(tr, swapWith); }
+ else { tbody.insertBefore(swapWith, tr); }
+
+ // Renumber the two swapped rows so subsequent edits target the correct
+ // line items (input names, cell IDs, onclick handlers all encode loop.index0).
+ _renumberRow(tr, fromIdx, toIdx);
+ _renumberRow(swapWith, toIdx, fromIdx);
+
+ // Brief flash on moved row
+ tr.style.transition = 'background-color 0.25s';
+ tr.style.backgroundColor = 'rgba(56,139,253,0.18)';
+ setTimeout(function(){ tr.style.backgroundColor=''; }, 450);
+
+ // Background POST. On failure, reload to resync with server truth.
+ fetch('/rfq/'+RID+'/move-item/'+fromIdx+'/'+direction,
+       {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}})
+  .then(function(r){return r.json();})
+  .then(function(d){
+   if(!d.ok){ alert('Move failed: '+(d.message||'')); location.reload(); }
+   else { try{ if(typeof recalc==='function') recalc(); }catch(e){} }
+  })
+  .catch(function(e){ alert('Move failed: '+e.message); location.reload(); });
+}
+
+// Replace _<old>, -<old>, (<old>, ,<old>, /<old> patterns in name/id/on*
+// attributes of every element under `tr`. Bounded to 2 rows per move.
+// Boundary check is strict non-digit so price strings like "12.50" or
+// item line counts like 100+ are not mangled.
+function _renumberRow(tr, oldIdx, newIdx){
+ if(oldIdx === newIdx) return;
+ var ATTRS = ['name','id','onclick','oninput','onpaste','onblur','onkeydown','onfocus'];
+ var re = new RegExp('(^|[^0-9])'+oldIdx+'(?=[^0-9]|$)', 'g');
+ var nodes = [tr].concat(Array.prototype.slice.call(tr.querySelectorAll('*')));
+ nodes.forEach(function(el){
+  ATTRS.forEach(function(attr){
+   var v = el.getAttribute(attr);
+   if(v == null) return;
+   var nv = v.replace(re, function(_, b){ return b + newIdx; });
+   if(nv !== v) el.setAttribute(attr, nv);
+  });
+ });
+}
 
 function itemAction(path){
  document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');

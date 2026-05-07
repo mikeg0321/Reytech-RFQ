@@ -623,25 +623,29 @@ def rfq_duplicate_item(rid, idx):
 @auth_required
 @safe_route
 def rfq_move_item(rid, idx, direction):
-    """Move a line item up or down."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return _item_response(rid, False, "RFQ not found")
+    """Move a line item up or down. Wrapped in `_save_rfqs_lock` so a
+    concurrent autosave can't load a pre-move snapshot and clobber the
+    post-move write."""
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return _item_response(rid, False, "RFQ not found")
 
-    items = r.get("line_items") or r.get("items") or []
-    if direction == "up" and idx > 0:
-        items[idx], items[idx - 1] = items[idx - 1], items[idx]
-    elif direction == "down" and idx < len(items) - 1:
-        items[idx], items[idx + 1] = items[idx + 1], items[idx]
-    else:
-        return _item_response(rid, False, "Cannot move")
+        items = r.get("line_items") or r.get("items") or []
+        if direction == "up" and idx > 0:
+            items[idx], items[idx - 1] = items[idx - 1], items[idx]
+        elif direction == "down" and idx < len(items) - 1:
+            items[idx], items[idx + 1] = items[idx + 1], items[idx]
+        else:
+            return _item_response(rid, False, "Cannot move")
 
-    _renumber_items(items)
-    r["line_items"] = items
-    from src.api.dashboard import _save_single_rfq
-    _save_single_rfq(rid, r)
-    return _item_response(rid, True, f"Item moved {direction}")
+        _renumber_items(items)
+        r["line_items"] = items
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+        return _item_response(rid, True, f"Item moved {direction}")
 
 
 @bp.route("/rfq/<rid>/reset-items", methods=["POST"])
