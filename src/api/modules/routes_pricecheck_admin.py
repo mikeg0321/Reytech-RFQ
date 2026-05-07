@@ -3406,10 +3406,47 @@ def api_item_link_lookup():
         # only writes when the operator hits Save with a non-zero cost
         # they've reviewed.
 
+        # ── ASIN-recycle cache eviction + one-shot retry ──
+        # Closes the failure class behind the 2026-05-06 second URL-paste
+        # incident: cache had B00Y0L8FPW → "Anker SoundCore" stored from
+        # before Amazon recycled the ASIN to "Wits & Wagers". Every paste
+        # of that URL re-served Anker because `_cache_lookup` short-circuits
+        # on cache hit without comparing against the row's expected
+        # description.
+        #
+        # Strategy: when the row sent a `pc_description` AND the lookup
+        # result's title token-overlap is below the recycle threshold (30),
+        # treat the cache as poisoned — evict the asin:<ASIN> entry and
+        # retry the lookup once. The retry forces a fresh upstream fetch,
+        # which gives `_cache_store` a chance to detect the divergence and
+        # set `recycled_suspected` on the new entry. If the retry still
+        # mismatches (genuinely wrong URL), the existing semantic-match +
+        # frontend chip surface the problem to the operator as before.
+        _pc_desc = (data.get("pc_description") or "").strip()
+        if (_pc_desc and result.get("ok") and result.get("title")
+                and _quick_token_match(_pc_desc, result.get("title", "")) < 30):
+            _asin = (result.get("asin") or "").strip()
+            if not _asin:
+                import re as _re_asin
+                _m = _re_asin.search(r'/dp/([A-Z0-9]{10})', url)
+                if _m:
+                    _asin = _m.group(1)
+            if _asin:
+                try:
+                    from src.agents.product_research import _cache_evict
+                    if _cache_evict(f"asin:{_asin}"):
+                        log.warning(
+                            "URL-paste recycle evict: ASIN %s cached title %r "
+                            "vs row desc %r → cache cleared, retrying lookup",
+                            _asin, result.get("title", "")[:60], _pc_desc[:60],
+                        )
+                        result = lookup_from_url(url)
+                except Exception as _ev_e:
+                    log.debug("recycle-evict retry failed: %s", _ev_e)
+
         # ── Claude semantic match: AI product validation ──
         # When client sends pc_description, compare it to found title.
         # Only call Claude if token match is uncertain (< 70%) AND we have time budget.
-        _pc_desc = (data.get("pc_description") or "").strip()
         _time_left = _ENDPOINT_BUDGET - (_time.monotonic() - _t0)
         if _pc_desc and result.get("ok") and result.get("title") and _time_left > 3.0:
             _found_title = result.get("title", "")

@@ -517,26 +517,82 @@ def rfq_add_item(rid):
 @auth_required
 @safe_route
 def rfq_remove_item(rid, idx):
-    """Remove a line item from an RFQ by index."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return _item_response(rid, False, "RFQ not found")
+    """Remove a line item from an RFQ by index.
 
-    items = r.get("line_items") or r.get("items") or []
-    # Ensure canonical key is set
-    item_key = "line_items" if "line_items" in r else "items"
-    if 0 <= idx < len(items):
-        removed = items.pop(idx)
+    Saves the removed item to `r["_last_removed_item"]` so /rfq/<rid>/restore-item
+    can put it back. Wrapped in `_save_rfqs_lock` so a concurrent autosave
+    can't load a pre-delete snapshot and clobber the post-delete write.
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return _item_response(rid, False, "RFQ not found")
+
+        items = r.get("line_items") or r.get("items") or []
+        item_key = "line_items" if "line_items" in r else "items"
+        if 0 <= idx < len(items):
+            removed = items.pop(idx)
+            _renumber_items(items)
+            r[item_key] = items
+            r["_last_removed_item"] = {
+                "item": removed,
+                "idx": idx,
+                "ts": datetime.now().isoformat(),
+            }
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
+            _log_rfq_activity(rid, "item_removed",
+                f"Line item removed: {removed.get('description','')[:60]}",
+                actor="user")
+            if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify({
+                    "ok": True,
+                    "message": "Item removed",
+                    "removed": {
+                        "description": removed.get("description", ""),
+                        "idx": idx,
+                    },
+                })
+            return _item_response(rid, True, "Item removed")
+        return _item_response(rid, False, f"Invalid item index {idx} (have {len(items)} items)")
+
+
+@bp.route("/rfq/<rid>/restore-item", methods=["POST"])
+@auth_required
+@safe_route
+def rfq_restore_item(rid):
+    """Re-insert the most recently removed line item at its original index.
+
+    Pairs with rfq_remove_item; consumes `r["_last_removed_item"]`. The
+    snapshot is single-use — restoring clears it. Wrapped in
+    `_save_rfqs_lock` for the same RMW reason as the remove path.
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return _item_response(rid, False, "RFQ not found")
+        snap = r.get("_last_removed_item")
+        if not snap or not snap.get("item"):
+            return _item_response(rid, False, "Nothing to undo")
+
+        items = r.get("line_items") or r.get("items") or []
+        item_key = "line_items" if "line_items" in r else "items"
+        insert_idx = max(0, min(int(snap.get("idx", len(items))), len(items)))
+        items.insert(insert_idx, snap["item"])
         _renumber_items(items)
         r[item_key] = items
+        r.pop("_last_removed_item", None)
+
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
-        _log_rfq_activity(rid, "item_removed",
-            f"Line item removed: {removed.get('description','')[:60]}",
+        _log_rfq_activity(rid, "item_restored",
+            f"Line item restored: {snap['item'].get('description','')[:60]}",
             actor="user")
-        return _item_response(rid, True, "Item removed")
-    return _item_response(rid, False, f"Invalid item index {idx} (have {len(items)} items)")
+        return _item_response(rid, True, "Item restored")
 
 
 @bp.route("/rfq/<rid>/duplicate-item/<int:idx>", methods=["POST"])
@@ -567,25 +623,29 @@ def rfq_duplicate_item(rid, idx):
 @auth_required
 @safe_route
 def rfq_move_item(rid, idx, direction):
-    """Move a line item up or down."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return _item_response(rid, False, "RFQ not found")
+    """Move a line item up or down. Wrapped in `_save_rfqs_lock` so a
+    concurrent autosave can't load a pre-move snapshot and clobber the
+    post-move write."""
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return _item_response(rid, False, "RFQ not found")
 
-    items = r.get("line_items") or r.get("items") or []
-    if direction == "up" and idx > 0:
-        items[idx], items[idx - 1] = items[idx - 1], items[idx]
-    elif direction == "down" and idx < len(items) - 1:
-        items[idx], items[idx + 1] = items[idx + 1], items[idx]
-    else:
-        return _item_response(rid, False, "Cannot move")
+        items = r.get("line_items") or r.get("items") or []
+        if direction == "up" and idx > 0:
+            items[idx], items[idx - 1] = items[idx - 1], items[idx]
+        elif direction == "down" and idx < len(items) - 1:
+            items[idx], items[idx + 1] = items[idx + 1], items[idx]
+        else:
+            return _item_response(rid, False, "Cannot move")
 
-    _renumber_items(items)
-    r["line_items"] = items
-    from src.api.dashboard import _save_single_rfq
-    _save_single_rfq(rid, r)
-    return _item_response(rid, True, f"Item moved {direction}")
+        _renumber_items(items)
+        r["line_items"] = items
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+        return _item_response(rid, True, f"Item moved {direction}")
 
 
 @bp.route("/rfq/<rid>/reset-items", methods=["POST"])

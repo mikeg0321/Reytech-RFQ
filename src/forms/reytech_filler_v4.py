@@ -1180,10 +1180,25 @@ def fill_cchcs_it_rfq(input_path, rfq_data, config, output_path):
 
 
 _LPA_PAGE1_MARKERS = (
-    "Request For Quotation",
+    # "Request For Quotation" was previously here but is the literal page-1
+    # header on EVERY CCHCS 703B (incl. NON-IT GOODS Rev 03/2025). It made
+    # the classifier route every standard 703B to the LPA IT filler, which
+    # writes to AMS 708 / Supplier Address 1 / Item Description1 fields
+    # that don't exist on the standard form → blank output. Mike P0
+    # 2026-05-06 RFQ a5b09b56. Removed because it was a false-positive
+    # generator. The remaining markers are LPA-specific.
     "IT Goods and Services",
     "LPA #",
     "LPA IT Goods",
+)
+
+# Negative marker: page-1 text containing this phrase means it is
+# explicitly NOT an LPA IT RFQ — the standard 703B Rev 03/2025 says
+# "REQUEST FOR QUOTATION: NON-IT GOODS" as its first header. Used as
+# a hard disqualifier even if a positive marker fires.
+_LPA_NEGATIVE_PAGE1_MARKERS = (
+    "NON-IT GOODS",
+    "Non-IT Goods",
 )
 
 
@@ -1193,7 +1208,13 @@ def _lpa_page1_text_signal(pdf_path):
     Mike's 2026-04-23 directive: 'visual page 1 check will tell you 100%'.
     Some buyer variants strip AcroForm fields (flattened PDFs) or rename
     them, defeating fingerprint detection. Page-1 text headers are
-    printed content — survive flattening and variant remapping."""
+    printed content — survive flattening and variant remapping.
+
+    NEGATIVE MARKER OVERRIDE: if page 1 contains an explicit non-IT phrase
+    (`NON-IT GOODS`), return False even if a positive marker also fires —
+    this guards against the standard 703B Rev 03/2025 being mis-routed to
+    the LPA IT filler when its generic title mentions Request For Quotation.
+    """
     try:
         import pdfplumber as _pp
         with _pp.open(pdf_path) as _p:
@@ -1203,15 +1224,25 @@ def _lpa_page1_text_signal(pdf_path):
     except Exception as _e:
         log.debug("LPA page1 text read failed for %s: %s", pdf_path, _e)
         return False
+    if any(m in t for m in _LPA_NEGATIVE_PAGE1_MARKERS):
+        return False
     return any(m in t for m in _LPA_PAGE1_MARKERS)
 
 
 def _lpa_filename_signal(pdf_path):
-    """Filename hint — supplementary signal, not authoritative alone.
-    Buyers often name the file `RFQ <sol>.pdf` or `CCHCS_IT_RFQ_*.pdf`."""
+    """Filename hint — supplementary signal. Tightened 2026-05-06 (Mike P0
+    RFQ a5b09b56): the prior tokens `rfq_` / `rfq ` were way too generic —
+    they matched every standard NON-IT 703B that has 'RFQ' in its filename
+    (e.g. `AMS 703B - RFQ - Informal Competitive...`). Restricted to
+    LPA-specific tokens.
+
+    Also: a filename containing `NON-IT` or `NON IT` is a hard disqualifier
+    — buyers explicitly mark non-IT 703Bs that way."""
     import os as _os
     _n = _os.path.basename(pdf_path or "").lower()
-    return any(m in _n for m in ("rfq_", "rfq ", "cchcs_it", "lpa_", "it_goods"))
+    if any(neg in _n for neg in ("non-it", "non it", "non_it")):
+        return False
+    return any(m in _n for m in ("cchcs_it", "lpa_", "it_goods", "it goods"))
 
 
 def _is_cchcs_it_rfq(pdf_path):
