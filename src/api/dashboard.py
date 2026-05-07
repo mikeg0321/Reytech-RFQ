@@ -592,36 +592,76 @@ except Exception as _seed_e:
 
 
 def save_rfq_file(rfq_id: str, filename: str, file_type: str, data: bytes,
-                   category: str = "template", uploaded_by: str = "system") -> str:
+                   category: str = "template", uploaded_by: str = "system",
+                   gmail_message_id: str = "") -> str:
     """Save a PDF to the rfq_files table. Returns file_id.
-    
+
     DEDUP: If a file with the same rfq_id + filename + category already exists,
     updates the existing row instead of creating a duplicate.
+
+    `gmail_message_id` (PR #808 column, used by PR-E buyer-reply routing):
+    when set, links this attachment to the specific Gmail messageId it
+    arrived in. Lets operators see "this PDF came from the buyer's
+    reply at HH:MM" rather than just "from somewhere in the thread".
+    For attachments from the original ingest message, leave empty.
     """
     import uuid
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            # Check for existing file with same rfq_id + filename + category
-            existing = conn.execute(
-                "SELECT id FROM rfq_files WHERE rfq_id=? AND filename=? AND category=? LIMIT 1",
-                (rfq_id, filename, category)).fetchone()
-            
+            # Check whether the column exists (older deploys may not
+            # have run migration #808 yet — defensive write).
+            col_rows = conn.execute("PRAGMA table_info(rfq_files)").fetchall()
+            has_gmail_col = any(r[1] == "gmail_message_id" for r in col_rows)
+            # For buyer-reply attachments, treat (filename, category,
+            # gmail_message_id) as the dedup key — same filename from
+            # different reply messages must NOT collide.
+            if category == "buyer_reply" and gmail_message_id and has_gmail_col:
+                existing = conn.execute(
+                    "SELECT id FROM rfq_files WHERE rfq_id=? AND filename=? "
+                    "AND category=? AND gmail_message_id=? LIMIT 1",
+                    (rfq_id, filename, category, gmail_message_id),
+                ).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT id FROM rfq_files WHERE rfq_id=? AND filename=? AND category=? LIMIT 1",
+                    (rfq_id, filename, category)).fetchone()
+
             if existing:
                 # Update existing row
                 file_id = existing["id"]
-                conn.execute("""
-                    UPDATE rfq_files SET file_type=?, file_size=?, data=?, uploaded_by=?, created_at=?
-                    WHERE id=?
-                """, (file_type, len(data), data, uploaded_by, datetime.now().isoformat(), file_id))
+                if has_gmail_col:
+                    conn.execute("""
+                        UPDATE rfq_files SET file_type=?, file_size=?, data=?,
+                            uploaded_by=?, created_at=?, gmail_message_id=?
+                        WHERE id=?
+                    """, (file_type, len(data), data, uploaded_by,
+                          datetime.now().isoformat(), gmail_message_id, file_id))
+                else:
+                    conn.execute("""
+                        UPDATE rfq_files SET file_type=?, file_size=?, data=?,
+                            uploaded_by=?, created_at=?
+                        WHERE id=?
+                    """, (file_type, len(data), data, uploaded_by,
+                          datetime.now().isoformat(), file_id))
                 log.info("Updated file %s (%s, %d bytes) for RFQ %s", filename, file_type, len(data), rfq_id)
             else:
                 # Insert new row
                 file_id = f"rf_{uuid.uuid4().hex[:10]}"
-                conn.execute("""
-                    INSERT INTO rfq_files (id, rfq_id, filename, file_type, category, file_size, data, uploaded_by, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (file_id, rfq_id, filename, file_type, category, len(data), data, uploaded_by, datetime.now().isoformat()))
+                if has_gmail_col:
+                    conn.execute("""
+                        INSERT INTO rfq_files (id, rfq_id, filename, file_type,
+                            category, file_size, data, uploaded_by, created_at,
+                            gmail_message_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (file_id, rfq_id, filename, file_type, category,
+                          len(data), data, uploaded_by,
+                          datetime.now().isoformat(), gmail_message_id))
+                else:
+                    conn.execute("""
+                        INSERT INTO rfq_files (id, rfq_id, filename, file_type, category, file_size, data, uploaded_by, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (file_id, rfq_id, filename, file_type, category, len(data), data, uploaded_by, datetime.now().isoformat()))
                 log.info("Saved file %s (%s, %d bytes) for RFQ %s", filename, file_type, len(data), rfq_id)
     except Exception as e:
         log.error("Failed to save file %s for RFQ %s: %s", filename, rfq_id, e)
@@ -1793,6 +1833,154 @@ def _normalize_date(date_str):
     return str(date_str).strip()
 
 
+def _route_buyer_reply_to_existing(matched_id: str, kind: str,
+                                   rfq_email: dict,
+                                   _trace: list = None) -> bool:
+    """Route a buyer-reply email to an existing primary record.
+
+    PR-E of the thread-aware-ingest arc (2026-05-07). When the
+    email-poller's thread-dedup check identifies that an incoming
+    Gmail message belongs to an existing RFQ/PC's thread, this
+    helper routes the reply's attachments and metadata onto that
+    existing record instead of letting the legacy create path spawn
+    a spurious sibling (Mike's 2026-05-06 incident with pc_93edc64e).
+
+    What we do:
+      * Append `gmail_message_id` to the existing record's
+        `gmail_message_ids` list (idempotent — skip if already present).
+      * Append a structured entry to the record's `buyer_replies`
+        list capturing from / subject / body excerpt / message_id /
+        attachment filenames.
+      * For each attachment in `rfq_email['attachments']`, write a
+        new `rfq_files` row with `category='buyer_reply'` and the
+        same `gmail_message_id` so operators can see "this PDF came
+        from the buyer's reply at HH:MM".
+      * Persist via the canonical save functions (RMW lock inside).
+
+    Returns True on success. False when the matched record isn't
+    routable (already a thread duplicate of another, or load failed).
+    Behaviour is gated upstream by feature flag
+    `email_poller.thread_routing_enabled` (default True).
+    """
+    if _trace is None:
+        _trace = []
+
+    try:
+        gmail_message_id = (rfq_email.get("gmail_message_id")
+                            or rfq_email.get("email_uid") or "").strip()
+        sender = (rfq_email.get("sender_email")
+                  or rfq_email.get("sender") or "").strip()
+        subject = (rfq_email.get("subject") or "").strip()[:200]
+        body_excerpt = (rfq_email.get("body") or "").strip()[:1000]
+        attachments = rfq_email.get("attachments") or []
+
+        if kind == "rfq":
+            rfqs_now = load_rfqs() or {}
+            record = rfqs_now.get(matched_id)
+        else:
+            pcs_now = _load_price_checks() or {}
+            record = pcs_now.get(matched_id)
+
+        if not record:
+            log.warning("thread-routing: matched %s %s no longer exists, "
+                        "falling back to legacy create",
+                        kind, matched_id)
+            _trace.append(f"thread-routing: matched record {matched_id} "
+                          f"vanished — fallback to create")
+            return False
+
+        # Don't compound onto a record that's itself dismissed —
+        # follow the chain to the primary instead. For now, simplest
+        # safe behavior is to bail; future PR can resolve transitively.
+        if (record.get("gmail_thread_duplicate_of") or "").strip():
+            log.info("thread-routing: matched %s %s is itself a thread "
+                     "duplicate; skipping route to avoid compounding",
+                     kind, matched_id)
+            _trace.append(f"thread-routing: matched {matched_id} is a "
+                          f"duplicate — fallback to create")
+            return False
+
+        # Append message id to message-graph (idempotent).
+        msg_ids = list(record.get("gmail_message_ids") or [])
+        if gmail_message_id and gmail_message_id not in msg_ids:
+            msg_ids.append(gmail_message_id)
+            record["gmail_message_ids"] = msg_ids
+
+        # Append buyer-reply entry. Attachments saved separately
+        # below; here we just record their filenames + sizes.
+        replies = list(record.get("buyer_replies") or [])
+        replies.append({
+            "at": datetime.now().isoformat(),
+            "from": sender,
+            "subject": subject,
+            "body_excerpt": body_excerpt,
+            "gmail_message_id": gmail_message_id,
+            "email_uid": rfq_email.get("email_uid", ""),
+            "attachments": [
+                {
+                    "filename": a.get("filename", ""),
+                    "size": len(a.get("content") or b""),
+                    "type": a.get("content_type", ""),
+                }
+                for a in attachments
+            ],
+        })
+        record["buyer_replies"] = replies
+        record.setdefault("audit_log", []).append({
+            "at": datetime.now().isoformat(),
+            "actor": "email_poller.thread_routing",
+            "action": "buyer-reply-routed",
+            "from": sender,
+            "subject": subject,
+            "gmail_message_id": gmail_message_id,
+            "attachment_count": len(attachments),
+        })
+
+        # Save the mutated record. _save_price_checks / save_rfqs
+        # both handle the RMW lock internally.
+        if kind == "rfq":
+            rfqs_now[matched_id] = record
+            save_rfqs(rfqs_now)
+        else:
+            pcs_now[matched_id] = record
+            _save_price_checks(pcs_now)
+
+        # Save attachments to rfq_files with category='buyer_reply'.
+        # Failures here log but don't undo the metadata write — the
+        # operator still sees the routed reply in the UI even if a
+        # single attachment didn't persist (better than losing the
+        # whole event). Note that rfq_files keys on `rfq_id` for both
+        # RFQs and PCs (legacy column name; serves both kinds).
+        for a in attachments:
+            try:
+                fname = a.get("filename") or "attachment"
+                ftype = a.get("content_type") or "application/octet-stream"
+                fdata = a.get("content") or b""
+                if not fdata:
+                    continue
+                save_rfq_file(
+                    matched_id, fname, ftype, fdata,
+                    category="buyer_reply",
+                    uploaded_by="email_poller.thread_routing",
+                    gmail_message_id=gmail_message_id,
+                )
+            except Exception as _ae:
+                log.warning("thread-routing: failed to save attachment "
+                            "%s for %s %s: %s",
+                            a.get("filename", "?"), kind, matched_id, _ae)
+
+        log.info("thread-routed: %s %s += buyer-reply gmail_id=%s "
+                 "from=%s attachments=%d",
+                 kind, matched_id, gmail_message_id, sender, len(attachments))
+        _trace.append(f"thread-routed: {kind} {matched_id} "
+                      f"+= reply (atts={len(attachments)})")
+        return True
+    except Exception as _re:
+        log.exception("thread-routing: unexpected failure routing to "
+                      "%s %s: %s", kind, matched_id, _re)
+        return False
+
+
 def process_rfq_email(rfq_email):
     """Process a single RFQ email into the queue. Returns rfq_data or None.
     Deduplicates by checking email_uid against existing RFQs.
@@ -2724,16 +2912,52 @@ def process_rfq_email(rfq_email):
                     log.debug("thread-dedup log write suppressed: %s", _wee)
                 log.info(
                     "thread-dedup-candidate: thread=%s incoming=%s matched_rfqs=%d matched_pcs=%d "
-                    "would_route_to=%s (Path 1 — logging only, NO behavior change)",
+                    "would_route_to=%s",
                     _incoming_thread,
                     rfq_email.get("email_uid", ""),
                     len(_matched_rfqs), len(_matched_pcs),
                     _matched_summary["would_route_as_activity_to"],
                 )
+
+                # ── PR-E: actually route the buyer-reply to the
+                # existing record (Path 2). Gated by feature flag —
+                # default ON, but operators can flip OFF per the
+                # 8-week confirmation doctrine via:
+                #   POST /api/admin/flags
+                #   {"key": "email_poller.thread_routing_enabled",
+                #    "value": "0"}
+                _route_enabled = True
+                try:
+                    from src.core.flags import get_flag
+                    _route_enabled = bool(get_flag(
+                        "email_poller.thread_routing_enabled", True))
+                except Exception as _fe:
+                    log.debug("thread-routing flag read suppressed: %s", _fe)
+
+                _routed = False
+                if _route_enabled:
+                    _kind = "rfq" if _matched_rfqs else (
+                        "pc" if _matched_pcs else "")
+                    _matched_id = (
+                        _matched_rfqs[0][0] if _matched_rfqs
+                        else (_matched_pcs[0][0] if _matched_pcs else ""))
+                    if _kind and _matched_id:
+                        _routed = _route_buyer_reply_to_existing(
+                            _matched_id, _kind, rfq_email, _trace)
+
+                if _routed:
+                    POLL_STATUS.setdefault(
+                        "_email_traces", []).append(_trace)
+                    t.ok("Routed: buyer reply to existing thread",
+                         routed_to=_matched_summary[
+                             "would_route_as_activity_to"])
+                    return None  # skip the create path entirely
+
                 _trace.append(
                     f"thread-dedup-candidate: thread={_incoming_thread} "
                     f"would-route-to={_matched_summary['would_route_as_activity_to']} "
-                    f"(Path 1, logging only)"
+                    f"(routing {'flag-OFF' if not _route_enabled else 'failed'}, "
+                    f"falling back to legacy create)"
                 )
     except Exception as _tde:
         log.debug("thread-dedup telemetry suppressed: %s", _tde)
