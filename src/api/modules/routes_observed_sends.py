@@ -36,10 +36,79 @@ Auto-attach (status='auto_attached', PR-G4) reuses the same `confirm`
 helper but skips the operator gate after 8 weeks of 100% confirm rate.
 This module exposes the gate; PR-G4 will add the auto-fire trigger.
 """
+import json
+import re
 from flask import request, jsonify
 from src.api.shared import bp, auth_required
+from src.api.render import render_page
 import logging
 log = logging.getLogger("reytech.observed_sends")
+
+
+_DRIVE_BACKUP_RE = re.compile(r'\{"kind":\s*"drive_backup".*?\}')
+
+
+def _drive_backup_url_from_notes(notes: str) -> str:
+    """Pull the most recent successful drive_backup folder URL out of
+    an observation's notes field. The backup helper appends a JSON
+    marker per attempt; surface the last one without an error so the
+    UI can show '📁 Drive' next to confirmed observations.
+    """
+    if not notes:
+        return ""
+    last_url = ""
+    for m in _DRIVE_BACKUP_RE.finditer(notes):
+        try:
+            payload = json.loads(m.group(0))
+            if payload.get("kind") != "drive_backup":
+                continue
+            if payload.get("error"):
+                continue
+            url = payload.get("folder_url") or ""
+            if url:
+                last_url = url
+        except (ValueError, TypeError):
+            continue
+    return last_url
+
+
+@bp.route("/admin/observed-sends", methods=["GET"])
+@auth_required
+def page_observed_sends():
+    """Operator review page — list pending observations with confirm /
+    reject / backup buttons. PR-G3 of post-quote queue item 23.
+    """
+    try:
+        from src.agents.observed_send_store import list_observed_sends
+        status_filter = (request.args.get("status") or "").strip()
+        try:
+            limit = min(int(request.args.get("limit", 200) or 200), 500)
+        except (TypeError, ValueError):
+            limit = 200
+        rows = list_observed_sends(
+            status=status_filter or None, limit=limit) or []
+        for r in rows:
+            r["drive_backup_url"] = _drive_backup_url_from_notes(
+                r.get("notes") or "")
+        # Total count is across all statuses for the "all" tab badge.
+        total_rows = list_observed_sends(status=None, limit=500) or []
+        return render_page(
+            "observed_sends.html",
+            active_page="Observed Sends",
+            rows=rows,
+            status_filter=status_filter,
+            total_count=len(total_rows),
+        )
+    except Exception as e:
+        log.error("observed-sends page error: %s", e, exc_info=True)
+        return render_page(
+            "observed_sends.html",
+            active_page="Observed Sends",
+            rows=[],
+            status_filter="",
+            total_count=0,
+            error=str(e),
+        )
 
 
 @bp.route("/api/admin/observed-sends/scan", methods=["POST"])
