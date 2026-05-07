@@ -215,7 +215,10 @@ def get_order(order_id: str) -> dict | None:
             else:
                 # No normalized line items — parse from items JSON column; preserve
                 # header total (nothing authoritative to recompute from).
-                order["line_items"] = _safe_json(order.get("items"), [])
+                # Same legacy-shape normalization as list_orders (B-1 follow-on).
+                order["line_items"] = _normalize_legacy_items(
+                    _safe_json(order.get("items"), [])
+                )
 
             # Hydrate status_history to list (parity with get_order_detail).
             # Without this, api_order_invoice crashed with KeyError/AttributeError
@@ -288,7 +291,10 @@ def list_orders(status: str = None, agency: str = None,
                         for it in items
                     ), 2)
                 else:
-                    items = _safe_json(order.get("items"), [])
+                    # Legacy fallback: items live in the JSON `items` column.
+                    # Normalize so every downstream reader sees dicts (some
+                    # historical SCPRS-stub rows held bare-string items).
+                    items = _normalize_legacy_items(_safe_json(order.get("items"), []))
 
                 order["line_items"] = items
 
@@ -1125,6 +1131,33 @@ def _item_status(item) -> str:
     if not isinstance(item, dict):
         return "pending"
     return item.get("sourcing_status", "pending")
+
+
+def _normalize_legacy_items(items):
+    """Coerce a list of items to dicts so every downstream `.get` is safe.
+
+    B-1 follow-on (audit 2026-05-07 hotfix): the original B-1 shipped a
+    defensive isinstance guard inside `_item_status`. But every OTHER
+    consumer of the same legacy-shape items (`/orders` aggregate stats at
+    `routes_orders_full.py:68/76/77/78/88`, `/api/funnel/stats` rollup,
+    every per-item `.get` in `routes_orders_full`) ALSO crashed on the same
+    string elements. Patching each call site is whack-a-mole; the right
+    fix is to normalize at the read boundary so no downstream code can
+    ever observe a non-dict line item.
+
+    Non-dict elements (rare legacy shape: bare string description) are
+    coerced to `{"description": str(x)}`. Already-dict elements pass
+    through untouched. Always returns a list (defensive for `None` input).
+    """
+    if not items:
+        return []
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            out.append(it)
+        else:
+            out.append({"description": str(it)})
+    return out
 
 
 def _row_to_line_item(row) -> dict:
