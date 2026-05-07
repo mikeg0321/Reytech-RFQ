@@ -4588,6 +4588,79 @@ def api_rfq_extract_buyer_reply_diff(rid, idx):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Tier 1a (PR-D1) — Inline pricing intelligence panel
+#
+# Per-line decoration on /rfq/<id> showing:
+#   * What this buyer last paid us for an item like this (won quote)
+#   * The SCPRS ceiling — statewide median state-paid price for similar
+#     items (NOT a cost basis; reference only)
+#
+# Both are reads against the existing `quotes` (won) and `scprs_po_lines`
+# tables. Lazy-fetched on detail page load so the render isn't blocked.
+# Audit 2026-05-07: closes the "decisions made without the data that
+# should drive them" gap (D1, highest win-rate lift).
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/<rid>/pricing-intel", methods=["GET"])
+@auth_required
+@safe_route
+def api_rfq_pricing_intel(rid):
+    """Per-line buyer-history + SCPRS ceiling intel for an RFQ.
+
+    Returns:
+      {
+        "ok": bool,
+        "by_line": {
+            "1": {
+                "last_won": {"price", "quote_number", "won_at"} | {},
+                "scprs_ceiling": {"ceiling", "low", "high",
+                                  "sample_count"} | {}
+            },
+            "2": {...}, ...
+        }
+      }
+
+    `by_line` keys are 1-based line numbers (string-keyed for JSON).
+    Empty inner dicts mean "no signal to show" — UI hides the chip.
+    """
+    invalid = _validate_rid(rid)
+    if invalid:
+        return invalid
+    from src.api.data_layer import load_rfqs
+    rfqs = load_rfqs() or {}
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    items = r.get("line_items") or r.get("items") or []
+    if not items:
+        return jsonify({"ok": True, "by_line": {}})
+
+    # Buyer email — try canonical first, then any reasonable alias.
+    contact_email = (
+        r.get("requestor_email")
+        or r.get("contact_email")
+        or r.get("original_sender")
+        or ""
+    )
+    # Don't include this RFQ's own quote in the "last won" search (it'd
+    # match itself if won and re-priced).
+    exclude_qn = r.get("reytech_quote_number") or ""
+
+    from src.core.pricing_intel_panel import compute_panel
+    panel = compute_panel(
+        items,
+        contact_email=contact_email,
+        exclude_quote_number=exclude_qn,
+    )
+    # JSON keys are strings — coerce 1-based int line nos for the UI.
+    return jsonify({
+        "ok": True,
+        "by_line": {str(k): v for k, v in panel["by_line"].items()},
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # #18 — Auto-pricing TP/FP rate telemetry
 #
 # The auto-pricer stamps `auto_priced_value` on every line item it sets.

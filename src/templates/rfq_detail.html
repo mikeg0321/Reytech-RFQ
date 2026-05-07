@@ -612,7 +612,10 @@
       ● Oracle <b>${{ '{:.2f}'.format(i.oracle_price|float) }}</b>{% if _oc_conf %} <span style="font-size:10px;opacity:.8">{{_oc_conf}}</span>{% endif %}
      </a>
     </div>
-    {% endif %}</td>
+    {% endif %}
+    {# Tier 1a / PR-D1 — pricing intel chip slot, populated by JS below.
+       Empty until /api/rfq/<rid>/pricing-intel resolves. #}
+    <div class="pricing-intel-chip" data-pi-line="{{ i.line_number or (loop.index0 + 1) }}" data-testid="pricing-intel-line-{{ i.line_number or (loop.index0 + 1) }}" style="margin-top:3px;font-size:11px;line-height:1.4;color:#8b949e;min-height:0"></div></td>
    <td class="mono" style="font-size:16px;font-weight:600" id="sub_{{loop.index0}}">—</td>
    <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
@@ -1709,6 +1712,76 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 <script>
 const RID = {{rid|tojson}};
 var _landedSummary = {{landed_summary|default({})|tojson}};
+
+// ────────────────────────────────────────────────────────────────────────
+// Tier 1a / PR-D1 — Inline pricing intelligence chips (audit 2026-05-07).
+//
+// Populates `.pricing-intel-chip[data-pi-line=N]` slots on each item row
+// with two signals:
+//   🏆 Last won — what THIS buyer last paid us for an item like this
+//   📊 SCPRS    — statewide median state-paid price (reference ceiling)
+//
+// One batched GET /api/rfq/<RID>/pricing-intel on DOMContentLoaded.
+// Silent failure (decorative; never block pricing flow).
+// ────────────────────────────────────────────────────────────────────────
+(function rfqPricingIntel(){
+  function fmtMoney(n){ return '$' + (Number(n) || 0).toFixed(2); }
+  function escapeHtml(s){
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function render(slot, data){
+    if (!slot) return;
+    var lw = data && data.last_won;
+    var sc = data && data.scprs_ceiling;
+    var bits = [];
+    if (lw && lw.price && lw.price > 0) {
+      var dt = (lw.won_at || '').slice(0, 10);
+      var qn = escapeHtml(lw.quote_number || '');
+      var label = '🏆 Last won <b>' + fmtMoney(lw.price) + '</b>'
+        + (qn ? ' <span style="opacity:.7">' + qn + '</span>' : '')
+        + (dt ? ' <span style="opacity:.6">(' + escapeHtml(dt) + ')</span>' : '');
+      bits.push('<span style="color:#3fb950" title="Last won quote for this buyer for an item like this">' + label + '</span>');
+    }
+    if (sc && sc.ceiling && sc.ceiling > 0) {
+      var range = (sc.low && sc.high && sc.low !== sc.high)
+        ? ' <span style="opacity:.6">(' + fmtMoney(sc.low) + '–' + fmtMoney(sc.high) + ')</span>'
+        : '';
+      var n = (sc.sample_count != null) ? ' <span style="opacity:.6">n=' + Number(sc.sample_count) + '</span>' : '';
+      bits.push('<span style="color:#d29922" title="SCPRS ceiling: median state-paid price across similar items. NEVER your cost.">📊 SCPRS ~<b>' + fmtMoney(sc.ceiling) + '</b>' + range + n + '</span>');
+    }
+    slot.innerHTML = bits.join(' &nbsp;|&nbsp; ');
+  }
+  function fetchAndApply(){
+    if (!window.RID) return;
+    fetch('/api/rfq/' + encodeURIComponent(window.RID) + '/pricing-intel', {
+      credentials: 'same-origin',
+    }).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d){
+      if (!d || !d.ok || !d.by_line) return;
+      var chips = document.querySelectorAll('.pricing-intel-chip[data-pi-line]');
+      if (!chips || !chips.length) return;
+      Array.prototype.forEach.call(chips, function(slot){
+        var ln = slot.getAttribute('data-pi-line');
+        if (ln && d.by_line[ln]) render(slot, d.by_line[ln]);
+      });
+    }).catch(function(e){
+      // Silent. Decorative intel; never block pricing flow with a toast.
+      if (window.console && console.debug) {
+        console.debug('pricing-intel fetch failed:', e);
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fetchAndApply);
+  } else {
+    fetchAndApply();
+  }
+})();
 
 // QA hard-block: reuse the existing pc_qa_agent helper via /api/rfq/<rid>/qa.
 // Disables Finalize / Generate / Send / Fill-All buttons until blockers clear.
