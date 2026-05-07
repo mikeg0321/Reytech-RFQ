@@ -2501,6 +2501,7 @@ class EmailPoller:
                             "email_uid": uid,
                             "message_id": msg.get("Message-ID", ""),
                             "gmail_thread_id": gmail_thread_id,  # PR-B1
+                            "gmail_message_id": uid,  # PR-A 2026-05-07 (item 24): Gmail internal id for thread-aware ingest
                             "subject": _pc_clean_subj if _pc_was_fwd else subject,
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
@@ -2682,6 +2683,7 @@ class EmailPoller:
                             "email_uid": uid,
                             "message_id": msg.get("Message-ID", ""),
                             "gmail_thread_id": gmail_thread_id,  # PR-B1
+                            "gmail_message_id": uid,  # PR-A 2026-05-07 (item 24): Gmail internal id for thread-aware ingest
                             "subject": _rfq_clean_subj if _rfq_was_fwd else subject,
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),

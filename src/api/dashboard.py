@@ -1908,6 +1908,13 @@ def process_rfq_email(rfq_email):
                 ),
                 email_uid=rfq_email.get("email_uid", ""),
                 email_received_at=rfq_email.get("date", ""),
+                # PR-A 2026-05-07: thread-aware ingest substrate.
+                # Plumb Gmail thread + message ids into the classifier-v2
+                # path so subsequent dedup / reply-routing logic has the
+                # signals it needs. email_poller already captures both
+                # at fetch time.
+                gmail_thread_id=rfq_email.get("gmail_thread_id", ""),
+                gmail_message_id=rfq_email.get("gmail_message_id", ""),
             )
             if _v2_result.ok and _v2_result.record_id:
                 log.info(
