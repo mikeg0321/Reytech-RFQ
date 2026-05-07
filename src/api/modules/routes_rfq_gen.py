@@ -1559,15 +1559,36 @@ def generate_rfq_package(rid):
                     tmpl[ttype] = restore_path
                     t.step(f"Restored {ttype} from DB: {db_f['filename']}")
         
-        # ── Auto-fallback: Use saved CDCR bid package template ONLY for CDCR/CCHCS ──
+        # ── Auto-fallback: Use saved master templates ONLY for CDCR/CCHCS ──
+        # Mike P0 2026-05-06 RFQ a5b09b56: buyer's email arrived without
+        # 703B/704B template attachments (or they were filename-misclassified
+        # by `identify_attachments`). Operator had to hand-fill in Acrobat.
+        # Bidpkg already had a master fallback (below); 703B/704B did not.
+        # This block extends the same pattern to all three forms so a
+        # standard CCHCS quote can always generate from master templates
+        # when the buyer's attachments don't reach the templates dict.
         _agency = (r.get("agency", "") or "").upper()
         _is_cdcr = any(x in _agency for x in ["CDCR", "CCHCS", "CORRECTIONS"])
-        if _is_cdcr and ("bidpkg" not in tmpl or not os.path.exists(tmpl.get("bidpkg", ""))):
-            default_bidpkg = os.path.join(DATA_DIR, "templates", "cdcr_bid_package_template.pdf")
-            if os.path.exists(default_bidpkg):
-                tmpl["bidpkg"] = default_bidpkg
-                t.step("Using default CDCR bid package template")
-        
+        if _is_cdcr:
+            for _slot, _master_filename, _label in [
+                ("bidpkg",  "cdcr_bid_package_template.pdf", "CDCR bid package"),
+                ("704b",    "704b_blank.pdf",                "CCHCS 704B"),
+                ("703b",    "703b_blank.pdf",                "CCHCS 703B"),
+            ]:
+                _slotted = tmpl.get(_slot, "")
+                if _slot in tmpl and _slotted and os.path.exists(_slotted):
+                    continue  # buyer-uploaded template wins
+                _master_path = os.path.join(DATA_DIR, "templates", _master_filename)
+                if os.path.exists(_master_path):
+                    tmpl[_slot] = _master_path
+                    t.step(f"Using default {_label} template (master fallback)")
+                else:
+                    log.debug(
+                        "GENERATE %s: no master template for %s at %s — "
+                        "package will fall back to per-form skip + QA blocker",
+                        rid, _slot, _master_path,
+                    )
+
         # Update templates in RFQ data
         r["templates"] = tmpl
         
@@ -1816,7 +1837,20 @@ def generate_rfq_package(rid):
         if _include("703b") or _include("703c"):
             _703_key = "703c" if "703c" in tmpl else "703b"
             _703_label = "703C" if _703_key == "703c" else "703B"
-            if _703_key in tmpl and os.path.exists(tmpl[_703_key]):
+            # Phase 0 emergency: if operator uploaded a manual 703B (mirroring
+            # the manual_704b mechanism), preserve it instead of overwriting
+            # via auto-fill. Closes the 2026-05-06 RFQ a5b09b56 incident
+            # where the Rev 03/2025 NON-IT 703B classifier mis-route produced
+            # a blank Bidder Information section and the operator had to
+            # hand-fill in Acrobat — but had no escape hatch to preserve the
+            # hand-fill across regenerations.
+            _manual_703b = r.get("manual_703b")
+            _manual_703b_path = f"{out_dir}/{sol}_{_703_label}_Reytech.pdf"
+            if _manual_703b and os.path.exists(_manual_703b_path):
+                output_files.append(f"{sol}_{_703_label}_Reytech.pdf")
+                t.step(f"{_703_label} preserved from manual submit",
+                       uploaded_at=_manual_703b.get("uploaded_at"))
+            elif _703_key in tmpl and os.path.exists(tmpl[_703_key]):
                 try:
                     from src.forms.reytech_filler_v4 import (
                         _classify_703b_slot_template,
@@ -3374,6 +3408,151 @@ def api_rfq_manual_submit_clear(rid):
         save_rfqs(rfqs)
 
     return jsonify({"ok": True, "cleared": had_flag})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Manual-submit 703B (parallel to manual_704b — operator escape hatch
+# when auto-fill produces a blank/wrong Bidder Information section)
+# ═══════════════════════════════════════════════════════════════════════
+# Mike P0 2026-05-06 RFQ a5b09b56 (CCHCS NON-IT 703B Rev 03/2025):
+# classifier mis-route + new Rev 03/2025 field names produced a blank
+# 703B output. Operator hand-filled in Acrobat — but the next Generate
+# Package would have overwritten the hand-fill with the same broken
+# auto-fill. Mirror the manual_704b pattern so 703B has the same escape
+# hatch.
+@bp.route("/api/rfq/<rid>/manual-submit-703b", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_rfq_manual_submit_703b(rid):
+    """Operator uploads a hand-filled 703B PDF that replaces the
+    auto-fill output. While `manual_703b` is set, generate_rfq_package
+    skips the auto-fill for this RFQ on every regeneration."""
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+        filename_lower = (f.filename or "").lower()
+        if not filename_lower.endswith(".pdf"):
+            return jsonify({"ok": False, "error": "Upload must be a PDF"}), 400
+
+        try:
+            raw = f.read()
+        except Exception as e:
+            log.error("manual-submit-703b read failed for %s: %s", rid, e)
+            return jsonify({"ok": False, "error": f"Could not read upload: {e}"}), 400
+
+        if not raw or len(raw) < 100:
+            return jsonify({"ok": False, "error": "Upload is empty or truncated"}), 400
+
+        try:
+            from pypdf import PdfReader
+            from io import BytesIO
+            reader = PdfReader(BytesIO(raw))
+            page_count = len(reader.pages)
+            if page_count < 1:
+                return jsonify({"ok": False, "error": "PDF has no pages"}), 400
+        except Exception as e:
+            log.warning("manual-submit-703b invalid PDF for %s: %s", rid, e)
+            return jsonify({"ok": False, "error": f"Not a valid PDF: {e}"}), 400
+
+        sol = r.get("solicitation_number", "") or "RFQ"
+        out_dir = os.path.join(OUTPUT_DIR, sol)
+        os.makedirs(out_dir, exist_ok=True)
+
+        target_name = f"{sol}_703B_Reytech.pdf"
+        target_path = os.path.join(out_dir, target_name)
+
+        archived_to = None
+        if os.path.exists(target_path):
+            try:
+                import shutil as _sh
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                archive_dir = os.path.join(out_dir, "_prev")
+                os.makedirs(archive_dir, exist_ok=True)
+                archived_to = os.path.join(archive_dir, f"{stamp}_{target_name}")
+                _sh.move(target_path, archived_to)
+            except Exception as e:
+                log.warning("manual-submit-703b archive failed for %s: %s", rid, e)
+                archived_to = None
+
+        try:
+            with open(target_path, "wb") as fh:
+                fh.write(raw)
+        except Exception as e:
+            log.error("manual-submit-703b write failed for %s: %s", rid, e)
+            return jsonify({"ok": False, "error": f"Could not save file: {e}"}), 500
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        r["manual_703b"] = {
+            "uploaded_at": now_iso,
+            "original_filename": f.filename,
+            "bytes": len(raw),
+            "pages": page_count,
+            "archived_prev": archived_to,
+        }
+
+        output_files = list(r.get("output_files") or [])
+        if target_name not in output_files:
+            output_files.append(target_name)
+        r["output_files"] = output_files
+
+        try:
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
+        except Exception as _e:
+            log.warning("manual-submit-703b single-save fallback for %s: %s", rid, _e)
+            save_rfqs(rfqs)
+
+        log.info("manual-submit 703B saved rid=%s sol=%s bytes=%d pages=%d",
+                 rid, sol, len(raw), page_count)
+
+        return jsonify({
+            "ok": True,
+            "filename": target_name,
+            "bytes": len(raw),
+            "pages": page_count,
+            "uploaded_at": now_iso,
+            "message": "703B uploaded. Auto-fill is disabled for this RFQ — use Generate Package to fill other forms, then Send.",
+        })
+
+
+@bp.route("/api/rfq/<rid>/manual-submit-703b", methods=["DELETE"])
+@auth_required
+@safe_route
+def api_rfq_manual_submit_703b_clear(rid):
+    """Clear the manual-703b flag so auto-fill resumes on next Generate Package."""
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+        had_flag = bool(r.pop("manual_703b", None))
+        try:
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
+        except Exception as _e:
+            log.warning("manual-submit-703b-clear fallback for %s: %s", rid, _e)
+            save_rfqs(rfqs)
+
+        return jsonify({"ok": True, "cleared": had_flag})
 
 
 # ═══════════════════════════════════════════════════════════════════════
