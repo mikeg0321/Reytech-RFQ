@@ -1,13 +1,13 @@
 # routes_intel_ops.py — Operations, admin, test mode, scheduler, pipeline API
 
-from flask import request, jsonify, Response
+from flask import request, jsonify, Response, session
 from src.api.shared import bp, auth_required
 import logging
 from src.core.paths import DATA_DIR
 from src.core.db import get_db
 from src.api.render import render_page
 from markupsafe import escape as esc
-import os, json
+import os, json, secrets
 from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger("reytech")
@@ -1056,23 +1056,48 @@ def api_qb_connect():
     from src.agents.quickbooks_agent import QB_CLIENT_ID, QB_SANDBOX
     if not QB_CLIENT_ID:
         return jsonify({"ok": False, "error": "Set QB_CLIENT_ID env var first"})
-    # Build OAuth URL
+    # Build OAuth URL with per-session CSRF state token.
+    # Audit 2026-05-07: previously hardcoded `state=reytech`, which made the
+    # callback trivially CSRF-able (anyone with an Intuit auth code could
+    # construct a callback URL and rebind Mike's QB realm). Now: generate
+    # a fresh 256-bit token, stash it in the user's session, validate on
+    # callback. Standard OAuth state pattern.
     redirect_uri = request.url_root.rstrip("/").replace("http://", "https://") + "/api/qb/callback"
     scope = "com.intuit.quickbooks.accounting"
+    state = secrets.token_urlsafe(32)
+    session["qb_oauth_state"] = state
     auth_url = (
         f"https://appcenter.intuit.com/connect/oauth2?"
         f"client_id={QB_CLIENT_ID}&response_type=code&scope={scope}"
-        f"&redirect_uri={redirect_uri}&state=reytech"
+        f"&redirect_uri={redirect_uri}&state={state}"
     )
     return redirect(auth_url)
 
 
 @bp.route("/api/qb/callback")
 def api_qb_callback():
-    """QuickBooks OAuth2 callback — exchange code for tokens."""
+    """QuickBooks OAuth2 callback — exchange code for tokens.
+
+    CSRF defence (audit 2026-05-07): callback is intentionally not
+    `@auth_required` because Intuit's redirect doesn't carry our cookie —
+    but the user's *browser* does carry the session cookie set by
+    `api_qb_connect`. We validate `state` against the session before
+    swapping the code, so a forged callback URL with an attacker's auth
+    code can't rebind our QB realm.
+    """
     if not QB_AVAILABLE:
         flash("QuickBooks agent not available", "error")
         return redirect("/settings")
+    # CSRF state validation — must come before any token exchange.
+    expected_state = session.pop("qb_oauth_state", None)
+    received_state = request.args.get("state")
+    if not expected_state or received_state != expected_state:
+        flash(
+            "QB OAuth rejected: invalid state token. Try connecting again "
+            "from the Settings page.",
+            "error",
+        )
+        return redirect("/agents")
     code = request.args.get("code")
     realm_id = request.args.get("realmId")
     if not code:
