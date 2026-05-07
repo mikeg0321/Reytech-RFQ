@@ -200,31 +200,45 @@ def get_db():
 def db_retry(fn, max_retries=3, delay=1.0):
     """Retry a DB operation that may hit 'database is locked'.
     fn should be a callable that performs the DB work (using get_db() inside).
-    Fires Slack alert if all retries exhausted."""
-    import time as _time
-    last_err = None
-    for attempt in range(max_retries):
+    Fires Slack alert if all retries exhausted.
+
+    Thin wrapper over `src.core.external_call.with_retry` so existing
+    callers `db_retry(fn, max_retries=N, delay=D)` keep working. Behavior
+    is identical to the pre-Tier-1d implementation: linear backoff, only
+    "database is locked" is treated as transient, Slack fires on final
+    failure but the original exception is re-raised either way.
+    """
+    from src.core.external_call import with_retry
+
+    def _is_lock_error(e: BaseException) -> bool:
+        return "database is locked" in str(e)
+
+    def _alert(exc: BaseException, attempts: int) -> None:
+        # Only the locked-out path fired the original webhook. Any other
+        # exception that reaches here got through `_is_lock_error` so
+        # this is always a lock timeout in practice — but stay defensive.
+        if not _is_lock_error(exc):
+            return
         try:
-            return fn()
-        except Exception as e:
-            if "database is locked" in str(e) and attempt < max_retries - 1:
-                last_err = e
-                log.warning("DB locked (attempt %d/%d): %s", attempt + 1, max_retries, e)
-                _time.sleep(delay * (attempt + 1))
-            else:
-                # Final failure — alert
-                if "database is locked" in str(e):
-                    try:
-                        from src.core.webhooks import fire_event
-                        fire_event("db_lock_timeout", {
-                            "function": getattr(fn, "__name__", "unknown"),
-                            "attempts": max_retries,
-                            "error": str(e)[:200],
-                        })
-                    except Exception as _e:
-                        log.debug("suppressed: %s", _e)
-                raise
-    raise last_err
+            from src.core.webhooks import fire_event
+            fire_event("db_lock_timeout", {
+                "function": getattr(fn, "__name__", "unknown"),
+                "attempts": attempts,
+                "error": str(exc)[:200],
+            })
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
+
+    return with_retry(
+        fn,
+        op="DB",
+        attempts=max_retries,
+        base_delay=delay,
+        backoff="linear",
+        is_transient=_is_lock_error,
+        on_final_failure=_alert,
+        logger=log,
+    )
 
 # ── Schema ────────────────────────────────────────────────────────────────────
 SCHEMA = """

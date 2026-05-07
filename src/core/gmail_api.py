@@ -174,24 +174,23 @@ def _is_transient_gmail_error(err: BaseException) -> bool:
 
 def _with_gmail_retry(fn, *, op: str, attempts: int = 3, base_delay: float = 0.5):
     """Run `fn()` with up to `attempts` tries on transient transport errors.
-    Backoff: 0.5s, 1.0s, 2.0s. Non-transient errors raise immediately."""
-    import time
-    last_err = None
-    for i in range(attempts):
-        try:
-            return fn()
-        except Exception as e:
-            last_err = e
-            if not _is_transient_gmail_error(e):
-                raise
-            if i == attempts - 1:
-                break
-            delay = base_delay * (2 ** i)
-            log.warning("Gmail %s transient error (attempt %d/%d): %s — "
-                        "retry in %.1fs", op, i + 1, attempts, e, delay)
-            time.sleep(delay)
-    log.error("Gmail %s failed after %d attempts: %s", op, attempts, last_err)
-    raise last_err  # type: ignore[misc]
+    Backoff: 0.5s, 1.0s, 2.0s. Non-transient errors raise immediately.
+
+    Thin wrapper over `src.core.external_call.with_retry` so the 30+ call
+    sites here can keep their existing argument shape. The behavior is
+    identical to the pre-Tier-1d implementation: 3 attempts, 0.5s base
+    exponential backoff, transient-only predicate.
+    """
+    from src.core.external_call import with_retry
+    return with_retry(
+        fn,
+        op=f"Gmail {op}",
+        attempts=attempts,
+        base_delay=base_delay,
+        backoff="exponential",
+        is_transient=_is_transient_gmail_error,
+        logger=log,
+    )
 
 
 def list_message_ids(service, query: str = "", max_results: int = 500) -> List[str]:
