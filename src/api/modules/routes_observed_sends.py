@@ -140,3 +140,24 @@ def api_observed_sends_reject(obs_id):
     except Exception as e:
         log.error("observed-sends reject error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/admin/observed-sends/<int:obs_id>/backup-to-drive",
+          methods=["POST"])
+@auth_required
+def api_observed_sends_backup_to_drive(obs_id):
+    """Pull the original Sent Gmail message + upload its attachments
+    to Drive at Backups/Sent Quote Packages/{year}/{quarter}/{record}/.
+    Operator-driven; only runs when the observation is already
+    confirmed. Idempotent — re-running re-uses the same folder.
+    """
+    try:
+        from src.agents.observed_send_backup import backup_observation
+        result = backup_observation(obs_id)
+        if not result.get("ok"):
+            return jsonify(result), 400 \
+                if result.get("error") else 500
+        return jsonify(result)
+    except Exception as e:
+        log.error("observed-sends backup error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
