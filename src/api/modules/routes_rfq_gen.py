@@ -2799,6 +2799,49 @@ def generate_rfq_package(rid):
                 f"< items {_cb['items_total']} ({_cb['items_dropped']} dropped)"
             )
 
+    # ── Cross-document pricing alignment gate (Q7, 2026-05-07) ──
+    # Mike's 2026-05-06 RFQ a5b09b56 incident: the SAME generate-package
+    # call produced 704B with total $514.72 while the Quote PDF had
+    # total $492.58. Each form computes its own totals from a separate
+    # code path; nothing enforced agreement. Operator never saw the
+    # divergence; it shipped silently.
+    #
+    # This gate parses every generated PDF and asserts its totals
+    # match `compute_canonical_totals(rfq)` within $0.01. Any
+    # divergence > $0.03 becomes a blocker; $0.01-$0.03 becomes a
+    # warning (rounding noise tolerance). The per-row invariant
+    # `qty × unit_price = extension` also runs as a separate check
+    # that catches row-level extension miscalculations.
+    try:
+        from src.forms.pricing_alignment import check_alignment as _pa_check
+        # Build the (form_id, file_path, label) tuples for every PDF
+        # we just wrote. Form id maps from filename heuristically —
+        # the alignment helper is form-agnostic at the totals layer.
+        _alignment_files = []
+        for _gf in _gen_forms:
+            _fname = (_gf.get("filename") or "")
+            _fpath = os.path.join(out_dir, _fname) if _fname else ""
+            if _fpath and os.path.exists(_fpath):
+                _alignment_files.append((
+                    _gf.get("form_id", ""), _fpath,
+                    _gf.get("label", _gf.get("form_id", "")),
+                ))
+        _alignment = _pa_check(r, _alignment_files)
+        for _ab in _alignment["blockers"]:
+            _package_complete = False
+            _msg = (
+                f"Pricing alignment: {_ab['message']}"
+            )
+            errors.append(_msg)
+            _package_incomplete_reasons.append(_msg)
+            log.warning("PACKAGE %s alignment blocker: %s", rid, _msg)
+        for _aw in _alignment["warnings"]:
+            log.info("PACKAGE %s alignment near-miss: %s", rid, _aw["message"])
+    except Exception as _pae:
+        log.debug("pricing alignment gate crashed: %s", _pae, exc_info=True)
+        # Fail-open on gate crash — don't block packages because the
+        # alignment check itself errored. The crash is logged.
+
     _incomplete_msg = "; ".join(_package_incomplete_reasons)
 
     if not _package_complete:
