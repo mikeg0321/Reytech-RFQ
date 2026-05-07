@@ -3610,9 +3610,18 @@ function _doGenerate(){
  f.action='/rfq/'+RID+'/generate-package';
  f.submit();
 }
+// Null-safe close used by the QA popup's X button + backdrop + action
+// buttons. Was: every close site repeated `getElementById(...).remove()`
+// inline — null-unsafe (orphan backdrop after rapid double-click would
+// crash on the second .remove()). This helper mirrors window._closeIntelPopup.
+window._closeQaPopup=function(){
+ var p=document.getElementById('qa-popup');
+ var b=document.getElementById('qa-backdrop');
+ if(p)p.remove();
+ if(b)b.remove();
+};
 function _showQaPopup(d){
- var ex=document.getElementById('qa-popup');if(ex)ex.remove();
- var ex2=document.getElementById('qa-backdrop');if(ex2)ex2.remove();
+ if(typeof window._closeQaPopup === 'function') window._closeQaPopup();
  var oc=d.overall;
  var color=oc==='pass'?'#3fb950':oc==='warn'?'#d29922':'#f85149';
  var icon=oc==='pass'?'✅':oc==='warn'?'⚠️':'❌';
@@ -3642,10 +3651,10 @@ function _showQaPopup(d){
   h+='</div>';
  });
  h+='<div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">';
- h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove()" style="padding:8px 16px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer" aria-label="Fix Issues">Fix Issues</button>';
- h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove();_doGenerate()" style="padding:8px 16px;background:'+color+';color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700" aria-label="(ocfailGenerate Anyway Pr">'+(oc==='fail'?'Generate Anyway ⚠️':'Proceed →')+'</button>';
+ h+='<button onclick="window._closeQaPopup()" style="padding:8px 16px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer" aria-label="Fix Issues">Fix Issues</button>';
+ h+='<button onclick="window._closeQaPopup();_doGenerate()" style="padding:8px 16px;background:'+color+';color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700" aria-label="(ocfailGenerate Anyway Pr">'+(oc==='fail'?'Generate Anyway ⚠️':'Proceed →')+'</button>';
  h+='</div></div>';
- h+='<div id="qa-backdrop" onclick="document.getElementById(\'qa-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.5)"></div>';
+ h+='<div id="qa-backdrop" onclick="window._closeQaPopup()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.5)"></div>';
  document.body.insertAdjacentHTML('beforeend',h);
 }
 
@@ -4110,8 +4119,13 @@ window._closeIntelPopup=function(){
  if(!p&&!b)console.warn('[intel-popup] close called but neither popup nor backdrop in DOM');
 };
 function showIntel(idx){
- var existing=document.getElementById('intel-popup');
- if(existing)existing.remove();
+ // Always close BOTH popup and backdrop before opening a new one. Was:
+ // only the popup got removed; if the operator opened intel for one
+ // row then another, a second backdrop layered on top of the first.
+ // Closing the popup left an orphan backdrop → next click hit its
+ // onclick which called .remove() on a now-null popup → JS crash
+ // mid-quote (Mike P0 2026-05-06).
+ if(typeof window._closeIntelPopup === 'function') window._closeIntelPopup();
  if(!_intelData||!_intelData[idx])return;
  var info=_intelData[idx];
  var html='<div id="intel-popup" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;z-index:10000;min-width:380px;max-width:500px;box-shadow:0 8px 32px rgba(0,0,0,.6)">';
@@ -4205,7 +4219,7 @@ function showIntel(idx){
    html+=' <span style="color:#8b949e">· '+a.source+' · '+a.ts+'</span></div>';
   });
  }
- html+='</div><div id="intel-backdrop" onclick="document.getElementById(\'intel-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.4)"></div>';
+ html+='</div><div id="intel-backdrop" onclick="window._closeIntelPopup()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.4)"></div>';
  document.body.insertAdjacentHTML('beforeend',html);
 }
 // ── Revise Quote + Download Quote ──
