@@ -50,18 +50,12 @@ KNOWN_EXEMPTIONS: set[str] = {
 # (filename, function_name) tuple is a handler that needs the lock wrap.
 # Remove entries as they're fixed — adding entries is forbidden by CI.
 KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset({
-    ("routes_rfq_gen.py", "api_rfq_screenshot_confirm"),
-    ("routes_rfq_gen.py", "api_rfq_unlink_pc"),
-    ("routes_rfq_gen.py", "rfq_lookup_single_item"),
-    ("routes_rfq_gen.py", "rfq_upload_supplier_quote"),
-    ("routes_rfq_gen.py", "api_rfq_manual_submit_704b"),
-    ("routes_rfq_gen.py", "api_rfq_manual_submit_clear"),
-    ("routes_rfq_gen.py", "api_rfq_submit_edited_quote"),
-    ("routes_rfq_gen.py", "api_rfq_submit_edited_quote_clear"),
-    ("routes_rfq_gen.py", "api_rfq_contract_upload"),
-    ("routes_rfq_gen.py", "api_rfq_dismiss"),
-    ("routes_rfq_gen.py", "api_rfq_cancel"),
-    ("routes_rfq_gen.py", "api_rfq_reactivate"),
+    # Empty as of RMW batch 7 (this PR — 2026-05-06): the 12 remaining
+    # routes_rfq_gen.py handlers got the `with _save_rfqs_lock:` wrap
+    # in this commit, closing the work queue. routes_rfq.py was
+    # cleared earlier by RMW batch 5 (#791). Adding entries here is
+    # forbidden by CI — new violations need substrate, not a baseline
+    # bump.
 })
 
 

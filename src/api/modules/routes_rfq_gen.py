@@ -244,7 +244,17 @@ def api_rfq_parse_screenshot(rid):
 @auth_required
 @safe_route
 def api_rfq_screenshot_confirm(rid):
-    """Confirm and add screenshot-parsed items to RFQ line items."""
+    """Confirm and add screenshot-parsed items to RFQ line items.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_screenshot_confirm_locked(rid)
+
+
+def _api_rfq_screenshot_confirm_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     bad = _validate_rid(rid)
     if bad:
         return bad
@@ -692,7 +702,17 @@ def api_rfq_unlink_pc(rid):
     confirm-pc-link in PR #295). Without the PC-side clear, the PC keeps
     a stale "Linked to RFQ X" banner pointing at an RFQ that no longer
     claims the relationship.
+
+    Race-safe wrapper (PR #778 pattern) — holds BOTH `_save_rfqs_lock`
+    and `_save_pcs_lock` since the bidirectional unlink writes both.
     """
+    from src.api.data_layer import _save_rfqs_lock, _save_pcs_lock
+    with _save_rfqs_lock, _save_pcs_lock:
+        return _api_rfq_unlink_pc_locked(rid)
+
+
+def _api_rfq_unlink_pc_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock` + `_save_pcs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -761,7 +781,17 @@ def api_rfq_unlink_pc(rid):
 @auth_required
 @safe_page
 def rfq_lookup_single_item(rid, idx):
-    """Run SCPRS + Catalog + Amazon lookup on a single line item by index."""
+    """Run SCPRS + Catalog + Amazon lookup on a single line item by index.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _rfq_lookup_single_item_locked(rid, idx)
+
+
+def _rfq_lookup_single_item_locked(rid, idx):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -904,7 +934,17 @@ def rfq_lookup_single_item(rid, idx):
 @safe_page
 @rate_limit("heavy")
 def rfq_upload_supplier_quote(rid):
-    """Upload a supplier quote PDF → parse → match to RFQ items → fill costs + update catalog."""
+    """Upload a supplier quote PDF → parse → match to RFQ items → fill costs + update catalog.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _rfq_upload_supplier_quote_locked(rid)
+
+
+def _rfq_upload_supplier_quote_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     _bad = _validate_rid(rid)
     if _bad: return _bad
     import os
@@ -3307,7 +3347,17 @@ def send_email(rid):
 @rate_limit("heavy")
 def api_rfq_manual_submit_704b(rid):
     """Emergency route: operator uploads a hand-filled 704B PDF that
-    replaces the auto-fill output. See docs/DESIGN_704_REBUILD.md Phase 0."""
+    replaces the auto-fill output. See docs/DESIGN_704_REBUILD.md Phase 0.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_manual_submit_704b_locked(rid)
+
+
+def _api_rfq_manual_submit_704b_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     _bad = _validate_rid(rid)
     if _bad:
         return _bad
@@ -3432,7 +3482,17 @@ def api_rfq_manual_submit_704b(rid):
 def api_rfq_manual_submit_clear(rid):
     """Clear the manual-704b flag so auto-fill resumes on next Generate Package.
     Does NOT delete the file on disk — operator can still Generate Package to
-    overwrite with fresh auto-fill output."""
+    overwrite with fresh auto-fill output.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_manual_submit_clear_locked(rid)
+
+
+def _api_rfq_manual_submit_clear_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     _bad = _validate_rid(rid)
     if _bad:
         return _bad
@@ -3632,7 +3692,16 @@ def api_rfq_submit_edited_quote(rid):
         (Send Quote path) — NOT at upload time. Upload accepts any valid PDF;
         Send blocks if record state is incomplete. Feedback follow-up widens
         validate_ready_to_send per Mike's Q7 (all items must be filled).
+
+    Race-safe wrapper (PR #778 pattern).
     """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_submit_edited_quote_locked(rid)
+
+
+def _api_rfq_submit_edited_quote_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     _bad = _validate_rid(rid)
     if _bad:
         return _bad
@@ -3803,7 +3872,17 @@ def api_rfq_submit_edited_quote(rid):
 @safe_route
 def api_rfq_submit_edited_quote_clear(rid):
     """Clear the edited-quote flag so Generate Package regenerates from the
-    record. Does NOT delete the file on disk — archive is preserved for audit."""
+    record. Does NOT delete the file on disk — archive is preserved for audit.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_submit_edited_quote_clear_locked(rid)
+
+
+def _api_rfq_submit_edited_quote_clear_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     _bad = _validate_rid(rid)
     if _bad:
         return _bad
@@ -3912,7 +3991,17 @@ def _auto_extract_email_on_upload(rid: str, screenshot_path: str) -> None:
 @rate_limit("heavy")
 def api_rfq_contract_upload(rid):
     """Multi-file upload that fans into email screenshot / template slots /
-    attachments via src.forms.form_classifier.classify."""
+    attachments via src.forms.form_classifier.classify.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_contract_upload_locked(rid)
+
+
+def _api_rfq_contract_upload_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     _bad = _validate_rid(rid)
     if _bad:
         return _bad
@@ -4139,7 +4228,17 @@ def api_quote_regenerate(qn):
 @safe_route
 def api_rfq_dismiss(rid):
     """Dismiss an RFQ from the active queue with a reason.
-    Keeps data for SCPRS intelligence. reason=delete does hard delete."""
+    Keeps data for SCPRS intelligence. reason=delete does hard delete.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_dismiss_locked(rid)
+
+
+def _api_rfq_dismiss_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     from datetime import datetime
 
     data = request.get_json(force=True) if request.data else {}
@@ -4241,7 +4340,17 @@ def delete_rfq(rid):
 @safe_route
 def api_rfq_cancel(rid):
     """Cancel an RFQ — preserves record for tracking but stops follow-ups.
-    Unlike delete, cancelled RFQs remain visible in analytics and can be reactivated."""
+    Unlike delete, cancelled RFQs remain visible in analytics and can be reactivated.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_cancel_locked(rid)
+
+
+def _api_rfq_cancel_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -4268,7 +4377,17 @@ def api_rfq_cancel(rid):
 @auth_required
 @safe_route
 def api_rfq_reactivate(rid):
-    """Reactivate a cancelled RFQ — restores previous status."""
+    """Reactivate a cancelled RFQ — restores previous status.
+
+    Race-safe wrapper (PR #778 pattern).
+    """
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_reactivate_locked(rid)
+
+
+def _api_rfq_reactivate_locked(rid):
+    """Inner body — always runs under `_save_rfqs_lock`."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
