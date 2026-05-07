@@ -198,16 +198,47 @@ class FiscalSession:
         self._detail_icsid = None
 
     def _load_page(self, max_attempts=3):
+        """Load the SCPRS search page; retry up to max_attempts times if
+        the response is missing the expected markers (ZZ_SCPRS or ICSID).
+
+        Migrated 2026-05-07 to call into `src.core.external_call.with_retry`
+        (Tier 1d). Behavior is preserved: linear backoff (0.5s, 1.0s),
+        retry only on missing-content (HTTP errors propagate as before),
+        and return the last fetched page even when all attempts miss the
+        marker — the original loop did not raise on exhaustion.
+        """
+        from src.core.external_call import with_retry
+
         url = f"{SCPRS_SEARCH_URL}?&"
-        page = ""
-        for attempt in range(1, max_attempts + 1):
+        last_page = {"text": ""}
+
+        class _ContentMissing(Exception):
+            """Sentinel: page loaded but lacks the expected marker."""
+
+        def _attempt():
             r = self.session.get(url, timeout=20, allow_redirects=True)
             page = r.text
-            log.info(f"SCPRS load {attempt}: {r.status_code} ({len(page)}b)")
+            last_page["text"] = page
+            log.info("SCPRS load: %s (%db)", r.status_code, len(page))
             if "ZZ_SCPRS" in page or "ICSID" in page:
-                break
-            time.sleep(0.5 * attempt)
-        return page
+                return page
+            raise _ContentMissing()
+
+        try:
+            return with_retry(
+                _attempt,
+                op="SCPRS load_page",
+                attempts=max_attempts,
+                base_delay=0.5,
+                backoff="linear",
+                is_transient=lambda e: isinstance(e, _ContentMissing),
+                logger=log,
+            )
+        except _ContentMissing:
+            # Original loop returned the last fetched page even when the
+            # marker never appeared. Preserve that exact behavior — callers
+            # downstream tolerate empty/malformed responses.
+            return last_page["text"]
 
     def _extract_icsid(self, html):
         m = re.search(r"name='ICSID'\s+id='ICSID'\s+value='([^']*)'", html)
