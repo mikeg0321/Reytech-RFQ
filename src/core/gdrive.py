@@ -59,6 +59,68 @@ def is_configured() -> bool:
     return bool(GOOGLE_DRIVE_CREDENTIALS and GOOGLE_DRIVE_ROOT_FOLDER_ID)
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Transient-error retry (Tier 1d follow-on, audit 2026-05-07)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Drive's googleapiclient surfaces two failure flavors:
+#   1. Transport-layer (same as gmail): IncompleteRead, [SSL] record layer
+#      failure, Connection reset/aborted, EOF, Timeout. Pre-server. Retry.
+#   2. HttpError with .resp.status in {429, 500, 502, 503, 504}. Server-
+#      side transient (rate limit / backend / gateway). Retry.
+#
+# 4xx other than 429 (auth / quota exceeded / bad request) are non-
+# transient — raise immediately. The send-paths in gmail are deliberately
+# NOT retried because re-running a write at the transport layer can
+# double-send; Drive uploads use `MediaFileUpload(resumable=True)` which
+# is server-side idempotent on a per-resumable-session basis (the upload
+# is keyed to a session URI, so re-driving the same session URI is safe).
+# A retried `service.files().create(...).execute()` opens a *new* session
+# each time, but Drive collapses duplicate filename creates into the
+# update path because we always check for an existing file first.
+_DRIVE_TRANSIENT_NEEDLES = (
+    "IncompleteRead", "record layer failure",
+    "Connection reset", "Connection aborted",
+    "EOF occurred", "TimeoutError",
+)
+_DRIVE_TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
+
+
+def _is_transient_drive_error(err: BaseException) -> bool:
+    # googleapiclient.errors.HttpError carries .resp.status.
+    try:
+        from googleapiclient.errors import HttpError
+        if isinstance(err, HttpError):
+            status = getattr(getattr(err, "resp", None), "status", None)
+            return status in _DRIVE_TRANSIENT_HTTP_STATUSES
+    except Exception:
+        pass
+    msg = str(err)
+    return any(needle in msg for needle in _DRIVE_TRANSIENT_NEEDLES)
+
+
+def _with_drive_retry(fn, *, op: str, attempts: int = 3,
+                      base_delay: float = 0.5):
+    """Run `fn()` with up to `attempts` tries on transient errors.
+    Backoff: 0.5s, 1.0s, 2.0s. Non-transient errors raise immediately.
+
+    Thin wrapper over `src.core.external_call.with_retry` so each
+    `service.files()...` call site stays a one-liner. Mirrors the
+    gmail retry shape (PR #833) — same substrate, same predicate
+    surface area, different transient-detector.
+    """
+    from src.core.external_call import with_retry
+    return with_retry(
+        fn,
+        op=f"Drive {op}",
+        attempts=attempts,
+        base_delay=base_delay,
+        backoff="exponential",
+        is_transient=_is_transient_drive_error,
+        logger=log,
+    )
+
+
 def _get_service():
     """Build Google Drive API service from credentials."""
     if not GOOGLE_DRIVE_CREDENTIALS:
@@ -97,10 +159,11 @@ def _get_or_create_folder(name: str, parent_id: str) -> str:
     # Search for existing folder
     query = (f"name='{name}' and '{parent_id}' in parents "
              f"and mimeType='application/vnd.google-apps.folder' and trashed=false")
-    results = service.files().list(
+    req = service.files().list(
         q=query, fields="files(id,name)", pageSize=1,
         supportsAllDrives=True, includeItemsFromAllDrives=True,
-    ).execute()
+    )
+    results = _with_drive_retry(req.execute, op="folders.list")
     files = results.get("files", [])
 
     if files:
@@ -112,9 +175,10 @@ def _get_or_create_folder(name: str, parent_id: str) -> str:
             "mimeType": "application/vnd.google-apps.folder",
             "parents": [parent_id],
         }
-        folder = service.files().create(
+        req = service.files().create(
             body=metadata, fields="id", supportsAllDrives=True,
-        ).execute()
+        )
+        folder = _with_drive_retry(req.execute, op="folder.create")
         folder_id = folder["id"]
         log.info("Created Drive folder: %s/%s → %s", parent_id[:8], name, folder_id)
 
@@ -196,26 +260,29 @@ def upload_file(local_path: str, folder_id: str, drive_filename: str = "",
 
     # Check if file already exists (update instead of duplicate)
     query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-    existing = service.files().list(
+    req = service.files().list(
         q=query, fields="files(id)", pageSize=1,
         supportsAllDrives=True, includeItemsFromAllDrives=True,
-    ).execute()
+    )
+    existing = _with_drive_retry(req.execute, op="upload_file.lookup")
 
     if existing.get("files"):
         # Update existing file (Google Drive keeps version history automatically)
         file_id = existing["files"][0]["id"]
         media = MediaFileUpload(local_path, mimetype=mime_type, resumable=True)
-        service.files().update(
+        req = service.files().update(
             fileId=file_id, media_body=media, supportsAllDrives=True,
-        ).execute()
+        )
+        _with_drive_retry(req.execute, op="upload_file.update")
         log.info("Updated Drive file: %s (id=%s)", filename, file_id)
     else:
         # Create new file
         metadata = {"name": filename, "parents": [folder_id]}
         media = MediaFileUpload(local_path, mimetype=mime_type, resumable=True)
-        result = service.files().create(
+        req = service.files().create(
             body=metadata, media_body=media, fields="id", supportsAllDrives=True,
-        ).execute()
+        )
+        result = _with_drive_retry(req.execute, op="upload_file.create")
         file_id = result["id"]
         log.info("Uploaded to Drive: %s → folder %s (id=%s)", filename, folder_id[:8], file_id)
 
@@ -237,24 +304,27 @@ def upload_bytes(data: bytes, folder_id: str, filename: str,
 
     # Check for existing
     query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-    existing = service.files().list(
+    req = service.files().list(
         q=query, fields="files(id)", pageSize=1,
         supportsAllDrives=True, includeItemsFromAllDrives=True,
-    ).execute()
+    )
+    existing = _with_drive_retry(req.execute, op="upload_bytes.lookup")
 
     if existing.get("files"):
         file_id = existing["files"][0]["id"]
         media = MediaInMemoryUpload(data, mimetype=mime_type, resumable=True)
-        service.files().update(
+        req = service.files().update(
             fileId=file_id, media_body=media, supportsAllDrives=True,
-        ).execute()
+        )
+        _with_drive_retry(req.execute, op="upload_bytes.update")
         log.info("Updated Drive file (bytes): %s", filename)
     else:
         metadata = {"name": filename, "parents": [folder_id]}
         media = MediaInMemoryUpload(data, mimetype=mime_type, resumable=True)
-        result = service.files().create(
+        req = service.files().create(
             body=metadata, media_body=media, fields="id", supportsAllDrives=True,
-        ).execute()
+        )
+        result = _with_drive_retry(req.execute, op="upload_bytes.create")
         file_id = result["id"]
         log.info("Uploaded to Drive (bytes): %s → %s", filename, folder_id[:8])
 
@@ -273,7 +343,9 @@ def download_file(file_id: str, local_path: str) -> bool:
             downloader = MediaIoBaseDownload(f, request)
             done = False
             while not done:
-                _, done = downloader.next_chunk()
+                _, done = _with_drive_retry(
+                    downloader.next_chunk, op="download.next_chunk"
+                )
         _audit("download", os.path.basename(local_path), "", file_id, os.path.getsize(local_path))
         return True
     except Exception as e:
@@ -285,10 +357,11 @@ def list_files(folder_id: str) -> List[dict]:
     """List all files in a folder."""
     service = _get_service()
     query = f"'{folder_id}' in parents and trashed=false"
-    results = service.files().list(
+    req = service.files().list(
         q=query, fields="files(id,name,mimeType,size,modifiedTime)",
         pageSize=100, supportsAllDrives=True, includeItemsFromAllDrives=True,
-    ).execute()
+    )
+    results = _with_drive_retry(req.execute, op="list_files")
     return results.get("files", [])
 
 
@@ -307,10 +380,11 @@ def find_folder(name: str, parent_id: str) -> Optional[str]:
         "and mimeType='application/vnd.google-apps.folder' "
         "and trashed=false"
     )
-    results = service.files().list(
+    req = service.files().list(
         q=query, fields="files(id,name)", pageSize=1,
         supportsAllDrives=True, includeItemsFromAllDrives=True,
-    ).execute()
+    )
+    results = _with_drive_retry(req.execute, op="find_folder")
     files = results.get("files", [])
     return files[0]["id"] if files else None
 
@@ -327,11 +401,12 @@ def _list_subfolders(parent_id: str) -> List[dict]:
         "mimeType='application/vnd.google-apps.folder' and trashed=false"
     )
     while True:
-        results = service.files().list(
+        req = service.files().list(
             q=query, fields="files(id,name),nextPageToken", pageSize=100,
             pageToken=page_token,
             supportsAllDrives=True, includeItemsFromAllDrives=True,
-        ).execute()
+        )
+        results = _with_drive_retry(req.execute, op="list_subfolders")
         out.extend(results.get("files", []))
         page_token = results.get("nextPageToken")
         if not page_token:
@@ -712,11 +787,12 @@ def _create_po_folder_with_contents(task: dict):
             service = _get_service()
             for pf in pending_files:
                 # Copy file to PO/RFQ/ subfolder
-                service.files().copy(
+                req = service.files().copy(
                     fileId=pf["id"],
                     body={"name": pf["name"], "parents": [rfq_folder_id]},
                     supportsAllDrives=True,
-                ).execute()
+                )
+                _with_drive_retry(req.execute, op="po_folder.copy_pending")
                 log.info("Copied %s from Pending to PO/%s/RFQ/", pf["name"], po_number)
         except Exception as e:
             log.warning("Failed to copy Pending files to PO folder: %s", e)
