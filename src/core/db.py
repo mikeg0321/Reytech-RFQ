@@ -1021,8 +1021,20 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_by  TEXT DEFAULT 'system'
 );
 
+-- Tier 2a (audit 2026-05-07 v2 §S-4): single canonical audit_trail schema.
+-- Pre-fix this table had two divergent shapes:
+--   db.py (item-pricing audit):           item_description, field_changed, old_value, new_value...
+--   routes_catalog_finance.py (admin audit):  timestamp, action, details, ip_address...
+-- The first to run won (CREATE TABLE IF NOT EXISTS), so admin-action INSERTs
+-- silently failed due to missing columns. The audit_trail UI was permanently
+-- empty for admin events; security audits silently lost 2/3 of writes. Fix:
+-- one table holds BOTH use cases' columns. Item-pricing rows fill the
+-- item_description/field_changed/... columns and leave action/details NULL;
+-- admin-action rows fill timestamp/action/details/... and leave the other
+-- set NULL. _migrate_columns adds the new columns to existing prod rows.
 CREATE TABLE IF NOT EXISTS audit_trail (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Item-pricing audit columns (canonical pre-fix).
     item_description TEXT,
     field_changed   TEXT,
     old_value       TEXT,
@@ -1032,9 +1044,21 @@ CREATE TABLE IF NOT EXISTS audit_trail (
     part_number     TEXT,
     actor           TEXT DEFAULT 'system',
     notes           TEXT,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    -- Admin-action audit columns (Tier 2a unified shape, 2026-05-08).
+    -- Pre-fix these were defined in 3 separate CREATE TABLE statements
+    -- inside routes_catalog_finance.py — never created in production
+    -- because db.py's CREATE TABLE ran first.
+    timestamp       TEXT,
+    action          TEXT,
+    details         TEXT,
+    ip_address      TEXT,
+    user_agent      TEXT,
+    metadata        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_desc ON audit_trail(item_description);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_trail(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_trail(action);
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1597,6 +1621,15 @@ def _migrate_columns():
         ("price_checks", "revision_of", "TEXT"),
         ("price_checks", "closed_at", "TEXT"),
         ("price_checks", "closed_reason", "TEXT"),
+        # ── Tier 2a (audit 2026-05-07 v2 §S-4): audit_trail unification ──
+        # Add admin-action columns to existing prod tables so the
+        # routes_catalog_finance.py writers stop silently failing.
+        ("audit_trail", "timestamp", "TEXT"),
+        ("audit_trail", "action", "TEXT"),
+        ("audit_trail", "details", "TEXT"),
+        ("audit_trail", "ip_address", "TEXT"),
+        ("audit_trail", "user_agent", "TEXT"),
+        ("audit_trail", "metadata", "TEXT"),
         # PC persistence columns (email import + SQLite roundtrip)
         ("price_checks", "pc_number", "TEXT DEFAULT ''"),
         ("price_checks", "institution", "TEXT DEFAULT ''"),
