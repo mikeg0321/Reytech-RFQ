@@ -192,20 +192,39 @@ def _extract_with_claude(text: str, attachments: list) -> Optional[RFQRequiremen
             "content-type": "application/json",
         }
 
+        # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+        from src.core.anthropic_quota import check_quota, log_call as _quota_log
+        if check_quota(agent="requirement_extractor"):
+            return None
+
+        import time as _time
+        _t0 = _time.time()
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers=headers, json=request_body, timeout=_API_TIMEOUT,
         )
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
 
         if resp.status_code == 429:
             log.debug("Requirement extractor: 429 rate limited, falling back to regex")
+            _quota_log(agent="requirement_extractor", model=_MODEL,
+                       error="http_429", response_time_ms=_elapsed_ms)
             return None
 
         if resp.status_code != 200:
             log.debug("Requirement extractor: API error %d", resp.status_code)
+            _quota_log(agent="requirement_extractor", model=_MODEL,
+                       error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
             return None
 
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="requirement_extractor",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _MODEL))
         full_text = ""
         for block in data.get("content", []):
             if block.get("type") == "text":

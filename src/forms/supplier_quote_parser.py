@@ -162,7 +162,15 @@ def _parse_supplier_quote_vision(pdf_path: str) -> Optional[List[Dict]]:
                  "- Return raw JSON array, no markdown fences")
     })
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="supplier_quote_parser"):
+        return None
+
+    _model = "claude-opus-4-7"
+    import time as _time
     try:
+        _t0 = _time.time()
         resp = _req.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -171,15 +179,28 @@ def _parse_supplier_quote_vision(pdf_path: str) -> Optional[List[Dict]]:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-opus-4-7",
+                "model": _model,
                 "max_tokens": 4096,
                 "system": [{"type": "text", "text": "You are a precise data extractor. Return ONLY valid JSON arrays. No explanation.", "cache_control": {"type": "ephemeral"}}],
                 "messages": [{"role": "user", "content": content}],
             },
             timeout=60,
         )
-        resp.raise_for_status()
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
+        try:
+            resp.raise_for_status()
+        except Exception:
+            _quota_log(agent="supplier_quote_parser", model=_model,
+                       error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
+            raise
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="supplier_quote_parser",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
         text = data["content"][0]["text"].strip()
         if text.startswith("```"):
             text = re.sub(r'^```\w*\n?', '', text)

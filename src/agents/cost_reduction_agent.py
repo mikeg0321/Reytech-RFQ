@@ -128,11 +128,17 @@ Respond in this exact JSON format:
   "summary": "One-sentence summary of best strategy"
 }}"""
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="cost_reduction_agent"):
+        return {"ok": False, "error": "claude:daily_quota_exceeded"}
+
+    _model = "claude-opus-4-7"
     try:
         _wait_rate_limit()
 
         body = {
-            "model": "claude-opus-4-7",  # Opus for accuracy — cost reduction directly impacts margins
+            "model": _model,  # Opus for accuracy — cost reduction directly impacts margins
             "max_tokens": 2048,
             "tools": [{
                 "type": "web_search_20250305",
@@ -148,6 +154,7 @@ Respond in this exact JSON format:
             "content-type": "application/json",
         }
 
+        _t0 = time.time()
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers=headers, json=body, timeout=90,
@@ -161,10 +168,21 @@ Respond in this exact JSON format:
                 headers=headers, json=body, timeout=90,
             )
 
+        _elapsed_ms = int((time.time() - _t0) * 1000)
+
         if resp.status_code != 200:
+            _quota_log(agent="cost_reduction_agent", model=_model,
+                       error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
             return {"ok": False, "error": f"API {resp.status_code}: {resp.text[:200]}"}
 
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="cost_reduction_agent",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
         # Extract text from response content blocks
         text = ""
         for block in data.get("content", []):
