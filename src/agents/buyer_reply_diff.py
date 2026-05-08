@@ -246,14 +246,34 @@ def _invoke_llm_diff(*,
     tool = _build_tool_schema()
     system = _build_system_prompt()
 
+    # Tier 3c (audit 2026-05-07): post-call telemetry to api_quota.
+    # The pre-call quota gate runs in `extract_quote_diff` so the
+    # skip surfaces as a clean reason string to the caller.
+    import time as _time
+    from src.core.anthropic_quota import log_call as _quota_log
     client = anthropic.Anthropic(api_key=api_key)
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=2048,
-        system=system,
-        tools=[tool],
-        tool_choice={"type": "tool", "name": "record_quote_diff"},
-        messages=[{"role": "user", "content": user}],
+    _t0 = _time.time()
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=2048,
+            system=system,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": "record_quote_diff"},
+            messages=[{"role": "user", "content": user}],
+        )
+    except Exception as _e:
+        _quota_log(agent="buyer_reply_diff", model=MODEL,
+                   error=f"{type(_e).__name__}: {str(_e)[:80]}",
+                   response_time_ms=int((_time.time() - _t0) * 1000))
+        raise
+    _usage = getattr(resp, "usage", None)
+    _quota_log(
+        agent="buyer_reply_diff",
+        tokens_in=int(getattr(_usage, "input_tokens", 0) or 0),
+        tokens_out=int(getattr(_usage, "output_tokens", 0) or 0),
+        response_time_ms=int((_time.time() - _t0) * 1000),
+        model=getattr(resp, "model", MODEL),
     )
 
     diff: Dict = {
@@ -310,6 +330,12 @@ def extract_quote_diff(
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return _empty_diff(), "ANTHROPIC_API_KEY not set"
+
+    # Tier 3c (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota
+    _quota_skip = check_quota(agent="buyer_reply_diff")
+    if _quota_skip:
+        return _empty_diff(), _quota_skip
 
     try:
         raw = _invoke_llm_diff(
