@@ -3565,7 +3565,12 @@ def api_order_clone(oid):
 
         new_order = {
             "order_id": new_oid,
-            "quote_number": "",
+            # S-15 (audit 2026-05-07 v2 §S-15): inherit quote_number from the
+            # source order. Pre-fix this was hardcoded "" so reorders detached
+            # from their quote — direct contributor to the 67-orphan-orders
+            # symptom. The order_dal substrate guard is the safety net; this
+            # is the explicit fix at the call site.
+            "quote_number": order.get("quote_number", ""),
             "po_number": new_po,
             "agency": order.get("agency", ""),
             "institution": order.get("institution", ""),

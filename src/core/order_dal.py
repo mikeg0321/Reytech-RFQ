@@ -431,7 +431,16 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
                  total_cost, margin_pct, po_pdf_path, fulfillment_type, notes, is_test)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
-                    quote_number=excluded.quote_number,
+                    -- S-15 (audit 2026-05-07 v2 §S-15): NEVER let an empty
+                    -- excluded.quote_number clobber an existing non-empty one.
+                    -- 5+ caller sites still pass empty/missing quote_number
+                    -- on save (reorder constructor, retry-match, partial
+                    -- updates). Without this guard, a re-save mid-lifecycle
+                    -- silently detaches the order from its quote — the
+                    -- root cause of the 67-orphan-orders symptom traced in
+                    -- the audit. Preserve current value when incoming is
+                    -- empty/whitespace; trust real updates when non-empty.
+                    quote_number=COALESCE(NULLIF(TRIM(excluded.quote_number), ''), orders.quote_number),
                     po_number=excluded.po_number,
                     agency=excluded.agency,
                     institution=excluded.institution,
