@@ -92,13 +92,22 @@ def compute_record_tp_fp(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def summarise_jsonl(path: str) -> Dict[str, Any]:
-    """Aggregate a JSONL log of `compute_record_tp_fp` rows."""
+    """Aggregate a JSONL log of `compute_record_tp_fp` rows.
+
+    S-8 (audit 2026-05-07 v2): pre-fix this summed every row in the
+    append-only log, so re-running the scan endpoint double-counted
+    every record. Operators were known to re-run after a status change
+    — every additional run inflated tp/fp by the same record set.
+
+    Fix: dedup by `(rid, _kind)` keeping the LATEST scan per record
+    (highest `_scanned_at` ISO timestamp). The append-only log stays
+    intact for forensics; only the aggregate stays single-counted.
+    """
     if not os.path.exists(path):
         return {"records": 0, "tp": 0, "fp": 0, "tp_rate": None,
                 "by_source": {}}
-    tp = fp = 0
-    by_source: Dict[str, Dict[str, int]] = {}
-    records = 0
+
+    latest_per_record: Dict[Tuple[str, str], Dict[str, Any]] = {}
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -108,16 +117,32 @@ def summarise_jsonl(path: str) -> Dict[str, Any]:
                 row = json.loads(line)
             except (ValueError, json.JSONDecodeError):
                 continue
-            records += 1
-            tp += int(row.get("tp", 0) or 0)
-            fp += int(row.get("fp", 0) or 0)
-            for src, counts in (row.get("by_source") or {}).items():
-                bucket = by_source.setdefault(src, {"tp": 0, "fp": 0})
-                bucket["tp"] += int(counts.get("tp", 0) or 0)
-                bucket["fp"] += int(counts.get("fp", 0) or 0)
+            rid = row.get("rid", "") or ""
+            kind = row.get("_kind", "") or ""
+            if rid:
+                key = (rid, kind)
+            else:
+                # Defensive — pre-S-8 rows might be missing rid; use
+                # a unique key so they don't collide with each other.
+                key = (f"_anon:{id(row)}", kind)
+            scanned_at = row.get("_scanned_at", "")
+            prev = latest_per_record.get(key)
+            if prev is None or scanned_at >= prev.get("_scanned_at", ""):
+                latest_per_record[key] = row
+
+    tp = fp = 0
+    by_source: Dict[str, Dict[str, int]] = {}
+    for row in latest_per_record.values():
+        tp += int(row.get("tp", 0) or 0)
+        fp += int(row.get("fp", 0) or 0)
+        for src, counts in (row.get("by_source") or {}).items():
+            bucket = by_source.setdefault(src, {"tp": 0, "fp": 0})
+            bucket["tp"] += int(counts.get("tp", 0) or 0)
+            bucket["fp"] += int(counts.get("fp", 0) or 0)
+
     total = tp + fp
     return {
-        "records": records,
+        "records": len(latest_per_record),
         "tp": tp,
         "fp": fp,
         "tp_rate": (tp / total) if total > 0 else None,

@@ -4808,6 +4808,49 @@ def api_admin_auto_pricing_tp_fp_scan():
         log.error("auto-tp-fp scan write failed: %s", e)
         return jsonify({"ok": False, "error": "log write failed"}), 500
 
+    # S-8 (audit 2026-05-07 v2 §S-8): per-record tp_rate writeback.
+    # PR #822's docstring claimed `r["tp_rate"]` was stamped per RFQ
+    # — the code only appended JSONL. UI panels expecting r.tp_rate
+    # saw empty. Now: stamp tp_rate + auto_priced_tp/fp + scan time
+    # on each scanned record so detail-page chips read it directly.
+    try:
+        from src.api.data_layer import _save_single_rfq
+        for result in rfq_results:
+            rid = result.get("rid", "")
+            if rid and rid in rfqs:
+                rec = rfqs[rid]
+                rec["tp_rate"] = result.get("tp_rate")
+                rec["auto_priced_tp"] = result.get("tp", 0)
+                rec["auto_priced_fp"] = result.get("fp", 0)
+                rec["auto_priced_count"] = result.get("auto_priced_count", 0)
+                rec["auto_priced_scanned_at"] = scanned_at
+                try:
+                    _save_single_rfq(rid, rec)
+                except Exception as _se:
+                    log.debug("auto-tp-fp rfq writeback %s: %s", rid, _se)
+    except Exception as _we:
+        log.warning("auto-tp-fp tp_rate writeback (rfq) suppressed: %s", _we)
+
+    if include_pcs:
+        try:
+            from src.api.data_layer import _save_single_pc, load_pcs as _load_pcs
+            _pcs_map = _load_pcs() or {}
+            for result in pc_results:
+                pid = result.get("rid", "")
+                if pid and pid in _pcs_map:
+                    rec = _pcs_map[pid]
+                    rec["tp_rate"] = result.get("tp_rate")
+                    rec["auto_priced_tp"] = result.get("tp", 0)
+                    rec["auto_priced_fp"] = result.get("fp", 0)
+                    rec["auto_priced_count"] = result.get("auto_priced_count", 0)
+                    rec["auto_priced_scanned_at"] = scanned_at
+                    try:
+                        _save_single_pc(pid, rec)
+                    except Exception as _se:
+                        log.debug("auto-tp-fp pc writeback %s: %s", pid, _se)
+        except Exception as _we:
+            log.warning("auto-tp-fp tp_rate writeback (pc) suppressed: %s", _we)
+
     # In-memory roll-up for the response so the caller doesn't have to
     # re-read the file
     def _roll(rows):
