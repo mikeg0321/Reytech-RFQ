@@ -74,28 +74,43 @@ get_db = _get_db_conn
 
 
 def _ensure_won_quotes_table():
-    """Create won_quotes table if it doesn't exist (idempotent)."""
+    """Create won_quotes table if it doesn't exist (idempotent).
+
+    S-13 (audit 2026-05-07 v2): pre-fix this had `description TEXT NOT NULL`
+    + `unit_price REAL NOT NULL` + DEFAULT clauses for `quantity` and
+    `source` — diverging from `src/core/db.py:977` which is the canonical
+    boot-time SCHEMA. Whichever ran first won; the other became a no-op
+    (CREATE TABLE IF NOT EXISTS). On a fresh DB you'd get NOT NULL; on
+    existing DBs you'd get the nullable shape — and INSERT calls passing
+    None for description/unit_price would throw on one shape and silently
+    succeed on the other.
+
+    Now aligned exactly to db.py SCHEMA. Indexes still created here since
+    they're not in the canonical SCHEMA. If you need to change the table
+    shape, edit db.py FIRST (canonical), then mirror here.
+    """
     conn = _get_db_conn()
     try:
+        # MUST match src/core/db.py:977-995 exactly (column types + nullability).
         conn.execute("""
             CREATE TABLE IF NOT EXISTS won_quotes (
-                id           TEXT PRIMARY KEY,
-                po_number    TEXT,
-                item_number  TEXT,
-                description  TEXT NOT NULL,
+                id              TEXT PRIMARY KEY,
+                po_number       TEXT,
+                item_number     TEXT,
+                description     TEXT,
                 normalized_description TEXT,
-                tokens       TEXT,
-                category     TEXT,
-                supplier     TEXT,
-                department   TEXT,
-                unit_price   REAL NOT NULL,
-                quantity     REAL DEFAULT 1,
-                total        REAL,
-                award_date   TEXT,
-                source       TEXT DEFAULT 'scprs_live',
-                confidence   REAL DEFAULT 1.0,
-                ingested_at  TEXT,
-                updated_at   TEXT
+                tokens          TEXT,
+                category        TEXT,
+                supplier        TEXT,
+                department      TEXT,
+                unit_price      REAL,
+                quantity        REAL,
+                total           REAL,
+                award_date      TEXT,
+                source          TEXT,
+                confidence      REAL DEFAULT 1.0,
+                ingested_at     TEXT,
+                updated_at      TEXT
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_wq_description ON won_quotes(normalized_description)")
