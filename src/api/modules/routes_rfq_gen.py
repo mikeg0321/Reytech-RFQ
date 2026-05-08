@@ -3281,6 +3281,30 @@ def send_email(rid):
         t.fail("No draft to send")
         flash("No draft to send", "error"); return redirect(f"/rfq/{rid}")
 
+    # S-10 (audit 2026-05-07 v2 §S-10): idempotency gate. Operator
+    # double-click previously caused two SMTP sends — buyer received
+    # two PDFs. api_resend_package already gates by recently_delivered
+    # (60s window); this sync path needs equivalent protection. Use
+    # the already-stamped sent_at to detect a recent successful send
+    # within the last 60s and short-circuit.
+    try:
+        from datetime import datetime as _dt
+        _last_sent = (r.get("sent_at") or "").strip()
+        if r.get("status") == "sent" and _last_sent:
+            try:
+                _then = _dt.fromisoformat(_last_sent.replace("Z", ""))
+                _age = (_dt.now() - _then.replace(tzinfo=None)).total_seconds()
+                if 0 <= _age < 60:
+                    t.fail("Send dedup hit", age_seconds=int(_age))
+                    flash(
+                        f"Already sent {int(_age)}s ago — not re-sending. "
+                        f"Edit the draft or wait 60s to resend.", "info")
+                    return redirect(f"/rfq/{rid}")
+            except (ValueError, TypeError):
+                pass
+    except Exception as _e:
+        log.debug("S-10 idempotency check suppressed: %s", _e)
+
     # Validate before sending
     from src.core.quote_validator import validate_ready_to_send
     validation = validate_ready_to_send(r)
