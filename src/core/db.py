@@ -2293,8 +2293,11 @@ def upsert_quote(q: dict, actor: str = "system") -> bool:
                    source, sent_at, notes, status_history,
                    po_number, is_test,
                    total_cost, gross_profit, margin_pct, items_costed,
-                   updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   updated_at,
+                   expires_at, closed_by_agent, close_reason,
+                   revision_count, win_probability,
+                   last_follow_up, follow_up_count)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(quote_number) DO UPDATE SET
                   agency=excluded.agency, institution=excluded.institution,
                   requestor=excluded.requestor, contact_name=excluded.contact_name,
@@ -2308,7 +2311,33 @@ def upsert_quote(q: dict, actor: str = "system") -> bool:
                   pdf_path=excluded.pdf_path, po_number=excluded.po_number,
                   total_cost=excluded.total_cost, gross_profit=excluded.gross_profit,
                   margin_pct=excluded.margin_pct, items_costed=excluded.items_costed,
-                  updated_at=excluded.updated_at
+                  updated_at=excluded.updated_at,
+                  -- S-14 (audit 2026-05-07 v2): pre-fix this UPDATE SET
+                  -- silently dropped 11 lifecycle fields on every retry/
+                  -- re-import that hit an existing quote. Audit said
+                  -- is_test/created_at omission is intentional (those
+                  -- shouldn't change on update); the rest are bugs.
+                  -- Strategy:
+                  --   sent_at, source, source_pc_id, source_rfq_id,
+                  --   expires_at, last_follow_up
+                  --     → COALESCE: preserve old timestamp/lineage when
+                  --       the new save doesn't set it (avoids accidental
+                  --       clear by partial writes / retry-match paths).
+                  --   closed_by_agent, close_reason, revision_count,
+                  --   win_probability, follow_up_count
+                  --     → straight excluded.X: status flips and counters
+                  --       must propagate.
+                  sent_at=COALESCE(NULLIF(excluded.sent_at, ''), quotes.sent_at),
+                  source=COALESCE(NULLIF(excluded.source, ''), quotes.source),
+                  source_pc_id=COALESCE(NULLIF(excluded.source_pc_id, ''), quotes.source_pc_id),
+                  source_rfq_id=COALESCE(NULLIF(excluded.source_rfq_id, ''), quotes.source_rfq_id),
+                  expires_at=COALESCE(NULLIF(excluded.expires_at, ''), quotes.expires_at),
+                  last_follow_up=COALESCE(NULLIF(excluded.last_follow_up, ''), quotes.last_follow_up),
+                  closed_by_agent=excluded.closed_by_agent,
+                  close_reason=excluded.close_reason,
+                  revision_count=excluded.revision_count,
+                  win_probability=excluded.win_probability,
+                  follow_up_count=excluded.follow_up_count
             """, (
                 q.get("quote_number"), q.get("created_at", now),
                 q.get("agency"), q.get("institution"),
@@ -2335,6 +2364,16 @@ def upsert_quote(q: dict, actor: str = "system") -> bool:
                 1 if q.get("is_test") else 0,
                 round(total_cost, 2), round(gross_profit, 2), margin_pct, items_costed,
                 now,
+                # S-14: lifecycle fields. Empty/0 default for new rows;
+                # COALESCE in UPDATE SET preserves existing values for
+                # the timestamp/lineage subset on partial-write retries.
+                q.get("expires_at", "") or "",
+                q.get("closed_by_agent", "") or "",
+                q.get("close_reason", "") or "",
+                int(q.get("revision_count", 0) or 0),
+                float(q.get("win_probability", 0) or 0),
+                q.get("last_follow_up", "") or "",
+                int(q.get("follow_up_count", 0) or 0),
             ))
         return True
     except Exception as e:
