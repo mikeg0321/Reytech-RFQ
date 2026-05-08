@@ -23,6 +23,7 @@ import pytest
 
 from src.core.db_retention import (
     purge_older_than,
+    run_daily_purge,
     bloat_report,
     AUTO_PURGE_ALLOWLIST,
     COMPLIANCE_OPT_IN_ALLOWLIST,
@@ -263,4 +264,97 @@ def test_lifecycle_events_is_NOT_in_auto_allowlist():
     note. Future maintainers should see this assertion before
     accidentally moving it."""
     assert "lifecycle_events" not in AUTO_PURGE_ALLOWLIST
+
+
+# ─── Phase 2: run_daily_purge cron entrypoint ────────────────────────
+
+def test_run_daily_purge_dry_run_default(monkeypatch):
+    """No env override → defaults to live (dry_run=False) when called
+    explicitly with dry_run=True override. Pin both flag paths."""
+    conn = _new_conn()
+    for tbl in AUTO_PURGE_ALLOWLIST:
+        date_col = _DATE_COLUMN[tbl]
+        _seed_old_and_new(conn, tbl, date_col, old_rows=3, new_rows=2)
+
+    summary = run_daily_purge(dry_run=True, conn=conn)
+    assert summary["dry_run"] is True
+    assert summary["total_would_delete"] == 3 * len(AUTO_PURGE_ALLOWLIST)
+    assert summary["total_deleted"] == 0
+    assert summary["errors"] == []
+    # Confirm one entry per allowlisted table
+    seen = {r["table"] for r in summary["tables"]}
+    assert seen == set(AUTO_PURGE_ALLOWLIST)
+
+
+def test_run_daily_purge_live_actually_deletes():
+    conn = _new_conn()
+    for tbl in AUTO_PURGE_ALLOWLIST:
+        date_col = _DATE_COLUMN[tbl]
+        _seed_old_and_new(conn, tbl, date_col, old_rows=4, new_rows=1)
+
+    summary = run_daily_purge(dry_run=False, conn=conn)
+    assert summary["dry_run"] is False
+    assert summary["total_deleted"] == 4 * len(AUTO_PURGE_ALLOWLIST)
+    assert summary["errors"] == []
+
+    # Surviving rows = 1 per allowlisted table
+    for tbl in AUTO_PURGE_ALLOWLIST:
+        n = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+        assert n == 1, f"{tbl} still has {n} rows after live purge"
+
+
+def test_run_daily_purge_skips_lifecycle_events():
+    """Compliance opt-in table must NOT be touched by the cron."""
+    conn = _new_conn()
+    _seed_old_and_new(conn, "lifecycle_events", "occurred_at",
+                      old_rows=5, new_rows=2)
+    run_daily_purge(dry_run=False, conn=conn)
+    n = conn.execute("SELECT COUNT(*) FROM lifecycle_events").fetchone()[0]
+    assert n == 7, "lifecycle_events should not be touched by the cron"
+
+
+def test_run_daily_purge_env_var_dry_run(monkeypatch):
+    """`DB_RETENTION_DRY_RUN=1` env var flips to dry-run when caller
+    doesn't pass dry_run explicitly. Default (env unset) → live."""
+    conn = _new_conn()
+    for tbl in AUTO_PURGE_ALLOWLIST:
+        date_col = _DATE_COLUMN[tbl]
+        _seed_old_and_new(conn, tbl, date_col, old_rows=2, new_rows=1)
+
+    monkeypatch.setenv("DB_RETENTION_DRY_RUN", "1")
+    summary = run_daily_purge(conn=conn)
+    assert summary["dry_run"] is True
+    assert summary["total_deleted"] == 0
+
+    # Env var unset → live by default
+    monkeypatch.delenv("DB_RETENTION_DRY_RUN", raising=False)
+    summary2 = run_daily_purge(conn=conn)
+    assert summary2["dry_run"] is False
+    assert summary2["total_deleted"] == 2 * len(AUTO_PURGE_ALLOWLIST)
+
+
+def test_run_daily_purge_table_error_does_not_block_others(monkeypatch):
+    """If one table errors, the other tables still get purged and
+    the error is reported in summary['errors']."""
+    conn = _new_conn()
+    for tbl in AUTO_PURGE_ALLOWLIST:
+        _seed_old_and_new(conn, tbl, _DATE_COLUMN[tbl],
+                          old_rows=2, new_rows=0)
+
+    # Simulate one table failing inside purge_older_than
+    from src.core import db_retention as _r
+    orig = _r.purge_older_than
+
+    def _flaky(table, *a, **kw):
+        if table == "audit_trail":
+            raise RuntimeError("simulated DB error")
+        return orig(table, *a, **kw)
+
+    monkeypatch.setattr(_r, "purge_older_than", _flaky)
+    summary = run_daily_purge(dry_run=False, conn=conn)
+
+    # The 3 healthy tables should still be purged
+    assert summary["total_deleted"] == 2 * (len(AUTO_PURGE_ALLOWLIST) - 1)
+    assert len(summary["errors"]) == 1
+    assert summary["errors"][0]["table"] == "audit_trail"
     assert "lifecycle_events" in COMPLIANCE_OPT_IN_ALLOWLIST

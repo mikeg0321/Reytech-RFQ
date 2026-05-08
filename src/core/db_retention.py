@@ -43,8 +43,9 @@ Design choices:
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -252,6 +253,66 @@ def purge_older_than(
                 ctx.__exit__(None, None, None)
             except Exception as e:
                 log.debug("db_retention: ctx exit suppressed: %s", e)
+
+
+def run_daily_purge(
+    *,
+    dry_run: Optional[bool] = None,
+    conn: Optional[sqlite3.Connection] = None,
+) -> Dict:
+    """Daily cron entrypoint — purges every table in `AUTO_PURGE_ALLOWLIST`
+    using `RETENTION_POLICY` defaults.
+
+    `lifecycle_events` is intentionally skipped (compliance opt-in).
+
+    Args:
+      dry_run: when None (default), reads `DB_RETENTION_DRY_RUN` env var
+               ("1"/"true" → dry-run, anything else → real delete). When
+               explicitly True or False, overrides the env var. The env
+               override exists so a cautious first deploy can ship with
+               `DB_RETENTION_DRY_RUN=1`, watch the `would_delete` numbers
+               for a day, then flip the env var to "0" without re-deploy.
+      conn: optional sqlite3.Connection; one is acquired per table when
+            None so a stuck table can't block the others.
+
+    Returns:
+      {
+        "dry_run": bool,
+        "tables": [<purge_older_than result>, ...],
+        "total_would_delete": int,
+        "total_deleted": int,
+        "errors": [{"table": str, "error": str}, ...],
+      }
+    """
+    if dry_run is None:
+        dry_run = os.environ.get("DB_RETENTION_DRY_RUN", "0").lower() in (
+            "1", "true", "yes", "on")
+
+    summary: Dict = {
+        "dry_run": dry_run,
+        "tables": [],
+        "total_would_delete": 0,
+        "total_deleted": 0,
+        "errors": [],
+    }
+
+    for tbl in sorted(AUTO_PURGE_ALLOWLIST):
+        days = RETENTION_POLICY[tbl]
+        try:
+            r = purge_older_than(tbl, days, dry_run=dry_run, conn=conn)
+        except Exception as e:
+            log.error("run_daily_purge: %s failed: %s", tbl, e)
+            summary["errors"].append({"table": tbl, "error": str(e)})
+            continue
+        summary["tables"].append(r)
+        summary["total_would_delete"] += r.get("would_delete", 0)
+        summary["total_deleted"] += r.get("deleted", 0)
+
+    log.info(
+        "run_daily_purge: dry_run=%s would_delete=%d deleted=%d errors=%d",
+        summary["dry_run"], summary["total_would_delete"],
+        summary["total_deleted"], len(summary["errors"]))
+    return summary
 
 
 def bloat_report(conn: Optional[sqlite3.Connection] = None) -> Dict:
