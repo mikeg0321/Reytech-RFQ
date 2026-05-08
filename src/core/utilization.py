@@ -83,12 +83,29 @@ def _start_flusher_once() -> None:
 
 
 def _flusher_loop() -> None:
+    # S-11 (audit 2026-05-07 v2 §S-11): emit heartbeat each cycle so
+    # the scheduler watchdog detects a dead flusher. Pre-fix a silent
+    # crash here would silently lose telemetry forever.
+    try:
+        from src.core.scheduler import register_job, heartbeat as _hb
+        register_job("utilization-flusher", interval_sec=_FLUSH_INTERVAL)
+    except Exception:
+        _hb = lambda *a, **kw: None  # noqa: E731
+
     while True:
         time.sleep(_FLUSH_INTERVAL)
         try:
             _flush_queue()
+            try:
+                _hb("utilization-flusher", success=True)
+            except Exception:
+                pass
         except Exception as e:
             log.debug("utilization flusher error: %s", e)
+            try:
+                _hb("utilization-flusher", success=False, error=str(e)[:200])
+            except Exception:
+                pass
 
 
 def flush_now() -> int:
