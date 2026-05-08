@@ -192,8 +192,60 @@ def _normalize_rfq_fields(rfqs: dict) -> dict:
     return rfqs
 
 
+def migrate_legacy_rfqs_json_if_present():
+    """One-shot import of `rfqs.json` into SQLite if SQLite is empty AND
+    the legacy JSON file is still on disk. Renames the source to
+    `.migrated` afterward so this never runs twice.
+
+    Tier 2b (audit 2026-05-07): pulled out of `load_rfqs()` so the hot
+    read path is strictly SQLite. The migration block was a one-time
+    operation that fired on every load when SQLite was empty — wasteful
+    and a stale-state divergence risk if a legacy JSON file ever
+    reappeared (backup restore, manual edit). Boot-time invocation is
+    safer because it runs exactly once per process, not on every call.
+
+    Returns the imported dict (or {}) for callers that need it; the
+    boot path discards the return value.
+    """
+    json_path = rfq_db_path()
+    if not os.path.exists(json_path):
+        return {}
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM rfqs LIMIT 1").fetchone()
+        if existing:
+            # SQLite already populated — JSON is stale; do not re-import.
+            return {}
+        with open(json_path) as f:
+            json_data = json.load(f)
+        if not json_data:
+            return {}
+        log.info("MIGRATION: Importing %d RFQs from JSON to SQLite",
+                 len(json_data))
+        for rid, r in json_data.items():
+            try:
+                _save_single_rfq(rid, r)
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
+        os.rename(json_path, json_path + ".migrated")
+        return _normalize_rfq_fields(json_data)
+    except Exception as e:
+        log.warning("RFQ JSON migration failed: %s", e)
+        return {}
+
+
 def load_rfqs():
-    """Load RFQs from SQLite (single source of truth)."""
+    """Load RFQs from SQLite (single source of truth).
+
+    Tier 2b (audit 2026-05-07): the legacy `rfqs.json` migration
+    fallback was hoisted to `migrate_legacy_rfqs_json_if_present()`.
+    The hot path is strictly SQLite; the helper only fires when the
+    DB is empty (which means: fresh deploy, or a test that hasn't
+    seeded SQLite yet). Boot also wires the helper into
+    `init_db_deferred()` so it runs once at startup.
+    """
     try:
         from src.core.db import get_db
         with get_db() as conn:
@@ -201,22 +253,11 @@ def load_rfqs():
                 "SELECT * FROM rfqs ORDER BY received_at DESC LIMIT 10000"
             ).fetchall()
             if not rows:
-                json_path = rfq_db_path()
-                if os.path.exists(json_path):
-                    try:
-                        with open(json_path) as f:
-                            json_data = json.load(f)
-                        if json_data:
-                            log.info("MIGRATION: Importing %d RFQs from JSON to SQLite", len(json_data))
-                            for rid, r in json_data.items():
-                                try:
-                                    _save_single_rfq(rid, r)
-                                except Exception as _e:
-                                    log.debug("suppressed: %s", _e)
-                            os.rename(json_path, json_path + ".migrated")
-                            return _normalize_rfq_fields(json_data)
-                    except Exception as e:
-                        log.warning("RFQ JSON migration failed: %s", e)
+                # Empty SQLite → try the one-shot legacy migration. If
+                # nothing migrates (typical hot path), return {}.
+                migrated = migrate_legacy_rfqs_json_if_present()
+                if migrated:
+                    return migrated
                 return _normalize_rfq_fields({})
 
             result = {}
@@ -278,8 +319,6 @@ def _save_single_rfq(rfq_id, r, raise_on_error=False):
             r["line_items"] = list(r["items"])
 
     with _save_rfqs_lock:
-        p = rfq_db_path()
-        _invalidate_cache(p)
         try:
             from src.core.db import get_db
             with get_db() as conn:
@@ -349,8 +388,6 @@ def save_rfqs(rfqs, raise_on_error=False):
     don't have a user waiting on the response.
     """
     with _save_rfqs_lock:
-        p = rfq_db_path()
-        _invalidate_cache(p)
         try:
             from src.core.db import get_db
             with get_db() as conn:

@@ -1556,6 +1556,14 @@ def init_db_deferred():
         migrate_json_to_db()
     except Exception as e:
         log.warning("DAL migration: %s", e)
+    # Tier 2b (audit 2026-05-07): one-shot rfqs.json import. Lifted
+    # out of the load_rfqs() hot path so reads are strictly SQLite.
+    # Safe to call repeatedly — it no-ops once SQLite has any RFQ row.
+    try:
+        from src.api.data_layer import migrate_legacy_rfqs_json_if_present
+        migrate_legacy_rfqs_json_if_present()
+    except Exception as e:
+        log.warning("rfqs.json migration: %s", e)
 
 
 def _migrate_columns():
