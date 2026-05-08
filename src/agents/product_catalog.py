@@ -2969,7 +2969,15 @@ IMPORTANT:
 - recommended_sell should have ~25% margin over cost for government contracts
 - If you can't identify the product with confidence, set confidence < 0.5"""
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="product_catalog"):
+        return {"ok": False, "error": "claude:daily_quota_exceeded"}
+
+    _model = "claude-opus-4-7"
+    import time as _time
     try:
+        _t0 = _time.time()
         resp = _req.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -2978,17 +2986,27 @@ IMPORTANT:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-opus-4-7",
+                "model": _model,
                 "max_tokens": 1000,
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=30,
         )
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
 
         if resp.status_code != 200:
+            _quota_log(agent="product_catalog", model=_model,
+                       error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
             return {"ok": False, "error": f"API returned {resp.status_code}"}
 
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="product_catalog",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
         text = ""
         for block in data.get("content", []):
             if block.get("type") == "text":

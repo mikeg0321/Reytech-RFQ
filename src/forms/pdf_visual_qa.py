@@ -260,8 +260,9 @@ def _call_vision_api(api_key: str, page_images: list, user_prompt: str) -> str:
         })
     content.append({"type": "text", "text": user_prompt})
 
+    _model = "claude-opus-4-7"
     payload = {
-        "model": "claude-opus-4-7",  # Opus for accuracy — catching rendering bugs before they ship is worth the cost
+        "model": _model,  # Opus for accuracy — catching rendering bugs before they ship is worth the cost
         "max_tokens": 1024,
         "system": [
             {
@@ -273,6 +274,13 @@ def _call_vision_api(api_key: str, page_images: list, user_prompt: str) -> str:
         "messages": [{"role": "user", "content": content}],
     }
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="pdf_visual_qa"):
+        raise RuntimeError("Vision API skipped: claude:daily_quota_exceeded")
+
+    import time as _time
+    _t0 = _time.time()
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
@@ -284,12 +292,22 @@ def _call_vision_api(api_key: str, page_images: list, user_prompt: str) -> str:
         json=payload,
         timeout=15,
     )
+    _elapsed_ms = int((_time.time() - _t0) * 1000)
 
     if resp.status_code != 200:
         log.error("pdf_visual_qa: API returned %d: %s", resp.status_code, resp.text[:200])
+        _quota_log(agent="pdf_visual_qa", model=_model,
+                   error=f"http_{resp.status_code}",
+                   response_time_ms=_elapsed_ms)
         raise RuntimeError(f"Vision API error {resp.status_code}")
 
     data = resp.json()
+    _usage = data.get("usage", {}) or {}
+    _quota_log(agent="pdf_visual_qa",
+               tokens_in=int(_usage.get("input_tokens", 0) or 0),
+               tokens_out=int(_usage.get("output_tokens", 0) or 0),
+               response_time_ms=_elapsed_ms,
+               model=data.get("model", _model))
     return data["content"][0]["text"]
 
 

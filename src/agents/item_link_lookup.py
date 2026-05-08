@@ -1529,19 +1529,40 @@ def claude_amazon_lookup(asin: str) -> dict:
     }
     log.info("claude_amazon_lookup %s: calling Claude web_search", asin)
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="item_link_lookup.claude_amazon_lookup"):
+        return {}
+
     import json as _json
+    import time as _time
+    _model = body.get("model", "")
     try:
+        _t0 = _time.time()
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers=headers, json=body, timeout=10,
         )
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
         if resp.status_code != 200:
             log.debug("claude_amazon_lookup %s: HTTP %d %s",
                       asin, resp.status_code, resp.text[:200])
+            _quota_log(agent="item_link_lookup.claude_amazon_lookup",
+                       model=_model, error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
             return {}
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="item_link_lookup.claude_amazon_lookup",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
     except Exception as e:
         log.debug("claude_amazon_lookup %s: request error: %s", asin, e)
+        _quota_log(agent="item_link_lookup.claude_amazon_lookup",
+                   model=_model,
+                   error=f"{type(e).__name__}: {str(e)[:60]}")
         return {}
 
     # Pull text out of assistant message blocks. With web_search, the
@@ -1687,24 +1708,47 @@ def claude_semantic_match(
         "messages": [{"role": "user", "content": prompt}],
     }
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="item_link_lookup.claude_semantic_match"):
+        return {"ok": False, "is_match": False, "confidence": 0,
+                "reasoning": "claude:daily_quota_exceeded"}
+
     import json as _json
+    import time as _time
+    _model = body.get("model", "")
     for attempt in range(2):
         try:
+            _t0 = _time.time()
             resp = requests.post(
                 "https://api.anthropic.com/v1/messages",
                 headers=headers, json=body, timeout=5,
             )
+            _elapsed_ms = int((_time.time() - _t0) * 1000)
             if resp.status_code == 429:
                 import time
+                _quota_log(agent="item_link_lookup.claude_semantic_match",
+                           model=_model, error="http_429",
+                           response_time_ms=_elapsed_ms)
                 time.sleep(2)
                 continue
             if resp.status_code != 200:
                 log.debug("Claude semantic match API %d: %s",
                           resp.status_code, resp.text[:100])
+                _quota_log(agent="item_link_lookup.claude_semantic_match",
+                           model=_model,
+                           error=f"http_{resp.status_code}",
+                           response_time_ms=_elapsed_ms)
                 return {"ok": False, "is_match": False, "confidence": 0,
                         "reasoning": f"API {resp.status_code}"}
 
             data = resp.json()
+            _usage = data.get("usage", {}) or {}
+            _quota_log(agent="item_link_lookup.claude_semantic_match",
+                       tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                       tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                       response_time_ms=_elapsed_ms,
+                       model=data.get("model", _model))
             text = ""
             for block in data.get("content", []):
                 if block.get("type") == "text":
@@ -1916,19 +1960,40 @@ def claude_product_lookup(url: str, supplier: str = "") -> dict:
     log.info("claude_product_lookup: calling Claude web_search for %s %s",
              _sup, url[:80])
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="item_link_lookup.claude_product_lookup"):
+        return {}
+
     import json as _json
+    import time as _time
+    _model = body.get("model", "")
     try:
+        _t0 = _time.time()
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers=headers, json=body, timeout=15,
         )
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
         if resp.status_code != 200:
             log.debug("claude_product_lookup: HTTP %d %s",
                       resp.status_code, resp.text[:200])
+            _quota_log(agent="item_link_lookup.claude_product_lookup",
+                       model=_model, error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
             return {}
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="item_link_lookup.claude_product_lookup",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
     except Exception as e:
         log.debug("claude_product_lookup request error: %s", e)
+        _quota_log(agent="item_link_lookup.claude_product_lookup",
+                   model=_model,
+                   error=f"{type(e).__name__}: {str(e)[:60]}")
         return {}
 
     text = ""

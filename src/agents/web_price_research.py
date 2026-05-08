@@ -162,9 +162,14 @@ def search_product_price(
     api_key = _get_api_key()
     if not api_key:
         return {"found": False, "error": "ANTHROPIC_API_KEY not set"}
-    
+
     if not HAS_REQUESTS:
         return {"found": False, "error": "requests library not available"}
+
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="web_price_research"):
+        return {"found": False, "error": "claude:daily_quota_exceeded"}
     
     # Build the search prompt
     search_query = part_number if part_number and len(part_number) > 3 else description
@@ -232,11 +237,12 @@ We need the price per 1 {uom} (matching the buyer's unit of measure).
             "content-type": "application/json",
         }
         
+        _t0 = time.time()
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers=_headers, json=_request_body, timeout=60,
         )
-        
+
         # Retry on 429 (rate limit) — back off and try once more
         if resp.status_code == 429:
             _handle_429(resp)
@@ -245,7 +251,7 @@ We need the price per 1 {uom} (matching the buyer's unit of measure).
                 "https://api.anthropic.com/v1/messages",
                 headers=_headers, json=_request_body, timeout=60,
             )
-        
+
         # Retry once on transient errors (502/503/529)
         if resp.status_code in (502, 503, 529):
             log.warning("Claude API %d on first try, retrying...", resp.status_code)
@@ -254,13 +260,25 @@ We need the price per 1 {uom} (matching the buyer's unit of measure).
                 "https://api.anthropic.com/v1/messages",
                 headers=_headers, json=_request_body, timeout=60,
             )
-        
+
+        _elapsed_ms = int((time.time() - _t0) * 1000)
+        _model = _request_body.get("model", "")
+
         if resp.status_code != 200:
             err = resp.text[:200]
             log.error("Claude API error %d: %s", resp.status_code, err)
+            _quota_log(agent="web_price_research", model=_model,
+                       error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
             return {"found": False, "error": f"API error {resp.status_code}: {err[:100]}"}
-        
+
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="web_price_research",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
         
         # Extract text from response (may have multiple content blocks)
         full_text = ""

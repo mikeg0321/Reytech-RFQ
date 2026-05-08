@@ -219,7 +219,15 @@ def _call_vision_api(page_images: list, system_prompt: str = None) -> Optional[d
     _sys = system_prompt or _VISION_SYSTEM
     _system_blocks = [{"type": "text", "text": _sys, "cache_control": {"type": "ephemeral"}}]
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="vision_parser._call_vision_api"):
+        return None
+
+    _model = "claude-opus-4-7"
+    import time as _time
     try:
+        _t0 = _time.time()
         resp = _requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -228,15 +236,28 @@ def _call_vision_api(page_images: list, system_prompt: str = None) -> Optional[d
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-opus-4-7",
+                "model": _model,
                 "max_tokens": 4096,
                 "system": _system_blocks,
                 "messages": [{"role": "user", "content": content}],
             },
             timeout=60,
         )
-        resp.raise_for_status()
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
+        try:
+            resp.raise_for_status()
+        except Exception:
+            _quota_log(agent="vision_parser._call_vision_api", model=_model,
+                       error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
+            raise
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="vision_parser._call_vision_api",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
         text = data["content"][0]["text"].strip()
 
         # Clean up JSON response
@@ -378,7 +399,16 @@ def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
     if len(text) > 30000:
         text = text[:30000] + "\n\n[... truncated — document too large ...]"
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="vision_parser.parse_from_text"):
+        return None
+
+    _model = "claude-opus-4-7"
+    import time as _time
+    raw = ""
     try:
+        _t0 = _time.time()
         resp = _requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -387,7 +417,7 @@ def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-opus-4-7",
+                "model": _model,
                 "max_tokens": 4096,
                 "system": [{"type": "text", "text": _VISION_SYSTEM, "cache_control": {"type": "ephemeral"}}],
                 "messages": [{"role": "user", "content": [
@@ -411,8 +441,21 @@ def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
             },
             timeout=60,
         )
-        resp.raise_for_status()
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
+        try:
+            resp.raise_for_status()
+        except Exception:
+            _quota_log(agent="vision_parser.parse_from_text", model=_model,
+                       error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
+            raise
         data = resp.json()
+        _usage = data.get("usage", {}) or {}
+        _quota_log(agent="vision_parser.parse_from_text",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=data.get("model", _model))
         raw = data["content"][0]["text"].strip()
 
         # Clean up JSON response
@@ -519,7 +562,15 @@ def extract_email_from_screenshot(image_path: str) -> Optional[dict]:
     if not img_data:
         return None
 
+    # Tier 3c Phase 2 (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call as _quota_log
+    if check_quota(agent="vision_parser.extract_email_from_screenshot"):
+        return None
+
+    _model = "claude-opus-4-7"
+    import time as _time
     try:
+        _t0 = _time.time()
         resp = _requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -528,7 +579,7 @@ def extract_email_from_screenshot(image_path: str) -> Optional[dict]:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-opus-4-7",
+                "model": _model,
                 "max_tokens": 4096,
                 "system": [{"type": "text", "text": _EMAIL_OCR_SYSTEM,
                             "cache_control": {"type": "ephemeral"}}],
@@ -543,8 +594,22 @@ def extract_email_from_screenshot(image_path: str) -> Optional[dict]:
             },
             timeout=60,
         )
-        resp.raise_for_status()
-        raw = resp.json()["content"][0]["text"].strip()
+        _elapsed_ms = int((_time.time() - _t0) * 1000)
+        try:
+            resp.raise_for_status()
+        except Exception:
+            _quota_log(agent="vision_parser.extract_email_from_screenshot",
+                       model=_model, error=f"http_{resp.status_code}",
+                       response_time_ms=_elapsed_ms)
+            raise
+        _data = resp.json()
+        _usage = _data.get("usage", {}) or {}
+        _quota_log(agent="vision_parser.extract_email_from_screenshot",
+                   tokens_in=int(_usage.get("input_tokens", 0) or 0),
+                   tokens_out=int(_usage.get("output_tokens", 0) or 0),
+                   response_time_ms=_elapsed_ms,
+                   model=_data.get("model", _model))
+        raw = _data["content"][0]["text"].strip()
         if raw.startswith("```"):
             raw = re.sub(r'^```\w*\n?', '', raw)
             raw = re.sub(r'\n?```$', '', raw)
