@@ -169,14 +169,32 @@ def _invoke_llm_gap_check(
         "If nothing concerning, return gaps=[]."
     )
 
+    # Tier 3c (audit 2026-05-07): post-call telemetry to api_quota.
+    import time as _time
+    from src.core.anthropic_quota import log_call as _quota_log
     client = anthropic.Anthropic(api_key=api_key)
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        system=system,
-        tools=[tool],
-        tool_choice={"type": "tool", "name": "record_gaps"},
-        messages=[{"role": "user", "content": user}],
+    _t0 = _time.time()
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=1024,
+            system=system,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": "record_gaps"},
+            messages=[{"role": "user", "content": user}],
+        )
+    except Exception as _e:
+        _quota_log(agent="compliance_validator", model=MODEL,
+                   error=f"{type(_e).__name__}: {str(_e)[:80]}",
+                   response_time_ms=int((_time.time() - _t0) * 1000))
+        raise
+    _usage = getattr(resp, "usage", None)
+    _quota_log(
+        agent="compliance_validator",
+        tokens_in=int(getattr(_usage, "input_tokens", 0) or 0),
+        tokens_out=int(getattr(_usage, "output_tokens", 0) or 0),
+        response_time_ms=int((_time.time() - _t0) * 1000),
+        model=getattr(resp, "model", MODEL),
     )
 
     gaps: list[str] = []
@@ -205,6 +223,12 @@ def _run_llm_gap_check(
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return [], "ANTHROPIC_API_KEY not set"
+
+    # Tier 3c (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota
+    _quota_skip = check_quota(agent="compliance_validator")
+    if _quota_skip:
+        return [], _quota_skip
 
     filled_profiles = [r.get("profile_id", "") for r in per_form_reports if r.get("filled")]
     try:

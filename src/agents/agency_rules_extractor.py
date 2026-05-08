@@ -203,6 +203,11 @@ def _extract_rules_batch(agency: str, emails_batch: List[dict]) -> List[dict]:
     if not api_key:
         log.error("ANTHROPIC_API_KEY missing — cannot extract rules")
         return []
+    # Tier 3c (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call
+    if check_quota(agent="agency_rules_extractor"):
+        log.warning("agency_rules_extractor: claude daily quota exceeded")
+        return []
     client = anthropic.Anthropic(api_key=api_key)
 
     parts = [f"Agency: {agency.upper()}", ""]
@@ -216,6 +221,8 @@ def _extract_rules_batch(agency: str, emails_batch: List[dict]) -> List[dict]:
         parts.append("")
     user_block = "\n".join(parts)
 
+    import time as _time
+    _t0 = _time.time()
     try:
         resp = client.messages.create(
             model=MODEL,
@@ -227,7 +234,18 @@ def _extract_rules_batch(agency: str, emails_batch: List[dict]) -> List[dict]:
         )
     except Exception as e:
         log.error("Claude extraction error: %s", e)
+        log_call(agent="agency_rules_extractor", model=MODEL,
+                 error=f"{type(e).__name__}: {str(e)[:80]}",
+                 response_time_ms=int((_time.time() - _t0) * 1000))
         return []
+    _usage = getattr(resp, "usage", None)
+    log_call(
+        agent="agency_rules_extractor",
+        tokens_in=int(getattr(_usage, "input_tokens", 0) or 0),
+        tokens_out=int(getattr(_usage, "output_tokens", 0) or 0),
+        response_time_ms=int((_time.time() - _t0) * 1000),
+        model=getattr(resp, "model", MODEL),
+    )
 
     rules_out: List[dict] = []
     for block in resp.content:

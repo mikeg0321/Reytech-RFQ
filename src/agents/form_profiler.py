@@ -247,6 +247,12 @@ def _classify_non_row_fields(field_names: list[str]) -> list[dict]:
         log.warning("ANTHROPIC_API_KEY missing — skipping LLM classification")
         return []
 
+    # Tier 3c (audit 2026-05-07): daily $ cap.
+    from src.core.anthropic_quota import check_quota, log_call
+    if check_quota(agent="form_profiler"):
+        log.warning("form_profiler: claude daily quota exceeded")
+        return []
+
     client = anthropic.Anthropic(api_key=api_key)
 
     user_parts = [
@@ -258,6 +264,8 @@ def _classify_non_row_fields(field_names: list[str]) -> list[dict]:
     ]
     user_block = "\n".join(user_parts)
 
+    import time as _time
+    _t0 = _time.time()
     try:
         resp = client.messages.create(
             model=MODEL,
@@ -269,7 +277,18 @@ def _classify_non_row_fields(field_names: list[str]) -> list[dict]:
         )
     except Exception as e:
         log.error("Claude classify error: %s", e)
+        log_call(agent="form_profiler", model=MODEL,
+                 error=f"{type(e).__name__}: {str(e)[:80]}",
+                 response_time_ms=int((_time.time() - _t0) * 1000))
         return []
+    _usage = getattr(resp, "usage", None)
+    log_call(
+        agent="form_profiler",
+        tokens_in=int(getattr(_usage, "input_tokens", 0) or 0),
+        tokens_out=int(getattr(_usage, "output_tokens", 0) or 0),
+        response_time_ms=int((_time.time() - _t0) * 1000),
+        model=getattr(resp, "model", MODEL),
+    )
 
     for block in resp.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "classify_form_fields":
