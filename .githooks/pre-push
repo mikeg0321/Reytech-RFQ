@@ -283,6 +283,37 @@ if git rev-parse "$REMOTE_BRANCH_FOR_GATE" >/dev/null 2>&1; then
     fi
 fi
 
+# ── Tier 1c: inline status-whitelist lint (audit 2026-05-07) ────────────────
+#
+# Static enumeration of `WHERE status [NOT] IN ('a', 'b')` literals in
+# `src/api/modules/`. Each known site is on the EXEMPTIONS list inside
+# the lint script — new violations OR a stale exemption (literal moved
+# / removed) trip this gate. Complements the diff-based canonical-state
+# gate above: that one catches new lines, this one tracks the static
+# truth-table.
+#
+# Override (RARE — document the reason):
+#   STATUS_LINT_SKIP=1 make ship
+
+if [ "${STATUS_LINT_SKIP:-0}" != "1" ]; then
+    LINT_OUT=$(python tools/lint_inline_status_whitelists.py 2>&1)
+    LINT_RC=$?
+    if [ $LINT_RC -ne 0 ]; then
+        echo ""
+        echo "============================================================"
+        echo "  PUSH BLOCKED: inline status-whitelist lint failed."
+        echo "============================================================"
+        echo ""
+        echo "$LINT_OUT" | sed 's/^/  /'
+        echo ""
+        echo "  ESCAPE HATCH (RARE — document the reason):"
+        echo "       STATUS_LINT_SKIP=1 make ship"
+        echo ""
+        echo "============================================================"
+        exit 1
+    fi
+fi
+
 echo ""
 echo "All pre-push checks passed."
 exit 0
