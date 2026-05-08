@@ -119,34 +119,102 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
     if po_number:
         record["po_number"] = po_number
 
-    # Log revenue
     items = record.get("items", record.get("line_items", []))
+    inst = record.get("institution") or record.get("agency", "")
+    quote_number = record.get("reytech_quote_number", "")
+
+    # Compute revenue (no DB) — used inside the atomic block below.
+    total = 0
+    for it in items:
+        if it.get("no_bid"):
+            continue
+        price = (it.get("unit_price") or it.get("price_per_unit")
+                 or it.get("pricing", {}).get("recommended_price") or 0)
+        qty = it.get("qty", 1) or 1
+        try:
+            total += float(price) * float(qty)
+        except (ValueError, TypeError):
+            pass
+
+    # ── ATOMIC LIFECYCLE BOOKKEEPING (S-12, audit 2026-05-07 v2 §S-12) ──
+    # Pre-fix mark_won had FIVE separate `with get_db() as conn:` blocks
+    # (revenue_log, activity_log, recommendation_audit, award_tracker_log,
+    # plus 2 external module calls). Each committed independently. A
+    # process crash mid-flight (gunicorn worker SIGKILL, kernel panic)
+    # could leave revenue logged but no calibration / no activity_log row /
+    # no award_tracker_log entry. Audit named this concretely:
+    #   "A crash between block 2 and 6 leaves revenue logged but no
+    #    calibration, no activity_log row, no award_tracker_log entry."
+    #
+    # Fix: ONE connection holds ALL in-process writes. Per-block try/except
+    # logs internal errors but does NOT raise — so a single broken site
+    # (e.g., schema drift in one table) doesn't kill the others. The outer
+    # `with get_db()` commits ALL successful writes atomically at __exit__,
+    # so a crash before COMMIT rolls back EVERYTHING. The status flip
+    # (set_quote_status_atomic) is upstream and independent — that fence
+    # remains the durability anchor.
+    #
+    # The 2 external calls (record_winning_prices, calibrate_from_outcome)
+    # open their own connections and stay best-effort intelligence work
+    # outside the atomic block. They're idempotent / cache-class writes,
+    # not lifecycle-critical.
     try:
         from src.core.db import get_db
-        total = 0
-        for it in items:
-            if it.get("no_bid"):
-                continue
-            price = it.get("unit_price") or it.get("price_per_unit") or it.get("pricing", {}).get("recommended_price") or 0
-            qty = it.get("qty", 1) or 1
-            total += float(price) * float(qty)
-
         with get_db() as conn:
-            conn.execute("""
-                INSERT OR IGNORE INTO revenue_log
-                (logged_at, source, amount, category, description, po_number, agency)
-                VALUES (?, ?, ?, 'quote_won', ?, ?, ?)
-            """, (now, f"{record_type}_{record_id}", total,
-                  f"Won {record_type.upper()} {record_id}", po_number,
-                  record.get("institution") or record.get("agency", "")))
-        result["revenue_logged"] = total
-    except Exception as e:
-        log.debug("mark_won revenue: %s", e)
+            # 1. Revenue log
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO revenue_log
+                    (logged_at, source, amount, category, description, po_number, agency)
+                    VALUES (?, ?, ?, 'quote_won', ?, ?, ?)
+                """, (now, f"{record_type}_{record_id}", total,
+                      f"Won {record_type.upper()} {record_id}", po_number, inst))
+                result["revenue_logged"] = total
+            except Exception as e:
+                log.debug("mark_won revenue: %s", e)
 
-    # Record to catalog
+            # 2. CRM activity
+            try:
+                conn.execute("""
+                    INSERT INTO activity_log (contact_id, event_type, event_detail, logged_at, metadata)
+                    VALUES (?, 'quote_won', ?, ?, ?)
+                """, (record.get("requestor_email", ""), f"Won — PO {po_number}",
+                      now, f'{{"record_type":"{record_type}","record_id":"{record_id}"}}'))
+            except Exception as e:
+                log.debug("mark_won CRM activity: %s", e)
+
+            # 3. recommendation_audit outcome
+            try:
+                conn.execute("""
+                    UPDATE recommendation_audit SET outcome='won', updated_at=datetime('now')
+                    WHERE (pc_id=? OR quote_number=?) AND outcome='pending'
+                """, (record_id, quote_number))
+            except Exception as e:
+                log.debug("mark_won recommendation_audit: %s", e)
+
+            # 4. award_tracker_log
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO award_tracker_log
+                    (quote_number, checked_at, outcome, notes)
+                    VALUES (?, datetime('now'), 'won_manual', ?)
+                """, (quote_number or record_id, notes or f"PO {po_number}"))
+            except Exception as e:
+                log.debug("mark_won award_tracker_log: %s", e)
+        # get_db __exit__ commits all 4 above atomically.
+    except Exception as fatal:
+        # The outer get_db itself failed (connection broken / DB locked
+        # past retry). All 4 writes rolled back — log loud and continue
+        # to external best-effort work below.
+        log.error("MARK_WON atomic block failed: %s", fatal)
+
+    # ── EXTERNAL BEST-EFFORT (intelligence/cache, NOT lifecycle-critical) ──
+    # These open their own connections; they're outside the atomic block
+    # by design. Failures here don't roll back the lifecycle bookkeeping.
+
+    # Catalog write-back: record winning prices for future intel.
     try:
         from src.knowledge.pricing_intel import record_winning_prices
-        # Build line_items with fields record_winning_prices expects
         line_items = []
         for it in items:
             if it.get("no_bid"):
@@ -167,9 +235,9 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
                 "supplier": it.get("item_supplier", "") or it.get("supplier", ""),
             })
         record_winning_prices({
-            "quote_number": record.get("reytech_quote_number", record_id),
+            "quote_number": quote_number or record_id,
             "po_number": po_number,
-            "agency": record.get("institution") or record.get("agency", ""),
+            "agency": inst,
             "institution": record.get("institution", ""),
             "line_items": line_items,
         })
@@ -179,47 +247,9 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
     # V3: Calibrate Oracle from win outcome
     try:
         from src.core.pricing_oracle_v2 import calibrate_from_outcome
-        calibrate_from_outcome(
-            items, "won",
-            agency=record.get("institution") or record.get("agency", "")
-        )
+        calibrate_from_outcome(items, "won", agency=inst)
     except Exception as e:
         log.warning("mark_won V3 calibration: %s", e)
-
-    # CRM activity
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO activity_log (contact_id, event_type, event_detail, logged_at, metadata)
-                VALUES (?, 'quote_won', ?, ?, ?)
-            """, (record.get("requestor_email", ""), f"Won — PO {po_number}",
-                  now, f'{{"record_type":"{record_type}","record_id":"{record_id}"}}'))
-    except Exception as e:
-        log.debug("mark_won CRM activity: %s", e)
-
-    # Update recommendation_audit
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("""
-                UPDATE recommendation_audit SET outcome='won', updated_at=datetime('now')
-                WHERE (pc_id=? OR quote_number=?) AND outcome='pending'
-            """, (record_id, record.get("reytech_quote_number", "")))
-    except Exception as e:
-        log.debug("mark_won recommendation_audit: %s", e)
-
-    # Stop award tracker monitoring
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("""
-                INSERT OR IGNORE INTO award_tracker_log
-                (quote_number, checked_at, outcome, notes)
-                VALUES (?, datetime('now'), 'won_manual', ?)
-            """, (record.get("reytech_quote_number", record_id), notes or f"PO {po_number}"))
-    except Exception as e:
-        log.debug("mark_won award_tracker_log: %s", e)
 
     log.info("MARK_WON: %s %s — PO %s", record_type, record_id, po_number)
     return result
