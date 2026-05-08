@@ -837,11 +837,27 @@ def start_ops_monitor():
                 if not db.get("ok"):
                     log.warning("DB health issue: %s", db.get("warnings"))
 
-                # Every 24 hours: full backup verification
+                # Every 24 hours: full backup verification + retention purge
                 if cycle % 24 == 0:
                     verify = run_nightly_verification()
                     if not verify.get("ok"):
                         log.error("Nightly backup verification FAILED")
+
+                    # Tier 2d Phase 2: daily retention purge for log-style
+                    # tables. Honors DB_RETENTION_DRY_RUN env var so a
+                    # cautious first deploy can stage as dry-run and flip
+                    # to live without redeploying. lifecycle_events is
+                    # excluded by AUTO_PURGE_ALLOWLIST (compliance audit
+                    # trail — opt-in only).
+                    try:
+                        from src.core.db_retention import run_daily_purge
+                        purge = run_daily_purge()
+                        if purge.get("errors"):
+                            log.warning(
+                                "Daily retention purge had %d table errors: %s",
+                                len(purge["errors"]), purge["errors"])
+                    except Exception as _pe:
+                        log.error("Daily retention purge failed: %s", _pe)
 
                 try:
                     heartbeat("ops-monitor", success=True)
