@@ -1985,17 +1985,12 @@ def _log_audit(action: str, details: str = "", metadata: dict = None):
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS audit_trail (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    details TEXT,
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    metadata TEXT
-                )
-            """)
+            # Tier 2a: canonical schema lives in src/core/db.py:1024 — DO NOT
+            # re-CREATE here with a divergent shape. Pre-fix this CREATE
+            # silently no-op'd (table already existed without the admin
+            # columns), and the INSERT below silently failed because those
+            # columns didn't exist on the canonical row. _migrate_columns
+            # now adds the admin columns on every boot.
             conn.execute(
                 "INSERT INTO audit_trail (timestamp, action, details, ip_address, user_agent, metadata) VALUES (?,?,?,?,?,?)",
                 (datetime.now().isoformat(), action, details[:500],
@@ -2016,17 +2011,8 @@ def api_audit_trail():
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS audit_trail (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    details TEXT,
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    metadata TEXT
-                )
-            """)
+            # Tier 2a: canonical schema lives in src/core/db.py:1024.
+            # No need to re-CREATE here.
             rows = conn.execute(
                 "SELECT * FROM audit_trail ORDER BY timestamp DESC LIMIT 100"
             ).fetchall()
@@ -2290,17 +2276,8 @@ def audit_trail_page():
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS audit_trail (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    details TEXT,
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    metadata TEXT
-                )
-            """)
+            # Tier 2a: canonical schema lives in src/core/db.py:1024.
+            # No need to re-CREATE here.
             # Pull from audit_trail first
             rows = conn.execute(
                 "SELECT * FROM audit_trail ORDER BY timestamp DESC LIMIT 200"
