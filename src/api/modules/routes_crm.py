@@ -4367,20 +4367,11 @@ def _build_text_brief():
 
 
 def _send_sms(to_number, message):
-    """Send SMS via Twilio REST API."""
-    if not all([TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM]):
-        return {"ok": False, "error": "Twilio not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"}
-    try:
-        import urllib.request, urllib.parse, base64
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json"
-        data = urllib.parse.urlencode({"To": to_number, "From": TWILIO_FROM, "Body": message}).encode()
-        creds = base64.b64encode(f"{TWILIO_SID}:{TWILIO_TOKEN}".encode()).decode()
-        req = urllib.request.Request(url, data=data, headers={
-            "Authorization": f"Basic {creds}", "Content-Type": "application/x-www-form-urlencoded"})
-        resp = urllib.request.urlopen(req, timeout=10)
-        return {"ok": True, "status": resp.status, "message": "SMS sent"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    """Send SMS via Twilio. Delegates to canonical `src.core.twilio_client`
+    (Tier 2e, audit 2026-05-07) — same retry, dual-env-var support, and
+    SDK as the rest of the codebase."""
+    from src.core.twilio_client import send_sms as _canonical_send
+    return _canonical_send(to_number, message)
 
 
 @bp.route("/brief")
@@ -4391,7 +4382,10 @@ def daily_brief_page():
     header = ""  # Rendered via base.html template
     now = datetime.now()
     text_brief = _build_text_brief()
-    twilio_ok = bool(TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM)
+    # Tier 2e (audit 2026-05-07): use canonical configured-check so short-
+    # env-var setups (TWILIO_SID/TOKEN/FROM) also report ok.
+    from src.core.twilio_client import is_configured as _twilio_configured
+    twilio_ok = _twilio_configured()
 
     # Gather data
     try:

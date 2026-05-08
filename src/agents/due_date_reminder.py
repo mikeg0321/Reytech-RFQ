@@ -149,29 +149,25 @@ def check_due_dates():
 
 
 def _send_sms_reminder(message):
-    """Send SMS via Twilio if configured."""
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
-    from_number = os.environ.get("TWILIO_FROM_NUMBER", "")
-    to_number = os.environ.get("NOTIFY_PHONE", os.environ.get("OWNER_PHONE", ""))
-
-    if not all([account_sid, auth_token, from_number, to_number]):
-        log.debug("SMS not configured - skipping")
+    """Send SMS via canonical Twilio helper (Tier 2e, audit 2026-05-07).
+    Retry + dual-env-var resolution + ImportError handling all live in
+    `src.core.twilio_client`."""
+    to_number = os.environ.get("NOTIFY_PHONE",
+                               os.environ.get("OWNER_PHONE", ""))
+    if not to_number:
+        log.debug("SMS not configured (NOTIFY_PHONE/OWNER_PHONE) - skipping")
         return
 
-    try:
-        from twilio.rest import Client
-        client = Client(account_sid, auth_token)
-        sms = client.messages.create(
-            body=f"Reytech RFQ: {message}",
-            from_=from_number,
-            to=to_number,
-        )
-        log.info("SMS sent: %s -> %s", sms.sid, to_number)
-    except ImportError:
-        log.debug("Twilio not installed")
-    except Exception as e:
-        log.warning("SMS failed: %s", e)
+    from src.core.twilio_client import send_sms, is_configured
+    if not is_configured():
+        log.debug("Twilio not configured - skipping")
+        return
+
+    result = send_sms(to_number, f"Reytech RFQ: {message}")
+    if result.get("ok"):
+        log.info("SMS sent: %s -> %s", result.get("sid", ""), to_number)
+    else:
+        log.warning("SMS failed: %s", result.get("error"))
 
 
 def start_reminder_scheduler():

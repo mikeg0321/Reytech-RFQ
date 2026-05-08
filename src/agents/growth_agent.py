@@ -3287,23 +3287,22 @@ def send_sms_outreach(phone: str, template_key: str = "sms_follow_up",
     if dry_run:
         return {"ok": True, "dry_run": True, "phone": phone, "message": message}
 
-    try:
-        twilio_sid = os.environ.get("TWILIO_SID", "")
-        twilio_token = os.environ.get("TWILIO_TOKEN", "")
-        twilio_from = os.environ.get("TWILIO_FROM", "")
-
-        if not all([twilio_sid, twilio_token, twilio_from]):
-            return {"ok": False, "error": "Twilio not configured"}
-
-        from twilio.rest import Client
-        client = Client(twilio_sid, twilio_token)
-        msg = client.messages.create(body=message, from_=twilio_from, to=phone)
-
-        log_growth_action("sms_sent", f"SMS to {phone}: {message[:50]}...",
-                         metadata={"sid": msg.sid, "template": template_key})
-        return {"ok": True, "sid": msg.sid, "phone": phone, "message": message}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    # Tier 2e (audit 2026-05-07): canonical helper resolves both
+    # env-var conventions (TWILIO_SID/TOKEN/FROM short OR
+    # TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER official),
+    # and folds in transient-error retry. Pre-Tier-2e this caller used
+    # only the short names; new operators setting the official names
+    # silently saw "Twilio not configured" while other callers worked.
+    from src.core.twilio_client import send_sms as _canonical_send
+    result = _canonical_send(phone, message)
+    if result.get("ok"):
+        log_growth_action(
+            "sms_sent", f"SMS to {phone}: {message[:50]}...",
+            metadata={"sid": result.get("sid", ""),
+                      "template": template_key})
+        return {"ok": True, "sid": result.get("sid", ""),
+                "phone": phone, "message": message}
+    return {"ok": False, "error": result.get("error", "send failed")}
 
 
 # ── Notification Center ────────────────────────────────────────────

@@ -856,13 +856,22 @@ def mock_twilio(monkeypatch):
 
     mock = TwilioMock()
 
+    def fake_send(to, body, **kwargs):
+        mock.sent.append({"to": to, "body": body, **kwargs})
+        return {"ok": True, "sid": "SM_test_mock"}
+
+    # Tier 2e (audit 2026-05-07): canonical helper at
+    # `src.core.twilio_client`. The pre-existing `src.core.notify`
+    # path is also patched for backward compat with any future
+    # caller that lands at that name.
+    try:
+        import src.core.twilio_client as twilio_mod
+        monkeypatch.setattr(twilio_mod, "send_sms", fake_send)
+    except ImportError:
+        pass
     try:
         import src.core.notify as notify_mod
-        original_send = getattr(notify_mod, "send_sms", None)
-        if original_send:
-            def fake_send(to, body, **kwargs):
-                mock.sent.append({"to": to, "body": body, **kwargs})
-                return {"ok": True, "sid": "SM_test_mock"}
+        if hasattr(notify_mod, "send_sms"):
             monkeypatch.setattr(notify_mod, "send_sms", fake_send)
     except ImportError:
         pass

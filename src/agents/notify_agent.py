@@ -253,31 +253,31 @@ def _dispatch_alert(event_type, title, body, urgency, context, channels_override
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _send_sms(title: str, body: str, context: dict) -> dict:
-    """Send SMS via Twilio to NOTIFY_PHONE (Google Voice compatible)."""
-    if not all([TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, NOTIFY_PHONE]):
-        return {"ok": False, "reason": "Twilio not configured — set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, NOTIFY_PHONE in Railway"}
-    
-    try:
-        from twilio.rest import Client
-        client = Client(TWILIO_SID, TWILIO_TOKEN)
-        
-        # Keep SMS tight — 160 char limit ideal
-        sms_body = f"🔔 REYTECH: {title}\n{body[:140]}"
-        if context.get("quote_number"):
-            sms_body += f"\nQuote: {context['quote_number']}"
-        if context.get("po_number"):
-            sms_body += f"\nPO: {context['po_number']}"
-        
-        msg = client.messages.create(
-            body=sms_body[:1600],
-            from_=TWILIO_FROM,
-            to=NOTIFY_PHONE,
-        )
-        log.info("SMS sent: %s → %s (SID: %s)", title[:40], NOTIFY_PHONE, msg.sid)
-        return {"ok": True, "sid": msg.sid}
-    except Exception as e:
-        log.warning("SMS failed: %s", e)
-        return {"ok": False, "error": str(e)}
+    """Send SMS via canonical Twilio helper (Tier 2e, audit 2026-05-07).
+    Body is built here; canonical helper handles the actual send +
+    retry + dual-env-var resolution."""
+    from src.core.twilio_client import send_sms as _canonical_send, \
+        is_configured as _twilio_configured
+    if not _twilio_configured() or not NOTIFY_PHONE:
+        return {"ok": False, "reason": (
+            "Twilio not configured — set TWILIO_ACCOUNT_SID, "
+            "TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, NOTIFY_PHONE "
+            "in Railway")}
+
+    # Keep SMS tight — 160 char limit ideal
+    sms_body = f"🔔 REYTECH: {title}\n{body[:140]}"
+    if context.get("quote_number"):
+        sms_body += f"\nQuote: {context['quote_number']}"
+    if context.get("po_number"):
+        sms_body += f"\nPO: {context['po_number']}"
+
+    result = _canonical_send(NOTIFY_PHONE, sms_body)
+    if result.get("ok"):
+        log.info("SMS sent: %s → %s (SID: %s)",
+                 title[:40], NOTIFY_PHONE, result.get("sid", ""))
+    else:
+        log.warning("SMS failed: %s", result.get("error"))
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -954,30 +954,36 @@ def get_agent_status() -> dict:
 
 
 def notify_new_rfq_sms(rfq_data: dict) -> None:
-    """Send SMS alert for a new RFQ. Falls back to log warning if Twilio unconfigured."""
-    if not all([TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, NOTIFY_PHONE]):
-        log.info("SMS skip (Twilio not configured): new RFQ %s", rfq_data.get("id", "?"))
+    """Send SMS alert for a new RFQ via canonical Twilio helper
+    (Tier 2e, audit 2026-05-07). Fire-and-forget: a Twilio failure
+    doesn't break ingest."""
+    from src.core.twilio_client import send_sms as _canonical_send, \
+        is_configured as _twilio_configured
+    if not _twilio_configured() or not NOTIFY_PHONE:
+        log.info("SMS skip (Twilio not configured): new RFQ %s",
+                 rfq_data.get("id", "?"))
         return
     if not SMS_ENABLED:
         return
-    try:
-        sol = rfq_data.get("solicitation_number", "?")
-        agency = rfq_data.get("agency", "?")
-        items = rfq_data.get("line_items", rfq_data.get("items", []))
-        item_count = len(items) if isinstance(items, list) else 0
-        due = rfq_data.get("due_date", "TBD")
-        rfq_id = rfq_data.get("id", "?")
-        base_url = os.environ.get("BASE_URL",
-            os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://web-production-dcee9.up.railway.app"))
-        if not base_url.startswith("http"):
-            base_url = f"https://{base_url}"
-        msg = f"New RFQ: {sol} | {agency} | {item_count} items | Due {due} | {base_url}/rfq/{rfq_id}"
-        from twilio.rest import Client
-        client = Client(TWILIO_SID, TWILIO_TOKEN)
-        client.messages.create(body=msg, from_=TWILIO_FROM, to=NOTIFY_PHONE)
+    sol = rfq_data.get("solicitation_number", "?")
+    agency = rfq_data.get("agency", "?")
+    items = rfq_data.get("line_items", rfq_data.get("items", []))
+    item_count = len(items) if isinstance(items, list) else 0
+    due = rfq_data.get("due_date", "TBD")
+    rfq_id = rfq_data.get("id", "?")
+    base_url = os.environ.get("BASE_URL",
+        os.environ.get("RAILWAY_PUBLIC_DOMAIN",
+                       "https://web-production-dcee9.up.railway.app"))
+    if not base_url.startswith("http"):
+        base_url = f"https://{base_url}"
+    msg = (f"New RFQ: {sol} | {agency} | {item_count} items | "
+           f"Due {due} | {base_url}/rfq/{rfq_id}")
+    result = _canonical_send(NOTIFY_PHONE, msg)
+    if result.get("ok"):
         log.info("SMS sent for new RFQ %s to %s", sol, NOTIFY_PHONE)
-    except Exception as e:
-        log.warning("SMS for new RFQ failed (non-blocking): %s", e)
+    else:
+        log.warning("SMS for new RFQ failed (non-blocking): %s",
+                    result.get("error"))
 
 
 def notify_package_ready(rfq, result=None):
