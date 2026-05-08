@@ -222,12 +222,32 @@ def scan_once() -> dict:
 
 def _run_loop():
     """Daemon-thread loop. Survives transient Drive outages — never dies
-    on a single failed scan."""
+    on a single failed scan.
+
+    S-11 (audit 2026-05-07 v2 §S-11): emits heartbeat after every cycle
+    so the scheduler watchdog can detect a dead worker. A silent crash
+    in this thread previously accumulated Drive tasks forever with
+    nothing to alert on.
+    """
+    try:
+        from src.core.scheduler import register_job, heartbeat as _hb
+        register_job("scprs-export-watcher", interval_sec=POLL_INTERVAL_SEC)
+    except Exception:
+        _hb = lambda *a, **kw: None  # noqa: E731
+
     while True:
         try:
             scan_once()
+            try:
+                _hb("scprs-export-watcher", success=True)
+            except Exception:
+                pass
         except Exception as e:
             log.error("scprs_export_watcher loop error: %s", e)
+            try:
+                _hb("scprs-export-watcher", success=False, error=str(e)[:200])
+            except Exception:
+                pass
         time.sleep(POLL_INTERVAL_SEC)
 
 

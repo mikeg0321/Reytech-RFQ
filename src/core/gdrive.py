@@ -711,6 +711,17 @@ def _ensure_worker():
     _worker_started = True
 
     def _worker():
+        # S-11 (audit 2026-05-07 v2 §S-11): emit heartbeat each cycle so
+        # the scheduler watchdog detects a dead worker. Pre-fix a silent
+        # crash here would accumulate Drive tasks forever with nothing
+        # to alert on. Heartbeat at 60s interval (worst case = task is
+        # processing for 60s + 5s sleep cycle).
+        try:
+            from src.core.scheduler import register_job, heartbeat as _hb
+            register_job("gdrive-worker", interval_sec=60)
+        except Exception:
+            _hb = lambda *a, **kw: None  # noqa: E731
+
         while True:
             task = None
             with _queue_lock:
@@ -719,10 +730,24 @@ def _ensure_worker():
             if task:
                 try:
                     _process_task(task)
+                    try:
+                        _hb("gdrive-worker", success=True)
+                    except Exception:
+                        pass
                 except Exception as e:
                     log.error("Drive task failed: %s — %s", task.get("action"), e)
+                    try:
+                        _hb("gdrive-worker", success=False, error=str(e)[:200])
+                    except Exception:
+                        pass
             else:
                 time.sleep(5)
+                # Heartbeat even on idle ticks so the watchdog doesn't
+                # mistake "no tasks queued" for "worker is dead".
+                try:
+                    _hb("gdrive-worker", success=True)
+                except Exception:
+                    pass
 
     t = threading.Thread(target=_worker, daemon=True, name="gdrive-worker")
     t.start()
