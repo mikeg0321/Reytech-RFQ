@@ -305,30 +305,30 @@ function _runAwardTracker(btn){
 </script>
 
 <!-- ═══ SCPRS & Award Monitoring ═══ -->
-<div id="scprs-monitor-card" class="card" style="margin-top:0;margin-bottom:14px;display:none">
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-  <h3 style="font-size:16px;margin:0;color:var(--tx)">SCPRS & Award Monitor</h3>
-  <a href="/intel/scprs" style="font-size:13px;color:var(--ac)">Full Dashboard &rarr;</a>
+<div id="scprs-monitor-card" class="card-tight" style="display:none">
+ <div class="card-h">
+  <h3>SCPRS &amp; Award Monitor</h3>
+  <a href="/intel/scprs" class="card-h-link">Full Dashboard &rarr;</a>
  </div>
- <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
-  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
-   <div style="font-size:22px;font-weight:700;color:var(--tx)" id="scprs-po-count">&mdash;</div>
-   <div style="font-size:12px;color:var(--tx2)">POs Tracked</div>
+ <div class="kpi-strip">
+  <div class="kpi-cell">
+   <div class="kpi-cell-v" id="scprs-po-count">&mdash;</div>
+   <div class="kpi-cell-l">POs Tracked</div>
   </div>
-  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
-   <div style="font-size:22px;font-weight:700;color:var(--tx)" id="scprs-wq-count">&mdash;</div>
-   <div style="font-size:12px;color:var(--tx2)">Won Quotes KB</div>
+  <div class="kpi-cell">
+   <div class="kpi-cell-v" id="scprs-wq-count">&mdash;</div>
+   <div class="kpi-cell-l">Won Quotes KB</div>
   </div>
-  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
-   <div style="font-size:22px;font-weight:700;color:#3fb950" id="scprs-wins">&mdash;</div>
-   <div style="font-size:12px;color:var(--tx2)">Wins (30d)</div>
+  <div class="kpi-cell">
+   <div class="kpi-cell-v tone-good" id="scprs-wins">&mdash;</div>
+   <div class="kpi-cell-l">Wins (30d)</div>
   </div>
-  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
-   <div style="font-size:22px;font-weight:700;color:#f85149" id="scprs-losses">&mdash;</div>
-   <div style="font-size:12px;color:var(--tx2)">Losses (30d)</div>
+  <div class="kpi-cell">
+   <div class="kpi-cell-v tone-bad" id="scprs-losses">&mdash;</div>
+   <div class="kpi-cell-l">Losses (30d)</div>
   </div>
  </div>
- <div id="scprs-freshness" style="font-size:13px;color:var(--tx2)"></div>
+ <div id="scprs-freshness" style="font-size:13px;color:var(--tx2);margin-top:10px"></div>
 </div>
 
 <!-- ═══ Urgent (Mike P0 2026-05-06: Home = Urgent ONLY) ═══
@@ -338,10 +338,10 @@ function _runAwardTracker(btn){
      compete for attention without driving operator action.
      Urgent must stay accurate — see routes_prd28.api_dashboard_actions
      for the cross-table staleness fix that landed in this PR. -->
-<div id="action-dash" style="margin-bottom:14px">
- <div id="ad-urgent" style="background:var(--crd);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:14px;min-height:80px">
-  <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:8px">🔴 Urgent</div>
-  <div id="ad-urgent-items" style="font-size:14px;color:var(--tx2)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+<div id="action-dash">
+ <div id="ad-urgent" class="card-tight tone-urgent">
+  <div class="card-h"><h3>🔴 Urgent</h3></div>
+  <div id="ad-urgent-items" style="font-size:14px;color:var(--tx2);min-height:60px"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 </div>
 <script>
@@ -421,37 +421,37 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 </script>
 
 <!-- ═══ Action Bar ═══ -->
-<div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
- <div style="display:flex;gap:8px">
+<div class="actionbar">
+ <div class="actionbar-primary">
   <button onclick="document.getElementById('new-rfq-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer">+ New RFQ</button>
   <button onclick="document.getElementById('new-pc-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:8px;font-weight:600;cursor:pointer">+ New PC</button>
   <button onclick="openMultiPcUpload()" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer">📑 Multi-PC Upload</button>
  </div>
- <div style="display:flex;gap:8px">
-  <button onclick="location.href='/awards'" class="btn" style="font-size:13px;padding:6px 14px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);border-radius:6px">🏆 Awards</button>
-  <button onclick="location.href='/settings'" class="btn" style="font-size:13px;padding:6px 14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);border-radius:6px">⚙️ Settings</button>
+ <div class="actionbar-nav">
+  <a href="/awards"><span style="color:#d29922">🏆</span> Awards</a>
+  <a href="/settings">⚙️ Settings</a>
  </div>
 </div>
 
 <!-- Morning Summary -->
-<div id="morning-summary" style="display:none;margin-bottom:16px;padding:16px 20px;background:#161b22;border:1px solid #30363d;border-radius:10px">
- <div style="font-size:15px;font-weight:600;color:var(--tx);margin-bottom:10px">Today's Queue</div>
- <div style="display:flex;gap:16px;flex-wrap:wrap">
-  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
-   <div style="font-size:22px;font-weight:700;color:#58a6ff" id="morning-new">0</div>
-   <div style="font-size:12px;color:var(--tx2)">New PCs</div>
+<div id="morning-summary" class="card-tight" style="display:none">
+ <div class="card-h"><h3>Today's Queue</h3></div>
+ <div class="kpi-strip">
+  <div class="kpi-cell">
+   <div class="kpi-cell-v tone-info" id="morning-new">0</div>
+   <div class="kpi-cell-l">New PCs</div>
   </div>
-  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
-   <div style="font-size:22px;font-weight:700;color:#3fb950" id="morning-ready">0</div>
-   <div style="font-size:12px;color:var(--tx2)">Ready to Review</div>
+  <div class="kpi-cell">
+   <div class="kpi-cell-v tone-good" id="morning-ready">0</div>
+   <div class="kpi-cell-l">Ready to Review</div>
   </div>
-  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
-   <div style="font-size:22px;font-weight:700;color:#d29922" id="morning-followups">0</div>
-   <div style="font-size:12px;color:var(--tx2)">Follow-Ups Due</div>
+  <div class="kpi-cell">
+   <div class="kpi-cell-v tone-warn" id="morning-followups">0</div>
+   <div class="kpi-cell-l">Follow-Ups Due</div>
   </div>
-  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
-   <div style="font-size:22px;font-weight:700;color:var(--tx)" id="morning-open">0</div>
-   <div style="font-size:12px;color:var(--tx2)">Open PCs</div>
+  <div class="kpi-cell">
+   <div class="kpi-cell-v" id="morning-open">0</div>
+   <div class="kpi-cell-l">Open PCs</div>
   </div>
  </div>
 </div>
