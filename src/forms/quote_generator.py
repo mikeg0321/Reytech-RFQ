@@ -1417,6 +1417,13 @@ def generate_quote(
     total_pages = 1  # will fix up if multi-page
 
     for idx, _raw_item in enumerate(items):
+        # Skip no_bid items entirely. The render loop pre-2026-05-08 had
+        # no skip filter — a stored unit_price on a "Skipped" item would
+        # both draw a row AND add to subtotal — same shape as the bug
+        # found in fill_ams704 the same day. See
+        # `src/core/pricing_math.py::is_billable` for canonical predicate.
+        if isinstance(_raw_item, dict) and _raw_item.get("no_bid"):
+            continue
         item = _normalize_item(_raw_item)
         # Audit 2026-04-27 P0 #6: was `item["qty"] or 1` which silently
         # converted missing/zero qty into 1, producing ghost line totals
@@ -1636,6 +1643,14 @@ def generate_quote(
             _rollback_quote_number(quote_number)
         log.error("Quote %s PDF save failed — number rolled back: %s", quote_number, _se)
         raise
+
+    # Invariant: stamped subtotal MUST equal sum of billable extensions.
+    # Logs WARNING on drift; future accumulator regression surfaces here.
+    try:
+        from src.core.pricing_math import assert_subtotal_invariant as _assert_sub
+        _assert_sub(items, subtotal, context=f"quote_generator quote={quote_number}")
+    except Exception as _inv_e:
+        log.debug("subtotal invariant check suppressed: %s", _inv_e)
 
     result = {
         "ok": True,

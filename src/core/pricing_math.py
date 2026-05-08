@@ -246,6 +246,121 @@ def reconcile_items(items: list) -> int:
     return touched
 
 
+# ── Subtotal invariant — single source of truth for billable items ────────
+#
+# 2026-05-08 audit incident: `csp-sac` PC printed Merchandise Subtotal
+# $1,445.15 for a single $1,439.75 line item. Mike's two-item PC had
+# item #1 marked Skip (`no_bid=True`) but its stored `unit_price` of
+# $5.40 still hit the subtotal accumulator inside `fill_ams704()` —
+# the row renderer dropped the row but the math summed it. Same shape
+# was present in `quote_generator.py` for RFQ quote PDFs (no skip
+# filter at all).
+#
+# Fix: every renderer derives subtotal from `subtotal_of(items)` AT
+# THE END after rows are written. The accumulator-during-row-loop
+# pattern is the bug-generating shape we are eliminating.
+
+
+def is_billable(item: dict) -> bool:
+    """Should this item contribute to subtotal?
+
+    True iff the item is not marked Skip / no_bid. Render-side
+    decisions (whether to draw a row at all) may further gate on
+    price>0 / qty>0; those are separate questions and stay in the
+    renderer. This predicate answers ONLY "is this item summed".
+    Keeping the two filters separate prevents cross-contamination —
+    a $0-price billable item still shows a row for operator
+    visibility, but a no_bid item never contributes regardless of
+    a stored stale price.
+    """
+    if not isinstance(item, dict):
+        return False
+    return not bool(item.get("no_bid"))
+
+
+def extension_of(item: dict) -> float:
+    """Single canonical price × qty calculation for one item.
+
+    Reads price via `canonical_unit_price` (cost×markup priority +
+    unit_price fallback) and additionally honors `price_per_unit`
+    which is the RFQ/quote-side convention used by quote_generator.
+    Returns 0.0 for non-billable items so callers can sum naively.
+    """
+    if not is_billable(item):
+        return 0.0
+    price = canonical_unit_price(item)
+    if price <= 0:
+        # quote_generator stores `price_per_unit` rather than `unit_price`.
+        # canonical_unit_price's fallback chain checks unit_price only;
+        # honor the quote convention here so subtotal_of works for both
+        # PC dicts and quote dicts without requiring conversion.
+        price = _coerce_float(item.get("price_per_unit")) or 0.0
+    qty = _coerce_float(item.get("qty"))
+    if qty is None:
+        qty = 0.0
+    if price <= 0 or qty <= 0:
+        return 0.0
+    return round(price * qty, 2)
+
+
+def subtotal_of(items) -> float:
+    """Sum extension_of() across all items.
+
+    Use this AT THE END of any 704/quote render to derive the printed
+    Merchandise Subtotal. Replaces the per-row `subtotal +=` accumulator
+    pattern that drifted across `price_check.py` (two sites) and
+    `quote_generator.py`.
+    """
+    if not items:
+        return 0.0
+    return round(sum(extension_of(it) for it in items if isinstance(it, dict)), 2)
+
+
+def billable_items(items) -> list:
+    """Filter to billable items in original order. Same filter
+    `subtotal_of` applies, exposed for callers that need to count
+    or iterate billable items (e.g., for tax application)."""
+    if not items:
+        return []
+    return [it for it in items if isinstance(it, dict) and is_billable(it)]
+
+
+def assert_subtotal_invariant(
+    items,
+    printed_subtotal: float,
+    *,
+    context: str = "",
+    tolerance: float = 0.01,
+) -> bool:
+    """Verify printed subtotal equals subtotal_of(items).
+
+    Logs WARNING (not raise) on drift so a render path with a stale-
+    cache subtotal still ships output — but the warning surfaces drift
+    loud enough that ops sees it. Returns True if invariant held,
+    False if drift was detected.
+
+    `context` is a free-form grep handle for the log line
+    ("fill_ams704 pcid=X" or "quote_generator quote=Y").
+    """
+    expected = subtotal_of(items)
+    try:
+        printed = float(printed_subtotal)
+    except (TypeError, ValueError):
+        printed = 0.0
+    if abs(printed - expected) > tolerance:
+        item_list = list(items) if items else []
+        _pm_log.warning(
+            "PRICING-DRIFT %s: printed_subtotal=%.2f != billable_subtotal=%.2f "
+            "(delta=%+.2f, total_items=%d, billable=%d, no_bid=%d)",
+            context or "(unknown)",
+            printed, expected, printed - expected,
+            len(item_list), len(billable_items(item_list)),
+            sum(1 for it in item_list if isinstance(it, dict) and it.get("no_bid")),
+        )
+        return False
+    return True
+
+
 def is_unit_price_stale(item: dict, tolerance: float = 0.005) -> bool:
     """True iff the persisted `unit_price` disagrees with the cost×markup
     derivation by more than `tolerance` dollars.
