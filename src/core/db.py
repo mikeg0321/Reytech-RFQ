@@ -1057,8 +1057,12 @@ CREATE TABLE IF NOT EXISTS audit_trail (
     metadata        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_desc ON audit_trail(item_description);
-CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_trail(timestamp);
-CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_trail(action);
+-- NOTE: indexes on the Tier 2a admin columns (timestamp, action) are
+-- created inside _migrate_columns() AFTER ALTER TABLE has added those
+-- columns to existing prod tables. Defining them here breaks boot on
+-- any DB that pre-dates Tier 2a (PR #854) — CREATE TABLE IF NOT EXISTS
+-- no-ops on the legacy table, then CREATE INDEX on the missing column
+-- raises "no such column" and trips degraded-mode (incident 2026-05-08).
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1848,6 +1852,16 @@ def _migrate_columns():
             # column migration above so prod DBs don't fail on the index
             # build before ALTER TABLE has landed the column.
             "CREATE INDEX IF NOT EXISTS idx_wqs_agency ON winning_quote_shapes(agency)",
+            # Tier 2a (audit 2026-05-07 v2 §S-4) hotfix 2026-05-08 — these
+            # indexes were originally inlined in SCHEMA next to CREATE TABLE
+            # audit_trail. On any DB that pre-dates Tier 2a (PR #854), the
+            # CREATE TABLE was a no-op (table exists), then the index DDL
+            # raised `no such column: timestamp` because timestamp/action
+            # had not yet been ALTER'd in. Result: init_db() raised, app
+            # entered degraded mode, every page returned the maintenance
+            # screen. Moved here so they run AFTER the column migrations.
+            "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_trail(timestamp)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_trail(action)",
         ]:
             try:
                 conn.execute(_idx_sql)
