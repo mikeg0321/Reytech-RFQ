@@ -27,6 +27,41 @@ nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transp
 .bento-2e{grid-template-columns:1fr 1fr}
 .card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px}
 .card-t{font-size:15px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
+/* ─── card-tight + accents (home above-the-fold conformity, 2026-05-08) ───
+   Single shared shell for the SCPRS Monitor / Urgent / Action Bar / Today's
+   Queue stack so all four read as one consistent module strip. Pre-2026-05-08
+   each used a different border + padding + margin combination, costing ~30px
+   of dead space above the fold and giving the page a tile-puzzle feel. */
+.card-tight{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:14px 18px;margin-bottom:10px}
+.card-tight .card-h{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.card-tight .card-h h3{font-size:15px;font-weight:600;margin:0;color:var(--tx)}
+.card-tight .card-h-link{font-size:13px;color:var(--ac);text-decoration:none}
+.card-tight .card-h-link:hover{text-decoration:underline}
+/* Tone variants — accent border only, body styling stays consistent. */
+.card-tight.tone-urgent{border-color:rgba(248,113,113,.3)}
+.card-tight.tone-urgent .card-h h3{color:#f87171}
+/* KPI strip — used by SCPRS Monitor + Today's Queue + any future stat row.
+   tabular-nums keeps the digits visually aligned across cells when one cell
+   is "—" (skeleton state) while the next has a 5-digit number. */
+.kpi-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kpi-cell{text-align:center;padding:10px 8px;background:var(--sf2);border-radius:6px;border:1px solid var(--bd)}
+.kpi-cell-v{font-size:22px;font-weight:700;color:var(--tx);font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi-cell-l{font-size:12px;color:var(--tx2);margin-top:4px}
+.kpi-cell-v.tone-good{color:#3fb950}
+.kpi-cell-v.tone-bad{color:#f85149}
+.kpi-cell-v.tone-warn{color:#d29922}
+.kpi-cell-v.tone-info{color:#58a6ff}
+/* Action bar — primary CTA cluster left, secondary nav-style links right.
+   Pre-2026-05-08 the secondary buttons (Awards/Settings) used the same
+   button styling as the primary CTAs and `justify-content:space-between`
+   left a void in the middle. Now: primary CTAs hug left, nav links sit
+   together on the right with text-link styling so the visual hierarchy
+   matches their actual importance. */
+.actionbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r)}
+.actionbar-primary{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.actionbar-nav{display:flex;gap:14px;align-items:center;font-size:13px}
+.actionbar-nav a{color:var(--tx2);text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+.actionbar-nav a:hover{color:var(--tx)}
 .upl{border:2px dashed var(--bd);border-radius:var(--r);padding:36px;text-align:center;cursor:pointer;transition:.2s}
 .upl:hover{border-color:var(--ac);background:rgba(79,140,255,.05)}
 .upl h3{font-size:18px;margin-bottom:4px}.upl p{color:var(--tx2);font-size:15px}
