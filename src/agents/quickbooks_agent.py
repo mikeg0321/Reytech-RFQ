@@ -131,6 +131,62 @@ def is_configured() -> bool:
     return has_creds and has_secret and has_refresh and has_realm
 
 
+# ─── Transient-error retry (Tier 1d follow-on, audit 2026-05-07) ────────────
+#
+# QB Online surfaces transient errors as:
+#   1. requests.exceptions.ConnectionError / Timeout — pre-server transit blip
+#   2. requests.exceptions.HTTPError with response.status_code in
+#      {429, 500, 502, 503, 504} — Intuit gateway/backend transient
+#
+# Non-transient (handled separately, NOT retried):
+#   - 401 Unauthorized — token expired mid-request. `_qb_request` already
+#     refreshes and retries once. Refresh-token-itself-stale (refresh call
+#     returns 401) is also non-transient — operator must re-OAuth.
+#   - Other 4xx — operator/data error, not transit. Retry would just delay
+#     the real error reaching the log.
+#
+# 2.0s base linear backoff (2s, 4s) — Intuit's docs ask clients to back
+# off aggressively on 5xx; the 0.5s exponential pattern that gmail uses
+# would be too tight for QB's gateway behavior.
+def _is_transient_qb_error(err: BaseException) -> bool:
+    if not HAS_REQUESTS:
+        return False
+    try:
+        if isinstance(err, (_requests.exceptions.ConnectionError,
+                            _requests.exceptions.Timeout)):
+            return True
+        if isinstance(err, _requests.exceptions.HTTPError):
+            status = getattr(getattr(err, "response", None), "status_code", None)
+            return status in {429, 500, 502, 503, 504}
+    except Exception:
+        pass
+    msg = str(err)
+    return ("Read timed out" in msg or "TimeoutError" in msg
+            or "Connection reset" in msg or "Connection aborted" in msg)
+
+
+def _with_qb_retry(fn, *, op: str, attempts: int = 3,
+                   base_delay: float = 2.0):
+    """Run `fn()` with up to `attempts` tries on transient errors.
+    Linear backoff: 2.0s, 4.0s. Mirrors gmail/db/scprs/Grok/Drive
+    pattern via the `with_retry` substrate (PR #833).
+
+    QB-specific: 401 is NOT transient — `_qb_request` handles via its
+    own refresh-then-retry-once flow. 4xx other than 429 is NOT
+    transient — operator data error, surface fast.
+    """
+    from src.core.external_call import with_retry
+    return with_retry(
+        fn,
+        op=f"QB {op}",
+        attempts=attempts,
+        base_delay=base_delay,
+        backoff="linear",
+        is_transient=_is_transient_qb_error,
+        logger=log,
+    )
+
+
 # ─── Token Management ───────────────────────────────────────────────────────
 
 def _load_tokens() -> dict:
@@ -166,15 +222,22 @@ def _refresh_access_token() -> Optional[str]:
 
     auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
 
-    try:
-        resp = _requests.post(TOKEN_URL, headers={
+    def _do_refresh():
+        r = _requests.post(TOKEN_URL, headers={
             "Authorization": f"Basic {auth}",
             "Content-Type": "application/x-www-form-urlencoded",
         }, data={
             "grant_type": "refresh_token",
             "refresh_token": refresh,
         }, timeout=15)
-        resp.raise_for_status()
+        # raise_for_status INSIDE the retry attempt so 5xx becomes a
+        # retryable HTTPError; the predicate routes 401 (stale refresh
+        # token = operator must re-OAuth) to a fast-fail.
+        r.raise_for_status()
+        return r
+
+    try:
+        resp = _with_qb_retry(_do_refresh, op="token.refresh")
         data = resp.json()
 
         new_access = data.get("access_token")
@@ -247,33 +310,47 @@ def _qb_request(method: str, endpoint: str, data: dict = None) -> Optional[dict]
         "Content-Type": "application/json",
     }
 
-    try:
+    if method not in ("GET", "POST"):
+        log.error("Unsupported HTTP method: %s", method)
+        return None
+
+    def _do_call(_token: str):
+        _headers = dict(headers)
+        _headers["Authorization"] = f"Bearer {_token}"
         if method == "GET":
-            resp = _requests.get(url, headers=headers, timeout=15)
-        elif method == "POST":
-            resp = _requests.post(url, headers=headers, json=data, timeout=15)
+            r = _requests.get(url, headers=_headers, timeout=15)
         else:
-            log.error("Unsupported HTTP method: %s", method)
-            return None
+            r = _requests.post(url, headers=_headers, json=data, timeout=15)
+        # raise_for_status INSIDE the retry so 5xx is retried and 401
+        # bubbles out fast for the refresh-then-retry-once path below.
+        r.raise_for_status()
+        return r
 
+    try:
+        resp = _with_qb_retry(lambda: _do_call(token),
+                              op=f"{method} {endpoint[:60]}")
         log.info("QB API: %s %s → %s", method, url[:80], resp.status_code)
-        if resp.status_code != 200:
-            log.error("QB API error: %s — %s", resp.status_code, resp.text[:300])
-
-        if resp.status_code == 401:
-            # Token expired mid-request — refresh and retry once
-            token = _refresh_access_token()
-            if not token:
-                return None
-            headers["Authorization"] = f"Bearer {token}"
-            if method == "GET":
-                resp = _requests.get(url, headers=headers, timeout=15)
-            else:
-                resp = _requests.post(url, headers=headers, json=data, timeout=15)
-
-        resp.raise_for_status()
         return resp.json()
-
+    except _requests.exceptions.HTTPError as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        body = getattr(getattr(e, "response", None), "text", "") or ""
+        log.error("QB API error: %s — %s", status, body[:300])
+        if status == 401:
+            # Token expired mid-request — refresh and retry once.
+            # No retry budget on the post-refresh attempt: a second 401
+            # means the refresh itself didn't take, and we surface fast
+            # rather than spinning.
+            new_token = _refresh_access_token()
+            if not new_token:
+                return None
+            try:
+                resp = _do_call(new_token)
+                return resp.json()
+            except Exception as e2:
+                log.error("QB API error after token refresh (%s %s): %s",
+                          method, endpoint, e2)
+                return None
+        return None
     except Exception as e:
         log.error("QB API error (%s %s): %s", method, endpoint, e)
         return None
@@ -762,16 +839,27 @@ def get_invoice_pdf(invoice_id: str) -> Optional[bytes]:
     
     base = _get_api_base()
     url = f"{base}/invoice/{invoice_id}/pdf?minorversion=73"
-    
-    try:
-        resp = _requests.get(url, headers={
+
+    def _do_get():
+        r = _requests.get(url, headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/pdf",
         }, timeout=30)
-        if resp.status_code == 200:
-            log.info("Downloaded QB invoice PDF for ID %s (%d bytes)", invoice_id, len(resp.content))
-            return resp.content
-        log.error("QB invoice PDF download failed: %s %s", resp.status_code, resp.text[:200])
+        # raise_for_status INSIDE retry so 5xx + 429 are retried;
+        # 4xx-non-429 raises immediately and is caught + logged below.
+        r.raise_for_status()
+        return r
+
+    try:
+        resp = _with_qb_retry(_do_get, op="invoice.pdf")
+        log.info("Downloaded QB invoice PDF for ID %s (%d bytes)",
+                 invoice_id, len(resp.content))
+        return resp.content
+    except _requests.exceptions.HTTPError as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        body = getattr(getattr(e, "response", None), "text", "") or ""
+        log.error("QB invoice PDF download failed: %s %s",
+                  status, body[:200])
     except Exception as e:
         log.error("QB invoice PDF download error: %s", e)
     return None
