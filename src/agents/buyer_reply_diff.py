@@ -30,6 +30,7 @@ PR-E is on main.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -346,3 +347,34 @@ def _empty_diff() -> Dict:
         "notes": [],
         "_empty": True,
     }
+
+
+# ─── Cache signature (Tier 3b, audit 2026-05-07) ───────────────────────
+#
+# The route caller persists the extracted diff onto the reply row so
+# subsequent "Extract changes" clicks don't re-burn a Claude call. The
+# signature must invalidate when either the reply body or the current
+# line items change — otherwise stale diffs would mask real edits.
+#
+# Signature shape: SHA-256 of `<reply-body-truncated>|<normalized-items-json>`.
+# Truncation matches `_REPLY_TEXT_MAX` so a buyer-side append past the
+# truncation boundary (rare) doesn't trigger spurious recompute. The
+# normalized items use the same shape `_normalize_items` feeds to the
+# LLM, so a change that would alter the LLM's input alters the key.
+def compute_diff_cache_signature(
+        reply_text: str,
+        current_items: Optional[List[Dict]],
+        ) -> str:
+    """Stable cache key for the (reply, items) pair sent to the LLM.
+
+    Returns a hex SHA-256 of the same payload bytes the LLM sees. A
+    stable, content-addressed key — operator can compare two replies'
+    signatures across records to recognize duplicates if needed.
+    """
+    body = (reply_text or "")[:_REPLY_TEXT_MAX]
+    items_norm = _normalize_items(current_items)
+    payload = json.dumps({
+        "body": body,
+        "items": items_norm,
+    }, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()

@@ -4572,7 +4572,10 @@ def api_rfq_extract_buyer_reply_diff(rid, idx):
     body = reply.get("body_excerpt") or reply.get("body") or ""
 
     try:
-        from src.agents.buyer_reply_diff import extract_quote_diff
+        from src.agents.buyer_reply_diff import (
+            extract_quote_diff,
+            compute_diff_cache_signature,
+        )
     except Exception as e:
         log.error("buyer_reply_diff import failed: %s", e)
         return jsonify({
@@ -4581,6 +4584,35 @@ def api_rfq_extract_buyer_reply_diff(rid, idx):
         }), 503
 
     current_items = r.get("line_items") or r.get("items") or []
+
+    # Tier 3b cache (audit 2026-05-07): every "Extract changes" click
+    # used to call Claude. Operator clicking 100× = 100 paid calls.
+    # Persist the diff on the reply row keyed by (body, items) hash;
+    # a re-click with unchanged inputs returns the stored diff.
+    # `?force=1` bypasses the cache for explicit re-extraction.
+    sig = compute_diff_cache_signature(body, current_items)
+    force = (request.args.get("force") or "").lower() in ("1", "true", "yes")
+    cached_sig = reply.get("_extracted_diff_signature") or ""
+    cached_diff = reply.get("_extracted_diff")
+    cached_reason = reply.get("_extracted_diff_skipped_reason")
+
+    if (not force
+            and cached_sig == sig
+            and isinstance(cached_diff, dict)):
+        return jsonify({
+            "ok": True,
+            "diff": cached_diff,
+            "skipped_reason": cached_reason,
+            "cached": True,
+            "extracted_at": reply.get("_extracted_diff_at", ""),
+            "reply_meta": {
+                "from": reply.get("from", ""),
+                "subject": reply.get("subject", ""),
+                "at": reply.get("at", ""),
+                "gmail_message_id": reply.get("gmail_message_id", ""),
+            },
+        })
+
     diff, skipped_reason = extract_quote_diff(
         body, current_items,
         current_totals={
@@ -4589,10 +4621,34 @@ def api_rfq_extract_buyer_reply_diff(rid, idx):
             "total": r.get("total"),
         },
     )
+
+    # Persist the result on the reply row. We cache both the diff
+    # AND the skipped_reason so a "no API key set" or "anthropic SDK
+    # not installed" doesn't get retried 100× in a row either —
+    # operator changes the env, hits force=1, retry happens.
+    try:
+        from datetime import datetime, timezone
+        reply["_extracted_diff"] = diff
+        reply["_extracted_diff_signature"] = sig
+        reply["_extracted_diff_skipped_reason"] = skipped_reason
+        reply["_extracted_diff_at"] = (
+            datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        replies[idx] = reply
+        r["buyer_replies"] = replies
+        from src.api.data_layer import _save_single_rfq
+        _save_single_rfq(rid, r)
+    except Exception as e:
+        # Cache write is best-effort: a save failure must NOT fail
+        # the operator's diff request. Worst case: next click re-calls
+        # Claude. Log so we can monitor cache-write failure rate.
+        log.warning("buyer-reply diff cache write failed for "
+                    "rid=%s idx=%s: %s", rid, idx, e)
+
     return jsonify({
         "ok": True,
         "diff": diff,
         "skipped_reason": skipped_reason,
+        "cached": False,
         "reply_meta": {
             "from": reply.get("from", ""),
             "subject": reply.get("subject", ""),
