@@ -821,12 +821,12 @@ function searchActive(qtype, query) {
 <!-- ═══ Orders Progress Board ═══ -->
 <div id="order-health-section" style="display:none;margin-bottom:14px">
  <div class="card" style="padding:22px 28px">
-  <div style="display:flex;align-items:center;gap:6px;margin-bottom:18px">
-   <span style="font-size:14px;font-weight:700;color:var(--tx);letter-spacing:.5px">📦 ORDERS PROGRESS</span>
-   <span style="flex:1;height:1px;background:var(--bd)"></span>
-   <a href="/orders" style="font-size:13px;color:var(--ac);font-weight:600">Manage Orders →</a>
+  <div class="dash-section-h dash-section-h-tall">
+   <span class="dash-section-h-title solid">📦 ORDERS PROGRESS</span>
+   <span class="dash-section-h-rule"></span>
+   <a href="/orders" class="dash-section-h-link">Manage Orders →</a>
   </div>
-  <div id="order-health-stats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px"></div>
+  <div id="order-health-stats" class="dash-grid" style="margin-bottom:18px"></div>
   <div id="order-health-issues"></div>
  </div>
 </div>
@@ -844,23 +844,23 @@ function _renderOrderHealth(d){
   {v:s.orders_delivered_no_invoice?s.orders_delivered_no_invoice.length:0, l:'Need Invoice', c:'#f85149', bg:'rgba(248,81,73,.12)'},
  ];
  stats.innerHTML=items.map(function(i){
-  return '<div style="text-align:center;background:'+i.bg+';border:1px solid '+i.c+'22;border-radius:10px;padding:18px 10px">'
-   +'<div style="font-size:36px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+i.c+';line-height:1">'+i.v+'</div>'
-   +'<div style="font-size:13px;font-weight:600;color:var(--tx2);margin-top:6px;text-transform:uppercase;letter-spacing:.5px">'+i.l+'</div></div>';
+  return '<div class="dash-cell dash-cell-tinted" style="background:'+i.bg+';border:1px solid '+i.c+'22">'
+   +'<div class="dash-cell-v dash-cell-v-xl" style="color:'+i.c+'">'+i.v+'</div>'
+   +'<div class="dash-cell-l">'+i.l+'</div></div>';
  }).join('');
 
  var issues=d.issues||[];
  var issEl=document.getElementById('order-health-issues');
- if(!issues.length){ issEl.innerHTML='<div style="color:var(--tx2);font-size:14px;text-align:center;padding:12px">✅ All orders on track</div>'; return; }
+ if(!issues.length){ issEl.innerHTML='<div class="dash-row-empty">✅ All orders on track</div>'; return; }
  var html='';
  issues.slice(0,8).forEach(function(i){
   var sev=i.severity==='high'?'🔴':i.severity==='medium'?'🟡':'🟢';
-  html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--sf);font-size:14px">'
+  html+='<div class="dash-row dash-row-airy">'
    +'<span>'+sev+'</span>'
-   +'<span style="flex:1;color:var(--tx)">'+i.msg+'</span>'
-   +'<a href="'+i.link+'" style="color:var(--ac);font-size:13px;font-weight:600;white-space:nowrap">View →</a></div>';
+   +'<span class="dash-row-grow">'+i.msg+'</span>'
+   +'<a href="'+i.link+'" class="dash-row-link">View →</a></div>';
  });
- if(issues.length>8) html+='<div style="text-align:center;padding:8px;font-size:13px;color:var(--tx2)">+ '+(issues.length-8)+' more</div>';
+ if(issues.length>8) html+='<div class="dash-row-overflow">+ '+(issues.length-8)+' more</div>';
  issEl.innerHTML=html;
 }
 </script>
@@ -871,16 +871,16 @@ function _renderOrderHealth(d){
 <!-- Growth Engine Summary -->
 <div id="growth-summary" style="display:none;margin-bottom:12px">
  <div class="card" style="padding:18px 24px;border-left:3px solid #3fb950">
-  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
-   <span style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">🚀 Growth Engine</span>
-   <span style="flex:1;height:1px;background:var(--bd)"></span>
-   <span id="growth-brief" style="font-size:14px;color:var(--tx2)"></span>
-   <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
-   <a href="/growth-intel" style="font-size:14px;color:var(--ac);font-weight:600">Open Growth Dashboard →</a>
+  <div class="dash-section-h">
+   <span class="dash-section-h-title">🚀 Growth Engine</span>
+   <span class="dash-section-h-rule"></span>
+   <span id="growth-brief" class="dash-section-h-meta"></span>
+   <span class="dash-section-h-pipe"></span>
+   <a href="/growth-intel" class="dash-section-h-link" style="font-size:14px">Open Growth Dashboard →</a>
   </div>
-  <div id="growth-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px"></div>
+  <div id="growth-kpis" class="dash-grid" style="grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px"></div>
   <div id="growth-wins" style="display:none">
-   <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🏆 Quick Wins</div>
+   <div class="dash-section-h-title" style="margin-bottom:8px">🏆 Quick Wins</div>
    <div id="growth-wins-list"></div>
   </div>
  </div>
@@ -898,9 +898,9 @@ function _renderGrowth(g){
   {v:'$'+(k.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),l:'Pipeline',c:'#3fb950'},
  ];
  document.getElementById('growth-kpis').innerHTML=kpis.map(function(i){
-  return '<div style="text-align:center;background:var(--sf2);border-radius:10px;padding:14px 10px">'
-   +'<div style="font-size:24px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+i.c+';line-height:1">'+i.v+'</div>'
-   +'<div style="font-size:13px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">'+i.l+'</div></div>';
+  return '<div class="dash-cell">'
+   +'<div class="dash-cell-v" style="color:'+i.c+'">'+i.v+'</div>'
+   +'<div class="dash-cell-l">'+i.l+'</div></div>';
  }).join('');
  var brief=g.brief_summary||'';
  if(brief) document.getElementById('growth-brief').textContent=brief.slice(0,60);
@@ -909,11 +909,11 @@ function _renderGrowth(g){
  if(wins.length){
   document.getElementById('growth-wins').style.display='block';
   document.getElementById('growth-wins-list').innerHTML=wins.map(function(w){
-   return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">'
-    +'<span style="padding:2px 8px;border-radius:8px;font-size:13px;font-weight:700;font-family:JetBrains Mono,monospace;background:rgba(52,211,153,.15);color:#3fb950">'+(w.win_prob||0).toFixed(0)+'%</span>'
-    +'<span style="flex:1;font-weight:600">'+(w.agency||'Unknown')+'</span>'
+   return '<div class="dash-row dash-row-tight">'
+    +'<span class="pct-badge">'+(w.win_prob||0).toFixed(0)+'%</span>'
+    +'<span class="dash-row-grow" style="font-weight:600">'+(w.agency||'Unknown')+'</span>'
     +'<span style="font-size:13px;color:var(--tx2)">'+(w.buyer_name||'')+'</span>'
-    +'<a href="/growth-intel" style="font-size:13px;color:var(--ac)">View</a></div>';
+    +'<a href="/growth-intel" class="dash-row-link">View</a></div>';
   }).join('');
  }
 }

@@ -62,6 +62,40 @@ nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transp
 .actionbar-nav{display:flex;gap:14px;align-items:center;font-size:13px}
 .actionbar-nav a{color:var(--tx2);text-decoration:none;display:inline-flex;align-items:center;gap:5px}
 .actionbar-nav a:hover{color:var(--tx)}
+/* ─── dash-cell + dash-section-h + dash-row (home below-the-fold conformity, 2026-05-08) ───
+   Used by Orders Progress, Growth Engine, and any future dashboard section that
+   wants a row of big-number KPI tiles + a section divider header + a list of
+   bordered rows. Distinct from .kpi-cell above (22px tighter strip) — these
+   are 24-36px dashboard tiles. Pre-2026-05-08 each renderer hand-rolled the
+   same structural style inline 3×, with subtle drift between sections. */
+.dash-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.dash-cell{text-align:center;background:var(--sf2);border-radius:10px;padding:14px 10px}
+.dash-cell-tinted{padding:18px 10px}
+.dash-cell-v{font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;line-height:1}
+.dash-cell-v-xl{font-size:36px}
+.dash-cell-l{font-size:13px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.dash-cell-tinted .dash-cell-l{margin-top:6px;letter-spacing:.5px}
+/* Section divider header — title + 1px rule + right-aligned link. */
+.dash-section-h{display:flex;align-items:center;gap:6px;margin-bottom:14px}
+.dash-section-h.dash-section-h-tall{margin-bottom:18px}
+.dash-section-h-title{font-size:14px;font-weight:700;color:var(--tx2);letter-spacing:1px;text-transform:uppercase}
+.dash-section-h-title.solid{color:var(--tx);letter-spacing:.5px}
+.dash-section-h-rule{flex:1;height:1px;background:var(--bd)}
+.dash-section-h-link{font-size:13px;color:var(--ac);font-weight:600;white-space:nowrap;text-decoration:none}
+.dash-section-h-link:hover{text-decoration:underline}
+.dash-section-h-meta{font-size:14px;color:var(--tx2)}
+.dash-section-h-pipe{width:1px;height:14px;background:var(--bd);margin:0 8px}
+/* Bordered list row — used for issues / wins / item rows. */
+.dash-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);font-size:14px}
+.dash-row.dash-row-tight{padding:6px 0}
+.dash-row.dash-row-airy{padding:10px 0;border-bottom-color:var(--sf)}
+.dash-row-grow{flex:1;color:var(--tx)}
+.dash-row-link{color:var(--ac);font-size:13px;font-weight:600;white-space:nowrap;text-decoration:none}
+.dash-row-link:hover{text-decoration:underline}
+.dash-row-empty{color:var(--tx2);font-size:14px;text-align:center;padding:12px}
+.dash-row-overflow{text-align:center;padding:8px;font-size:13px;color:var(--tx2)}
+/* Compact percentage / probability badge (used by Growth Quick Wins). */
+.pct-badge{padding:2px 8px;border-radius:8px;font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;background:rgba(52,211,153,.15);color:#3fb950}
 .upl{border:2px dashed var(--bd);border-radius:var(--r);padding:36px;text-align:center;cursor:pointer;transition:.2s}
 .upl:hover{border-color:var(--ac);background:rgba(79,140,255,.05)}
 .upl h3{font-size:18px;margin-bottom:4px}.upl p{color:var(--tx2);font-size:15px}
