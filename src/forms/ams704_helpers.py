@@ -696,6 +696,11 @@ def build_704_item_fields(
 
     seq = 0
     for raw_item in raw_items:
+        # Skip no_bid items entirely — neither the row nor the subtotal
+        # contribution. See `src/core/pricing_math.py::is_billable` and
+        # PR #(this) for the bug shape this prevents.
+        if isinstance(raw_item, dict) and raw_item.get("no_bid"):
+            continue
         seq += 1
         li = LineItem.from_dict(raw_item)
 

@@ -2761,6 +2761,16 @@ def fill_ams704(
              _pg1_rows, _pg2_rows, _pg2_extra, _form_capacity, _has_suffix_fields)
 
     for item_idx, item in enumerate(items):
+        # Skip no_bid items entirely — they don't get a row written, and
+        # they don't contribute to subtotal. Pre-2026-05-08 the loop wrote
+        # an empty row for skipped items but still added their stored
+        # `unit_price * qty` to `subtotal`, which printed a Merchandise
+        # Subtotal that didn't match the sum of visible row extensions.
+        # See `src/core/pricing_math.py::is_billable` for the canonical
+        # predicate (also enforced at end via assert_subtotal_invariant).
+        if item.get("no_bid"):
+            continue
+
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
         # Map items to correct form fields based on detected page layout
         # Page 1: items 1.._pg1_rows → unsuffixed Row1..Row{_pg1_rows}
@@ -3162,6 +3172,15 @@ def fill_ams704(
             )
         except Exception as _oe:
             log.warning("fill_ams704: overflow page append failed (pages 3+ may be missing): %s", _oe, exc_info=True)
+
+    # Invariant: the subtotal stamped on the form MUST equal sum of
+    # extensions over billable items. Logs WARNING on drift so any future
+    # accumulator regression is visible in Railway logs.
+    try:
+        from src.core.pricing_math import assert_subtotal_invariant as _assert_sub
+        _assert_sub(items, subtotal, context=f"fill_ams704 output={os.path.basename(output_pdf)}")
+    except Exception as _inv_e:
+        log.debug("subtotal invariant check suppressed: %s", _inv_e)
 
     log.info("fill_ams704 COMPLETE%s: %d/%d items priced, %d skipped(no row), %d skipped(no price), "
              "subtotal=$%.2f, %d field_values written to %s",
