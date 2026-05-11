@@ -31,6 +31,24 @@
 > | Tier 3d (KPI dashboard) | ⏰ explicit fresh-session, ~1 week scope |
 > | S-1 .. S-15 substrate items | ✅ all shipped #850-#857 (S-11 phase 2 in #859) |
 >
+> **Additionally shipped 2026-05-11 (renderer-accuracy + lint substrate):**
+>
+> | PR | Subject |
+> |---|---|
+> | #874 | Renderers derive subtotal from subtotal_of(); fill_704b gains the missing assert_subtotal_invariant call |
+> | #875 | `tools/lint_quote_status_writes.py` — blocks new raw `UPDATE quotes SET status` writers (9 exempt baseline files documented for PR-η migration) |
+> | #876 | Adapter render-divergence test (precondition for re-enabling `quote_model_v2_enabled`) + `scripts/data_integrity.py` check 11 (stale unit_price gauge) |
+>
+> **New findings tonight's deep audit surfaced (post-v2 still open):**
+>
+> - **Renderer-read drift class** — pre-#874, all 4 renderers used `extension = unit_price * qty` (raw) and accumulated subtotal in-loop. Cortech-mattress $148.96 under-quote class. **CLOSED #874.**
+> - **fill_704b missing invariant** — 704B RFQ-response PDF (customer-facing) had NO `assert_subtotal_invariant` call. PR #849 covered PC + quote PDF, missed this. **CLOSED #874.**
+> - **UI/PDF predicate divergence** — `pc_detail.html` JS subtotal filtered on `bid` checkbox; `simple_submit.html` filtered on nothing. PDFs filtered on `no_bid` field. **CLOSED in branch `fix/ui-subtotal-predicate-no-bid` (commit ce3717d1) — push-deferred for Mike's morning chrome-verify per CLAUDE.md.**
+> - **Quote.set_price adoption is 1/N sites** — Tier 1b Phase 2 status was "soak-gated to 2026-06-07 with routine armed" but only `quote_engine.apply_oracle_pricing` calls it. The 14-site rollout queue from `project_build_remaining_queue_2026_05_08.md` is the real Tier 1b Phase 2 — needs explicit start, not auto-fire. **OPEN — PR-ε scaffolding.**
+> - **`quote_model_v2_enabled` flag still OFF** since 2026-05-05 incident. Unblocking PR #826 shipped 2026-05-07; flag never flipped. Render-divergence test in #876 closes the precondition; flag flip itself is a separate operator action. **OPEN — PR-ζ flip deferred.**
+> - **13 raw status writers** bypass `set_quote_status_atomic` (audit §S-12). Lint in #875 blocks new ones; baseline migration is PR-η Phase 2. **PARTIAL — substrate locked, rollout deferred.**
+> - **canonical_unit_price treats markup_pct=0.0 as missing** (Python falsy `or` chain). Rare in prod (give-away/sample items use `no_bid=True`), but a real follow-up. **OPEN — low priority.**
+>
 > **Additionally shipped 2026-05-10 (post-audit follow-on):**
 >
 > | PR | Subject |
