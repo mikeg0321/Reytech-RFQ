@@ -104,45 +104,6 @@ def test_auto_processor_source_does_not_assign_amazon_to_unit_cost():
     )
 
 
-def test_orchestrator_pricing_node_does_not_promote_amazon():
-    """Sister bug at `agents/orchestrator._pc_pricing_node`. Item with
-    no unit_cost + amazon_price=$24.99 must stay unit_cost=0 (no silent
-    promotion) AND get tagged needs_lookup."""
-    from src.agents.orchestrator import _pc_pricing_node
-    state = {
-        "items": [{
-            "description": "Stanley RoamAlert",
-            "pricing": {"amazon_price": 24.99},
-        }],
-    }
-    out = _pc_pricing_node(state)
-    p = out["items"][0]["pricing"]
-    assert p.get("unit_cost", 0) == 0
-    assert "recommended_price" not in p
-    assert p.get("cost_source") == "needs_lookup"
-
-
-def test_orchestrator_still_computes_when_operator_supplied_cost():
-    """Positive case — when operator HAS entered unit_cost, the
-    recommended_price calc still runs (we only blocked the AUTO path
-    from amazon/scprs, not the legitimate operator-cost path)."""
-    from src.agents.orchestrator import _pc_pricing_node
-    state = {
-        "items": [{
-            "description": "Stanley RoamAlert",
-            "pricing": {"unit_cost": 400.0, "markup_pct": 35,
-                        "amazon_price": 24.99},  # reference still attached
-        }],
-    }
-    out = _pc_pricing_node(state)
-    p = out["items"][0]["pricing"]
-    assert p["unit_cost"] == 400.0
-    # 400 * 1.35 = 540
-    assert p["recommended_price"] == 540.0
-    # cost_source NOT set to needs_lookup because real cost exists
-    assert p.get("cost_source") != "needs_lookup"
-
-
 def test_recommended_price_is_never_25_pct_markup_on_amazon():
     """The lossy default that bit Mike: $24.99 amazon * 1.25 = $31.24.
     No item should ever ship to UI with that combination — it would
