@@ -415,6 +415,84 @@ def check_agency_registry():
     return True, f"{ca} CA agencies in registry"
 
 
+def check_stale_unit_price():
+    """No active PC/RFQ should have line items with stale unit_price.
+
+    Stale = persisted unit_price disagrees with cost × markup by more
+    than half a cent (per pricing_math.is_unit_price_stale). PR #874
+    closed the renderer-read drift class by deriving extension via
+    canonical_unit_price, so a stale persisted value no longer ships
+    to the buyer. This check enforces the data-hygiene side — the
+    persisted record should still match what the renderer will stamp,
+    so operator-visible numbers stay coherent across UI surfaces.
+
+    Run `scripts/backfill_unit_price.py --apply` to heal any drift
+    surfaced here. Run dry-run first to inspect the list.
+    """
+    try:
+        from src.core.pricing_math import is_unit_price_stale
+    except ImportError:
+        return True, "pricing_math not importable — skipped"
+    conn = _get_conn()
+    if not conn:
+        return True, "No database — skipped"
+    try:
+        cur = conn.execute(
+            "SELECT id, data_json FROM price_checks "
+            "WHERE status NOT IN ('archived','reclassified','duplicate','no_response','cancelled') "
+            "AND data_json IS NOT NULL"
+        )
+        pc_rows = cur.fetchall()
+        cur = conn.execute(
+            "SELECT id, data_json FROM rfqs "
+            "WHERE status NOT IN ('archived','reclassified','duplicate','no_response','cancelled') "
+            "AND data_json IS NOT NULL"
+        )
+        rfq_rows = cur.fetchall()
+    except sqlite3.OperationalError as e:
+        conn.close()
+        return True, f"price_checks/rfqs table query failed: {e}"
+    conn.close()
+
+    stale_pcs = 0
+    stale_rfqs = 0
+    for row in pc_rows:
+        try:
+            blob = json.loads(row["data_json"] or "{}")
+        except (ValueError, TypeError):
+            continue
+        items = blob.get("items") or blob.get("line_items") or []
+        if not isinstance(items, list):
+            continue
+        for it in items:
+            if isinstance(it, dict) and is_unit_price_stale(it):
+                stale_pcs += 1
+                break
+    for row in rfq_rows:
+        try:
+            blob = json.loads(row["data_json"] or "{}")
+        except (ValueError, TypeError):
+            continue
+        items = blob.get("line_items") or blob.get("items") or []
+        if not isinstance(items, list):
+            continue
+        for it in items:
+            if isinstance(it, dict) and is_unit_price_stale(it):
+                stale_rfqs += 1
+                break
+
+    total_stale = stale_pcs + stale_rfqs
+    if total_stale == 0:
+        return True, f"0 records with stale unit_price ({len(pc_rows)} PCs + {len(rfq_rows)} RFQs scanned)"
+    # WARN — don't fail integrity; renderer closes the drift at read time.
+    # Heal via `make run-backfill-unit-price apply=1` to align persisted data.
+    return True, (
+        f"{total_stale} records with stale unit_price "
+        f"(PCs={stale_pcs}/{len(pc_rows)}, RFQs={stale_rfqs}/{len(rfq_rows)}) — "
+        "renderer corrects at stamp time; heal with `make run-backfill-unit-price apply=1`"
+    )
+
+
 ALL_CHECKS = [
     ("Sent RFQs have linked PC", check_sent_rfqs_have_pc),
     ("Order statuses valid", check_order_statuses),
@@ -428,6 +506,7 @@ ALL_CHECKS = [
     ("Won quotes KB populated", check_won_quotes_kb),
     ("Connectors active", check_connectors),
     ("CA agency registry", check_agency_registry),
+    ("Stale unit_price (drift gauge)", check_stale_unit_price),
 ]
 
 
