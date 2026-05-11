@@ -74,7 +74,9 @@ BASELINE_EXEMPTIONS: set[str] = {
     "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
     "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:create_quote",
     "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:increment_quote_counter",
-    "src/api/modules/routes_intel_ops.py:2602:src.agents.sales_intel:run_deep_pull",
+    # Drained: run_deep_pull → deep_pull_all_buyers (real name) at
+    # routes_intel_ops:_run_scheduled_scprs_pull. Mon 7am + Wed 10am
+    # SCPRS scheduler was silently no-op'ing for unknown duration.
     # Drained in batch 2: routes_rfq.load_pcs (2 sites) → _load_price_checks alias.
     # Drained in batch 2: routes_rfq_admin audit_log → src.core.security._log_audit_internal.
     "src/api/modules/routes_rfq_gen.py:850:src.agents.web_price_research:research_items",
