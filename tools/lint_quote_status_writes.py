@@ -65,9 +65,11 @@ BASELINE_EXEMPTIONS: set[str] = {
     # set_quote_status_atomic with forbidden_prev=['won','cancelled'].
     # File NO LONGER exempt; the lint will block any new raw writer
     # that lands here.
+    # award_tracker.py — MIGRATED 2026-05-11 (PR-η Phase 3). All 3 sites
+    # (expire, scprs_win, scprs_loss) route through set_quote_status_atomic
+    # with expected_prev='sent' preserving the race-fence guard.
     # Daemon-side flips — lower priority because they have their own
     # idempotency / replay guarantees. Migrate after operator paths.
-    "src/agents/award_tracker.py",
     "src/agents/email_poller.py",
     "src/agents/scprs_intelligence_engine.py",
     "src/agents/scprs_universal_pull.py",
@@ -100,7 +102,17 @@ def iter_py_files() -> Iterator[pathlib.Path]:
 
 
 def find_raw_status_writers() -> list[str]:
-    """Returns list of `relative_path:line` violations."""
+    """Returns list of relative_path:line violations.
+
+    Tracks triple-quote docstring state across lines so a narrative
+    reference like '...the UPDATE quotes SET status=expired actually...'
+    inside a docstring is not flagged. Real SQL strings inside
+    conn.execute(triple-quoted) calls are still caught because the
+    regex matches on the SET clause shape, which only appears in
+    real SQL — and the SQL block opens AFTER an open-paren which
+    keeps it outside the docstring tracker (the script body context
+    is what wraps it, not a separate docstring).
+    """
     findings: list[str] = []
     for path in iter_py_files():
         rel = path.relative_to(REPO_ROOT).as_posix()
@@ -110,9 +122,34 @@ def find_raw_status_writers() -> list[str]:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
+        in_doc = False  # triple-quoted docstring (""" or ''')
+        doc_quote = None
         for lineno, line in enumerate(text.splitlines(), start=1):
             stripped = line.strip()
-            # Skip comment-only lines + docstring-only lines.
+            # Track docstring opens/closes. A docstring is identified by
+            # a line that STARTS with triple-quotes (possibly after
+            # whitespace) — that distinguishes a module/function/class
+            # docstring from a real SQL string passed to conn.execute(
+            # """...""") which has code before the triple-quote.
+            if not in_doc:
+                for q in ('"""', "'''"):
+                    if stripped.startswith(q):
+                        # Module/function docstring opener. Check if it
+                        # also closes on the same line (one-line doc).
+                        rest = stripped[len(q):]
+                        if q in rest:
+                            # Same-line close — no state change.
+                            pass
+                        else:
+                            in_doc = True
+                            doc_quote = q
+                        break
+            else:
+                if doc_quote and doc_quote in line:
+                    in_doc = False
+                    doc_quote = None
+                continue
+            # Skip pure comment lines.
             if stripped.startswith("#"):
                 continue
             if RAW_UPDATE_RE.search(line):
