@@ -334,13 +334,24 @@ def run_award_check(force: bool = False) -> dict:
                     total_days = (now.replace(tzinfo=None) - sent_at_dt).days
                     expired_stored = False
                     try:
-                        cur = conn.execute("""
-                            UPDATE quotes SET status='expired',
-                                status_notes=?, closed_by_agent='award_tracker',
-                                updated_at=?
-                            WHERE quote_number=? AND status='sent'
-                        """, (f"No award found after {total_days} days", now_iso, quote_num))
-                        expired_stored = (cur.rowcount or 0) > 0
+                        # PR-η Phase 3 (2026-05-11): route through atomic
+                        # helper. expected_prev='sent' preserves the original
+                        # race-fence guard (don't clobber an operator's
+                        # manual mark that arrived between SCPRS poll +
+                        # this write). Helper opens its own connection;
+                        # safe alongside the outer award_tracker conn.
+                        from src.core.quote_lifecycle_shared import set_quote_status_atomic
+                        expired_stored = set_quote_status_atomic(
+                            quote_id=quote_num,
+                            new_status="expired",
+                            expected_prev="sent",
+                            source="award_tracker.expire",
+                            extra_columns={
+                                "status_notes": f"No award found after {total_days} days",
+                                "closed_by_agent": "award_tracker",
+                                "updated_at": now_iso,
+                            },
+                        )
                         if expired_stored:
                             log.info("SCHEDULE: %s EXPIRED — %d days since sent, no award found",
                                      quote_num, total_days)
@@ -555,12 +566,22 @@ def run_award_check(force: bool = False) -> dict:
 
                 # Cross-queue sync: mark quote as won + update linked PC
                 try:
-                    conn.execute("""
-                        UPDATE quotes SET status='won',
-                            status_notes=?, closed_by_agent='award_tracker',
-                            updated_at=?
-                        WHERE quote_number=? AND status='sent'
-                    """, (notes, now_iso, quote_num))
+                    # PR-η Phase 3 (2026-05-11): atomic helper. expected_prev
+                    # ='sent' so an operator's manual mark (won OR lost)
+                    # arriving between SCPRS detection + this write isn't
+                    # clobbered.
+                    from src.core.quote_lifecycle_shared import set_quote_status_atomic
+                    set_quote_status_atomic(
+                        quote_id=quote_num,
+                        new_status="won",
+                        expected_prev="sent",
+                        source="award_tracker.scprs_win",
+                        extra_columns={
+                            "status_notes": notes,
+                            "closed_by_agent": "award_tracker",
+                            "updated_at": now_iso,
+                        },
+                    )
                     # Also sync any linked PC via source_pc_id
                     pc_id = q.get("source_pc_id", "")
                     if pc_id:
@@ -730,12 +751,23 @@ def run_award_check(force: bool = False) -> dict:
                 )
                 if should_auto_close:
                     try:
-                        conn.execute("""
-                            UPDATE quotes SET status='lost',
-                                status_notes=?, close_reason=?, closed_by_agent='award_tracker',
-                                updated_at=?
-                            WHERE quote_number=? AND status='sent'
-                        """, (loss_note, f"SCPRS: Lost to {supplier}", now_iso, quote_num))
+                        # PR-η Phase 3 (2026-05-11): atomic helper. expected_prev
+                        # ='sent' preserves the race-fence — if an operator
+                        # marked the quote since the SCPRS pull started, do
+                        # not auto-close-as-lost (operator wins).
+                        from src.core.quote_lifecycle_shared import set_quote_status_atomic
+                        set_quote_status_atomic(
+                            quote_id=quote_num,
+                            new_status="lost",
+                            expected_prev="sent",
+                            source="award_tracker.scprs_loss",
+                            extra_columns={
+                                "status_notes": loss_note,
+                                "close_reason": f"SCPRS: Lost to {supplier}",
+                                "closed_by_agent": "award_tracker",
+                                "updated_at": now_iso,
+                            },
+                        )
                         log.info("AUTO_CLOSE: %s — confidence %.0f%% >= %.0f%% threshold",
                                  quote_num, match_confidence * 100, HIGH_CONFIDENCE_THRESHOLD * 100)
                         # Cross-queue sync: also close linked PC
