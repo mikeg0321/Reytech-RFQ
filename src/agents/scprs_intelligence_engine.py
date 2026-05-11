@@ -597,18 +597,27 @@ def run_po_award_monitor(notify_fn=None) -> dict:
                               outcome, reason))
 
                         if outcome == "lost_to_competitor":
-                            # Auto close-lost. Phase 0.4 race fence: only flip from
-                            # 'sent' — never overwrite a manual operator mark.
-                            conn.execute("""
-                                UPDATE quotes SET status='lost',
-                                status_notes=?, updated_at=?
-                                WHERE id=? AND status='sent'
-                            """, (
-                                f"Auto-closed: SCPRS shows {supplier} won PO {po.get('po_number','')} "
-                                f"at ${scprs_total:,.2f} (our quote: ${our_total:,.2f}). "
-                                f"Price delta: ${(our_total - scprs_total):,.2f}",
-                                now, quote_id
-                            ))
+                            # Auto close-lost. Phase 0.4 race fence preserved.
+                            # PR-η Phase 4 (2026-05-11): atomic helper with
+                            # expected_prev='sent'. Original WHERE used id
+                            # (row PK); helper uses quote_number which is
+                            # also unique. quote_num is in scope from the
+                            # outer SELECT.
+                            from src.core.quote_lifecycle_shared import set_quote_status_atomic
+                            set_quote_status_atomic(
+                                quote_id=quote_num,
+                                new_status="lost",
+                                expected_prev="sent",
+                                source="scprs_intelligence_engine.lost_to_competitor",
+                                extra_columns={
+                                    "status_notes": (
+                                        f"Auto-closed: SCPRS shows {supplier} won PO {po.get('po_number','')} "
+                                        f"at ${scprs_total:,.2f} (our quote: ${our_total:,.2f}). "
+                                        f"Price delta: ${(our_total - scprs_total):,.2f}"
+                                    ),
+                                    "updated_at": now,
+                                },
+                            )
                             conn.execute("""
                                 UPDATE quote_po_matches SET auto_closed=1 WHERE quote_id=? AND po_number=?
                             """, (quote_id, po.get("po_number","")))

@@ -65,14 +65,18 @@ BASELINE_EXEMPTIONS: set[str] = {
     # set_quote_status_atomic with forbidden_prev=['won','cancelled'].
     # File NO LONGER exempt; the lint will block any new raw writer
     # that lands here.
-    # award_tracker.py — MIGRATED 2026-05-11 (PR-η Phase 3). All 3 sites
-    # (expire, scprs_win, scprs_loss) route through set_quote_status_atomic
-    # with expected_prev='sent' preserving the race-fence guard.
-    # Daemon-side flips — lower priority because they have their own
-    # idempotency / replay guarantees. Migrate after operator paths.
-    "src/agents/email_poller.py",
-    "src/agents/scprs_intelligence_engine.py",
-    "src/agents/scprs_universal_pull.py",
+    # award_tracker.py — MIGRATED 2026-05-11 (PR-η Phase 3, #883). All 3
+    # sites (expire, scprs_win, scprs_loss) route through
+    # set_quote_status_atomic with expected_prev='sent' preserving the
+    # race-fence guard. NO LONGER EXEMPT.
+    # MIGRATED 2026-05-11 (PR-η Phase 4, this PR) — NO LONGER EXEMPT:
+    #   - email_poller.py — PO-via-email won detection
+    #   - scprs_intelligence_engine.py — lost-to-competitor
+    #   - scprs_universal_pull.py — closed-lost
+    # All three use expected_prev='sent' to preserve the race-fence
+    # against operator manual marks.
+    # Still exempt — revenue_engine touches billing path; deliberate
+    # eyeball before migrating.
     "src/agents/revenue_engine.py",
     # API + backfill — migrate before any new external integration.
     "src/api/modules/routes_v1.py",
