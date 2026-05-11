@@ -342,6 +342,33 @@ if [ "${PHANTOM_LINT_SKIP:-0}" != "1" ]; then
     fi
 fi
 
+# ── Status-writer lint (2026-05-11) ─────────────────────────────────────────
+# Blocks new raw `UPDATE quotes SET status` writers. Existing offenders
+# are exempted in tools/lint_quote_status_writes.py BASELINE_EXEMPTIONS
+# until the PR-η rollout migrates them through set_quote_status_atomic.
+# Audit v2 §S-12 + 2026-05-11 deep audit identified 13 raw writers.
+# Override (RARE):
+#   STATUS_WRITER_LINT_SKIP=1 make ship
+
+if [ "${STATUS_WRITER_LINT_SKIP:-0}" != "1" ]; then
+    SW_OUT=$(python tools/lint_quote_status_writes.py 2>&1)
+    SW_RC=$?
+    if [ $SW_RC -ne 0 ]; then
+        echo ""
+        echo "============================================================"
+        echo "  PUSH BLOCKED: status-writer lint failed."
+        echo "============================================================"
+        echo ""
+        echo "$SW_OUT" | tail -40 | sed 's/^/  /'
+        echo ""
+        echo "  ESCAPE HATCH (RARE — document the reason):"
+        echo "       STATUS_WRITER_LINT_SKIP=1 make ship"
+        echo ""
+        echo "============================================================"
+        exit 1
+    fi
+fi
+
 echo ""
 echo "All pre-push checks passed."
 exit 0
