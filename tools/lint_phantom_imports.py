@@ -67,13 +67,24 @@ BASELINE_EXEMPTIONS: set[str] = {
     #     existing JSON fallback IS the real implementation, inlined.
     #   tax_agent.load_contacts (2 sites) — rewired to _load_crm_contacts
     #     from routes_intel_ops; iterate .values() (dict → list of contacts).
-    "src/agents/orchestrator.py:180:src.agents.product_research:bulk_research",
-    "src/agents/orchestrator.py:322:src.agents.lead_gen_agent:scan_for_leads",
-    "src/agents/qa_agent.py:2315:src.agents.orchestrator:WorkflowOrchestrator",
+    # Drained in batch 6 (LangGraph orchestrator FEATURE DELETE):
+    #   Per Mike 2026-05-10: same playbook as voice_campaigns. The
+    #   Feb 2026 LangGraph orchestrator was half-built scaffolding
+    #   that never worked end-to-end — `bulk_research`/`scan_for_leads`
+    #   were never built in their stated modules, and `WorkflowOrchestrator`
+    #   the class doesn't exist anywhere. The real production
+    #   orchestrator is src.core.quote_orchestrator.QuoteOrchestrator
+    #   (untouched, still in production). This drain removes:
+    #     - src/agents/orchestrator.py (617 lines)
+    #     - 3 /api/workflow/* routes + status field
+    #     - _check_orchestrator() in qa_agent + registration
+    #     - ORCHESTRATOR_AVAILABLE flag
+    #     - tests/test_orchestrator.py (219 lines)
+    #     - 2 orchestrator-pricing tests in test_no_amazon_as_supplier_cost.py
     "src/agents/vendor_ordering_agent.py:899:src.knowledge.won_quotes_db:search_pricing",
     "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
-    "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:create_quote",
-    "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:increment_quote_counter",
+    "src/api/modules/routes_intel_ops.py:2413:src.forms.quote_generator:create_quote",
+    "src/api/modules/routes_intel_ops.py:2413:src.forms.quote_generator:increment_quote_counter",
     # Drained: run_deep_pull → deep_pull_all_buyers (real name) at
     # routes_intel_ops:_run_scheduled_scprs_pull. Mon 7am + Wed 10am
     # SCPRS scheduler was silently no-op'ing for unknown duration.

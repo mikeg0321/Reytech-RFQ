@@ -1609,7 +1609,6 @@ def run_health_check(checks: list = None) -> dict:
         "outreach_pipeline": _check_outreach_pipeline,
         # Phase 31 QA v2: Full agent coverage
         "cs_agent": _check_cs_agent,
-        "orchestrator": _check_orchestrator,
         "voice_knowledge": _check_voice_knowledge,
         "item_identifier": _check_item_identifier,
         "tax_agent": _check_tax_agent,
@@ -2305,20 +2304,6 @@ def _check_cs_agent() -> list:
     except Exception as e:
         results.append({"check": "cs_agent", "status": "warn",
                         "message": f"CS agent import issue: {e}"})
-    return results
-
-
-def _check_orchestrator() -> list:
-    """Orchestrator: workflow engine health."""
-    results = []
-    try:
-        from src.agents.orchestrator import WorkflowOrchestrator
-        # agent checked via import
-        results.append({"check": "orchestrator", "status": "pass",
-                        "message": "Orchestrator importable"})
-    except Exception as e:
-        results.append({"check": "orchestrator", "status": "warn",
-                        "message": f"Orchestrator import issue: {e}"})
     return results
 
 
