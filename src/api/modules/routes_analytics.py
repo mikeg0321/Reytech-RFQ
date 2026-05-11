@@ -135,6 +135,7 @@ def rfq_auto_lookup(rid):
             amazon_found = 0
             try:
                 from src.agents.web_price_research import research_items
+                # research_items mutates items in place + returns the list
                 _sync_rfq_items(r, research_items(r["line_items"]))
                 # Carry Amazon cost to vendor_cost — NEVER overwrite supplier quote costs
                 for _item in r["line_items"]:

@@ -39,11 +39,9 @@ from typing import Iterator
 # Each entry: "<relative_path>:<line>:<module>:<name>".
 # Strict pin: line number must match. If a file's line numbers shift,
 # the lint will trip — that's intentional; re-audit the site when it does.
-BASELINE_EXEMPTIONS: set[str] = {
-    # ───────── Dead names — features removed or renamed without caller fix.
-    # Drain these by fixing or deleting the import; do NOT just bump the line.
-    # Each entry is one phantom found by ast.walk(); follow-on PRs should
-    # delete entries here as they're resolved.
+BASELINE_EXEMPTIONS: set[str] = set()
+# Phantom-import baseline — empty as of 2026-05-10 (session 5/10→5/11).
+# Drain history:
     # Drained in batch 2: email_poller order-win flow (4 sites) — module
     # was db_dal phantom; real homes: src.forms.quote_generator (update_quote_status)
     # and src.core.db (log_revenue/record_price); CRM activity → _log_crm_activity.
@@ -83,7 +81,6 @@ BASELINE_EXEMPTIONS: set[str] = {
     #     - 2 orchestrator-pricing tests in test_no_amazon_as_supplier_cost.py
     # Drained in batch 6: vendor_ordering search_pricing → find_similar_items
     #   with shape adaptation (read from quote["supplier"]/quote["unit_price"]).
-    "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
     # Drained: _create_quote_from_pc had phantom create_quote +
     # increment_quote_counter imports — function had zero callers in
     # the codebase, deleted entirely. Auto-draft path lives in
@@ -93,8 +90,9 @@ BASELINE_EXEMPTIONS: set[str] = {
     # SCPRS scheduler was silently no-op'ing for unknown duration.
     # Drained in batch 2: routes_rfq.load_pcs (2 sites) → _load_price_checks alias.
     # Drained in batch 2: routes_rfq_admin audit_log → src.core.security._log_audit_internal.
-    "src/api/modules/routes_rfq_gen.py:850:src.agents.web_price_research:research_items",
-}
+    # Drained: research_items (2 sites in routes_analytics + routes_rfq_gen) —
+    # added adapter in web_price_research.py wrapping bulk_web_search and
+    # merging hits by idx onto input items (amazon_price/item_link/item_supplier).
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
