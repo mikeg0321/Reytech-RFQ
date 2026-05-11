@@ -151,21 +151,43 @@ _TABULAR_SIMPLE = re.compile(
 )
 
 # Inline: "5 x widget", "5 widgets", "5 of widget", "qty: 5 widget"
+#
+# Qty digits capped at 4 (1-9999) — wider than that catches zip codes,
+# phone-number fragments, product codes, and CAGE/DUNS numbers as qtys.
+# Incident 2026-05-11: rfq_8efe9fae stored qty=93706 for a Penlight item
+# because the buyer's email body said "delivered to the 93706 Zip Code"
+# and the regex matched the zip + the supplier-quote's "Penlight White
+# Light Disposable" description from concatenated text. Real item qties
+# in CA gov procurement are almost always ≤9999; the rare 10k+ qty case
+# would land in a structured PO with proper line items (table parser),
+# not in inline email prose.
 _INLINE_QTY_DESC = re.compile(
     r"(?:^|[\s,;:.])"                              # boundary
     r"(?:qty[:\s]*)?"                              # optional "qty:" prefix
-    r"(\d{1,5})\s*"                                # qty 1-99999
+    r"(\d{1,4})\s*"                                # qty 1-9999 (see above)
     r"(?:x|of|@|each)?\s+"                         # connector (optional)
     r"([A-Za-z][\w\-/]{2,}(?:[ \-/][\w\-/]{2,}){0,8})"  # description (2-9 tokens)
     r"(?=$|[.,;])",                                # word-boundary end
     re.IGNORECASE,
 )
 
+# When the prose looks like an address ("Fresno, CA 93706") the qty
+# match for 93706 will be skipped via this guard. The state-abbrev +
+# whitespace + 5-digit pattern is the cleanest signal; we don't need to
+# enumerate all 50 state codes because the qty cap above already rules
+# out 5+ digit qtys. This is a defense-in-depth for any future widening.
+_QTY_IN_ZIP_CONTEXT = re.compile(
+    r"[A-Z]{2}\s+\d{5}(?:-\d{4})?",
+)
+
 # "Please quote 3 of widget" / "Need pricing on 10 widgets"
 _INLINE_PLEASE_QUOTE = re.compile(
     r"(?:please\s+)?(?:quote|provide\s+pricing|need(?:\s+pricing)?(?:\s+on)?|price(?:\s+check)?)\s+"
     r"(?:on\s+|for\s+|us\s+)?"
-    r"(\d{1,5})\s*"
+    # qty capped at 9999 (4 digits) — same reason as _INLINE_QTY_DESC.
+    # Buyer prose like "need 10000 widgets" is rare and ambiguous; if a
+    # real order needs 10k+ units it ships with a structured PO/table.
+    r"(\d{1,4})\s*"
     r"(?:x|of|each|units?\s+of)?\s*"
     r"([A-Za-z][\w\-/]{2,}(?:[ \-/][\w\-/]{2,}){0,8})",
     re.IGNORECASE,
@@ -382,6 +404,13 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
     # Stage 5: inline qty x desc — most permissive, last resort
     seen_descs = set()
     for ln in lines:
+        # Skip address-shaped lines entirely. Anything matching
+        # `<STATE>  <ZIP>` is a shipping/return address; the 5-digit zip
+        # was matched as qty in the 2026-05-11 rfq_8efe9fae incident.
+        # Cheaper to filter at the line level than to add per-match
+        # negative lookbehinds across the regex.
+        if _QTY_IN_ZIP_CONTEXT.search(ln):
+            continue
         for m in _INLINE_QTY_DESC.finditer(ln):
             qty = int(m.group(1))
             desc = m.group(2).strip()
@@ -389,7 +418,7 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
             key = desc.lower()
             if key in seen_descs:
                 continue
-            if 1 <= qty <= 99999 and _is_real_description(desc):
+            if 1 <= qty <= 9999 and _is_real_description(desc):
                 items.append(_make_item(qty, desc, item_no=len(items) + 1,
                                         source_stage="inline_qty_x_desc"))
                 seen_descs.add(key)
