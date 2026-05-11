@@ -1313,6 +1313,76 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_observed_sends_decided_at
             ON observed_sends(decided_at);
     """),
+    (42, "fix_v_revenue_year_2026_real_year_inference", """
+        -- 2026-05-11 Mike: home page reported $1.7M / $2M (87.5%) but
+        -- prod only saw 3 real 2026 POs (~$108K). Audit found:
+        --   1. 98 historical orders (2023-2025) were bulk-imported on
+        --      2026-04-28; `created_at` stamps the IMPORT time, not the
+        --      real PO date. The old view filtered by `created_at` so
+        --      it swept the entire bulk import into 2026.
+        --   2. Same orders appear twice with an `O` vs `Q` letter in the
+        --      quote_number (ORD-R25Q98 + ORD-R25O98, both po_number
+        --      10819149, both $5,434.13). That doubles every historical
+        --      record before any filter runs.
+        --   3. A test order with po_number='TEST' ($3,556) was counted.
+        --
+        -- Substrate fix: derive a "true year" from po_date OR from the
+        -- quote_number prefix (R23Q/R23O = 2023, R24Q/R24O = 2024, etc).
+        -- Bulk-imported rows have NULL po_date but their quote_number
+        -- preserves the original year — that's the authoritative signal.
+        -- Fall back to created_at only when neither po_date nor quote_number
+        -- helps. Then dedupe O/Q variants by (po_number, agency, total).
+        --
+        -- This view stays read-only — it doesn't mutate orders. The bulk
+        -- import remains in the table; future quarter-end reports still
+        -- see the full history. The view's job is to answer "what counts
+        -- as 2026 revenue", and that answer must respect real-year.
+        DROP VIEW IF EXISTS v_revenue_year_2026;
+        CREATE VIEW v_revenue_year_2026 AS
+        WITH order_year AS (
+            SELECT id, total AS amount, created_at, po_date, quote_number,
+                   po_number, status, agency, is_test,
+                   -- Real-year inference: po_date > quote_number prefix > created_at
+                   COALESCE(
+                       NULLIF(substr(po_date, 1, 4), ''),
+                       CASE
+                           WHEN quote_number GLOB 'R[0-9][0-9][QO]*'
+                               THEN '20' || substr(quote_number, 2, 2)
+                           ELSE NULL
+                       END,
+                       substr(created_at, 1, 4)
+                   ) AS real_year
+            FROM orders
+            WHERE COALESCE(is_test, 0) = 0
+              AND COALESCE(po_number, '') NOT IN ('TEST', 'test')
+              AND COALESCE(quote_number, '') NOT IN ('TEST', 'test')
+        ),
+        -- Dedupe O/Q variants: collapse rows that share po_number, agency,
+        -- AND total. Keep the lowest id alphabetically (deterministic).
+        order_dedup AS (
+            SELECT id, amount, created_at AS dated_at, quote_number, po_number,
+                   status, agency, is_test
+            FROM order_year
+            WHERE real_year = '2026'
+              AND id IN (
+                  SELECT MIN(id) FROM order_year
+                  WHERE real_year = '2026'
+                  GROUP BY COALESCE(NULLIF(po_number, ''), id),
+                           COALESCE(agency, ''), ROUND(COALESCE(amount, 0), 2)
+              )
+        )
+        SELECT 'order' AS source_kind, id, amount, dated_at,
+               quote_number, po_number, status, agency, is_test
+        FROM order_dedup
+        UNION ALL
+        SELECT 'revenue_log' AS source_kind, id, amount, logged_at AS dated_at,
+               quote_number, po_number, NULL AS status, agency, is_test
+        FROM revenue_log
+        WHERE COALESCE(is_test, 0) = 0
+          AND logged_at >= '2026-01-01' AND logged_at < '2027-01-01'
+          AND COALESCE(source, '') != 'order'
+          AND COALESCE(po_number, '') NOT IN ('TEST', 'test');
+    """),
 ]
 
 
