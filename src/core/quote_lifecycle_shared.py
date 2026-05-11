@@ -25,6 +25,7 @@ def set_quote_status_atomic(
     expected_prev: str | None = None,
     source: str = "",
     extra_columns: dict | None = None,
+    forbidden_prev: list[str] | None = None,
 ) -> bool:
     """Atomically set a quote's status, optionally only if its current
     status equals expected_prev.
@@ -45,6 +46,13 @@ def set_quote_status_atomic(
             (for status_notes, po_number, etc.). Keys are interpolated
             into the SQL — pass only known column names from your code,
             never user input.
+        forbidden_prev: optional list of statuses that BLOCK the update.
+            Translates to `AND status NOT IN (?, ?, ...)`. Use when the
+            caller wants to flip from "anything else" but specifically
+            NOT clobber terminal states (e.g., dashboard order-creation
+            flips quote→won but never undoes 'cancelled'). Mutually
+            exclusive with expected_prev — caller chooses one or
+            neither.
 
     Returns:
         True if the row was updated; False if no row matched (status was
@@ -52,6 +60,12 @@ def set_quote_status_atomic(
         retry on False — that's the race-protection signal.
     """
     from src.core.db import get_db
+
+    if expected_prev is not None and forbidden_prev:
+        raise ValueError(
+            "set_quote_status_atomic: expected_prev and forbidden_prev "
+            "are mutually exclusive — pick one guard mechanism"
+        )
 
     extra_columns = dict(extra_columns or {})
     set_parts = ["status = ?"]
@@ -66,6 +80,10 @@ def set_quote_status_atomic(
     if expected_prev is not None:
         where_parts.append("status = ?")
         params.append(expected_prev)
+    elif forbidden_prev:
+        placeholders = ", ".join("?" for _ in forbidden_prev)
+        where_parts.append(f"status NOT IN ({placeholders})")
+        params.extend(forbidden_prev)
     where_clause = " AND ".join(where_parts)
 
     sql = f"UPDATE quotes SET {set_clause} WHERE {where_clause}"
