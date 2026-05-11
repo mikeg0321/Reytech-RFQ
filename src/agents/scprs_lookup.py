@@ -954,6 +954,66 @@ def bulk_lookup(line_items):
     return line_items
 
 
+# ── Background-queue wrapper ────────────────────────────────────────
+#
+# Callers (dismissed-PC + dismissed-RFQ flows) want to fire-and-forget
+# a SCPRS lookup without holding the request thread. Each lookup_price
+# call is a synchronous HTTP scrape that can run 1-5s; doing 20 of them
+# in the dismiss endpoint would slow the action to a crawl. The wrapper
+# spawns a daemon thread and deduplicates by (description, source) for
+# 60 seconds so repeated dismissals don't pile on duplicate work.
+
+import threading as _threading
+import time as _bg_time
+
+_BG_QUEUE_LOCK = _threading.Lock()
+_BG_QUEUE_RECENT: dict[str, float] = {}  # key → unix ts last queued
+_BG_QUEUE_DEDUP_SECONDS = 60
+
+
+def queue_background_lookup(description: str, source: str = "") -> bool:
+    """Fire-and-forget a SCPRS price lookup in a daemon thread.
+
+    Returns True if a worker was started, False if the (description, source)
+    pair was already queued within the past _BG_QUEUE_DEDUP_SECONDS.
+    Failures inside the worker are logged at warning level — the caller
+    must NOT depend on success/failure of the lookup.
+    """
+    desc = (description or "").strip()
+    if not desc:
+        return False
+    key = f"{desc.lower()}|{source}"
+    now = _bg_time.time()
+    with _BG_QUEUE_LOCK:
+        # Garbage-collect old entries opportunistically
+        if len(_BG_QUEUE_RECENT) > 200:
+            cutoff = now - _BG_QUEUE_DEDUP_SECONDS
+            _BG_QUEUE_RECENT.clear() if not any(
+                t > cutoff for t in _BG_QUEUE_RECENT.values()
+            ) else None
+        last = _BG_QUEUE_RECENT.get(key, 0)
+        if now - last < _BG_QUEUE_DEDUP_SECONDS:
+            return False
+        _BG_QUEUE_RECENT[key] = now
+
+    def _worker():
+        try:
+            result = lookup_price(description=desc)
+            if result:
+                log.info(
+                    "scprs queue_background_lookup hit: desc=%s source=%s price=$%.2f",
+                    desc[:40], source, result.get("price", 0),
+                )
+        except Exception as _e:
+            log.warning("scprs queue_background_lookup failed for %s: %s", desc[:40], _e)
+
+    _threading.Thread(
+        target=_worker, daemon=True,
+        name=f"scprs-bg-{source[:20]}",
+    ).start()
+    return True
+
+
 # ── Diagnostics ────────────────────────────────────────────────────
 
 def test_connection():

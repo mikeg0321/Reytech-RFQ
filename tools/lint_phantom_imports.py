@@ -60,21 +60,23 @@ BASELINE_EXEMPTIONS: set[str] = {
     #   /api/campaigns/*), CAMPAIGNS_AVAILABLE flag in config.py + dashboard.py,
     #   and the 2 templates (voice_campaigns.html, campaign_detail.html)
     #   removed entirely.
+    # Drained in batch 5:
+    #   queue_background_lookup (2 sites) — added as a daemon-thread wrapper
+    #     in scprs_lookup.py with 60s dedup on (description, source).
+    #   _remove_processed_uid (1 site) — phantom import removed; the
+    #     existing JSON fallback IS the real implementation, inlined.
+    #   tax_agent.load_contacts (2 sites) — rewired to _load_crm_contacts
+    #     from routes_intel_ops; iterate .values() (dict → list of contacts).
     "src/agents/orchestrator.py:180:src.agents.product_research:bulk_research",
     "src/agents/orchestrator.py:322:src.agents.lead_gen_agent:scan_for_leads",
     "src/agents/qa_agent.py:2315:src.agents.orchestrator:WorkflowOrchestrator",
-    "src/agents/tax_agent.py:386:src.forms.quote_generator:load_contacts",
-    "src/agents/tax_agent.py:390:src.forms.quote_generator:load_contacts",
     "src/agents/vendor_ordering_agent.py:899:src.knowledge.won_quotes_db:search_pricing",
     "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
     "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:create_quote",
     "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:increment_quote_counter",
     "src/api/modules/routes_intel_ops.py:2602:src.agents.sales_intel:run_deep_pull",
-    "src/api/modules/routes_pricecheck_pricing.py:373:src.agents.scprs_lookup:queue_background_lookup",
     # Drained in batch 2: routes_rfq.load_pcs (2 sites) → _load_price_checks alias.
     # Drained in batch 2: routes_rfq_admin audit_log → src.core.security._log_audit_internal.
-    "src/api/modules/routes_rfq_admin.py:1906:src.api.modules.routes_pricecheck:_remove_processed_uid",
-    "src/api/modules/routes_rfq_gen.py:4314:src.agents.scprs_lookup:queue_background_lookup",
     "src/api/modules/routes_rfq_gen.py:850:src.agents.web_price_research:research_items",
 }
 
