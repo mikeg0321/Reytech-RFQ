@@ -193,6 +193,100 @@ def test_apply_default_explicit_arg_overrides_doc_body():
     assert doc["due_date"] == "2026-04-23"
 
 
+# ── 4c. Subject-line date extraction (2026-05-11 rfq_8efe9fae incident) ────
+# Before this fix, the resolver only looked at body text. Buyers who put the
+# deadline in the SUBJECT (visible at-a-glance in their email inbox listing,
+# the most common place they state it) silently lost to the 2-biz-day fallback.
+# Real incident: rfq_8efe9fae had subject="Medical Supplies RDQ Due Date
+# 5/11/26" but stored due_date=05/08/2026 with source="default".
+
+
+def test_subject_due_date_resolves():
+    """Buyer-stamped subject with 'Due Date X/X/XX' must be picked up."""
+    d, t, src = resolve_or_default(
+        "", "",
+        email_body="",
+        email_subject="Medical Supplies RDQ Due Date 5/11/26",
+    )
+    assert src == "subject"
+    assert d == "2026-05-11"
+
+
+def test_subject_wins_when_body_is_vague():
+    """Subject is more authoritative than body text — a labeled subject date
+    must win when the body has no parseable deadline."""
+    d, t, src = resolve_or_default(
+        "", "",
+        email_body="Please return forms with your quote.",
+        email_subject="RFQ Office Supplies Due Date 04/23/2026",
+    )
+    assert src == "subject"
+    assert d == "2026-04-23"
+
+
+def test_header_still_wins_over_subject():
+    """Header (structured field) is the strongest signal — must beat subject."""
+    d, t, src = resolve_or_default(
+        "04/25/2026", "3:00 PM",
+        email_body="",
+        email_subject="RFQ Due Date 5/11/26",
+    )
+    assert src == "header"
+    assert d == "04/25/2026"
+
+
+def test_body_wins_when_subject_has_no_date():
+    """When the subject doesn't carry a date, body extraction still fires."""
+    d, t, src = resolve_or_default(
+        "", "",
+        email_body="Please respond by 05/01/2026",
+        email_subject="RFQ - Medical Supplies",
+    )
+    assert src == "email"
+    assert d == "2026-05-01"
+
+
+def test_apply_default_reads_email_subject_from_doc():
+    """email_subject on the doc must feed the subject path automatically."""
+    doc = {
+        "id": "rfq_8efe9fae", "status": "parsed", "due_date": "",
+        "email_subject": "Medical Supplies RDQ Due Date 5/11/26",
+        "body_text": "Please return forms in your company's bid package.",
+    }
+    src = apply_default_if_missing(doc)
+    assert src == "subject"
+    assert doc["due_date"] == "2026-05-11"
+    assert doc["due_date_source"] == "subject"
+
+
+def test_apply_default_subject_priority_over_body():
+    """Both subject AND body have parseable dates — subject must win."""
+    doc = {
+        "id": "rfq_x", "status": "new", "due_date": "",
+        "email_subject": "RFQ Due Date 5/11/26",
+        "body_text": "Please respond by 06/01/2026",
+    }
+    src = apply_default_if_missing(doc)
+    assert src == "subject"
+    assert doc["due_date"] == "2026-05-11"
+
+
+def test_re_resolve_default_upgrades_to_subject():
+    """A record currently stamped 'default' with a parseable email_subject
+    must upgrade to 'subject' on re-resolution (i.e., the startup backfill)."""
+    doc = {
+        "id": "rfq_x",
+        "status": "parsed",
+        "due_date": "05/08/2026",
+        "due_date_source": "default",
+        "email_subject": "Medical Supplies RDQ Due Date 5/11/26",
+    }
+    new_src = re_resolve_default(doc)
+    assert new_src == "subject"
+    assert doc["due_date"] == "2026-05-11"
+    assert doc["due_date_source"] == "subject"
+
+
 # ── 4c. re_resolve_default — re-run on stale default stamps ─────────────────
 # Records stamped `due_date_source == "default"` represent "app didn't know
 # yet." If a real body text / header date arrives later, we want to upgrade.
