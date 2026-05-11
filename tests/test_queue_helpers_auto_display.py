@@ -134,3 +134,94 @@ def test_resolve_display_number_pattern_matches_existing_prod_records():
     assert not _AUTO_NUMBER_RE.match("AUTO_")
     assert not _AUTO_NUMBER_RE.match("AUTODRAFT")
     assert not _AUTO_NUMBER_RE.match("auto_db670ad9_extra")
+
+
+# ─── 2026-05-11 Mike P0 — placeholder + email_subject substitution ───────
+#
+# Two RFQs from Keith Alsing on prod:
+#   rfq_7813c4e1: solicitation_number="RFQ Flushable Wipes 4.28", sent
+#   rfq_8efe9fae: solicitation_number="WORKSHEET", email_subject=
+#                 "Medical Supplies RDQ Due Date 5/11/26", parsed (active)
+# Both rendered as "WORKSHEET / Keith Alsing" in the active queue
+# (the sent one in Sent/Completed, the new one above). Mike thought they
+# were duplicates because the visual labels were identical. The new one
+# is a real, distinct RFQ with different items.
+
+
+def test_rfq_worksheet_placeholder_substitutes_email_subject():
+    """When solicitation_number/rfq_number is "WORKSHEET" but email_subject
+    is populated, surface the subject as the row label so identical
+    placeholders from the same buyer don't look indistinguishable."""
+    raw = {
+        "solicitation_number": "WORKSHEET",
+        "rfq_number": "WORKSHEET",
+        "email_subject": "Medical Supplies RDQ Due Date 5/11/26",
+        "requestor_name": "Keith Alsing",
+        "status": "parsed",
+    }
+    out = normalize_queue_item(raw, "rfq", "rfq_8efe9fae")
+    assert out["number"] == "Medical Supplies RDQ Due Date 5/11/26"
+
+
+def test_rfq_good_placeholder_substitutes_email_subject():
+    """Same fallback for the "GOOD" placeholder (another legacy
+    parser-derived garbage value)."""
+    raw = {
+        "solicitation_number": "GOOD",
+        "email_subject": "RFQ - Diabetic Test Strips",
+        "status": "new",
+    }
+    out = normalize_queue_item(raw, "rfq", "rfq_test")
+    assert out["number"] == "RFQ - Diabetic Test Strips"
+
+
+def test_pc_worksheet_falls_back_to_pdf_when_no_subject():
+    """When the row has no email_subject but has source_pdf, use the PDF
+    filename title (the original AUTO_ cascade still works for
+    WORKSHEET/GOOD/etc)."""
+    raw = {
+        "pc_number": "WORKSHEET",
+        "source_pdf": "/data/attachments/AMS 704 - Penlight Order.pdf",
+        "status": "new",
+    }
+    out = normalize_queue_item(raw, "pc", "pc_w1")
+    assert out["number"] == "Penlight Order"
+
+
+def test_placeholder_long_subject_truncates_to_60ch():
+    """Some subjects are wildly long (full forwarded email chain); keep
+    the queue cell readable at ~50ch by capping at 60ch."""
+    long_subject = "RFQ for the procurement of medical supplies including " * 5
+    raw = {
+        "rfq_number": "WORKSHEET",
+        "email_subject": long_subject,
+        "status": "new",
+    }
+    out = normalize_queue_item(raw, "rfq", "rfq_long")
+    assert len(out["number"]) == 60
+    assert out["number"] == long_subject[:60]
+
+
+def test_real_number_never_overridden_by_subject():
+    """Substitution must NEVER fire for real numbers — a real R26Q42
+    RFQ with an email_subject must still display R26Q42, not the
+    subject line."""
+    raw = {
+        "solicitation_number": "R26Q42",
+        "email_subject": "RFQ - Diabetic Test Strips",
+        "status": "sent",
+    }
+    out = normalize_queue_item(raw, "rfq", "rfq_real")
+    assert out["number"] == "R26Q42"
+
+
+def test_unknown_placeholder_substitutes_email_subject():
+    """The "unknown" placeholder (from email-poller fallback path) gets
+    the same treatment — operator-readable label instead of generic word."""
+    raw = {
+        "rfq_number": "unknown",
+        "email_subject": "Emergency PPE Quote Needed",
+        "status": "parsed",
+    }
+    out = normalize_queue_item(raw, "rfq", "rfq_u1")
+    assert out["number"] == "Emergency PPE Quote Needed"
