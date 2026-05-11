@@ -54,6 +54,31 @@ class TestQueueBackgroundLookupExists:
         assert first is True
         assert second is False
 
+    def test_gc_prunes_stale_entries_under_pressure(self):
+        """When the recent-queue dict grows past the watermark, stale
+        entries must be removed (the broken prior impl only cleared
+        when zero entries were fresh, so under sustained activity the
+        dict grew unbounded)."""
+        from src.agents import scprs_lookup as sl
+        with sl._BG_QUEUE_LOCK:
+            sl._BG_QUEUE_RECENT.clear()
+            now = _time.time()
+            # 250 stale + 5 fresh = 255 entries, all over the watermark
+            for i in range(250):
+                sl._BG_QUEUE_RECENT[f"stale-{i}"] = now - sl._BG_QUEUE_DEDUP_SECONDS - 10
+            for i in range(5):
+                sl._BG_QUEUE_RECENT[f"fresh-{i}"] = now
+
+        # Trigger GC by adding a new entry — only fresh keys should remain
+        sl.queue_background_lookup("trigger-gc-pass", source="pytest")
+        with sl._BG_QUEUE_LOCK:
+            remaining = list(sl._BG_QUEUE_RECENT.keys())
+        assert all(not k.startswith("stale-") for k in remaining), \
+            f"GC failed to prune stale entries; remaining: {remaining[:10]}"
+        # All 5 fresh entries should still be there
+        fresh_remaining = [k for k in remaining if k.startswith("fresh-")]
+        assert len(fresh_remaining) == 5
+
 
 class TestDismissedPcUsesRealQueue:
     def test_routes_pricecheck_pricing_imports_real_name(self):

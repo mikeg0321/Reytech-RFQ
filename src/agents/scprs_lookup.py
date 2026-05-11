@@ -985,12 +985,15 @@ def queue_background_lookup(description: str, source: str = "") -> bool:
     key = f"{desc.lower()}|{source}"
     now = _bg_time.time()
     with _BG_QUEUE_LOCK:
-        # Garbage-collect old entries opportunistically
+        # GC: prune stale entries individually whenever the dict grows
+        # past the watermark. The prior implementation only cleared when
+        # zero entries were fresh, which under sustained activity meant
+        # the dict never shrank.
         if len(_BG_QUEUE_RECENT) > 200:
             cutoff = now - _BG_QUEUE_DEDUP_SECONDS
-            _BG_QUEUE_RECENT.clear() if not any(
-                t > cutoff for t in _BG_QUEUE_RECENT.values()
-            ) else None
+            stale = [k for k, t in _BG_QUEUE_RECENT.items() if t <= cutoff]
+            for k in stale:
+                del _BG_QUEUE_RECENT[k]
         last = _BG_QUEUE_RECENT.get(key, 0)
         if now - last < _BG_QUEUE_DEDUP_SECONDS:
             return False
