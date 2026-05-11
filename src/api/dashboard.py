@@ -6000,6 +6000,17 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Oracle V4 weekly reporter failed to start: %s", _e)
 
+    # ── Start Cross-Sell Weekly Digest (Mike P0 2026-05-11 #2 Phase 2b) ─
+    try:
+        import src.agents.cross_sell_digest as _csd_mod
+        _csd_mod.start_weekly_digest_scheduler()
+        from src.core.scheduler import register_restartable as _rr
+        _rr("cross-sell-weekly-digest", 86400, _csd_mod,
+            "_scheduler_started", _csd_mod.start_weekly_digest_scheduler)
+        log.info("Cross-sell weekly digest started (Mondays 8am PT, restartable)")
+    except Exception as _e:
+        log.warning("Cross-sell weekly digest failed to start: %s", _e)
+
     # ── Start Quote Lifecycle (auto-expire, follow-up triggers) ──────────────
     try:
         import src.agents.quote_lifecycle as _ql_mod
