@@ -5,26 +5,49 @@ _AUTO_NUMBER_RE = re.compile(r"^AUTO_[0-9a-f]+$", re.IGNORECASE)
 
 
 def _resolve_display_number(number, raw):
-    """If `number` is a placeholder AUTO_<hex> id, try to substitute the
-    attachment-derived title so the queue shows something human-readable.
+    """If `number` is a placeholder (AUTO_<hex>, WORKSHEET, GOOD, RFQ, etc),
+    substitute a human-readable label so two placeholder rows from the same
+    buyer don't look visually identical.
 
     Surface #17 follow-on (2026-05-05): PR #727 wired the cascade at ingest,
     but PCs/RFQs ingested before that fix still display AUTO_db670ad9 etc.
     on the queue. This is read-side only — the underlying record's
     pc_number / rfq_number is left intact (it's the canonical id; URL routing
     uses item_id which is independent).
+
+    2026-05-11 (Mike P0): two WORKSHEET RFQs from the same buyer (Keith Alsing,
+    one sent / one new) were visually indistinguishable on the queue, so Mike
+    thought the new one was a phantom of the sent one. Substitute the email
+    subject (the most differentiated signal at parse time) when the number is
+    any placeholder — AUTO_ + WORKSHEET/GOOD/RFQ/unknown/etc.
+
+    Resolution order: email_subject → attachment filename → original placeholder.
     """
-    if not number or not _AUTO_NUMBER_RE.match(str(number)):
+    s = str(number or "").strip()
+    is_auto = bool(s) and bool(_AUTO_NUMBER_RE.match(s))
+    is_placeholder = _is_placeholder_number(s) if not is_auto else True
+    if not is_placeholder:
         return number
+
+    # Prefer email_subject — it's the operator-readable label the buyer
+    # already chose for the thread ("Medical Supplies RDQ Due Date 5/11/26").
+    subject = (raw.get("email_subject") or "").strip()
+    if subject:
+        # Trim absurd-length subjects; the queue cell is ~50ch wide.
+        return subject[:60] if len(subject) > 60 else subject
+
+    # Fall back to attachment-derived title (PR #727 cascade).
     source_pdf = raw.get("source_pdf") or ""
-    if not source_pdf:
-        return number
-    try:
-        from src.core.ingest_pipeline import _attachment_filename_title
-        title = _attachment_filename_title(source_pdf)
-    except Exception:
-        title = ""
-    return title or number
+    if source_pdf:
+        try:
+            from src.core.ingest_pipeline import _attachment_filename_title
+            title = _attachment_filename_title(source_pdf)
+        except Exception:
+            title = ""
+        if title:
+            return title
+
+    return number
 
 
 STATUS_DISPLAY = {
