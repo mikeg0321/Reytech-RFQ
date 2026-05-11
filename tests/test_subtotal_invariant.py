@@ -237,21 +237,35 @@ class TestCanonicalUnitPriceAtRender:
         items = [{"unit_price": 5.00, "quantity": 10}]
         assert subtotal_of(items) == 50.00
 
-    def test_zero_markup_falls_back_to_unit_price_today(self):
-        # KNOWN GAP (pinned 2026-05-11): canonical_unit_price's `or`-chain
-        # treats markup_pct=0.0 as missing because Python `0.0 or X` → X.
-        # A record with cost+markup=0 explicitly set falls back to stored
-        # `unit_price`. `reconcile_line_item` uses `_read_markup` which
-        # handles None vs 0 correctly, but `canonical_unit_price` reads
-        # the `or` chain directly. Tracked as follow-up; rare in prod
-        # because give-away/sample items use `no_bid=True` instead.
+    def test_zero_markup_uses_cost_basis(self):
+        # 2026-05-11 fix: canonical_unit_price honors markup_pct=0.0
+        # as a legitimate value (free / pass-through / cost-only quote).
+        # Pre-fix the `or`-chain treated 0.0 as missing because Python
+        # `0.0 or X` → X. Explicit None-check replaces the falsy chain.
         items = [{
             "qty": 4,
-            "unit_price": 999.99,
+            "unit_price": 999.99,  # stale persisted value
             "pricing": {"unit_cost": 25.00, "markup_pct": 0.0},
         }]
-        # Today's behavior: 999.99 × 4 = 3999.96 (NOT cost-based 100.0).
-        assert subtotal_of(items) == 3999.96
+        # Canonical: cost × (1 + 0/100) × qty = 25 × 4 = 100.0
+        assert subtotal_of(items) == 100.0
+
+    def test_zero_markup_distinct_from_no_markup(self):
+        # Pin the None vs 0.0 distinction. Item A has explicit markup=0
+        # (canonical=25); item B has no markup field at all and a stale
+        # unit_price → falls back to stored unit_price (999.99). The
+        # fallback chain is unchanged; only the markup chain shifted to
+        # explicit None-check.
+        item_zero_markup = {
+            "qty": 1, "unit_price": 999.99,
+            "pricing": {"unit_cost": 25.00, "markup_pct": 0.0},
+        }
+        item_no_markup = {
+            "qty": 1, "unit_price": 999.99,
+            "pricing": {"unit_cost": 25.00},  # no markup field
+        }
+        assert subtotal_of([item_zero_markup]) == 25.0
+        assert subtotal_of([item_no_markup]) == 999.99
 
 
 class TestFill704bInvariant:
