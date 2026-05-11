@@ -229,6 +229,14 @@ class TestCanonicalUnitPriceAtRender:
         items = [{"qty": 10, "unit_price": 12.50}]
         assert subtotal_of(items) == 125.0
 
+    def test_extension_accepts_quantity_alias(self):
+        # quote_generator raw input uses `quantity`; PC uses `qty`. Both
+        # must work. Caught in pre-deploy 2026-05-11 — the predeploy
+        # quote fixture supplied only `quantity` and extension_of
+        # returned 0, failing the "$0 total" contract guard.
+        items = [{"unit_price": 5.00, "quantity": 10}]
+        assert subtotal_of(items) == 50.00
+
     def test_zero_markup_falls_back_to_unit_price_today(self):
         # KNOWN GAP (pinned 2026-05-11): canonical_unit_price's `or`-chain
         # treats markup_pct=0.0 as missing because Python `0.0 or X` → X.

@@ -295,7 +295,13 @@ def extension_of(item: dict) -> float:
         # honor the quote convention here so subtotal_of works for both
         # PC dicts and quote dicts without requiring conversion.
         price = _coerce_float(item.get("price_per_unit")) or 0.0
+    # PC items use `qty`, RFQ/quote inputs use `quantity` before
+    # `_normalize_item` runs. Accept either — `subtotal_of` is called
+    # by render paths that pass raw + normalized items; we must agree
+    # with both shapes.
     qty = _coerce_float(item.get("qty"))
+    if qty is None or qty == 0:
+        qty = _coerce_float(item.get("quantity"))
     if qty is None:
         qty = 0.0
     if price <= 0 or qty <= 0:
