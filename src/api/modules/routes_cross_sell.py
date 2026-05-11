@@ -70,6 +70,39 @@ def api_cross_sell_top_items():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@bp.route("/api/cross-sell/digest/preview")
+@auth_required
+def api_cross_sell_digest_preview():
+    """Render the cross-sell weekly digest payload WITHOUT sending email.
+    For manual testing + verifying what Monday's email will contain."""
+    try:
+        from src.agents.cross_sell_digest import build_digest_body
+        days_back = _int_arg("days_back", 90, 7, 1825)
+        top_n = _int_arg("top_n", 10, 1, 50)
+        out = build_digest_body(window_days=days_back, top_n=top_n)
+        return jsonify(out)
+    except Exception as e:
+        log.error("api_cross_sell_digest_preview failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/cross-sell/digest/send", methods=["POST"])
+@auth_required
+def api_cross_sell_digest_send():
+    """Manual-trigger the cross-sell weekly digest email NOW.
+    Useful for testing before the Monday 8am PT auto-fire kicks in,
+    or for re-sending if the auto-send was missed."""
+    try:
+        from src.agents.cross_sell_digest import send_weekly_digest
+        days_back = _int_arg("days_back", 90, 7, 1825)
+        top_n = _int_arg("top_n", 10, 1, 50)
+        out = send_weekly_digest(window_days=days_back, top_n=top_n)
+        return jsonify(out)
+    except Exception as e:
+        log.error("api_cross_sell_digest_send failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/cross-sell/recommendations")
 @auth_required
 def api_cross_sell_recommendations():
