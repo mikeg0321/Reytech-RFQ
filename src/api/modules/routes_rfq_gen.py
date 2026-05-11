@@ -929,6 +929,40 @@ def _rfq_lookup_single_item_locked(rid, idx):
     })
 
 
+def _build_unmatched_supplier_line(rfq_items: list, q_desc: str, q_pn: str,
+                                   q_qty, q_uom: str, cost: float,
+                                   supplier: str) -> dict:
+    """Build a new RFQ line item from an unmatched supplier-quote item.
+
+    Mike's verbatim rule (2026-05-11): when a supplier-quote item doesn't
+    match an existing RFQ line, append it as a new line rather than silently
+    drop it. The inbound RFQ parser may have missed items (image-only PDF,
+    OCR fallback, etc.); the supplier knows what they're offering.
+
+    Tagged `_added_from_supplier_quote=True` so downstream UI / audit can
+    distinguish supplier-originated lines from buyer-originated ones.
+
+    Returns the line dict. Caller is responsible for appending it to
+    `rfq_items` and adjusting accounting counters.
+    """
+    return {
+        "line_number": len(rfq_items) + 1,
+        "qty": q_qty or 1,
+        "uom": (q_uom or "EA").upper(),
+        "description": q_desc,
+        "item_number": q_pn,
+        "supplier_cost": round(cost, 2),
+        "cost_source": "Supplier Quote",
+        "cost_supplier_name": supplier,
+        "item_supplier": supplier,
+        "price_per_unit": 0,
+        "scprs_last_price": 0,
+        "amazon_price": 0,
+        "_desc_source": "supplier",
+        "_added_from_supplier_quote": True,
+    }
+
+
 @bp.route("/rfq/<rid>/upload-supplier-quote", methods=["POST"])
 @auth_required
 @safe_page
@@ -1229,13 +1263,38 @@ def _rfq_upload_supplier_quote_locked(rid):
                     log.debug("Catalog update from supplier quote: %s", _ce)
 
         else:
+            # 2026-05-11 Mike P0 "verbatim" rule: a supplier-quote item that
+            # doesn't match an existing RFQ line is NOT a parser miss to drop —
+            # it's an item the supplier is offering that the RFQ parser didn't
+            # know about (often because the inbound RFQ PDF was image-only and
+            # OCR fell back to email-body regex, which only catches a subset).
+            # APPEND it as a new RFQ line so the supplier quote lands verbatim.
+            # Operator can still remove it manually if they don't want it.
+            #
+            # Incident: ECHQ1223525 quote had 5 items (Penlight, Razor, Shampoo,
+            # Fingernail Clippers, Laceration Tray). RFQ had 3 items from
+            # email-body fallback (Penlight, Razor, Fingernail Clippers).
+            # Matcher matched the 3; Shampoo + Laceration Tray were silently
+            # dropped. Mike: "if i upload a supplier quote i want it to be verbatim".
             unmatched.append({
                 "description": q_desc,
                 "part_number": q_pn,
                 "unit_price": cost,
                 "qty": q_qty,
             })
-            # Still add unmatched items to catalog
+            # Append as new RFQ line item — verbatim from the supplier quote.
+            # Tag with `_added_from_supplier_quote` so downstream UI / audit
+            # can show that this line came from the supplier, not the buyer.
+            if cost > 0 and q_desc:
+                new_line = _build_unmatched_supplier_line(
+                    rfq_items, q_desc, q_pn, q_qty, q_uom, cost, supplier,
+                )
+                rfq_items.append(new_line)
+                applied += 1
+                desc_upgraded += 1
+
+            # Catalog update (unchanged from before — supplier prices land in
+            # the catalog regardless of whether the item landed on this RFQ).
             if cost > 0 and q_desc:
                 try:
                     from src.agents.product_catalog import (
