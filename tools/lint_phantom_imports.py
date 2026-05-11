@@ -47,19 +47,19 @@ BASELINE_EXEMPTIONS: set[str] = {
     # Drained in batch 2: email_poller order-win flow (4 sites) — module
     # was db_dal phantom; real homes: src.forms.quote_generator (update_quote_status)
     # and src.core.db (log_revenue/record_price); CRM activity → _log_crm_activity.
-    "src/agents/oracle_weekly.py:71:src.core.intel_categories:iter_categories",
+    # Drained in batch 3:
+    #   oracle_weekly iter_categories → all_categories().items()
+    #   sales_intel qb_agent → quickbooks_agent (is_configured as qb_configured)
+    #   scprs_scanner + routes_intel_ops:2266 get_all_items → load_won_quotes
+    #   routes_catalog_finance fetch_payments → get_recent_payments as fetch_payments
+    #   routes_prd28 data_path → pathlib.Path(DATA_DIR) / ...
     "src/agents/orchestrator.py:180:src.agents.product_research:bulk_research",
     "src/agents/orchestrator.py:322:src.agents.lead_gen_agent:scan_for_leads",
     "src/agents/qa_agent.py:2315:src.agents.orchestrator:WorkflowOrchestrator",
-    "src/agents/sales_intel.py:610:src.agents.qb_agent:get_financial_context",
-    "src/agents/sales_intel.py:610:src.agents.qb_agent:qb_configured",
-    "src/agents/scprs_scanner.py:264:src.knowledge.won_quotes_db:get_all_items",
     "src/agents/tax_agent.py:386:src.forms.quote_generator:load_contacts",
     "src/agents/tax_agent.py:390:src.forms.quote_generator:load_contacts",
     "src/agents/vendor_ordering_agent.py:899:src.knowledge.won_quotes_db:search_pricing",
     "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
-    "src/api/modules/routes_catalog_finance.py:3283:src.agents.quickbooks_agent:fetch_payments",
-    "src/api/modules/routes_intel_ops.py:2266:src.knowledge.won_quotes_db:get_all_items",
     "src/api/modules/routes_intel_ops.py:2470:src.forms.quote_generator:create_quote",
     "src/api/modules/routes_intel_ops.py:2470:src.forms.quote_generator:increment_quote_counter",
     "src/api/modules/routes_intel_ops.py:2612:src.agents.sales_intel:run_deep_pull",
@@ -70,8 +70,6 @@ BASELINE_EXEMPTIONS: set[str] = {
     "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:get_campaigns",
     "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:list_scripts",
     "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:update_call_outcome",
-    "src/api/modules/routes_prd28.py:1067:src.core.paths:data_path",
-    "src/api/modules/routes_prd28.py:1110:src.core.paths:data_path",
     "src/api/modules/routes_pricecheck_pricing.py:373:src.agents.scprs_lookup:queue_background_lookup",
     # Drained in batch 2: routes_rfq.load_pcs (2 sites) → _load_price_checks alias.
     # Drained in batch 2: routes_rfq_admin audit_log → src.core.security._log_audit_internal.

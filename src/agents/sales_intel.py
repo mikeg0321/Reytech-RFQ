@@ -607,13 +607,16 @@ def update_revenue_tracker() -> dict:
     # QB collected — still surfaced as a separate display field.
     qb_revenue = 0
     try:
-        from src.agents.qb_agent import get_financial_context, qb_configured
+        from src.agents.quickbooks_agent import (
+            get_financial_context,
+            is_configured as qb_configured,
+        )
         if qb_configured():
             ctx = get_financial_context()
             if ctx.get("ok"):
                 qb_revenue = ctx.get("total_collected", 0)
     except Exception as _e:
-        log.debug("suppressed: %s", _e)
+        log.warning("sales_intel qb_revenue lookup failed: %s", _e)
 
     manual_total = sum(e.get("amount", 0) for e in revenue.get("manual_entries", []))
 

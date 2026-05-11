@@ -261,9 +261,10 @@ class SCPRSScanner:
     def _load_won_history(self) -> list:
         """Load won quotes for lead matching."""
         try:
-            from src.knowledge.won_quotes_db import get_all_items
-            return get_all_items()
-        except Exception:
+            from src.knowledge.won_quotes_db import load_won_quotes
+            return load_won_quotes()
+        except Exception as _e:
+            log.warning("scprs_scanner _load_won_history failed: %s", _e)
             return []
 
     @property
