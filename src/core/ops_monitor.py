@@ -188,7 +188,8 @@ def run_nightly_verification(data_dir: str = None) -> dict:
             try:
                 count = conn.execute(f"SELECT COUNT(*) FROM [{table}]").fetchone()[0]
                 result["checks"][f"{table}_count"] = count
-            except Exception:
+            except Exception as _ce:
+                log.warning("ops-monitor backup row_count failed for %s: %s", table, _ce)
                 result["checks"][f"{table}_count"] = -1
         conn.close()
     except Exception as e:
@@ -516,7 +517,8 @@ def check_db_health(data_dir: str = None) -> dict:
             try:
                 count = conn.execute(f"SELECT COUNT(*) FROM [{row[0]}]").fetchone()[0]
                 tables[row[0]] = count
-            except Exception:
+            except Exception as _ce:
+                log.warning("ops-monitor row_count failed for %s: %s", row[0], _ce)
                 tables[row[0]] = -1
         result["tables"] = tables
 

@@ -326,7 +326,8 @@ def api_v1_health():
                 try:
                     cnt = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                     db_info["row_counts"][t] = cnt
-                except Exception:
+                except Exception as _ce:
+                    log.warning("v1-health row_count failed for %s: %s", t, _ce)
                     db_info["row_counts"][t] = -1
             conn.close()
         except Exception as e:

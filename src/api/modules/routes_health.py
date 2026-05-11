@@ -2707,7 +2707,8 @@ def db_bloat_json():
                     cnt = conn.execute(
                         f"SELECT COUNT(*) FROM {t}"
                     ).fetchone()[0]
-                except Exception:
+                except Exception as _ce:
+                    log.warning("db-bloat row_count failed for %s: %s", t, _ce)
                     cnt = -1
                 entry = {"table": t, "row_count": cnt}
                 if t in dbstat_sizes:
