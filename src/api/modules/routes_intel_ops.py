@@ -2595,12 +2595,22 @@ def _scprs_scheduler_loop(cron_expr: str = "", run_now: bool = False, schedules:
 
 
 def _run_scheduled_scprs_pull():
-    """Execute a SCPRS deep pull and auto-sync to CRM."""
+    """Execute a SCPRS deep pull and auto-sync to CRM.
+
+    Was silently no-op'ing — the previous code imported `run_deep_pull`
+    from sales_intel, which never existed (real name is
+    `deep_pull_all_buyers`). The ImportError was swallowed; every Mon
+    7am + Wed 10am scheduled pull silently set _scprs_scheduler_state
+    error and returned. Sales-intel buyer/agency data hasn't refreshed
+    via this path for an unknown duration.
+    """
     _scprs_scheduler_state["last_run"] = datetime.now().isoformat()
     try:
         if INTEL_AVAILABLE:
-            from src.agents.sales_intel import run_deep_pull
-            result = run_deep_pull(max_items=200)
+            from src.agents.sales_intel import deep_pull_all_buyers
+            # max_items=200 (prior intent) maps to max_queries=200 on the
+            # real API — both cap the upper bound of the pull's scope.
+            result = deep_pull_all_buyers(max_queries=200)
             log.info("Scheduled SCPRS pull: %s", result)
             # Auto-sync to CRM
             if result.get("ok"):
@@ -2608,7 +2618,7 @@ def _run_scheduled_scprs_pull():
                 log.info("Scheduled SCPRS pull: CRM sync complete")
             _scprs_scheduler_state["result"] = result
     except Exception as e:
-
+        log.warning("Scheduled SCPRS deep pull failed: %s", e)
         _scprs_scheduler_state["error"] = str(e)
 
 
