@@ -152,7 +152,8 @@ def _check_table_health() -> dict:
                     f"SELECT COUNT(*) as cnt FROM {table}"
                 ).fetchone()
                 results[table] = row["cnt"]
-            except Exception:
+            except Exception as _ce:
+                log.warning("data-integrity row_count failed for %s: %s", table, _ce)
                 missing.append(table)
                 results[table] = -1
         
