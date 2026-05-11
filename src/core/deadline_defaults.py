@@ -32,6 +32,14 @@ _SENT_STATUSES = {"sent", "won", "lost", "dismissed", "archived", "expired", "pe
 # key. Checked in `_doc_email_body` when caller doesn't pass an explicit body.
 _BODY_KEYS = ("email_body", "body_text", "body", "body_preview", "original_email_body")
 
+# Subject-line keys checked in order. The subject is often the most specific
+# place a buyer states the deadline ("Medical Supplies RDQ Due Date 5/11/26")
+# because it's a chronic email-listing UX where buyers want it visible at a
+# glance. Pre-2026-05-11 the resolver only checked body text; subject-stamped
+# deadlines were silently lost and the 2-biz-day fallback won (incident
+# rfq_8efe9fae — subject said due 5/11 but record stamped 5/8 default).
+_SUBJECT_KEYS = ("email_subject", "subject", "subject_line", "email_subject_line")
+
 
 def _doc_email_body(doc: dict) -> str:
     """Pick the first non-empty body field on a PC/RFQ dict.
@@ -41,6 +49,19 @@ def _doc_email_body(doc: dict) -> str:
     misses the email-extracted due date and the 2-biz-day fallback wins.
     """
     for k in _BODY_KEYS:
+        v = doc.get(k)
+        if v and str(v).strip():
+            return str(v)
+    return ""
+
+
+def _doc_email_subject(doc: dict) -> str:
+    """Pick the first non-empty subject field on a PC/RFQ dict.
+
+    Mirrors `_doc_email_body` shape. Used by `apply_default_if_missing` so
+    callers don't need to know which key the subject lives under.
+    """
+    for k in _SUBJECT_KEYS:
         v = doc.get(k)
         if v and str(v).strip():
             return str(v)
@@ -84,26 +105,61 @@ def resolve_or_default(
     header_time: str,
     email_body: str = "",
     now: datetime | None = None,
+    email_subject: str = "",
 ) -> tuple[str, str, str]:
     """Resolve a deadline (date_str, time_str, source).
 
-    source ∈ {"header", "email", "default"}. Caller is expected to persist
-    all three fields so downstream UI can show *why* a given due date is set.
+    source ∈ {"header", "subject", "email", "default"}.
+
+    Precedence (most-trustworthy first):
+      1. header — structured field from the PDF or buyer-pasted header
+      2. subject — buyer's email subject (often "RFQ X Due Date 5/11/26")
+      3. email — email body free text (verb / labeled patterns)
+      4. default — 2 business days @ 2:00 PM PST fallback
+
+    Subject was added 2026-05-11 (incident rfq_8efe9fae). Before this, only
+    the body was checked; a subject-stamped deadline silently lost to the
+    2-biz-day default. The subject lives between header and body in the
+    trust hierarchy because:
+      - It's where buyers most commonly state the deadline (visible in
+        their inbox listing — high social cost to mis-typing)
+      - But it's plain prose, not a structured form field
     """
     if header_date and header_date.strip():
         return header_date.strip(), (header_time or "").strip(), "header"
 
-    if email_body:
+    # Lazy-import once; reused for both subject and body passes.
+    _extract_due_date = None
+    _extract_due_time = None
+    try:
+        from src.agents.requirement_extractor import (
+            _extract_due_date as _edd, _extract_due_time as _edt,
+        )
+        _extract_due_date = _edd
+        _extract_due_time = _edt
+    except Exception as e:
+        log.debug("email extractor unavailable: %s", e)
+
+    if email_subject and _extract_due_date is not None:
         try:
-            from src.agents.requirement_extractor import _extract_due_date, _extract_due_time
-            ext_date = _extract_due_date(email_body)
-            ext_time = _extract_due_time(email_body) if ext_date else ""
+            ext_date = _extract_due_date(email_subject)
+            ext_time = _extract_due_time(email_subject) if ext_date else ""
         except Exception as e:
-            log.debug("email extractor unavailable: %s", e)
+            log.debug("subject extract failed: %s", e)
             ext_date = ""
             ext_time = ""
         if ext_date:
-            # _extract_due_date returns YYYY-MM-DD; leave as-is, parser accepts it.
+            return ext_date, ext_time, "subject"
+
+    if email_body and _extract_due_date is not None:
+        try:
+            ext_date = _extract_due_date(email_body)
+            ext_time = _extract_due_time(email_body) if ext_date else ""
+        except Exception as e:
+            log.debug("body extract failed: %s", e)
+            ext_date = ""
+            ext_time = ""
+        if ext_date:
             return ext_date, ext_time, "email"
 
     d, t = compute_default_deadline(now=now)
@@ -129,10 +185,12 @@ def apply_default_if_missing(doc: dict, email_body: str | None = None) -> str | 
         return None
     header = doc.get("header") or {}
     body = email_body if email_body is not None else _doc_email_body(doc)
+    subject = _doc_email_subject(doc)
     date, time_, source = resolve_or_default(
         header.get("due_date", "") or doc.get("due_date", ""),
         header.get("due_time", "") or doc.get("due_time", ""),
         email_body=body,
+        email_subject=subject,
     )
     doc["due_date"] = date
     if time_:
