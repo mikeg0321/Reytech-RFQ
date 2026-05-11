@@ -385,11 +385,16 @@ def health_check():
     except Exception:
         checks["active_rfqs"] = -1
     try:
-        from src.api.dashboard import load_price_checks
-        pcs = load_price_checks()
+        # Bug pre-#860: imported `load_price_checks` (no underscore) which
+        # never existed — every /health call silently set active_pcs=-1.
+        # The canonical loader is `_load_price_checks` in data_layer.py,
+        # re-exported through dashboard.py.
+        from src.api.dashboard import _load_price_checks
+        pcs = _load_price_checks() or {}
         active_pcs = {k: v for k, v in pcs.items() if v.get("status") not in ("dismissed", "duplicate", "archived")}
         checks["active_pcs"] = len(active_pcs)
-    except Exception:
+    except Exception as _e:
+        log.warning("/health active_pcs count failed: %s", _e)
         checks["active_pcs"] = -1
     code = 200 if checks["status"] == "ok" else 503
     return jsonify(checks), code
