@@ -2159,15 +2159,24 @@ class EmailPoller:
                                           "won_via_email",
                                           f"PO {po_number or '?'} detected via email — "
                                           f"${po_total or 0:,.2f} from {po_agency}"))
-                                    # Also close the quote in quotes table
-                                    _wc = _aconn.execute("""
-                                        UPDATE quotes SET status='won',
-                                            status_notes=?, closed_by_agent='email_poller',
-                                            updated_at=?
-                                        WHERE quote_number=? AND status='sent'
-                                    """, (f"PO {po_number} received via email",
-                                          datetime.now().isoformat(), matched_quote))
-                                    _won_rowcount = _wc.rowcount or 0
+                                    # Also close the quote in quotes table.
+                                    # PR-η Phase 4 (2026-05-11): atomic helper with
+                                    # expected_prev='sent' preserves the race-fence
+                                    # against operator manual marks made between
+                                    # email arrival + this write.
+                                    from src.core.quote_lifecycle_shared import set_quote_status_atomic
+                                    _ok = set_quote_status_atomic(
+                                        quote_id=matched_quote,
+                                        new_status="won",
+                                        expected_prev="sent",
+                                        source="email_poller.po_email",
+                                        extra_columns={
+                                            "status_notes": f"PO {po_number} received via email",
+                                            "closed_by_agent": "email_poller",
+                                            "updated_at": datetime.now().isoformat(),
+                                        },
+                                    )
+                                    _won_rowcount = 1 if _ok else 0
                                     _aconn.commit()
                                     _aconn.close()
                                     POLL_STATUS["pos_detected"] = POLL_STATUS.get("pos_detected", 0) + 1

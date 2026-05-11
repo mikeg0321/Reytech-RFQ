@@ -99,20 +99,43 @@ class TestSqlSiteGuards:
             "overwritten."
         )
 
-    def test_scprs_intelligence_engine_has_sent_guard(self):
+    def test_scprs_intelligence_engine_uses_atomic_helper(self):
+        # PR-η Phase 4 (2026-05-11): migrated from raw `WHERE id=? AND
+        # status='sent'` to set_quote_status_atomic with
+        # expected_prev='sent'. The atomic helper's expected_prev IS the
+        # canonical race-fence — its single-statement UPDATE with that
+        # guard is equivalent to the old raw SQL.
         body = self._read("src/agents/scprs_intelligence_engine.py")
-        # The auto-close-lost UPDATE must guard on status='sent'
-        assert "WHERE id=? AND status='sent'" in body, (
-            "scprs_intelligence_engine.py auto-close UPDATE must guard "
-            "on status='sent' so it can't overwrite a manual mark."
+        assert "set_quote_status_atomic(" in body, (
+            "scprs_intelligence_engine.py must route status flips "
+            "through set_quote_status_atomic (PR-η Phase 4)."
+        )
+        assert 'expected_prev="sent"' in body, (
+            "scprs_intelligence_engine.py status flip must pass "
+            "expected_prev='sent' to preserve the race-fence."
         )
 
-    def test_scprs_universal_pull_has_sent_guard(self):
+    def test_scprs_universal_pull_uses_atomic_helper(self):
         body = self._read("src/agents/scprs_universal_pull.py")
-        assert "WHERE id=? AND status='sent'" in body, (
-            "scprs_universal_pull.py auto-close UPDATE must guard on "
-            "status='sent' so it can't overwrite a manual mark."
+        assert "set_quote_status_atomic(" in body, (
+            "scprs_universal_pull.py must route status flips through "
+            "set_quote_status_atomic (PR-η Phase 4)."
         )
+        assert 'expected_prev="sent"' in body, (
+            "scprs_universal_pull.py status flip must pass "
+            "expected_prev='sent' to preserve the race-fence."
+        )
+
+    def test_email_poller_uses_atomic_helper(self):
+        # PR-η Phase 4 (2026-05-11): PO-via-email won detection.
+        body = self._read("src/agents/email_poller.py")
+        assert "set_quote_status_atomic(" in body, (
+            "email_poller.py PO-via-email won path must route through "
+            "set_quote_status_atomic (PR-η Phase 4)."
+        )
+        # email_poller has multiple callers; the won-via-email one must
+        # use expected_prev='sent'.
+        assert 'expected_prev="sent"' in body
 
 
 class TestForbiddenPrev:

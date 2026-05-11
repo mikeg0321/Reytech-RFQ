@@ -282,18 +282,26 @@ def check_quotes_against_scprs() -> dict:
 
             if matching_pos:
                 winner = dict(matching_pos[0])
-                # Auto-close the quote. Phase 0.4 race fence: only flip from 'sent' —
-                # never overwrite a manual operator mark of won/lost.
-                conn.execute("""
-                    UPDATE quotes SET status='closed_lost',
-                        status_notes=?, updated_at=?
-                    WHERE id=? AND status='sent'
-                """, (
-                    f"SCPRS: {winner['supplier']} awarded PO {winner['po_number']} "
-                    f"on {winner['start_date']} — ${winner['grand_total']:,.0f}. "
-                    f"Their price: ${winner['unit_price'] or 0:.2f}/{winner['description'][:40]}",
-                    now, q_dict["id"]
-                ))
+                # Auto-close the quote. Phase 0.4 race fence preserved.
+                # PR-η Phase 4 (2026-05-11): atomic helper with
+                # expected_prev='sent'. Original WHERE used id (row PK);
+                # helper uses quote_number which is also unique and is
+                # already in the SELECT at line 227.
+                from src.core.quote_lifecycle_shared import set_quote_status_atomic
+                set_quote_status_atomic(
+                    quote_id=q_dict["quote_number"],
+                    new_status="closed_lost",
+                    expected_prev="sent",
+                    source="scprs_universal_pull.competitor_won",
+                    extra_columns={
+                        "status_notes": (
+                            f"SCPRS: {winner['supplier']} awarded PO {winner['po_number']} "
+                            f"on {winner['start_date']} — ${winner['grand_total']:,.0f}. "
+                            f"Their price: ${winner['unit_price'] or 0:.2f}/{winner['description'][:40]}"
+                        ),
+                        "updated_at": now,
+                    },
+                )
 
                 # Record price intelligence
                 for po_row in matching_pos[:3]:
