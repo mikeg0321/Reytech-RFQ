@@ -1094,6 +1094,15 @@ def _update_existing_record(
             pc["items"] = _merge_items_preserving_pricing(
                 pc.get("items") or [], items,
             )
+            # PR-ε (2026-05-11): re-parse can introduce cost/markup/price
+            # drift if the merged item dict carries one alias but not another.
+            # Run the canonical reconciler so the saved record stays coherent
+            # with what canonical_unit_price will read at render time.
+            try:
+                from src.core.pricing_math import reconcile_items as _reconcile_reparse
+                _reconcile_reparse(pc["items"])
+            except Exception as _re:
+                log.debug("reparse PC: reconcile_items suppressed: %s", _re)
         if primary_path:
             pc["source_pdf"] = primary_path
         # PR-A 2026-05-07: append the new message_id to the thread's
@@ -1128,6 +1137,14 @@ def _update_existing_record(
             rfq["line_items"] = _merge_items_preserving_pricing(
                 rfq.get("line_items") or [], items,
             )
+            # PR-ε (2026-05-11): twin of the PC re-parse reconcile call
+            # above. RFQ re-parse merges items the same way and needs the
+            # same canonical-coherence pass.
+            try:
+                from src.core.pricing_math import reconcile_items as _reconcile_reparse_rfq
+                _reconcile_reparse_rfq(rfq["line_items"])
+            except Exception as _re:
+                log.debug("reparse RFQ: reconcile_items suppressed: %s", _re)
         if primary_path:
             rfq["source_pdf"] = primary_path
             # Register the uploaded file under rfq["templates"] so the
