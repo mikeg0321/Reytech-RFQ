@@ -4318,7 +4318,7 @@ def _api_rfq_dismiss_locked(rid):
                     queue_background_lookup(desc, source=f"dismissed_rfq_{rid}")
             scprs_queued = True
         except Exception as _e:
-            log.debug("Suppressed: %s", _e)
+            log.warning("SCPRS queue for dismissed RFQ failed: %s", _e)
     
     return jsonify({
         "ok": True,

@@ -377,7 +377,7 @@ def _api_pricecheck_dismiss_locked(pcid):
                     queue_background_lookup(desc, source=f"dismissed_pc_{pcid}")
             scprs_queued = True
         except Exception as e:
-            log.debug("SCPRS queue for dismissed PC: %s", e)
+            log.warning("SCPRS queue for dismissed PC failed: %s", e)
     
     return jsonify({
         "ok": True,

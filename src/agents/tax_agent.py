@@ -381,16 +381,15 @@ def seed_known_locations():
     Run this periodically to keep cache warm.
     Returns list of results.
     """
-    # Import CRM contacts
+    # Import CRM contacts. `load_contacts` never existed in
+    # src.forms.quote_generator; the real source is the CRM contacts
+    # dict {contact_id: contact_dict} loaded by _load_crm_contacts.
+    contacts = []
     try:
-        from src.forms.quote_generator import load_contacts
-        contacts = load_contacts()
-    except ImportError:
-        try:
-            from src.forms.quote_generator import load_contacts
-            contacts = load_contacts()
-        except Exception:
-            contacts = []
+        from src.api.modules.routes_intel_ops import _load_crm_contacts
+        contacts = list(_load_crm_contacts().values())
+    except Exception as _e:
+        log.warning("tax_agent seed_known_locations CRM load failed: %s", _e)
 
     results = []
     for c in contacts:

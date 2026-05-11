@@ -1900,26 +1900,23 @@ def api_nuke_rfq(rid):
         except Exception as e:
             log.warning("Nuke SQLite cleanup for %s: %s", rfq_id, e)
 
-        # 3. Remove email UID from processed list
+        # 3. Remove email UID from processed list.
+        # _remove_processed_uid never existed in routes_pricecheck (phantom
+        # import); the JSON-file path below is the real implementation.
         if email_uid:
+            proc_file = os.path.join(DATA_DIR, "processed_emails.json")
             try:
-                from src.api.modules.routes_pricecheck import _remove_processed_uid
-                _remove_processed_uid(email_uid)
-            except Exception:
-                # Manual fallback
-                proc_file = os.path.join(DATA_DIR, "processed_emails.json")
-                try:
-                    if os.path.exists(proc_file):
-                        with open(proc_file) as f:
-                            processed = _json.load(f)
-                        if isinstance(processed, list) and email_uid in processed:
-                            processed.remove(email_uid)
-                        elif isinstance(processed, dict) and email_uid in processed:
-                            del processed[email_uid]
-                        with open(proc_file, "w") as f:
-                            _json.dump(processed, f)
-                except Exception as _e:
-                    log.debug('suppressed in api_nuke_rfq: %s', _e)
+                if os.path.exists(proc_file):
+                    with open(proc_file) as f:
+                        processed = _json.load(f)
+                    if isinstance(processed, list) and email_uid in processed:
+                        processed.remove(email_uid)
+                    elif isinstance(processed, dict) and email_uid in processed:
+                        del processed[email_uid]
+                    with open(proc_file, "w") as f:
+                        _json.dump(processed, f)
+            except Exception as _e:
+                log.warning("api_nuke_rfq processed_emails cleanup failed: %s", _e)
 
         nuked.append({"id": rfq_id, "sol": sol, "uid": email_uid})
         log.info("NUKED RFQ %s (sol=%s, uid=%s)", rfq_id, sol, email_uid)
