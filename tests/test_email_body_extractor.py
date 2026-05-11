@@ -266,6 +266,74 @@ def test_qty_validated_in_range():
     assert 5 in qtys
 
 
+def test_inline_qty_does_not_match_zip_code_in_address_line():
+    """Regression 2026-05-11 (rfq_8efe9fae): inline_qty_x_desc matched
+    the Fresno zip 93706 as a qty when the email body said "delivered
+    to the 93706 Zip Code". The supplier-quote PDF's "Penlight White
+    Light Disposable" line got concatenated nearby and became the
+    description, so the row stored qty=93706 for Penlight.
+
+    Two guards must hold:
+      1. The most-permissive stage caps qty at 9999 (so 5-digit zip
+         codes literally don't match).
+      2. A line containing `[STATE]  [ZIP]` is skipped wholesale so
+         no other pattern can pick up the zip as a qty either.
+    """
+    body = """
+The Department of Veterans Affairs has a Request for Quote available.
+
+Please return all forms in your company's bid package by 5/11/26.
+
+Keith Alsing
+Materials Specialist
+
+2811 W. Cesar Chavez Blvd.
+Fresno, CA 93706
+
+Penlight White Light Disposable
+"""
+    items = _ex()(body)
+    qtys = [i["qty"] for i in items]
+    assert 93706 not in qtys, (
+        "Zip code 93706 must not appear as a qty even when paired with "
+        "an item-like description elsewhere in the body."
+    )
+
+
+def test_inline_qty_cap_at_9999():
+    """Inline stage qty must reject 5-digit numbers. The structured
+    stages (tabular, table-with-uom) keep the higher cap because
+    they have column anchors to disambiguate."""
+    body = "we need 10000 widgets next month"
+    items = _ex()(body)
+    qtys = [i["qty"] for i in items]
+    assert 10000 not in qtys, (
+        "Inline-prose stage capped at 9999 — anything wider invites "
+        "zip codes, phone fragments, and product codes as qty."
+    )
+
+
+def test_inline_qty_under_cap_still_matches():
+    """The cap tightening must NOT break legitimate inline-prose items
+    with reasonable qty values."""
+    body = "we need 250 widgets for the warehouse"
+    items = _ex()(body)
+    qtys = [i["qty"] for i in items]
+    assert 250 in qtys
+
+
+def test_zip_context_filter_skips_whole_line():
+    """The address-line skip catches the zip even when paired with
+    a smaller-than-cap qty on the same line. e.g. an address line
+    "Suite 215B 95603 Auburn, CA" must not yield qty=95603 OR any
+    other qty from that line, because the line shape is "address",
+    not "item description"."""
+    body = "Auburn, CA 95603 Suite 215B"
+    items = _ex()(body)
+    qtys = [i["qty"] for i in items]
+    assert 95603 not in qtys
+
+
 # ── Realistic Keith Alsing-style fixture ────────────────────────────
 
 
