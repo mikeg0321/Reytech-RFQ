@@ -6125,10 +6125,17 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
         log.warning("Due date reminders failed: %s", _e)
 
     # ── Daily disk cleanup (snapshots + PO records) ────────────
+    # S-11 (audit 2026-05-07 v2 §S-11): emits heartbeat so the scheduler
+    # watchdog can detect a silent crash.
     try:
         import threading as _thr_cleanup
         def _daily_cleanup():
             import time as _tc
+            try:
+                from src.core.scheduler import register_job, heartbeat as _hb
+                register_job("daily-cleanup", interval_sec=86400)
+            except Exception:
+                _hb = lambda *a, **kw: None  # noqa: E731
             _tc.sleep(300)  # 5 min after boot
             while True:
                 try:
@@ -6140,8 +6147,16 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
                     po_removed = _cleanup_old_po_records()
                     if po_removed:
                         log.info("Daily cleanup: %d old PO records removed", po_removed)
+                    try:
+                        _hb("daily-cleanup", success=True)
+                    except Exception:
+                        pass
                 except Exception as _ce:
                     log.debug("Daily cleanup: %s", _ce)
+                    try:
+                        _hb("daily-cleanup", success=False, error=str(_ce)[:200])
+                    except Exception:
+                        pass
                 _tc.sleep(86400)
         _thr_cleanup.Thread(target=_daily_cleanup, daemon=True, name="daily-cleanup").start()
         log.info("Daily disk cleanup started")
@@ -6149,9 +6164,16 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
         log.warning("Daily cleanup setup: %s", _e)
 
     # ── Form Updater (1st + 15th of month, 3AM PST) ──────────
+    # S-11 (audit 2026-05-07 v2 §S-11): emits heartbeat so the scheduler
+    # watchdog can detect a silent crash.
     try:
         def _form_update_scheduler():
             import time as _fut
+            try:
+                from src.core.scheduler import register_job, heartbeat as _hb
+                register_job("form-updater", interval_sec=3600)
+            except Exception:
+                _hb = lambda *a, **kw: None  # noqa: E731
             _fut.sleep(300)
             while True:
                 try:
@@ -6170,11 +6192,23 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
                             _result = update_all_forms()
                             if _result.get("updated", 0) > 0:
                                 log.info("Form updater: %d forms updated", _result["updated"])
+                            try:
+                                _hb("form-updater", success=True)
+                            except Exception:
+                                pass
                             _fut.sleep(86400)
                             continue
+                    try:
+                        _hb("form-updater", success=True)
+                    except Exception:
+                        pass
                     _fut.sleep(3600)
                 except Exception as _fe:
                     log.warning("Form updater: %s", _fe)
+                    try:
+                        _hb("form-updater", success=False, error=str(_fe)[:200])
+                    except Exception:
+                        pass
                     _fut.sleep(3600)
         threading.Thread(target=_form_update_scheduler, daemon=True, name="form-updater").start()
         log.info("Form updater scheduled (1st + 15th, 3AM PST)")
@@ -6182,9 +6216,16 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
         log.warning("Form updater setup: %s", _e)
 
     # ── Phase 1.6 Enh-A: Forms-drift monitor (1st of month, 4AM PST) ─────
+    # S-11 (audit 2026-05-07 v2 §S-11): emits heartbeat so the scheduler
+    # watchdog can detect a silent crash.
     try:
         def _forms_drift_scheduler():
             import time as _fdt
+            try:
+                from src.core.scheduler import register_job, heartbeat as _hb
+                register_job("forms-drift", interval_sec=3600)
+            except Exception:
+                _hb = lambda *a, **kw: None  # noqa: E731
             _fdt.sleep(600)  # Wait 10min after boot before first check
             while True:
                 try:
@@ -6205,13 +6246,29 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
                                 "Forms drift: %d new mentions, %d revised templates, "
                                 "%d agency anomalies", n_new, n_rev, n_anom,
                             )
+                            try:
+                                _hb("forms-drift", success=True)
+                            except Exception:
+                                pass
                             _fdt.sleep(86400)  # Sleep a day so we don't refire
                             continue
                         except Exception as _de:
                             log.debug("forms drift scan failed: %s", _de)
+                            try:
+                                _hb("forms-drift", success=False, error=str(_de)[:200])
+                            except Exception:
+                                pass
+                    try:
+                        _hb("forms-drift", success=True)
+                    except Exception:
+                        pass
                     _fdt.sleep(3600)  # Check hourly
                 except Exception as _fe:
                     log.warning("Forms drift scheduler: %s", _fe)
+                    try:
+                        _hb("forms-drift", success=False, error=str(_fe)[:200])
+                    except Exception:
+                        pass
                     _fdt.sleep(3600)
         threading.Thread(target=_forms_drift_scheduler, daemon=True,
                          name="forms-drift").start()
