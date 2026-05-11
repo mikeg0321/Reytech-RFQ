@@ -116,9 +116,48 @@ def test_digest_body_returns_plain_and_html(seeded_db):
     assert out["ok"] is True
     assert "plain" in out and "html" in out
     assert out["prospect_count"] == 3
-    assert "Cross-sell weekly digest" in out["plain"]
+    # Phase 2c-1 reframe: digest header now reads "Distribution-list
+    # candidates" instead of "Cross-sell weekly digest" — the verb is
+    # registration, not cold outreach.
+    assert "Distribution-list candidates" in out["plain"]
     assert "<table" in out["html"]
     assert "<h2" in out["html"]
+
+
+def test_digest_html_renames_table_header_to_distro_list(seeded_db):
+    """The buyer table header in the HTML must reflect the new framing."""
+    out = build_digest_body(window_days=365, top_n=10)
+    assert "Distribution-list candidates</h3>" in out["html"]
+    # The old "Top prospects" framing should be gone from the table heading.
+    assert "Top prospects</h3>" not in out["html"]
+
+
+def test_digest_html_includes_freshness_column(seeded_db):
+    """Each candidate row should carry a freshness badge (FRESH/warm/etc.)."""
+    out = build_digest_body(window_days=365, top_n=10)
+    # The 3 seeded buyers all have recent=10d-ago POs → FRESH tier.
+    assert "FRESH" in out["html"]
+    # Header column should be present.
+    assert "Freshness</th>" in out["html"]
+
+
+def test_digest_html_includes_agency_column(seeded_db):
+    """Mike's pivot needs the agency on each row so he can pick which
+    procurement portal to register on."""
+    out = build_digest_body(window_days=365, top_n=10)
+    assert "Agency</th>" in out["html"]
+    assert "CDCR" in out["html"]
+    assert "CalVet" in out["html"]
+
+
+def test_digest_intro_states_registration_goal(seeded_db):
+    """The intro paragraph must frame the goal as 'get on the distribution
+    list', not 'cold outreach'."""
+    out = build_digest_body(window_days=365, top_n=10)
+    html_lc = out["html"].lower()
+    assert "distribution list" in html_lc
+    # Cold-outreach framing should NOT lead the digest.
+    assert "send outreach this week" not in html_lc
 
 
 def test_digest_body_includes_top_prospects(seeded_db):

@@ -7,6 +7,13 @@ via email weekly (Monday 8am PT) WITHOUT having to open the app.
 Mirrors `oracle_weekly_report.py` pattern: scheduler thread + heartbeat
 + notify_agent.send_alert(channels=["email"]). Cooldown key prevents
 double-sends on scheduler restart within the hour window.
+
+Phase 2c-1 (2026-05-11): pivoted framing from "cold outreach prospects"
+to "distribution list candidates". Mike's feedback on first digest was
+that buyers already-served showed up + 4-month-old data isn't actionable
+as cold-email signal; the substrate action is procurement-portal vendor
+registration. Intel module now filters known Reytech customers; digest
+column header + intro paragraph reflect the new verb.
 """
 from __future__ import annotations
 
@@ -37,6 +44,23 @@ def _fmt_buyer_label(prospect: dict) -> str:
     return name or email or "(unknown buyer)"
 
 
+_FRESHNESS_BADGES = {
+    "fresh":   ("#3fb950", "FRESH"),   # ≤30d — green, active buying cycle
+    "warm":    ("#4f8cff", "warm"),    # ≤90d — blue, recent
+    "stale":   ("#d29922", "stale"),   # ≤180d — amber, registration still valid
+    "old":     ("#8b949e", "old"),     # ≤365d — gray, historical
+    "unknown": ("#8b949e", "?"),
+}
+
+
+def _fmt_freshness_badge(tier: str | None) -> str:
+    color, label = _FRESHNESS_BADGES.get(tier or "unknown", _FRESHNESS_BADGES["unknown"])
+    return (
+        f"<span style='display:inline-block;padding:2px 7px;border-radius:10px;"
+        f"background:{color};color:#fff;font-size:11px;font-weight:600'>{label}</span>"
+    )
+
+
 def build_digest_body(window_days: int = 90, top_n: int = 10) -> dict:
     """Build the digest payload (text + html) for the configured window.
 
@@ -59,8 +83,13 @@ def build_digest_body(window_days: int = 90, top_n: int = 10) -> dict:
 
     # ── Plain-text fallback ────────────────────────────────────────────
     lines = [
-        f"Cross-sell weekly digest — last {window_days} days",
-        f"{len(prospects)} prospects · {len(items)} categories surfaced",
+        f"Cross-sell distribution-list candidates — last {window_days} days",
+        f"{len(prospects)} buyer(s) not yet on Reytech's customer list · "
+        f"{len(items)} categories surfaced",
+        "",
+        "Goal: get Reytech onto each buyer's agency procurement distribution",
+        "list so future solicitations route to you. Cold outreach on old POs",
+        "won't outperform being on the standing vendor list.",
         "",
         "── Recommendations ──",
     ]
@@ -68,14 +97,15 @@ def build_digest_body(window_days: int = 90, top_n: int = 10) -> dict:
         lines.append(f"  • {b.get('headline', '')}")
         lines.append(f"      → {b.get('action', '')}")
     lines.append("")
-    lines.append("── Top prospects ──")
+    lines.append("── Distribution-list candidates ──")
     for i, p in enumerate(prospects, start=1):
         comp = ", ".join(c for c in (p.get("competitors") or [])[:2] if c) or "?"
         sku = ", ".join(s for s in (p.get("skus") or [])[:3] if s) or "?"
         days = p.get("days_since_last_po")
         days_str = f"{days}d ago" if days is not None else "unknown date"
+        fresh = (p.get("freshness") or "unknown").upper()
         lines.append(
-            f"  {i:2}. {_fmt_money(p.get('competitor_spend'))} — "
+            f"  {i:2}. [{fresh}] {_fmt_money(p.get('competitor_spend'))} — "
             f"{p.get('buyer_name') or p.get('buyer_email')} "
             f"({sku} from {comp}, {days_str})"
         )
@@ -84,10 +114,22 @@ def build_digest_body(window_days: int = 90, top_n: int = 10) -> dict:
     # ── HTML body ──────────────────────────────────────────────────────
     html_parts = [
         "<html><body style='font-family:Arial,Helvetica,sans-serif;color:#1a1a1a'>",
-        f"<h2 style='margin:0 0 6px;color:#4f8cff'>Cross-sell weekly digest</h2>",
-        f"<div style='color:#666;font-size:13px;margin-bottom:14px'>",
-        f"Last {window_days} days · {len(prospects)} prospect(s) · "
+        "<h2 style='margin:0 0 6px;color:#4f8cff'>Distribution-list candidates"
+        " — weekly digest</h2>",
+        f"<div style='color:#666;font-size:13px;margin-bottom:6px'>"
+        f"Last {window_days} days · "
+        f"{len(prospects)} buyer(s) NOT yet a Reytech customer · "
         f"{len(items)} category(ies)</div>",
+        "<div style='background:#f6f8fa;border-left:3px solid #4f8cff;"
+        "padding:8px 12px;margin-bottom:14px;color:#444;font-size:12px;"
+        "line-height:1.5'>"
+        "<b>Goal:</b> get Reytech onto each agency's vendor distribution "
+        "list so future solicitations route to you. Cold outreach on POs "
+        "this old won't outperform being on the standing list. The "
+        "<span style='color:#3fb950;font-weight:600'>FRESH</span> tag "
+        "marks buyers active in the last 30 days — priority registration "
+        "targets."
+        "</div>",
     ]
 
     # Recommendations
@@ -101,15 +143,20 @@ def build_digest_body(window_days: int = 90, top_n: int = 10) -> dict:
             )
         html_parts.append("</ul>")
 
-    # Top prospects table
+    # Distribution-list candidates table
     if prospects:
-        html_parts.append("<h3 style='color:#1a1a1a;margin:18px 0 8px'>Top prospects</h3>")
+        html_parts.append(
+            "<h3 style='color:#1a1a1a;margin:18px 0 8px'>"
+            "Distribution-list candidates</h3>"
+        )
         html_parts.append(
             "<table style='border-collapse:collapse;width:100%;font-size:13px'>"
             "<tr style='background:#f0f4ff'>"
             "<th style='text-align:left;padding:6px 8px;border-bottom:2px solid #4f8cff'>#</th>"
+            "<th style='text-align:left;padding:6px 8px;border-bottom:2px solid #4f8cff'>Freshness</th>"
             "<th style='text-align:right;padding:6px 8px;border-bottom:2px solid #4f8cff'>Spend</th>"
             "<th style='text-align:left;padding:6px 8px;border-bottom:2px solid #4f8cff'>Buyer</th>"
+            "<th style='text-align:left;padding:6px 8px;border-bottom:2px solid #4f8cff'>Agency</th>"
             "<th style='text-align:left;padding:6px 8px;border-bottom:2px solid #4f8cff'>SKUs</th>"
             "<th style='text-align:left;padding:6px 8px;border-bottom:2px solid #4f8cff'>Competitor(s)</th>"
             "<th style='text-align:right;padding:6px 8px;border-bottom:2px solid #4f8cff'>Last buy</th>"
@@ -118,13 +165,16 @@ def build_digest_body(window_days: int = 90, top_n: int = 10) -> dict:
         for i, p in enumerate(prospects, start=1):
             comp = ", ".join(c for c in (p.get("competitors") or [])[:2] if c) or "?"
             sku = ", ".join(s for s in (p.get("skus") or [])[:3] if s) or "?"
+            agency = (p.get("dept_name") or "").strip() or "?"
             days = p.get("days_since_last_po")
             days_str = f"{days}d" if days is not None else "?"
             html_parts.append(
                 f"<tr><td style='padding:6px 8px'>{i}</td>"
+                f"<td style='padding:6px 8px'>{_fmt_freshness_badge(p.get('freshness'))}</td>"
                 f"<td style='padding:6px 8px;text-align:right;font-family:monospace;font-weight:600;color:#3fb950'>"
                 f"{_fmt_money(p.get('competitor_spend'))}</td>"
                 f"<td style='padding:6px 8px'>{_fmt_buyer_label(p)}</td>"
+                f"<td style='padding:6px 8px;color:#444;font-size:12px'>{agency}</td>"
                 f"<td style='padding:6px 8px;font-family:monospace;font-size:12px'>{sku}</td>"
                 f"<td style='padding:6px 8px;color:#888'>{comp}</td>"
                 f"<td style='padding:6px 8px;text-align:right;font-family:monospace;color:#888'>{days_str}</td>"
@@ -204,7 +254,10 @@ def send_weekly_digest(window_days: int = 90, top_n: int = 10) -> dict:
         from src.agents.notify_agent import send_alert
         result = send_alert(
             event_type="cross_sell_weekly",
-            title=f"Cross-sell weekly: {digest['prospect_count']} prospect(s)",
+            title=(
+                f"Distribution-list candidates ({digest['prospect_count']} "
+                f"new buyer(s))"
+            ),
             body=digest["plain"],
             urgency="info",
             channels=["email"],

@@ -13,6 +13,8 @@ Three public functions:
     Ranked list of BUYERS who bought Reytech-sellable items from
     competitors. Score is (competitor_spend × recency_decay) — Mike's
     answer 2026-05-11 was "no" to pure $-ranking, so we blend recency.
+    Known Reytech customers are EXCLUDED (Phase 2c-1) — this surface is
+    distribution-list candidates, not retention.
 
   get_top_items_by_spend(top_n, days_back)
     Per-SKU rollup — which Reytech items have the most competitor
@@ -20,13 +22,19 @@ Three public functions:
 
   get_general_recommendations(...)
     3-5 actionable bullets distilled from the data. The "intel that
-    tells the operator what to DO" — not just a number dump.
+    tells the operator what to DO" — not just a number dump. Action
+    verb is "get on their distribution list" / "register on procurement
+    portal", not "send outreach email" (Mike feedback 2026-05-11 on
+    first digest: cold outreach on 4-month-old data isn't actionable —
+    the substrate work is procurement-portal vendor registration).
 
 Noise filters (learned from initial query 2026-05-11):
   - buyer_email IS NOT NULL  (skip POs with no buyer info — data quality)
   - supplier not Reytech itself  (obviously)
   - line_total in (0, 100_000]  (cap noise from service contracts)
   - reytech_sku NOT IN ('Services', '')  (catalog matched a service bucket)
+  - buyer_email NOT IN known_reytech_customer_emails  (Phase 2c-1: hide
+      buyers we already serve from the prospecting surface)
 """
 from __future__ import annotations
 
@@ -39,6 +47,71 @@ log = logging.getLogger(__name__)
 
 
 _NOISE_SKUS = {"Services", "services", ""}
+
+
+def _get_known_customer_emails() -> set[str]:
+    """Return the set of buyer emails we already serve as a Reytech customer.
+
+    Sourced from THREE signals (any one is sufficient):
+      1. scprs_buyers.buys_from_reytech = 1 OR reytech_spend > 0
+         — enrichment flagged this buyer as a known Reytech customer.
+      2. quotes.contact_email present
+         — we've quoted this buyer at least once.
+      3. contacts.is_reytech_customer = 1
+         — explicit operator tag in CRM.
+
+    Returned as a lowercased set for case-insensitive comparison. Empty
+    on any error (the filter degrades gracefully — better to show a
+    known customer in the prospect list than to crash the digest).
+    """
+    emails: set[str] = set()
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for sql in (
+                "SELECT LOWER(buyer_email) FROM scprs_buyers "
+                "WHERE buyer_email IS NOT NULL AND buyer_email != '' "
+                "  AND (COALESCE(buys_from_reytech, 0) = 1 "
+                "       OR COALESCE(reytech_spend, 0) > 0)",
+                "SELECT DISTINCT LOWER(contact_email) FROM quotes "
+                "WHERE contact_email IS NOT NULL AND contact_email != ''",
+                "SELECT LOWER(buyer_email) FROM contacts "
+                "WHERE buyer_email IS NOT NULL AND buyer_email != '' "
+                "  AND COALESCE(is_reytech_customer, 0) = 1",
+            ):
+                try:
+                    rows = conn.execute(sql).fetchall()
+                except Exception as _e:
+                    log.debug("known-customer source skipped: %s", _e)
+                    continue
+                for r in rows:
+                    e = (r[0] or "").strip()
+                    if e:
+                        emails.add(e)
+    except Exception as e:
+        log.warning("known-customer lookup failed (continuing unfiltered): %s", e)
+    return emails
+
+
+def _freshness_tier(days_old: int | None) -> str:
+    """Bucket days-since-last-buy into operator-meaningful tiers.
+
+    Tiers:
+      - "fresh"     ≤30d   actively buying THIS month
+      - "warm"      ≤90d   inside one quarter
+      - "stale"     ≤180d  inside two quarters — distro list still valid
+      - "old"       ≤365d  historical signal — registration only
+      - "unknown"   no parseable date
+    """
+    if days_old is None:
+        return "unknown"
+    if days_old <= 30:
+        return "fresh"
+    if days_old <= 90:
+        return "warm"
+    if days_old <= 180:
+        return "stale"
+    return "old"
 
 
 def _days_since(date_str: str | None) -> int | None:
@@ -124,13 +197,22 @@ def get_prospects(top_n: int = 20, days_back: int = 365) -> list[dict]:
     with get_db() as conn:
         rows = conn.execute(sql, _filter_params()).fetchall()
 
+    known_customer_emails = _get_known_customer_emails()
+
     out = []
     for r in rows:
         d = dict(r)
+        email_lc = (d.get("buyer_email") or "").strip().lower()
+        # Phase 2c-1: exclude known Reytech customers from the prospect
+        # surface. This is the "distribution list candidate" lens —
+        # buyers we already serve aren't candidates.
+        if email_lc and email_lc in known_customer_emails:
+            continue
         days_since = _days_since(d.get("last_po_date"))
         if days_since is not None and days_since > cutoff_days:
             continue
         d["days_since_last_po"] = days_since
+        d["freshness"] = _freshness_tier(days_since)
         d["score"] = round(
             (d["competitor_spend"] or 0) * _recency_decay(days_since), 2
         )
@@ -194,40 +276,55 @@ def get_general_recommendations(days_back: int = 90) -> dict:
 
     bullets = []
 
-    # Recommendation 1: top-recency-weighted prospect
+    # Recommendation 1: top-recency-weighted prospect — register on
+    # their agency's procurement portal so future buys route to you.
     if prospects:
         p = prospects[0]
         comp_list = ", ".join(c for c in p["competitors"][:2] if c)
         sku_list = ", ".join(s for s in p["skus"][:3] if s)
+        agency = (p.get("dept_name") or "").strip() or "their agency"
         bullets.append({
             "kind": "top_prospect",
             "headline": (
-                f"#1 prospect: {p['buyer_name']} — ${p['competitor_spend']:,.0f} of "
-                f"{sku_list} bought from {comp_list} ({p['days_since_last_po'] or '?'}d ago)"
+                f"#1 distro-list target: {p['buyer_name']} ({agency}) — "
+                f"${p['competitor_spend']:,.0f} of {sku_list} bought from "
+                f"{comp_list} ({p['days_since_last_po'] or '?'}d ago)"
             ),
-            "action": "Send outreach this week — they're an active buyer of items you carry.",
+            "action": (
+                f"Get on {agency}'s vendor distribution list for "
+                f"{sku_list}. They're buying your category from competitors — "
+                f"goal is to receive their next solicitation, not a one-off "
+                f"cold email."
+            ),
             "buyer_email": p["buyer_email"],
+            "agency": agency,
+            "freshness": p.get("freshness", "unknown"),
             "score": p["score"],
         })
 
-    # Recommendation 2: largest category opportunity
+    # Recommendation 2: largest category opportunity — focus area to
+    # register across multiple agency portals.
     if items:
         top_item = items[0]
         bullets.append({
             "kind": "top_category",
             "headline": (
-                f"#1 category opportunity: {top_item['category']} ({top_item['reytech_sku']}) — "
-                f"${top_item['competitor_spend']:,.0f} across {top_item['distinct_buyers']} buyer(s)"
+                f"#1 category: {top_item['category']} ({top_item['reytech_sku']}) — "
+                f"${top_item['competitor_spend']:,.0f} across "
+                f"{top_item['distinct_buyers']} buyer(s)"
             ),
             "action": (
-                f"Double down on {top_item['category']} outreach — "
-                f"{top_item['line_count']} POs you could have won in last {days_back}d."
+                f"Audit Reytech's vendor registration for {top_item['category']} "
+                f"across every agency buying it. {top_item['line_count']} POs "
+                f"in {days_back}d means a standing solicitation pipeline you're "
+                f"not on."
             ),
             "category": top_item["category"],
             "sku": top_item["reytech_sku"],
         })
 
-    # Recommendation 3: agency concentration
+    # Recommendation 3: agency concentration — single agency to target
+    # for vendor registration first.
     by_agency: dict[str, dict[str, Any]] = {}
     for p in prospects:
         agency = (p["dept_name"] or "").strip() or "(unknown)"
@@ -240,46 +337,57 @@ def get_general_recommendations(days_back: int = 90) -> dict:
         bullets.append({
             "kind": "top_agency",
             "headline": (
-                f"#1 agency: {agency_name} — ${agency_data['spend']:,.0f} across "
+                f"#1 agency to register at: {agency_name} — "
+                f"${agency_data['spend']:,.0f} across "
                 f"{len(agency_data['buyers'])} buyer(s) in last {days_back}d"
             ),
             "action": (
-                f"{agency_name} is your richest cross-sell agency. Map their staff "
-                "structure (SB advocate, procurement lead) for systematic outreach."
+                f"Confirm Reytech is on {agency_name}'s vendor distribution list "
+                f"for your categories. {len(agency_data['buyers'])} buyers in "
+                f"this agency are placing orders with competitors today."
             ),
             "agency": agency_name,
         })
 
-    # Recommendation 4: stale prospects (haven't bought recently)
-    stale = [p for p in prospects if (p["days_since_last_po"] or 0) > 60]
-    if stale:
-        stale_top = stale[0]
+    # Recommendation 4: fresh signal — buyers placing orders THIS month.
+    # These are the highest-priority registration targets because their
+    # next solicitation is imminent.
+    fresh = [p for p in prospects if (p.get("days_since_last_po") or 999) <= 30]
+    if fresh:
+        f = fresh[0]
+        f_agency = (f.get("dept_name") or "").strip() or "their agency"
         bullets.append({
-            "kind": "stale_prospect",
+            "kind": "fresh_signal",
             "headline": (
-                f"Re-engage {stale_top['buyer_name']} — bought ${stale_top['competitor_spend']:,.0f} "
-                f"of your category items but no order in {stale_top['days_since_last_po']}d"
+                f"FRESH: {f['buyer_name']} ({f_agency}) bought "
+                f"${f['competitor_spend']:,.0f} of your category "
+                f"{f['days_since_last_po']}d ago"
             ),
             "action": (
-                "Reach out — their buying cycle is overdue. Ask about upcoming needs."
+                f"Top priority — their buying cycle is ACTIVE. Verify Reytech "
+                f"is registered as a {f_agency} vendor before they place their "
+                f"next order. Cold outreach won't beat the distribution list."
             ),
-            "buyer_email": stale_top["buyer_email"],
+            "buyer_email": f["buyer_email"],
+            "agency": f_agency,
         })
 
-    # Recommendation 5: focus signal (categories with broad buyer reach)
+    # Recommendation 5: focus signal (categories with broad buyer reach
+    # → scale leverage from a single registration push).
     broad = sorted(items, key=lambda x: x.get("distinct_buyers") or 0, reverse=True)
     if broad and (broad[0].get("distinct_buyers") or 0) >= 5:
         b = broad[0]
         bullets.append({
             "kind": "broad_category",
             "headline": (
-                f"{b['category']} reaches {b['distinct_buyers']} distinct buyers — "
-                f"broad cross-sell base"
+                f"Scale category: {b['category']} reaches {b['distinct_buyers']} "
+                f"distinct buyers"
             ),
             "action": (
-                f"This is your scale category. A category-wide email push to all "
-                f"{b['distinct_buyers']} buyers could yield 2-3x the win rate of "
-                "one-off outreach."
+                f"Vendor-registration scale play: one {b['category']} catalog "
+                f"sheet on file with {b['distinct_buyers']} agencies' procurement "
+                f"systems gets you in front of every future solicitation in this "
+                f"category."
             ),
             "category": b["category"],
         })
