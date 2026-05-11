@@ -42,8 +42,17 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime, timezone
+
+
+# Project root → sys.path so `from src.api.data_layer import ...` works
+# under `railway ssh "python scripts/<name>.py"`. Same pattern other
+# scripts/ files use (e.g., backfill_unit_price.py:45-47).
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 
 log = logging.getLogger("triage_active_queue")
