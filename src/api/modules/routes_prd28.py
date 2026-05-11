@@ -765,51 +765,24 @@ def api_dashboard_init():
             log.debug("suppressed: %s", _e)
 
         # ── Orders needing action ──
+        # 2026-05-11 (Mike P0): "new POs to source" and "stale orders 30d+"
+        # banners deleted. Both summarize orders.status='new' rows, which on
+        # prod are dominated by the 2023-2025 bulk import (the same data PR
+        # #889 stopped counting as 2026 revenue). The widgets surfaced 98
+        # rows / $1.57M of stale historical noise with no actionable next
+        # step — a proper item-tracker / sourcing module is the right home
+        # for "to source" workflows, not a count banner on the home page.
+        # When that module ships, the banner can return with real semantics.
+        #
+        # The `delivered → ready to invoice` banner stays — those rows are
+        # real money about to clear, and the invoice flow already exists.
         try:
             all_orders = _load_orders()
             if all_orders:
-                # Filter out test orders everywhere
                 real_orders = {k: o for k, o in all_orders.items()
                                if "TEST" not in (o.get("po_number", "") or "").upper()
                                and not o.get("is_test")
                                and o.get("status") not in ("cancelled", "test", "deleted")}
-
-                # New orders: must have either total > 0 OR at least one line item
-                # Skip phantom $0 orders with no items (auto-created from bad PO emails)
-                new_orders = []
-                stale_orders = []
-                for o in real_orders.values():
-                    if o.get("status") != "new":
-                        continue
-                    has_value = (o.get("total", 0) or 0) > 0
-                    has_items = len(o.get("line_items", [])) > 0 and any(
-                        (li.get("description", "") or "").strip() for li in o.get("line_items", [])
-                    )
-                    if not has_value and not has_items:
-                        continue  # Skip phantom orders with no value AND no real items
-
-                    # Check age — orders older than 30 days in "new" are stale
-                    age_days = 0
-                    try:
-                        created = o.get("created_at", "")
-                        if created:
-                            from datetime import datetime as _dt
-                            created_dt = _dt.fromisoformat(created[:19])
-                            age_days = (_dt.now() - created_dt).days
-                    except Exception as _e:
-                        log.debug("suppressed: %s", _e)
-
-                    if age_days > 30:
-                        stale_orders.append(o)
-                    else:
-                        new_orders.append(o)
-
-                if new_orders:
-                    total_val = sum(o.get("total", 0) or 0 for o in new_orders)
-                    urgent.append({"icon": "🏆", "label": f"{len(new_orders)} new PO{'s' if len(new_orders) > 1 else ''} — ${total_val:,.0f} to source", "link": "/orders", "type": "new_orders", "count": len(new_orders)})
-                if stale_orders:
-                    action_needed.append({"icon": "⏰", "label": f"{len(stale_orders)} stale order{'s' if len(stale_orders) > 1 else ''} (30d+ in New)", "link": "/orders", "type": "stale_orders", "count": len(stale_orders)})
-
                 delivered_orders = [o for o in real_orders.values() if o.get("status") == "delivered"]
                 if delivered_orders:
                     action_needed.append({"icon": "💰", "label": f"{len(delivered_orders)} order{'s' if len(delivered_orders) > 1 else ''} ready to invoice", "link": "/orders", "type": "invoice_ready", "count": len(delivered_orders)})
