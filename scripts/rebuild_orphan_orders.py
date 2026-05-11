@@ -134,11 +134,17 @@ def _scprs_reytech_pos(conn: sqlite3.Connection) -> list[dict]:
 
 
 def _outbox_quotes(conn: sqlite3.Connection) -> list[dict]:
-    """All Reytech quotes ever sent (via email_log outbox)."""
+    """All Reytech quotes ever sent (via email_log outbox).
+
+    email_log.direction values on prod are 'sent' / 'received'. Accept
+    both conventions defensively — older code used 'out' / 'in' in
+    early prototypes; if the schema drifts in either direction, this
+    still matches.
+    """
     rows = conn.execute("""
         SELECT id, logged_at, recipient, subject, quote_number, thread_id
         FROM email_log
-        WHERE direction = 'out'
+        WHERE direction IN ('out', 'sent', 'outbound')
           AND quote_number IS NOT NULL AND quote_number != ''
         ORDER BY logged_at DESC
     """).fetchall()
@@ -146,11 +152,14 @@ def _outbox_quotes(conn: sqlite3.Connection) -> list[dict]:
 
 
 def _inbox_po_emails(conn: sqlite3.Connection) -> list[dict]:
-    """PO email arrivals — direction=in + po_number set."""
+    """PO email arrivals — direction='received' (or 'in') + po_number set.
+
+    See _outbox_quotes for the direction-value compat rationale.
+    """
     rows = conn.execute("""
         SELECT id, logged_at, sender, subject, po_number, quote_number, thread_id
         FROM email_log
-        WHERE direction = 'in'
+        WHERE direction IN ('in', 'received', 'inbound')
           AND po_number IS NOT NULL AND po_number != ''
         ORDER BY logged_at DESC
     """).fetchall()
