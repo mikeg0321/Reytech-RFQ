@@ -3282,7 +3282,8 @@ def api_qb_quick_dashboard():
     try:
         from src.agents.quickbooks_agent import (
             is_configured, fetch_invoices, fetch_customers,
-            fetch_vendors, fetch_payments, get_company_info
+            fetch_vendors, get_recent_payments as fetch_payments,
+            get_company_info,
         )
         if not is_configured():
             return jsonify({"ok": False, "error": "QuickBooks not configured. Click 'Connect QuickBooks' first."})

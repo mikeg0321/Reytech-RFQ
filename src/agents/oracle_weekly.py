@@ -68,18 +68,18 @@ def _live_buckets() -> dict:
     """
     try:
         from src.api.modules.routes_oracle_category_intel import _aggregate_category
-        from src.core.intel_categories import iter_categories
+        from src.core.intel_categories import all_categories
     except Exception as e:
-        log.debug("live_buckets import: %s", e)
+        log.warning("live_buckets import failed: %s", e)
         return {"danger": [], "win": []}
 
     danger = []
     win = []
     seen = set()
     try:
-        # iter_categories returns ALL category labels; we probe one
+        # all_categories() returns a dict {id: label}; we probe one
         # description per category to get its bucket stats.
-        for cat_id, label in iter_categories():
+        for cat_id, label in all_categories().items():
             if cat_id in seen:
                 continue
             seen.add(cat_id)

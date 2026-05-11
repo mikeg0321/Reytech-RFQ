@@ -2263,10 +2263,10 @@ def api_leads_evaluate():
     # Load won history for matching
     won_history = []
     try:
-        from src.knowledge.won_quotes_db import get_all_items
-        won_history = get_all_items()
+        from src.knowledge.won_quotes_db import load_won_quotes
+        won_history = load_won_quotes()
     except Exception as e:
-        log.debug("Suppressed: %s", e)
+        log.warning("lead-qualify won_history load failed: %s", e)
         pass
     lead = evaluate_po(data, won_history)
     if not lead:

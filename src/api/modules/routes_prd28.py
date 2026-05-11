@@ -1064,9 +1064,10 @@ def api_activity_feed():
 
     # 2) Recent quote status changes
     try:
-        from src.core.paths import data_path
+        from src.core.paths import DATA_DIR
         import json
-        ql_path = data_path("quotes_log.json")
+        import pathlib
+        ql_path = pathlib.Path(DATA_DIR) / "quotes_log.json"
         if ql_path.exists():
             quotes = json.loads(ql_path.read_text())
             if isinstance(quotes, dict):
@@ -1107,9 +1108,10 @@ def api_activity_feed():
 
     # 4) Growth outreach
     try:
-        from src.core.paths import data_path
+        from src.core.paths import DATA_DIR
         import json
-        gp = data_path("growth_outreach.json")
+        import pathlib
+        gp = pathlib.Path(DATA_DIR) / "growth_outreach.json"
         if gp.exists():
             outreach = json.loads(gp.read_text())
             if isinstance(outreach, list):
