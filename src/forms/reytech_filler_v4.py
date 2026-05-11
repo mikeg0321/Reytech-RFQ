@@ -867,6 +867,25 @@ def fill_704b(input_path, rfq_data, config, output_path):
     values.update(_result.field_values)
     merchandise_subtotal = _result.merchandise_subtotal
 
+    # PR #849 added the subtotal invariant to PC (fill_ams704) + RFQ
+    # quote PDF (quote_generator) but missed this 704B RFQ-response
+    # path. 704B quotes go to the buyer — drift here is the most
+    # expensive class of drift. Surface as a WARNING in Railway logs.
+    try:
+        import os as _os_inv
+        from src.core.pricing_math import assert_subtotal_invariant as _assert_sub
+        _assert_sub(
+            line_items,
+            merchandise_subtotal,
+            context=f"fill_704b output={_os_inv.path.basename(output_path)}",
+        )
+    except Exception as _inv_e:
+        # Never let an invariant check kill a customer-facing PDF.
+        import logging as _logging_inv
+        _logging_inv.getLogger(__name__).debug(
+            "fill_704b subtotal invariant check suppressed: %s", _inv_e,
+        )
+
     # ═══ VENDOR FIELDS ONLY — buyer header fields are NEVER overwritten ═══
     # Buyer fills: DEPARTMENT, PHONEEMAIL, SOLICITATION#, REQUESTOR, DATE
     # See FORM FIELD OWNERSHIP RULES at top of file.

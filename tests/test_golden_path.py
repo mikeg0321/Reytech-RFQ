@@ -39,9 +39,12 @@ GOLDEN_ITEMS = [
         "_mock_amazon": 12.58,
         "_mock_scprs": 15.00,
         # Expected output (25% markup on Amazon cost)
+        # 2026-05-11: renderer now derives via canonical_unit_price
+        # which uses Python round() (matches reconcile_line_item). The
+        # old `ceil()` comment was aspirational, never wired in code.
         "_expected_cost": 12.58,
-        "_expected_price": 15.73,  # ceil(12.58 * 1.25 * 100) / 100
-        "_expected_extension": 346.06,  # 15.73 * 22
+        "_expected_price": 15.72,  # round(12.58 * 1.25, 2)
+        "_expected_extension": 345.84,  # 15.72 * 22
     },
     {
         "item_number": "2",
@@ -264,9 +267,12 @@ class TestGoldenPath:
             qty = item["qty"]
             ext = item["_expected_extension"]
 
-            # Price should be cost * 1.25 (25% markup), rounded up to cent
-            import math
-            expected_price = math.ceil(cost * 1.25 * 100) / 100
+            # Price should be cost * (1 + markup/100), rounded to cent.
+            # Matches src/core/pricing_math.py::canonical_unit_price and
+            # reconcile_line_item — both use Python `round()` for the
+            # derivation. Earlier fixture used `math.ceil()` but no
+            # production code ever implemented ceiling rounding.
+            expected_price = round(cost * 1.25, 2)
             assert price == expected_price, (
                 f"Item {item['item_number']}: expected price {expected_price}, got {price}"
             )

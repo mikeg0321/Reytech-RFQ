@@ -2818,8 +2818,18 @@ def fill_ams704(
         # ── ORIGINAL MODE: only fill pricing fields, leave buyer fields untouched ──
         if original_mode:
             if unit_price and unit_price > 0:
-                extension = round(unit_price * qty, 2)
+                # Use canonical extension helper so a row whose persisted
+                # `unit_price` is stale relative to cost×markup still
+                # renders the correct line total. Falls back to the raw
+                # product when cost+markup absent (PO-imported items).
+                from src.core.pricing_math import extension_of as _ext_of_orig
+                _canonical_ext = _ext_of_orig(item) if isinstance(item, dict) else 0.0
+                extension = _canonical_ext if _canonical_ext > 0 else round(unit_price * qty, 2)
                 if extension > 0:
+                    # NOTE: `subtotal +=` retained for log parity; final
+                    # subtotal is RECOMPUTED via subtotal_of(items) at
+                    # the bottom (single source of truth). This per-row
+                    # add is harmless and aids debug traces.
                     subtotal += extension
                     items_priced += 1
                     price_field = ROW_FIELDS["unit_price"].format(n=row) + _field_suffix
@@ -2945,8 +2955,10 @@ def fill_ams704(
         if _qpu > 1:
             qpu_field = ROW_FIELDS["qty_per_uom"].format(n=row) + _field_suffix
             field_values.append({"field_id": qpu_field, "page": _page_num, "value": str(_qpu)})
-        extension = round(unit_price * qty, 2)
-        subtotal += extension
+        from src.core.pricing_math import extension_of as _ext_of_norm
+        _canonical_ext_n = _ext_of_norm(item) if isinstance(item, dict) else 0.0
+        extension = _canonical_ext_n if _canonical_ext_n > 0 else round(unit_price * qty, 2)
+        subtotal += extension  # debug-trace only; recomputed via subtotal_of(items) below
         items_priced += 1
         log.info("fill_ams704 WRITE row=%d: desc='%s' price=%.2f qty=%d ext=%.2f",
                  row, (desc_final or "")[:40], unit_price, qty, extension)
@@ -3018,7 +3030,13 @@ def fill_ams704(
     else:
         log.info("fill_ams704 ORIGINAL MODE: skipped row clearing (preserving buyer fields)")
 
-    # Totals
+    # Totals — derive subtotal from the canonical helper, not the
+    # per-row accumulator. Same `is_billable` predicate that gated the
+    # rows above. This is the read-time defense that makes the renderer
+    # accurate even when persisted `unit_price` is stale relative to
+    # cost × markup. See `src/core/pricing_math.py::subtotal_of`.
+    from src.core.pricing_math import subtotal_of as _sub_of_pc
+    subtotal = _sub_of_pc(items)
     tax = round(subtotal * tax_rate, 2)
     total = round(subtotal + tax, 2)
 
