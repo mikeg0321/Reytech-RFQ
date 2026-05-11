@@ -894,21 +894,30 @@ def compare_vendor_prices(description: str, quantity: int = 1) -> dict:
         if r.get("price", 0) > 0:
             results.append({**r, "vendor_display": "Amazon Business"})
 
-    # Check our SCPRS won-quotes history for reference pricing
+    # Check our SCPRS won-quotes history for reference pricing.
+    # `search_pricing` never existed in won_quotes_db (phantom); the real
+    # function is `find_similar_items` which returns wrapped results:
+    # [{quote: {...}, match_confidence, ...}, ...]. The quote dict mirrors
+    # the won_quotes table schema — supplier column, not "vendor".
     try:
-        from src.knowledge.won_quotes_db import search_pricing
-        scprs = search_pricing(description, limit=1)
-        if scprs:
-            s = scprs[0]
-            results.append({
-                "vendor_display": f"SCPRS ({s.get('vendor','')})",
-                "price": float(s.get("unit_price", 0) or 0),
-                "title": s.get("description",""),
-                "url": "",
-                "vendor": "scprs",
-            })
+        from src.knowledge.won_quotes_db import find_similar_items
+        matches = find_similar_items(
+            item_number="", description=description,
+            max_results=1, min_confidence=0.5,
+        )
+        if matches:
+            q = matches[0].get("quote", {})
+            unit_price = float(q.get("unit_price", 0) or 0)
+            if unit_price > 0:
+                results.append({
+                    "vendor_display": f"SCPRS ({q.get('supplier', '')})",
+                    "price": unit_price,
+                    "title": q.get("description", ""),
+                    "url": "",
+                    "vendor": "scprs",
+                })
     except Exception as _e:
-        log.debug("suppressed: %s", _e)
+        log.warning("vendor_ordering SCPRS history lookup failed: %s", _e)
 
     if not results:
         return {"best": None, "comparison": [], "savings_vs_worst": 0}
