@@ -84,8 +84,10 @@ BASELINE_EXEMPTIONS: set[str] = {
     # Drained in batch 6: vendor_ordering search_pricing → find_similar_items
     #   with shape adaptation (read from quote["supplier"]/quote["unit_price"]).
     "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
-    "src/api/modules/routes_intel_ops.py:2413:src.forms.quote_generator:create_quote",
-    "src/api/modules/routes_intel_ops.py:2413:src.forms.quote_generator:increment_quote_counter",
+    # Drained: _create_quote_from_pc had phantom create_quote +
+    # increment_quote_counter imports — function had zero callers in
+    # the codebase, deleted entirely. Auto-draft path lives in
+    # routes_quoting_status.py + src.core.quote_orchestrator instead.
     # Drained: run_deep_pull → deep_pull_all_buyers (real name) at
     # routes_intel_ops:_run_scheduled_scprs_pull. Mon 7am + Wed 10am
     # SCPRS scheduler was silently no-op'ing for unknown duration.
