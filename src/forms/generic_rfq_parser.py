@@ -379,6 +379,98 @@ def extract_pdf_text(pdf_path):
         return ""
 
 
+def _vision_fallback_candidates(parse_details: list, pdf_paths: list) -> list:
+    """Pick which PDFs to OCR-fallback on after PASS-2 yielded zero items.
+
+    A PDF is a vision candidate when:
+      * It hit `no_text` (text-extract returned empty — image-only PDF) OR
+        `no_items` with low text_length (sparse OCR-needs-help case).
+      * It WASN'T flagged as boilerplate by filename or content.
+
+    `no_items` with high text_length means the PDF had plenty of text but
+    none of our regex patterns matched — that's a parser miss, not an OCR
+    candidate. Vision is gated narrowly to "couldn't read the PDF at all"
+    cases.
+    """
+    candidates = []
+    by_name = {os.path.basename(p): p for p in pdf_paths}
+    for d in parse_details:
+        status = d.get("status", "")
+        fname = d.get("file", "")
+        full_path = by_name.get(fname)
+        if not full_path:
+            continue
+        if status == "no_text":
+            candidates.append(full_path)
+        elif status == "no_items" and (d.get("text_length") or 0) < 200:
+            # < 200 chars of extracted text = effectively image-only; the
+            # regex extractors had nothing to work with.
+            candidates.append(full_path)
+    return candidates
+
+
+def _vision_fallback_extract(pdf_path: str) -> list:
+    """Run Claude Vision on a PDF and return canonicalized RFQ line items.
+
+    Returns a list of item dicts in the same shape as `parse_line_items_from_text`
+    (so the downstream loop can merge them transparently).
+
+    Returns [] when:
+      * Vision is unavailable (no API key, no deps)
+      * Daily quota is exhausted
+      * Vision API call fails / returns no items
+
+    Items get `parse_method="vision_ocr"` so downstream UI / audit can show
+    a badge indicating OCR provenance.
+    """
+    try:
+        from src.forms.vision_parser import is_available, parse_with_vision
+    except ImportError:
+        return []
+    if not is_available():
+        return []
+
+    # Daily $ cap — same pattern as supplier_quote_parser vision call.
+    try:
+        from src.core.anthropic_quota import check_quota
+        if check_quota(agent="rfq_ingest_vision"):
+            log.info(
+                "rfq vision fallback: quota exhausted, skipping %s",
+                os.path.basename(pdf_path),
+            )
+            return []
+    except ImportError:
+        pass  # quota module unavailable — still attempt vision
+
+    try:
+        result = parse_with_vision(pdf_path, mode="standard")
+    except Exception as e:
+        log.warning("rfq vision fallback failed for %s: %s",
+                    os.path.basename(pdf_path), e)
+        return []
+    if not result:
+        return []
+
+    vision_items = result.get("line_items") or []
+    canonical = []
+    for i, vi in enumerate(vision_items):
+        # Canonicalize to the same shape parse_line_items_from_text produces
+        # (line_number, qty, uom, description, item_number, unit_price) plus
+        # parse_method=vision_ocr tag so the queue UI can surface a badge.
+        canonical.append({
+            "line_number": vi.get("line_number") or i + 1,
+            "qty": int(vi.get("qty") or 1),
+            "uom": (vi.get("uom") or "EA").upper(),
+            "description": str(vi.get("description") or "").strip(),
+            "item_number": str(vi.get("item_number") or vi.get("part_number") or ""),
+            "unit_price": float(vi.get("unit_price") or 0),
+            "parse_method": "vision_ocr",
+        })
+    log.info("rfq vision fallback: extracted %d items from %s",
+             len(canonical), os.path.basename(pdf_path))
+    return canonical
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Line Item Extraction — Heuristic Patterns
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -827,6 +919,43 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
                     "status": "no_items",
                     "text_length": len(text),
                 })
+
+    # ── PASS 3: Vision OCR fallback for image-only or zero-item PDFs ──
+    #
+    # 2026-05-11 Mike P0 (rfq_8efe9fae): image-only RFQ PDFs landed with 0
+    # items, falling through to email-body regex which then misfired (qty=93706
+    # was actually the Fresno zip code). The Echelon supplier-quote path
+    # already vision-extracts; the inbound RFQ path didn't. Fix: when no
+    # PASS-1 (XFA) and no PASS-2 (text) items, fall through to Claude Vision.
+    #
+    # Triggers narrowly:
+    #   * `_vision_fallback_candidates()` collects PDFs that hit no_text or
+    #     no_items in PASS 2. Boilerplate PDFs are excluded.
+    #   * Vision availability gates on `is_available()` (API key + deps).
+    #   * Daily quota gates via `check_quota("rfq_ingest_vision")` so a
+    #     scanner-heavy day doesn't blow the budget.
+    #
+    # Failure mode preference: when vision is unavailable or rate-limited,
+    # we still return 0 items (downstream PARSE_FAILED badge surfaces) —
+    # never silently fall back to noisier extractors.
+    if not xfa_found and not all_items:
+        vision_candidates = _vision_fallback_candidates(parse_details, pdf_paths)
+        if vision_candidates:
+            for cand_path in vision_candidates:
+                _vision_items = _vision_fallback_extract(cand_path)
+                if _vision_items:
+                    parse_details.append({
+                        "file": os.path.basename(cand_path),
+                        "status": "vision_ocr_parsed",
+                        "items_found": len(_vision_items),
+                        "method": "vision_ocr",
+                    })
+                    all_items.extend(_vision_items)
+                    # Once one PDF succeeds via vision, stop — multi-PDF
+                    # RFQs almost always have ONE items PDF and the rest
+                    # are boilerplate; spending another vision call per
+                    # PDF is wasteful.
+                    break
 
     # Detect agency
     agency_key, agency_info = detect_agency(subject, body, sender_email, all_text)
