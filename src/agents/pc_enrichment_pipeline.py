@@ -1059,6 +1059,21 @@ def _run_pipeline(pc_id: str, force: bool):
 
     # ── Save enriched PC ─────────────────────────────────────────────────
     _update_status(pc_id, "saving", "persisting results")
+    # PR-ε (2026-05-11): enrichment writes cost/markup/price aliases onto
+    # items but doesn't guarantee coherence — Amazon match writes
+    # `pricing.amazon_price`, SCPRS match writes `pricing.scprs_price`,
+    # oracle writes a `recommended_price` etc. Run the canonical
+    # reconciler (same helper _do_save_prices + routes_rfq use) so the
+    # persisted record's `unit_price` / `markup_pct` / `unit_cost`
+    # agree with what the renderer will stamp via canonical_unit_price.
+    # Without this, the read-time defense in PR #874 still works, but
+    # the integrity gauge (`data_integrity.py` check 11) flags enriched
+    # records as drifted.
+    try:
+        from src.core.pricing_math import reconcile_items as _reconcile_enrich
+        _reconcile_enrich(items)
+    except Exception as _re:
+        log.debug("ENRICH %s: reconcile_items suppressed: %s", pc_id, _re)
     pc["items"] = items
     if "parsed" in pc and pc["parsed"].get("line_items"):
         pc["parsed"]["line_items"] = items
