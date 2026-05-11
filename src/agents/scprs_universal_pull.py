@@ -132,16 +132,18 @@ REYTECH_PRODUCTS = {
     "recreational": False, "activity": False,
 }
 
-def _sells(description: str) -> bool:
-    d = (description or "").lower()
-    return any(k in d for k, v in REYTECH_PRODUCTS.items() if v)
+def _sells(description: str, item_id: str = "") -> bool:
+    """Delegates to scprs_classifier so the real product_catalog match
+    drives the flag instead of the legacy 25-key REYTECH_PRODUCTS dict.
+    Mike P0 2026-05-11 cross-sell-hunting arc."""
+    from src.core.scprs_classifier import classify_line
+    return bool(classify_line(description, item_id=item_id).get("reytech_sells"))
 
-def _opportunity_flag(description: str) -> str:
-    d = (description or "").lower()
-    for k, sells in REYTECH_PRODUCTS.items():
-        if k in d:
-            return "WIN_BACK" if sells else "GAP_ITEM"
-    return None
+
+def _opportunity_flag(description: str, item_id: str = "") -> str:
+    """Delegates to scprs_classifier — see _sells() docstring."""
+    from src.core.scprs_classifier import classify_line
+    return classify_line(description, item_id=item_id).get("opportunity_flag")
 
 def _dept_name_to_agency(dept_name: str) -> Optional[str]:
     dn = (dept_name or "").upper()
