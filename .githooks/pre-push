@@ -314,6 +314,34 @@ if [ "${STATUS_LINT_SKIP:-0}" != "1" ]; then
     fi
 fi
 
+# ─── Phantom-import lint (silent ImportError → dead code path) ──────────
+# A `from src.X import Y` where Y doesn't exist is silently swallowed by an
+# adjacent `except:` block. The lint enumerates these and trips when a new
+# one appears or a baseline exemption goes stale. Memory:
+# feedback_assert_sentinel_value_not_just_shape.md.
+#
+# Override (RARE — document the reason):
+#   PHANTOM_LINT_SKIP=1 make ship
+
+if [ "${PHANTOM_LINT_SKIP:-0}" != "1" ]; then
+    LINT_OUT=$(python tools/lint_phantom_imports.py 2>&1)
+    LINT_RC=$?
+    if [ $LINT_RC -ne 0 ]; then
+        echo ""
+        echo "============================================================"
+        echo "  PUSH BLOCKED: phantom-import lint failed."
+        echo "============================================================"
+        echo ""
+        echo "$LINT_OUT" | tail -40 | sed 's/^/  /'
+        echo ""
+        echo "  ESCAPE HATCH (RARE — document the reason):"
+        echo "       PHANTOM_LINT_SKIP=1 make ship"
+        echo ""
+        echo "============================================================"
+        exit 1
+    fi
+fi
+
 echo ""
 echo "All pre-push checks passed."
 exit 0
