@@ -81,7 +81,8 @@ BASELINE_EXEMPTIONS: set[str] = {
     #     - ORCHESTRATOR_AVAILABLE flag
     #     - tests/test_orchestrator.py (219 lines)
     #     - 2 orchestrator-pricing tests in test_no_amazon_as_supplier_cost.py
-    "src/agents/vendor_ordering_agent.py:899:src.knowledge.won_quotes_db:search_pricing",
+    # Drained in batch 6: vendor_ordering search_pricing → find_similar_items
+    #   with shape adaptation (read from quote["supplier"]/quote["unit_price"]).
     "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
     "src/api/modules/routes_intel_ops.py:2413:src.forms.quote_generator:create_quote",
     "src/api/modules/routes_intel_ops.py:2413:src.forms.quote_generator:increment_quote_counter",
