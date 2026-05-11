@@ -1362,6 +1362,56 @@ def get_pipeline_counts(tenant_id: str = "reytech") -> dict:
         return {}
 
 
+def get_top_buyers_winrate(limit: int = 10) -> list[dict]:
+    """Top N buyers by RFQ market-cycle volume with win rate.
+
+    Returns list of {buyer, sent_total, won, sent, lost, win_pct} sorted
+    by sent_total desc. Used by /kpi/funnel (PR KPI Phase A).
+
+    Filtering on status here is per-status counters (no IN clause); the
+    grouping captures only buyers who reached the market cycle (sent or
+    closed). Lives in src/core/dal.py so the canonical-state lint
+    accepts the inline status references — pipeline filter centralization
+    only bans NEW inline filters outside src/core/.
+    """
+    try:
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT
+                    COALESCE(NULLIF(TRIM(requestor_email), ''), 'unknown') AS buyer,
+                    SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) AS won,
+                    SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
+                    SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) AS lost,
+                    SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) AS expired
+                FROM rfqs
+                GROUP BY buyer
+            """).fetchall()
+        out = []
+        for r in rows:
+            won = r["won"] or 0
+            sent = r["sent"] or 0
+            lost = r["lost"] or 0
+            expired = r["expired"] or 0
+            total = won + sent + lost + expired
+            if total == 0:
+                continue
+            closed = won + lost + expired
+            win_pct = round(won / closed * 100, 1) if closed else 0.0
+            out.append({
+                "buyer": r["buyer"],
+                "sent_total": total,
+                "won": won,
+                "sent": sent,
+                "lost": lost,
+                "win_pct": win_pct,
+            })
+        out.sort(key=lambda d: d["sent_total"], reverse=True)
+        return out[:limit]
+    except Exception as e:
+        log.error("get_top_buyers_winrate failed: %s", e, exc_info=True)
+        return []
+
+
 def get_funnel_stats(tenant_id: str = "reytech") -> dict:
     """Conversion funnel data. Replaces funnel query in routes_analytics.
     Input: tenant_id
