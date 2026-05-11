@@ -377,6 +377,47 @@ def _parse_price_response(text: str, original_desc: str) -> dict:
 
 # ── Batch Operations ─────────────────────────────────────────────────────────
 
+def research_items(items: list, max_items: int = 10) -> list:
+    """Enrich each input item with Amazon/web pricing fields in-place.
+
+    Adapter over bulk_web_search() — that function returns a parallel
+    list of search-result dicts keyed by `idx`. Callers in
+    routes_analytics + routes_rfq_gen expect the input items themselves
+    to come back with `amazon_price`, `item_link`, `item_supplier`
+    populated. This adapter does the merge so callers don't have to.
+
+    Sets when bulk_web_search returns a usable hit:
+      item["amazon_price"]    = result["price"]
+      item["item_link"]       = result["url"]
+      item["item_supplier"]   = result["source"]
+
+    Returns the SAME items list (mutated). Missing or failed results
+    leave the item untouched so existing fields aren't clobbered.
+    """
+    if not items:
+        return items
+    # Ensure each item has an idx so bulk_web_search can key results.
+    for i, item in enumerate(items):
+        if "idx" not in item:
+            item["idx"] = i
+
+    results = bulk_web_search(items, max_items=max_items)
+    by_idx = {r.get("idx", 0): r for r in (results or [])}
+
+    for item in items:
+        r = by_idx.get(item.get("idx", -1))
+        if not r or not r.get("found"):
+            continue
+        price = r.get("price")
+        if price:
+            item["amazon_price"] = float(price)
+        if r.get("url"):
+            item["item_link"] = r["url"]
+        if r.get("source"):
+            item["item_supplier"] = r["source"]
+    return items
+
+
 def bulk_web_search(items: list, max_items: int = 10) -> list:
     """
     Search prices for multiple items. Rate-limited to stay under 50K tokens/min.
