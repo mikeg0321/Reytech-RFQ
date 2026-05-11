@@ -737,10 +737,24 @@ def build_704_item_fields(
                 return tmpl.format(suffix=row_suffix) if tmpl else None
 
         # ── Pricing (all strategies write these) ──
+        #
+        # Use the canonical extension helper so a row whose persisted
+        # `unit_price` is stale relative to cost×markup still renders the
+        # correct number. Subtotal is derived once from `subtotal_of` AT
+        # THE END of the loop (below) — the per-row accumulator pattern
+        # this file used pre-2026-05-10 is the drift-prone shape that
+        # PR #849's invariant catches but doesn't heal.
+        from src.core.pricing_math import extension_of as _ext_of
         price = li.unit_price
         qty = li.qty
-        extension = round(price * qty, 2)
-        merchandise_subtotal += extension
+        extension = _ext_of(raw_item) if isinstance(raw_item, dict) else round(price * qty, 2)
+        if extension <= 0 and price > 0 and qty > 0:
+            # extension_of returned 0 (no_bid filter or LineItem-only path);
+            # fall back to the raw computation for the field-fill side so
+            # operator-visible row totals still appear when the canonical
+            # pricing math has nothing usable. Subtotal will skip these
+            # via the post-loop subtotal_of() call.
+            extension = round(price * qty, 2)
 
         if price > 0:
             items_priced += 1
@@ -809,9 +823,17 @@ def build_704_item_fields(
                 else:
                     values[sub_field] = "" if convention == "704b" else " "
 
+    # Derive subtotal from the canonical helper AT THE END instead of
+    # trusting the per-row accumulator. This eliminates the accumulator-
+    # vs-render-filter drift class (the bug shape PR #849 caught with
+    # `assert_subtotal_invariant`). If `subtotal_of` and the accumulator
+    # disagree we trust `subtotal_of` because it filters on the canonical
+    # `is_billable` predicate.
+    from src.core.pricing_math import subtotal_of as _sub_of
+    _canonical_subtotal = _sub_of(raw_items)
     return Fill704Result(
         field_values=values,
-        merchandise_subtotal=round(merchandise_subtotal, 2),
+        merchandise_subtotal=round(_canonical_subtotal, 2),
         items_priced=items_priced,
         items_total=len(raw_items),
         overflow_items=overflow_items,

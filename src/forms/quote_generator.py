@@ -1443,8 +1443,13 @@ def generate_quote(
             uprice = _raw_item.get("unit_price") or _raw_item.get("our_price") or _raw_item.get("recommended_price") or 0
             try: uprice = float(uprice)
             except (TypeError, ValueError): uprice = 0.0
-        tprice = round(uprice * qty, 2)
-        subtotal += tprice
+        # Canonical extension: cost × markup takes priority over stale
+        # persisted price. Falls back to `price_per_unit` for quote-side
+        # records that have no cost basis (PO-imported snapshots etc.).
+        from src.core.pricing_math import extension_of as _ext_of_q
+        _canonical_ext_q = _ext_of_q(_raw_item) if isinstance(_raw_item, dict) else 0.0
+        tprice = _canonical_ext_q if _canonical_ext_q > 0 else round(uprice * qty, 2)
+        subtotal += tprice  # debug-trace only; recomputed via subtotal_of(items) below
 
         desc = item["description"]
         part = item["part_number"]
@@ -1539,6 +1544,13 @@ def generate_quote(
     # ══════════════════════════════════════════════════════════════════════════
     # TOTALS SECTION
     # ══════════════════════════════════════════════════════════════════════════
+    # Recompute subtotal via the canonical helper before stamping. Same
+    # `is_billable` filter that gated the rows above. This is the read-
+    # time defense against stale `unit_price` — even if a record's
+    # persisted price disagrees with cost × markup, the quote stamps
+    # the correct number.
+    from src.core.pricing_math import subtotal_of as _sub_of_q
+    subtotal = _sub_of_q(items)
     tax     = round(subtotal * rate, 2) if include_tax else 0.0
     total   = round(subtotal + tax + shipping, 2)
 
