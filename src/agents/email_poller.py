@@ -1356,6 +1356,74 @@ def is_price_check_email(subject, body, sender, pdf_names):
     return None
 
 
+def classify_self_email(
+    sender_email: str,
+    our_email: str,
+    our_domains,
+    subject: str,
+    body: str,
+    has_pdfs: bool,
+    has_rfc822: bool,
+):
+    """Decide whether to skip an inbound email FROM our own address.
+
+    Returns a 3-tuple `(is_self, should_skip, is_real_forward)`:
+      * is_self          — sender is our address or one of our domains
+      * should_skip      — caller must `continue` past this email
+      * is_real_forward  — sender is self but body shows a true forward;
+                           caller processes as RFQ AFTER rewriting sender
+                           to the original forwarded sender
+
+    Bypass rule (2026-05-11 Mike P0):
+      A *real forward* requires `Fwd:` / `Fw:` literally in the subject
+      AND at least one additional signal (forwarded-body markers,
+      PDFs, or nested rfc822 part).
+
+    Why the hard `is_forward` gate: pre-fix, the bypass fired on any
+    2-of-4 signals over {is_forward, has_fwd_body, has_pdfs, _has_rfc822}.
+    A reply Mike sent containing a quote PDF hit has_fwd_body (because
+    "from:" appears in any quoted-reply tail) + has_pdfs = 2 signals,
+    bypassing the filter. Mike's outbound replies were ingested as
+    fresh buyer RFQs — prod found `pc_number=45007500` and `45007355`
+    with "Michael Guadan" as buyer.
+
+    "from:" was also dropped from `has_fwd_body` indicators since any
+    quoted reply contains it; remaining markers are explicit forward
+    headers ("---------- forwarded", "begin forwarded", "original
+    message", "forwarded message").
+    """
+    sender_norm = (sender_email or "").lower().strip()
+    our = (our_email or "").lower().strip()
+    domains = [str(d).lower().strip() for d in (our_domains or [])]
+
+    is_self = bool(sender_norm) and (
+        sender_norm == our
+        or any(sender_norm.endswith(f"@{d}") for d in domains if d)
+    )
+    if not is_self:
+        return False, False, False
+
+    subj_lower = (subject or "").lower().strip()
+    is_forward = any(
+        subj_lower.startswith(p) for p in ("fwd:", "fw:", "fwd :", "fw :")
+    )
+
+    body_lc = (body or "").lower()
+    has_fwd_body = any(ind in body_lc for ind in (
+        "---------- forwarded",
+        "begin forwarded",
+        "original message",
+        "forwarded message",
+    ))
+
+    additional_signals = int(bool(has_fwd_body)) + int(bool(has_pdfs)) + int(bool(has_rfc822))
+    is_real_forward = is_forward and additional_signals >= 1
+
+    if is_real_forward:
+        return True, False, True
+    return True, True, False
+
+
 def is_rfq_email(subject, body, attachments, sender_email=""):
     """
     Determine if an email is an RFQ. Uses tiered detection with negative gates.
@@ -1694,69 +1762,57 @@ class EmailPoller:
                     pdf_names = self._get_pdf_names(msg)
                     
                     # ── SELF-EMAIL FILTER — skip our own sent emails ──────────
-                    # Gmail threads sent replies into INBOX view. The poller must
-                    # never process emails FROM our own address — UNLESS it's a
-                    # forwarded email with PDF attachments (user forwarding an RFQ).
+                    # Logic extracted into `classify_self_email()` at module
+                    # top so it's unit-testable. See that function's docstring
+                    # for the bypass rule + 2026-05-11 Mike P0 incident.
                     _is_self_forward = False
                     sender_email_raw = self._extract_email(sender).lower()
-                    our_email = self.email_addr.lower()
-                    our_domains = ["reytechinc.com", "reytech.com"]
-                    is_self = (
-                        sender_email_raw == our_email
-                        or any(sender_email_raw.endswith(f"@{d}") for d in our_domains)
+                    has_pdfs = bool(pdf_names)
+                    if not has_pdfs:
+                        for _np in msg.walk():
+                            if _np.get_content_type() == "message/rfc822":
+                                _np_payload = _np.get_payload()
+                                _np_msgs = _np_payload if isinstance(_np_payload, list) else ([_np_payload] if hasattr(_np_payload, 'walk') else [])
+                                for _np_inner in _np_msgs:
+                                    if hasattr(_np_inner, 'walk'):
+                                        for _np_part in _np_inner.walk():
+                                            if (_np_part.get_filename() or "").lower().endswith(".pdf"):
+                                                has_pdfs = True
+                                                break
+                                    if has_pdfs:
+                                        break
+                            if has_pdfs:
+                                break
+                    _has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())
+                    is_self, should_skip, is_real_forward = classify_self_email(
+                        sender_email=sender_email_raw,
+                        our_email=self.email_addr.lower(),
+                        our_domains=["reytechinc.com", "reytech.com"],
+                        subject=subject,
+                        body=body,
+                        has_pdfs=has_pdfs,
+                        has_rfc822=_has_rfc822,
                     )
-                    if is_self:
-                        # Check if this is a forwarded RFQ (user forwarded an email to the inbox)
-                        subj_lower = subject.lower().strip()
-                        is_forward = any(subj_lower.startswith(p) for p in ["fwd:", "fw:", "fwd :", "fw :"])
-                        has_fwd_body = body and any(ind in body.lower() for ind in [
-                            "---------- forwarded", "begin forwarded", "original message",
-                            "from:", "forwarded message",
-                        ])
-                        has_pdfs = bool(pdf_names)  # pdf_names populated at line ~1242
-
-                        # Check for nested PDFs inside message/rfc822 parts
-                        if not has_pdfs:
-                            for _np in msg.walk():
-                                if _np.get_content_type() == "message/rfc822":
-                                    _np_payload = _np.get_payload()
-                                    _np_msgs = _np_payload if isinstance(_np_payload, list) else ([_np_payload] if hasattr(_np_payload, 'walk') else [])
-                                    for _np_inner in _np_msgs:
-                                        if hasattr(_np_inner, 'walk'):
-                                            for _np_part in _np_inner.walk():
-                                                if (_np_part.get_filename() or "").lower().endswith(".pdf"):
-                                                    has_pdfs = True
-                                                    break
-                                        if has_pdfs:
-                                            break
-                                if has_pdfs:
-                                    break
-
-                        # Relaxed: any 2+ of these signals is enough to pass
-                        _has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())
-                        _fwd_signals = sum([bool(is_forward), bool(has_fwd_body), bool(has_pdfs), bool(_has_rfc822)])
-                        if _fwd_signals >= 2:
-                            # This is a forwarded RFQ — let it through
-                            log.info("Forwarded email from self with PDFs — processing as RFQ: %s — %s (%d PDFs)",
-                                     sender_email_raw, subject[:60], len(pdf_names))
-                            self._diag.setdefault("self_forward_passed", 0)
-                            self._diag["self_forward_passed"] += 1
-                            _is_self_forward = True  # skip reply-followup gate below
-                            # Rewrite sender to the original forwarded sender if we can parse it
-                            try:
-                                fwd_sender = self._extract_forwarded_sender(body)
-                                if fwd_sender:
-                                    log.info("Extracted original sender from forward: %s", fwd_sender)
-                                    sender_email_raw = fwd_sender.lower()
-                                    sender = fwd_sender
-                            except Exception as _e:
-                                log.debug("suppressed: %s", _e)
-                        else:
-                            log.debug("Skipping own email: %s — %s", sender_email_raw, subject[:50])
-                            self._diag.setdefault("self_skipped", 0)
-                            self._diag["self_skipped"] = self._diag.get("self_skipped", 0) + 1
-                            self._processed.add(uid)
-                            continue
+                    if is_self and is_real_forward:
+                        log.info("Forwarded email from self with PDFs — processing as RFQ: %s — %s (%d PDFs)",
+                                 sender_email_raw, subject[:60], len(pdf_names))
+                        self._diag.setdefault("self_forward_passed", 0)
+                        self._diag["self_forward_passed"] += 1
+                        _is_self_forward = True
+                        try:
+                            fwd_sender = self._extract_forwarded_sender(body)
+                            if fwd_sender:
+                                log.info("Extracted original sender from forward: %s", fwd_sender)
+                                sender_email_raw = fwd_sender.lower()
+                                sender = fwd_sender
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
+                    elif is_self and should_skip:
+                        log.debug("Skipping own email: %s — %s", sender_email_raw, subject[:50])
+                        self._diag.setdefault("self_skipped", 0)
+                        self._diag["self_skipped"] = self._diag.get("self_skipped", 0) + 1
+                        self._processed.add(uid)
+                        continue
                     # ── END SELF-EMAIL FILTER ──────────────────────────────────
                     
                     # ── CROSS-INBOX DEDUP (#10) — shared fingerprint check ─────
