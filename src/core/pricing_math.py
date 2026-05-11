@@ -65,10 +65,21 @@ def canonical_unit_price(item: dict) -> float:
             or _coerce_float(item.get("vendor_cost"))
             or _coerce_float(item.get("supplier_cost"))
             or _coerce_float(item.get("cost")))
-    markup = (_coerce_float(item.get("markup_pct"))
-              or _coerce_float(p.get("markup_pct"))
-              or _coerce_float(item.get("markup"))
-              or _coerce_float(p.get("markup")))
+    # 2026-05-11: prior `or`-chain treated markup_pct=0.0 as missing
+    # (Python falsy: `0.0 or X` evaluates to X). For a give-away or
+    # cost-pass-through item with explicit markup=0, the function fell
+    # through to the stale `unit_price` fallback. Now uses explicit None
+    # check — None means "no markup recorded", 0.0 means "free / pass-
+    # through" (legitimate canonical value: cost × 1.0 = cost).
+    markup = None
+    for src in (item.get("markup_pct"), p.get("markup_pct"),
+                item.get("markup"), p.get("markup")):
+        if src is None:
+            continue
+        coerced = _coerce_float(src)
+        if coerced is not None:
+            markup = coerced
+            break
     if cost and markup is not None and cost > 0:
         return round(cost * (1 + markup / 100.0), 2)
     # Fallback — persisted value, in reading-order preference
