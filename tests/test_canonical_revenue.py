@@ -298,3 +298,99 @@ def test_update_revenue_tracker_closed_revenue_is_canonical(temp_data_dir):
 # only ever be wrong relative to the new source of truth. PR-6 deletes
 # them. The historical regression remains covered by
 # `test_update_revenue_tracker_closed_revenue_is_canonical` above.
+
+
+# ─── Migration 42: real-year inference + dedup + TEST exclusion ─────────
+#
+# Mike P0 2026-05-11: home reported $1,749,585 / $2M (87.5%) but prod
+# only had 3-4 real 2026 POs (~$108K). Three substrate bugs combined:
+#
+#   1. 98 historical orders (2023-2025) were bulk-imported on 2026-04-28.
+#      Their `created_at` is the import time; their REAL year lives in
+#      the quote_number prefix (R23Q*, R24Q*, R25Q* → 2023/2024/2025).
+#      The view used created_at, so the whole bulk landed in 2026.
+#   2. Every old order has an O/Q duplicate (ORD-R25Q98 + ORD-R25O98,
+#      both po_number=10819149, both $5,434). 2× count before any filter.
+#   3. A test order with po_number='TEST' ($3,556) was counted.
+#
+# Migration 42 fixes all three at the view layer (read-side); writes are
+# unchanged.
+
+
+def test_canonical_revenue_uses_quote_number_year_when_po_date_null(temp_data_dir):
+    """Bulk-imported historical orders (po_date NULL, created_at = import
+    time) must fall back to the quote_number prefix as the real year."""
+    from src.core.order_dal import canonical_year_revenue_total
+    with _conn() as c:
+        _wipe(c)
+        # 2025 quote bulk-imported on 2026-04-28 — must NOT count as 2026.
+        _seed_order(c, order_id="ORD-R25Q42", total=50_000.0,
+                    created_at="2026-04-28T14:37:15", status="new",
+                    po_number="8955-0000067018",
+                    quote_number="R25Q42")
+        # Real 2026 order — must count.
+        _seed_order(c, order_id="ORD-R26Q1", total=1_234.56,
+                    created_at="2026-03-01T00:00:00", status="shipped",
+                    po_number="4500750017",
+                    quote_number="R26Q1")
+        c.commit()
+    assert canonical_year_revenue_total(2026) == 1_234.56
+
+
+def test_canonical_revenue_dedupe_O_Q_variants(temp_data_dir):
+    """ORD-R26Q42 and ORD-R26O42 (same po_number, same agency, same
+    total) must count once, not twice. The historical import created
+    both variants for every record."""
+    from src.core.order_dal import canonical_year_revenue_total
+    with _conn() as c:
+        _wipe(c)
+        _seed_order(c, order_id="ORD-R26Q42", total=5_434.13,
+                    created_at="2026-02-01T00:00:00",
+                    po_number="10819149",
+                    quote_number="R26Q42")
+        _seed_order(c, order_id="ORD-R26O42", total=5_434.13,
+                    created_at="2026-02-01T00:00:00",
+                    po_number="10819149",
+                    quote_number="R26O42")
+        c.commit()
+    # Single $5,434.13, not double.
+    assert canonical_year_revenue_total(2026) == 5_434.13
+
+
+def test_canonical_revenue_excludes_TEST_po_number(temp_data_dir):
+    """Orders with po_number='TEST' (test marker without is_test=1) must
+    be dropped from the canonical view."""
+    from src.core.order_dal import canonical_year_revenue_total
+    with _conn() as c:
+        _wipe(c)
+        _seed_order(c, order_id="ORD-real", total=1_000.0,
+                    created_at="2026-04-01T00:00:00",
+                    po_number="4500750017",
+                    quote_number="R26Q1")
+        _seed_order(c, order_id="ORD-fake", total=99_999.0,
+                    created_at="2026-04-01T00:00:00",
+                    po_number="TEST",
+                    quote_number="R26Q2")
+        c.commit()
+    assert canonical_year_revenue_total(2026) == 1_000.0
+
+
+def test_canonical_revenue_po_date_wins_over_quote_number(temp_data_dir):
+    """When a real po_date is populated, it is the authoritative year —
+    even if the quote_number prefix says something different. This
+    happens when a 2026 PO references an old quote line item."""
+    from src.core.db import get_db
+    from src.core.order_dal import canonical_year_revenue_total
+    with _conn() as c:
+        _wipe(c)
+        # quote_number says 2025 but po_date says 2026 — po_date wins.
+        c.execute("""
+            INSERT INTO orders
+              (id, quote_number, po_number, po_date, agency, institution,
+               total, status, items, created_at, updated_at, is_test)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, ("ORD-mixed", "R25Q999", "PO-mixed", "2026-07-04",
+              "CDCR", "", 500.0, "new", "[]",
+              "2025-12-01T00:00:00", "2025-12-01T00:00:00", 0))
+        c.commit()
+    assert canonical_year_revenue_total(2026) == 500.0
