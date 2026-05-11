@@ -2395,88 +2395,12 @@ def api_notifications():
 
 
 
-# ── _create_quote_from_pc helper (used by email auto-draft) ──────────────────
-def _create_quote_from_pc(pc_id: str, status: str = "draft") -> dict:
-    """Create a quote from a price check. Wrapper used by Feature 4.2 auto-draft.
-    If a draft quote was already created by _handle_price_check_upload, updates it
-    with priced items instead of creating a duplicate."""
-    try:
-        pcs = _load_price_checks()
-        pc = pcs.get(pc_id)
-        if not pc:
-            return {"ok": False, "error": "PC not found"}
-        items = pc.get("items", [])
-        priced = [i for i in items if i.get("our_price") or i.get("unit_cost")]
-        if not priced:
-            return {"ok": False, "error": "no_prices"}
-
-        from src.forms.quote_generator import (
-            create_quote, peek_next_quote_number, increment_quote_counter,
-            get_all_quotes, _save_all_quotes,
-        )
-
-        existing_qn = pc.get("linked_quote_number") or pc.get("reytech_quote_number") or ""
-
-        # If a draft quote with this number already exists, UPDATE it instead of creating new
-        if existing_qn:
-            all_quotes = get_all_quotes()
-            for idx, q in enumerate(all_quotes):
-                if q.get("quote_number") == existing_qn:
-                    # Update the existing bare draft with priced items
-                    line_items = []
-                    for it in priced:
-                        price = it.get("our_price") or it.get("unit_cost") or 0
-                        qty = it.get("qty") or 1
-                        line_items.append({
-                            "description": it.get("description", ""),
-                            "qty": qty,
-                            "unit_price": price,
-                            "total": round(price * qty, 2),
-                        })
-                    total = sum(i["total"] for i in line_items)
-                    all_quotes[idx]["total"] = total
-                    all_quotes[idx]["subtotal"] = total
-                    all_quotes[idx]["items_count"] = len(line_items)
-                    all_quotes[idx]["status"] = status
-                    all_quotes[idx]["items"] = line_items
-                    _save_all_quotes(all_quotes)
-                    log.info("Updated existing draft %s with %d priced items ($%.2f)",
-                             existing_qn, len(line_items), total)
-                    return {"ok": True, "quote_number": existing_qn, "updated": True}
-            # If we got here, linked number exists but no quote found — fall through to create
-
-        # No existing draft — create new (consume a quote number)
-        quote_number = existing_qn or peek_next_quote_number()
-        agency = pc.get("agency") or pc.get("institution") or ""
-        line_items = []
-        for it in priced:
-            price = it.get("our_price") or it.get("unit_cost") or 0
-            qty = it.get("qty") or 1
-            line_items.append({
-                "description": it.get("description",""),
-                "qty": qty,
-                "unit_price": price,
-                "total": round(price * qty, 2),
-            })
-        total = sum(i["total"] for i in line_items)
-        result = create_quote({
-            "quote_number": quote_number,
-            "agency": agency,
-            "total": total,
-            "items": line_items,
-            "status": status,
-            "source_pc_id": pc_id,
-            "feature": "PRD 4.2",
-        })
-        if result.get("ok") and not existing_qn:
-            # Only increment counter if we consumed a new number (not reusing linked)
-            increment_quote_counter()
-        if result.get("ok"):
-            pcs[pc_id]["linked_quote_number"] = quote_number
-            _save_price_checks(pcs)
-        return result
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+# Note: _create_quote_from_pc removed 2026-05-10. The helper called phantom
+# imports `create_quote` and `increment_quote_counter` from quote_generator
+# (neither existed) and had zero callers in the codebase — confirmed dead.
+# Real auto-draft quote creation goes through routes_quoting_status.py +
+# src.core.quote_orchestrator.QuoteOrchestrator. If the auto-draft feature
+# (PRD 4.2) needs to be revived, build it on top of generate_quote_from_pc.
 
 
 # ════════════════════════════════════════════════════════════════════════════════
