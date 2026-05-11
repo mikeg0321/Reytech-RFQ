@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}KPI — Orphan-Order Triage{% endblock %}
+{% block content %}
+<div style="max-width:1200px;margin:0 auto;padding:20px" id="main-content">
+
+  <div style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0;font-size:22px;color:var(--tx)">KPI — Orphan-Order Triage</h2>
+      <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+        Cross-references SCPRS + Gmail outbox/inbox + orders/quotes. ·
+        <a href="/kpi/funnel" style="color:#58a6ff;text-decoration:none">← Funnel</a> ·
+        <a href="/api/kpi/orphans" style="color:#8b949e;text-decoration:none;font-size:12px">JSON</a>
+      </p>
+    </div>
+    <div style="font-size:12px;color:var(--tx2)">scanned {{ classification.scanned_at|default('—') }}</div>
+  </div>
+
+  {% if classification.error %}
+  <div style="background:#f8514922;border:1px solid #f85149;border-radius:8px;padding:14px;color:#f85149;font-size:14px">
+    <strong>Error running orphan-rebuild script:</strong> {{ classification.error }}
+    {% if classification.stderr %}<pre style="margin-top:8px;font-size:11px">{{ classification.stderr }}</pre>{% endif %}
+  </div>
+  {% else %}
+
+  <!-- Category summary -->
+  {% set by_cat = classification.by_category|default({}) %}
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:16px">
+    <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:14px">
+      {{ classification.total_reytech_pos|default(0) }} Reytech POs in SCPRS · classification breakdown
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+      <div style="background:var(--bg);border:1px solid #3fb950;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#3fb950">{{ by_cat.get('linked_high', 0) }}</div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:4px;text-transform:uppercase">HIGH · auto-linkable</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid #d29922;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#d29922">{{ by_cat.get('linked_medium', 0) }}</div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:4px;text-transform:uppercase">MEDIUM · confirm</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid #a78bfa;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#a78bfa">{{ by_cat.get('ambiguous_low', 0) }}</div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:4px;text-transform:uppercase">LOW · pick</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:var(--tx2)">{{ by_cat.get('direct_po', 0) }}</div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:4px;text-transform:uppercase">Direct PO</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:var(--tx2)">{{ by_cat.get('pre_rfqapp', 0) }}</div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:4px;text-transform:uppercase">Pre-RFQapp</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Each category section -->
+  {% for cat_key, cat_label, cat_color in [
+    ('linked_high', 'HIGH confidence — auto-link safe', '#3fb950'),
+    ('linked_medium', 'MEDIUM confidence — operator confirm', '#d29922'),
+    ('ambiguous_low', 'LOW confidence — operator pick from candidates', '#a78bfa'),
+    ('direct_po', 'Direct PO — buyer ordered without RFQapp quote', '#8b949e'),
+    ('pre_rfqapp', 'Pre-RFQapp deployment', '#6e7681'),
+  ] %}
+  {% set bucket = classification.results|default([]) | selectattr('category','equalto',cat_key) | list %}
+  {% if bucket %}
+  <div style="background:var(--sf);border:1px solid {{ cat_color }};border-radius:10px;padding:18px;margin-bottom:14px">
+    <div style="font-size:14px;font-weight:600;color:{{ cat_color }};margin-bottom:12px">
+      {{ cat_label }} ({{ bucket|length }})
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--bd)">
+          <th style="padding:6px;text-align:left;color:var(--tx2);font-size:10px;text-transform:uppercase">PO #</th>
+          <th style="padding:6px;text-align:left;color:var(--tx2);font-size:10px;text-transform:uppercase">Agency</th>
+          <th style="padding:6px;text-align:right;color:var(--tx2);font-size:10px;text-transform:uppercase">Date</th>
+          <th style="padding:6px;text-align:right;color:var(--tx2);font-size:10px;text-transform:uppercase">$ Total</th>
+          <th style="padding:6px;text-align:left;color:var(--tx2);font-size:10px;text-transform:uppercase">Candidate Quote(s)</th>
+          <th style="padding:6px;text-align:left;color:var(--tx2);font-size:10px;text-transform:uppercase">Evidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in bucket[:50] %}
+        <tr style="border-bottom:1px solid var(--bd)">
+          <td style="padding:6px;color:var(--tx);font-family:monospace;font-size:11px">{{ r.po_number }}</td>
+          <td style="padding:6px;color:var(--tx);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.agency|default('—') }}</td>
+          <td style="padding:6px;text-align:right;color:var(--tx2);font-family:monospace;font-size:11px">{{ (r.start_date or '')[:10] }}</td>
+          <td style="padding:6px;text-align:right;color:var(--tx);font-weight:600">${{ '{:,.0f}'.format(r.grand_total or 0) }}</td>
+          <td style="padding:6px;color:#58a6ff;font-family:monospace;font-size:11px">
+            {% for qn in r.matched_quote_numbers %}
+              <a href="/quote/{{ qn }}" style="color:#58a6ff;text-decoration:none">{{ qn }}</a>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            {% if not r.matched_quote_numbers %}—{% endif %}
+          </td>
+          <td style="padding:6px;color:var(--tx2);font-size:11px;max-width:280px">
+            {% for ev in r.evidence %}<div>{{ ev }}</div>{% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if bucket|length > 50 %}
+        <tr><td colspan="6" style="padding:8px;color:var(--tx2);text-align:center;font-size:11px">
+          ... {{ bucket|length - 50 }} more · use <code>railway ssh "python scripts/rebuild_orphan_orders.py --json --confidence {{ cat_key }}"</code> for full list
+        </td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  <!-- Apply guidance -->
+  <div style="background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-top:20px;font-size:13px;color:var(--tx2)">
+    <div style="font-weight:600;color:var(--tx);margin-bottom:6px">Apply HIGH-confidence matches on prod</div>
+    <pre style="background:#0d1117;border:1px solid var(--bd);padding:10px;border-radius:6px;overflow-x:auto;font-size:11px;margin:0">railway ssh "python scripts/rebuild_orphan_orders.py --apply"</pre>
+    <div style="margin-top:8px;font-size:11px">
+      MEDIUM + LOW rows require manual operator review — link each via
+      <code>/api/order/&lt;oid&gt;/link-quote?qn=&lt;quote_number&gt;</code>.
+    </div>
+  </div>
+
+  {% endif %}
+
+</div>
+{% endblock %}
