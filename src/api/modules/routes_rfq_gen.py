@@ -929,6 +929,43 @@ def _rfq_lookup_single_item_locked(rid, idx):
     })
 
 
+def _apply_supplier_qty_uom(item: dict, q_qty, q_uom: str) -> dict:
+    """Overwrite a matched RFQ line's qty + uom with the supplier-quote values.
+
+    P0 incident 2026-05-11 (rfq_8efe9fae / ECHQ1223525): the buyer-RFQ
+    parser had stuffed buyer item numbers into the qty column (qty=161574
+    for a 6-pack of penlights). The supplier-quote upload matched the
+    line, updated cost/description, but left qty alone — total ballooned
+    to $1.6M instead of $2,627.
+
+    Mike's verbatim doctrine: the supplier's qty + uom on a matched line
+    are what the operator confirmed when they reviewed the match modal
+    (which already surfaces qty/UOM diffs as warnings). Trust them.
+
+    Records the prior value under `_prior_qty_before_supplier` /
+    `_prior_uom_before_supplier` for audit + UI affordances. Idempotent:
+    re-running on already-aligned values is a no-op.
+
+    Returns the same dict (mutated in place) for chaining.
+    """
+    try:
+        q_qty_num = int(float(q_qty)) if q_qty not in (None, "") else None
+    except (ValueError, TypeError):
+        q_qty_num = None
+    if q_qty_num is not None and q_qty_num > 0:
+        prior_qty = item.get("qty")
+        if prior_qty != q_qty_num:
+            item["_prior_qty_before_supplier"] = prior_qty
+        item["qty"] = q_qty_num
+    if q_uom:
+        new_uom = q_uom.strip().upper()
+        prior_uom = (item.get("uom") or "").upper()
+        if new_uom and new_uom != prior_uom:
+            item["_prior_uom_before_supplier"] = prior_uom or None
+            item["uom"] = new_uom
+    return item
+
+
 def _build_unmatched_supplier_line(rfq_items: list, q_desc: str, q_pn: str,
                                    q_qty, q_uom: str, cost: float,
                                    supplier: str) -> dict:
@@ -1212,6 +1249,10 @@ def _rfq_upload_supplier_quote_locked(rid):
                     item["description"] = q_desc
                     item["_desc_source"] = "supplier"
                     desc_upgraded += 1
+
+                # Qty + UOM overwrite — see _apply_supplier_qty_uom docstring
+                # for the P0 incident this closes.
+                _apply_supplier_qty_uom(item, q_qty, q_uom)
 
                 # Fill part number if empty or from a richer source
                 if q_pn and not item.get("item_number"):

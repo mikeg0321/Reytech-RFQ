@@ -17,7 +17,10 @@ These tests pin the helper that builds the new line.
 """
 from __future__ import annotations
 
-from src.api.modules.routes_rfq_gen import _build_unmatched_supplier_line
+from src.api.modules.routes_rfq_gen import (
+    _apply_supplier_qty_uom,
+    _build_unmatched_supplier_line,
+)
 
 
 def test_unmatched_line_carries_all_supplier_fields():
@@ -172,3 +175,107 @@ def test_echelon_5_items_3_matched_2_appended_scenario():
     assert len(original) == 3
     for it in original:
         assert "_added_from_supplier_quote" not in it
+
+
+# ─── _apply_supplier_qty_uom — matched-line overwrite ────────────────────
+#
+# P0 2026-05-11 RFQ rfq_8efe9fae: supplier-quote upload matched lines but
+# never overwrote qty/uom. The buyer-RFQ parser had put McKesson item
+# numbers (161574) in the qty column; total ballooned to $1.6M instead
+# of $2,627. These tests pin the helper that fixes it.
+
+
+def test_apply_supplier_qty_uom_overwrites_bogus_qty():
+    """The exact ECHQ1223525 incident: buyer RFQ row has qty=161574
+    (a McKesson item number), supplier quote says qty=6. After the
+    upload's match update, qty must be 6."""
+    item = {"qty": 161574, "uom": "EA", "description": "Penlight"}
+    _apply_supplier_qty_uom(item, q_qty=6, q_uom="PK")
+    assert item["qty"] == 6
+    assert item["uom"] == "PK"
+    # Audit trail preserved
+    assert item["_prior_qty_before_supplier"] == 161574
+    assert item["_prior_uom_before_supplier"] == "EA"
+
+
+def test_apply_supplier_qty_uom_records_no_audit_when_already_aligned():
+    """No-op case: qty and uom already match the supplier. No audit
+    fields written (avoids polluting the dict on idempotent re-runs)."""
+    item = {"qty": 6, "uom": "PK", "description": "Penlight"}
+    _apply_supplier_qty_uom(item, q_qty=6, q_uom="PK")
+    assert item["qty"] == 6
+    assert item["uom"] == "PK"
+    assert "_prior_qty_before_supplier" not in item
+    assert "_prior_uom_before_supplier" not in item
+
+
+def test_apply_supplier_qty_uom_uppercases_uom():
+    """Supplier may pass UOM as 'pk' or 'cs' — must normalize."""
+    item = {"qty": 1, "uom": "EA"}
+    _apply_supplier_qty_uom(item, q_qty=4, q_uom="cs")
+    assert item["uom"] == "CS"
+
+
+def test_apply_supplier_qty_uom_skips_qty_when_supplier_qty_zero_or_missing():
+    """A supplier qty of 0 or None is a parser stumble — don't overwrite
+    a real RFQ qty with zero/null. Mike's actual qty is preserved."""
+    for bad in (0, None, "", "abc"):
+        item = {"qty": 12, "uom": "EA"}
+        _apply_supplier_qty_uom(item, q_qty=bad, q_uom="EA")
+        assert item["qty"] == 12, f"qty should be preserved when supplier qty={bad!r}"
+
+
+def test_apply_supplier_qty_uom_skips_uom_when_supplier_uom_empty():
+    """Empty/None supplier UOM keeps the existing UOM intact."""
+    item = {"qty": 1, "uom": "BX"}
+    _apply_supplier_qty_uom(item, q_qty=5, q_uom="")
+    assert item["uom"] == "BX"
+    _apply_supplier_qty_uom(item, q_qty=5, q_uom=None)
+    assert item["uom"] == "BX"
+
+
+def test_apply_supplier_qty_uom_coerces_float_string_qty():
+    """Some parsers emit qty as '6.0' or '6' strings — must coerce to int."""
+    item = {"qty": 100}
+    _apply_supplier_qty_uom(item, q_qty="6.0", q_uom="PK")
+    assert item["qty"] == 6
+    assert isinstance(item["qty"], int)
+
+
+def test_apply_supplier_qty_uom_returns_same_item_for_chaining():
+    """Helper mutates in place AND returns the dict so callers can chain."""
+    item = {"qty": 99, "uom": "EA"}
+    out = _apply_supplier_qty_uom(item, q_qty=4, q_uom="CS")
+    assert out is item
+
+
+def test_echelon_rfq_8efe9fae_three_row_overwrite_scenario():
+    """End-to-end the specific incident: 3 buyer-RFQ rows with bogus
+    qtys (item-number-as-qty pattern), supplier-quote upload runs the
+    overwrite, all 3 rows now carry the supplier's qty/uom."""
+    rfq_items = [
+        # Row 1: Penlight — qty stuffed with McKesson item# 161574
+        {"line_number": 1, "qty": 161574, "uom": "EA",
+         "description": "Penlight", "item_number": "161574"},
+        # Row 2: Fingernail Clippers — qty stuffed with another bogus number
+        {"line_number": 2, "qty": 45, "uom": "EA",
+         "description": "Fingernail Clippers", "item_number": "475020"},
+        # Row 3: Personal Razor — qty stuffed with item-number-like 843
+        {"line_number": 3, "qty": 843, "uom": "EA",
+         "description": "Personal Razor", "item_number": "899539"},
+    ]
+    supplier_match_qtys = [(6, "PK"), (4, "CS"), (4, "CS")]
+    for item, (q, u) in zip(rfq_items, supplier_match_qtys):
+        _apply_supplier_qty_uom(item, q, u)
+
+    # Per-row math now matches the supplier quote (cost × qty):
+    # Penlight  $10.59 × 6  = $63.54
+    # Razor     $215.81 × 4 = $863.24
+    # Fingernail $160.51 × 4 = $642.04
+    qtys = [it["qty"] for it in rfq_items]
+    uoms = [it["uom"] for it in rfq_items]
+    assert qtys == [6, 4, 4]
+    assert uoms == ["PK", "CS", "CS"]
+    # Audit trail captures the pre-overwrite values
+    assert rfq_items[0]["_prior_qty_before_supplier"] == 161574
+    assert rfq_items[2]["_prior_qty_before_supplier"] == 843
