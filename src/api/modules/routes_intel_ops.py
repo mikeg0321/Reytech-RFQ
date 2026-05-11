@@ -322,16 +322,6 @@ except ImportError:
     VOICE_AVAILABLE = False
 
 try:
-    from src.agents.voice_campaigns import (
-        create_campaign, get_campaigns, get_campaign,
-        execute_campaign_call, update_call_outcome,
-        get_campaign_stats, list_scripts as campaign_list_scripts,
-    )
-    CAMPAIGNS_AVAILABLE = True
-except ImportError:
-    CAMPAIGNS_AVAILABLE = False
-
-try:
     from src.agents.manager_agent import (
         generate_brief, get_agent_status as manager_agent_status,
     )

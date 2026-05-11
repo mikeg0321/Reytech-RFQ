@@ -53,6 +53,13 @@ BASELINE_EXEMPTIONS: set[str] = {
     #   scprs_scanner + routes_intel_ops:2266 get_all_items → load_won_quotes
     #   routes_catalog_finance fetch_payments → get_recent_payments as fetch_payments
     #   routes_prd28 data_path → pathlib.Path(DATA_DIR) / ...
+    # Drained in batch 4 (voice_campaigns FEATURE DELETE):
+    #   Per Mike 2026-05-10: "app isn't ready for agentic voice yet; quoting +
+    #   data accuracy still issues." All 7 voice_campaigns imports, the 7
+    #   campaign routes in routes_voice_contacts.py (/campaigns, /campaign/<cid>,
+    #   /api/campaigns/*), CAMPAIGNS_AVAILABLE flag in config.py + dashboard.py,
+    #   and the 2 templates (voice_campaigns.html, campaign_detail.html)
+    #   removed entirely.
     "src/agents/orchestrator.py:180:src.agents.product_research:bulk_research",
     "src/agents/orchestrator.py:322:src.agents.lead_gen_agent:scan_for_leads",
     "src/agents/qa_agent.py:2315:src.agents.orchestrator:WorkflowOrchestrator",
@@ -60,16 +67,9 @@ BASELINE_EXEMPTIONS: set[str] = {
     "src/agents/tax_agent.py:390:src.forms.quote_generator:load_contacts",
     "src/agents/vendor_ordering_agent.py:899:src.knowledge.won_quotes_db:search_pricing",
     "src/api/modules/routes_analytics.py:137:src.agents.web_price_research:research_items",
-    "src/api/modules/routes_intel_ops.py:2470:src.forms.quote_generator:create_quote",
-    "src/api/modules/routes_intel_ops.py:2470:src.forms.quote_generator:increment_quote_counter",
-    "src/api/modules/routes_intel_ops.py:2612:src.agents.sales_intel:run_deep_pull",
-    "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:create_campaign",
-    "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:execute_campaign_call",
-    "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:get_campaign",
-    "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:get_campaign_stats",
-    "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:get_campaigns",
-    "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:list_scripts",
-    "src/api/modules/routes_intel_ops.py:325:src.agents.voice_campaigns:update_call_outcome",
+    "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:create_quote",
+    "src/api/modules/routes_intel_ops.py:2460:src.forms.quote_generator:increment_quote_counter",
+    "src/api/modules/routes_intel_ops.py:2602:src.agents.sales_intel:run_deep_pull",
     "src/api/modules/routes_pricecheck_pricing.py:373:src.agents.scprs_lookup:queue_background_lookup",
     # Drained in batch 2: routes_rfq.load_pcs (2 sites) → _load_price_checks alias.
     # Drained in batch 2: routes_rfq_admin audit_log → src.core.security._log_audit_internal.
