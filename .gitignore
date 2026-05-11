@@ -83,3 +83,21 @@ baseline_pc_detail_pre_pr3a.png
 baseline_*.png
 .chrome_verify/
 .chrome-verify/
+
+# ── Per-session working-tree noise (audit drafts, verify screenshots, etc.) ──
+# Keeps Mike's local audit notes out of git unless explicitly committed.
+.audit_tmp/
+chrome-verify/
+data/verify/
+data/verify_*.png
+data/tax_rates_cache.json
+scripts/_prod_orphan_triage.py
+scripts/schedule/
+
+# ── Old audit doc variants (superseded by docs/AUDIT_DEEP_E2E_2026_05_07_v2.md) ──
+# Future audit work should overwrite the canonical v2 doc; these stale
+# variants stay local-only. Commit a new canonical doc deliberately if needed.
+docs/AUDIT_DEEP_E2E_2026_05_07.md
+docs/AUDIT_FULL_E2E_2026_05_07.md
+docs/AUDIT_HANDOFF_2026_05_07.md
+docs/AUDIT_HOME_QUOTING_GROWTH_2026_05_06.md
