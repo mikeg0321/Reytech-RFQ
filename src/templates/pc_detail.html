@@ -4241,6 +4241,13 @@
      rows.forEach((row)=>{
       // Use the data-row attribute as the index (matches form field names)
       const idx=row.getAttribute('data-row');
+      // Belt-and-suspenders: respect server-side `no_bid` field via the
+      // data-no-bid attribute AND the bid checkbox state. The PDF renderer
+      // filters on `no_bid` (canonical predicate, src/core/pricing_math.py).
+      // Pre-2026-05-11 this preview filtered on checkbox only — if the
+      // checkbox state ever desynced from the saved `no_bid`, the UI
+      // subtotal disagreed with the PDF.
+      if(row.getAttribute('data-no-bid')==='1') return;
       const bid=row.querySelector('[name=bid_'+idx+']');
       if(bid&&!bid.checked) return;
       const lineNo=row.children[1]?.textContent?.trim()||parseInt(idx)+1;
