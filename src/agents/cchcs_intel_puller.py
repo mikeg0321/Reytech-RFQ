@@ -194,19 +194,24 @@ except Exception as _e:
     log.debug('suppressed in _ensure_tables: %s', _e)
 
 
-def _classify_line(description: str) -> dict:
-    """Classify a PO line item: category, Reytech sells?, opportunity."""
-    desc_lower = (description or "").lower()
-    for keyword, data in REYTECH_CATALOG.items():
-        if keyword in desc_lower:
-            return {
-                "category": data["category"],
-                "reytech_sells": data["sells"],
-                "reytech_sku": data.get("sku"),
-                "opportunity_flag": "WIN_BACK" if data["sells"] else "GAP_ITEM",
-            }
-    return {"category": "other", "reytech_sells": False,
-            "reytech_sku": None, "opportunity_flag": None}
+def _classify_line(description: str, item_id: str = "") -> dict:
+    """Classify a PO line item: category, Reytech sells?, opportunity.
+
+    Delegates to `src.core.scprs_classifier.classify_line` so the real
+    `product_catalog.match_item()` (UPC / supplier SKU / mfg# / token
+    overlap at 0.65) drives the WIN_BACK flag instead of the legacy
+    hardcoded keyword dict. See module docstring on scprs_classifier.
+
+    The legacy REYTECH_CATALOG dict above is preserved as the keyword
+    fallback inside scprs_classifier so adjacent-category GAP_ITEM flags
+    don't regress.
+    """
+    from src.core.scprs_classifier import classify_line as _cls
+    out = _cls(description, item_id=item_id)
+    # Caller (store_pos) writes the existing 4 columns; new fields
+    # (match_confidence, match_source) are silently dropped if the
+    # ingest writer doesn't know them — they're advisory.
+    return out
 
 
 def _is_cchcs_dept(dept_code: str, dept_name: str) -> bool:
