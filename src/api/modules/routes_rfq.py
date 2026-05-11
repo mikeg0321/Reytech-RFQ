@@ -3262,12 +3262,27 @@ def api_lookup_tax_rate(rid):
 
 
 def _api_lookup_tax_rate_locked(rid):
-    """Inner body — always runs under `_save_rfqs_lock`."""
+    """Inner body — always runs under `_save_rfqs_lock`.
+
+    P0 2026-05-11 (Mike RFQ rfq_8efe9fae): clicking Verify silently
+    clobbered line-item costs that Mike had just typed but autosave
+    hadn't flushed yet (3s debounce in rfq_detail.html). Root cause
+    was load_rfqs() reading STALE line_items from disk at the top of
+    this handler, then _save_single_rfq() writing the whole blob back
+    — line_items round-trip-and-overwrite under the lock, blowing
+    away in-flight client edits when the autosave debounce later
+    posts to the autosave endpoint and finds the disk has moved on.
+
+    Fix: do the load inside the lock immediately before the save, and
+    overlay ONLY the tax keys onto the freshly-loaded record. Any
+    autosave that landed between the request start and now is
+    preserved.
+    """
+    data = request.get_json(force=True, silent=True) or {}
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"})
-    data = request.get_json(force=True, silent=True) or {}
     address = data.get("address") or r.get("delivery_location") or r.get("ship_to") or ""
     if not address or len(address.strip()) < 5:
         return jsonify({"ok": False, "error": "No delivery address to look up"})
@@ -3286,7 +3301,14 @@ def _api_lookup_tax_rate_locked(rid):
         res = resolve_tax(address, force_live=_force)
         if res and res.get("ok") and res.get("rate") is not None:
             rate_pct = round(res["rate"] * 100, 3)
-            r["tax_rate"] = rate_pct
+            # ── P0 2026-05-11: re-load INSIDE the lock just before the
+            # save, then overlay ONLY the tax keys. This guarantees
+            # that any line-item autosave that landed during the CDTFA
+            # round-trip is preserved instead of clobbered by a stale
+            # in-memory copy of `r`.
+            rfqs_fresh = load_rfqs()
+            r_fresh = rfqs_fresh.get(rid) or r
+            r_fresh["tax_rate"] = rate_pct
             # `validated` from resolve_tax is True only on
             # cdtfa_api / cache / persisted_cache sources. That's
             # exactly what the RFQ detail page's "✅ Verified" badge
@@ -3298,15 +3320,15 @@ def _api_lookup_tax_rate_locked(rid):
             # record where CDTFA returned rate=0 (likely cached
             # null-response) and the green ✅ FRESNO badge survived
             # while the KPI Tax cell read $0. Force the badge red.
-            r["tax_validated"] = bool(res.get("validated")) and rate_pct > 0
-            r["tax_source"] = res.get("source", "")
-            r["tax_jurisdiction"] = res.get("jurisdiction", "")
+            r_fresh["tax_validated"] = bool(res.get("validated")) and rate_pct > 0
+            r_fresh["tax_source"] = res.get("source", "")
+            r_fresh["tax_jurisdiction"] = res.get("jurisdiction", "")
             # PR-1e also persists the canonical facility code so the
             # RFQ record carries the resolver's inference as audit
             # trail. Empty string when no registry hit.
-            r["tax_facility_code"] = res.get("facility_code", "")
+            r_fresh["tax_facility_code"] = res.get("facility_code", "")
             from src.api.dashboard import _save_single_rfq
-            _save_single_rfq(rid, r)
+            _save_single_rfq(rid, r_fresh)
             return jsonify({
                 "ok": True,
                 "rate": rate_pct,
