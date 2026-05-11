@@ -483,12 +483,12 @@ def api_pc_multi_upload():
 
         # Persist to DB for deploy resilience
         try:
-            from src.core.dal import save_rfq_file
+            from src.api.dashboard import save_rfq_file
             with open(pc_file, "rb") as _pf:
                 save_rfq_file(pc_id, safe_name, "application/pdf", _pf.read(),
                               category="source", uploaded_by="manual_upload")
         except Exception as _e:
-            log.debug("suppressed: %s", _e)
+            log.warning("manual_upload save_rfq_file failed: %s", _e)
 
         # Auto-enrich
         try:

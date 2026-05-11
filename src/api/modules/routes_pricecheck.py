@@ -3611,17 +3611,17 @@ def pricecheck_source_pdf(pcid):
                          download_name=os.path.basename(source_pdf))
     # Fallback: try rfq_files DB
     try:
-        from src.core.db import list_rfq_files
+        from src.api.dashboard import list_rfq_files
         files = list_rfq_files(pcid, category="template")
         if files:
-            from src.core.db import get_rfq_file
+            from src.api.dashboard import get_rfq_file
             f = get_rfq_file(files[0]["id"])
             if f and f.get("data"):
                 from flask import Response
                 return Response(f["data"], mimetype="application/pdf",
                     headers={"Content-Disposition": f"inline; filename=\"{f.get('filename', 'source.pdf')}\""})
     except Exception as e:
-        log.debug("Source PDF DB fallback error: %s", e)
+        log.warning("Source PDF rfq_files DB fallback failed: %s", e)
     return "Source PDF not found", 404
 
 

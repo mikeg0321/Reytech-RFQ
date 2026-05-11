@@ -1223,10 +1223,11 @@ def api_rfq_create_manual():
     agency_key = data.get("agency", "")
     agency_name = ""
     try:
-        from src.core.agency_config import AGENCY_CONFIGS
-        if agency_key in AGENCY_CONFIGS:
-            agency_name = AGENCY_CONFIGS[agency_key].get("name", agency_key)
-    except Exception:
+        from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
+        if agency_key in DEFAULT_AGENCY_CONFIGS:
+            agency_name = DEFAULT_AGENCY_CONFIGS[agency_key].get("name", agency_key)
+    except Exception as _e:
+        log.warning("api_rfq_new agency_name lookup failed: %s", _e)
         agency_name = agency_key
 
     # is_test: explicit flag from caller wins; fall back to a TEST- prefix on

@@ -260,14 +260,17 @@ def _compute_recommended_price(item):
 
     # Priority 2: Historical winning price
     try:
-        from src.knowledge.won_quotes_db import find_similar_wins
-        wins = find_similar_wins(item.get("description", ""), item.get("item_number", ""))
+        from src.knowledge.won_quotes_db import find_similar_items
+        wins = find_similar_items(
+            item_number=item.get("item_number", ""),
+            description=item.get("description", ""),
+        )
         if wins:
             avg_win = sum(w.get("price", 0) for w in wins[:3]) / min(3, len(wins))
             if avg_win > 0:
                 return {"price": round(avg_win, 2), "reason": f"Won avg ${avg_win:.2f} ({len(wins)} wins)", "confidence": "high"}
     except Exception as _e:
-        log.debug('suppressed in _compute_recommended_price: %s', _e)
+        log.warning("_compute_recommended_price won-history lookup failed: %s", _e)
 
     # Priority 3: Catalog sell price
     if catalog > 0:
@@ -1074,8 +1077,11 @@ def _find_won_history(description, item_number=""):
     """Find past winning prices for similar items."""
     results = []
     try:
-        from src.knowledge.won_quotes_db import find_similar_wins
-        wins = find_similar_wins(description, item_number)
+        from src.knowledge.won_quotes_db import find_similar_items
+        wins = find_similar_items(
+            item_number=item_number,
+            description=description,
+        )
         if wins:
             for w in wins[:3]:
                 results.append({
@@ -1086,7 +1092,7 @@ def _find_won_history(description, item_number=""):
                     "quote_number": w.get("quote_number", ""),
                 })
     except Exception as _e:
-        log.debug('suppressed in _find_won_history: %s', _e)
+        log.warning("_find_won_history lookup failed: %s", _e)
 
     # Also check recent PCs that were marked won
     try:
