@@ -4787,12 +4787,12 @@ def api_admin_auto_pricing_tp_fp_scan():
     pc_records = []
     if include_pcs:
         try:
-            from src.api.data_layer import load_pcs
+            from src.api.data_layer import _load_price_checks as load_pcs
             pcs = load_pcs() or {}
             pc_records = [{**p, "_kind": "pc"} for p in pcs.values()
                           if isinstance(p, dict)]
         except Exception as _e:
-            log.debug("auto-tp-fp pc load suppressed: %s", _e)
+            log.warning("auto-tp-fp pc load failed: %s", _e)
 
     rfq_results = scan_records(rfq_records, status_allowlist=statuses)
     pc_results = scan_records(pc_records, status_allowlist=statuses)
@@ -4839,7 +4839,7 @@ def api_admin_auto_pricing_tp_fp_scan():
 
     if include_pcs:
         try:
-            from src.api.data_layer import _save_single_pc, load_pcs as _load_pcs
+            from src.api.data_layer import _save_single_pc, _load_price_checks as _load_pcs
             _pcs_map = _load_pcs() or {}
             for result in pc_results:
                 pid = result.get("rid", "")

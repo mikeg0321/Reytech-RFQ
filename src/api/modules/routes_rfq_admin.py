@@ -3936,15 +3936,20 @@ def _api_rfq_upload_edited_quote_locked(rid):
 
     # Audit log — best-effort, never block the apply.
     try:
-        from src.core.audit_log import log_event
-        log_event(
-            actor=session.get("user", "operator"),
-            event_type="quote_pdf_edited_externally",
-            target_id=rid,
-            details={"diff": diff, "flat_pdf_path": flat_path, "field_count": len(edits)},
+        from src.core.security import _log_audit_internal
+        _log_audit_internal(
+            action="quote_pdf_edited_externally",
+            details=f"rfq={rid} actor={session.get('user', 'operator')} fields={len(edits)}",
+            metadata={
+                "target_id": rid,
+                "actor": session.get("user", "operator"),
+                "diff": diff,
+                "flat_pdf_path": flat_path,
+                "field_count": len(edits),
+            },
         )
     except Exception as ae:
-        log.debug("audit log skipped (PR-D4 upload-edited): %s", ae)
+        log.warning("audit log failed (PR-D4 upload-edited): %s", ae)
 
     return jsonify({
         "ok": True,

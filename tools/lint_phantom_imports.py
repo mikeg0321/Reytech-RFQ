@@ -44,10 +44,9 @@ BASELINE_EXEMPTIONS: set[str] = {
     # Drain these by fixing or deleting the import; do NOT just bump the line.
     # Each entry is one phantom found by ast.walk(); follow-on PRs should
     # delete entries here as they're resolved.
-    "src/agents/email_poller.py:2114:src.core.db_dal:update_quote_status",
-    "src/agents/email_poller.py:2127:src.core.db_dal:log_revenue",
-    "src/agents/email_poller.py:2240:src.core.db_dal:record_price",
-    "src/agents/email_poller.py:2301:src.core.db_dal:log_activity",
+    # Drained in batch 2: email_poller order-win flow (4 sites) — module
+    # was db_dal phantom; real homes: src.forms.quote_generator (update_quote_status)
+    # and src.core.db (log_revenue/record_price); CRM activity → _log_crm_activity.
     "src/agents/oracle_weekly.py:71:src.core.intel_categories:iter_categories",
     "src/agents/orchestrator.py:180:src.agents.product_research:bulk_research",
     "src/agents/orchestrator.py:322:src.agents.lead_gen_agent:scan_for_leads",
@@ -74,10 +73,9 @@ BASELINE_EXEMPTIONS: set[str] = {
     "src/api/modules/routes_prd28.py:1067:src.core.paths:data_path",
     "src/api/modules/routes_prd28.py:1110:src.core.paths:data_path",
     "src/api/modules/routes_pricecheck_pricing.py:373:src.agents.scprs_lookup:queue_background_lookup",
-    "src/api/modules/routes_rfq.py:4790:src.api.data_layer:load_pcs",
-    "src/api/modules/routes_rfq.py:4842:src.api.data_layer:load_pcs",
+    # Drained in batch 2: routes_rfq.load_pcs (2 sites) → _load_price_checks alias.
+    # Drained in batch 2: routes_rfq_admin audit_log → src.core.security._log_audit_internal.
     "src/api/modules/routes_rfq_admin.py:1906:src.api.modules.routes_pricecheck:_remove_processed_uid",
-    "src/api/modules/routes_rfq_admin.py:3939:src.core.audit_log:log_event",
     "src/api/modules/routes_rfq_gen.py:4314:src.agents.scprs_lookup:queue_background_lookup",
     "src/api/modules/routes_rfq_gen.py:850:src.agents.web_price_research:research_items",
 }

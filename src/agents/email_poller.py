@@ -2111,10 +2111,17 @@ class EmailPoller:
                                 
                                 # Update SQLite too
                                 try:
-                                    from src.core.db_dal import update_quote_status
-                                    update_quote_status(matched_quote, "won")
+                                    from src.forms.quote_generator import update_quote_status
+                                    # Won status requires po_number when actor=user;
+                                    # email_poller actor bypasses that gate, but pass
+                                    # po_number anyway for the status_history row.
+                                    update_quote_status(
+                                        matched_quote, "won",
+                                        po_number=po_number or "",
+                                        actor="email_poller",
+                                    )
                                 except Exception as _e:
-                                    log.debug("suppressed: %s", _e)
+                                    log.warning("email_poller update_quote_status failed: %s", _e)
                                 
                                 # AUTO VENDOR ORDERING DISABLED — was sending POs to
                                 # vendors automatically without human review, causing
@@ -2124,10 +2131,11 @@ class EmailPoller:
                                 
                                 # Log revenue
                                 try:
-                                    from src.core.db_dal import log_revenue
+                                    from src.core.db import log_revenue
                                     if po_total:
                                         log_revenue(
                                             amount=po_total,
+                                            description=f"Quote {matched_quote} won via PO {po_number or '?'}",
                                             source="quote_won",
                                             quote_number=matched_quote,
                                             po_number=po_number or "",
@@ -2135,7 +2143,7 @@ class EmailPoller:
                                             date=datetime.now().strftime("%Y-%m-%d"),
                                         )
                                 except Exception as _e:
-                                    log.debug("suppressed: %s", _e)
+                                    log.warning("email_poller log_revenue failed: %s", _e)
 
                                 # Bridge: notify award tracker this quote is won (stop SCPRS checking)
                                 _won_rowcount = 0
@@ -2237,7 +2245,7 @@ class EmailPoller:
                             
                             # 5. Update pricing intelligence — BOTH price_history AND product catalog
                             try:
-                                from src.core.db_dal import record_price
+                                from src.core.db import record_price
                                 for it in po_items:
                                     desc = it.get("description", "")
                                     pn = it.get("part_number", "") or it.get("manufacturer_part", "")
@@ -2250,7 +2258,7 @@ class EmailPoller:
                                                      agency=po_agency,
                                                      quote_number=matched_quote or po_number or "")
                             except Exception as _e:
-                                log.debug("suppressed: %s", _e)
+                                log.warning("email_poller record_price failed: %s", _e)
                             
                             # 5b. Update product catalog won prices
                             try:
@@ -2296,18 +2304,19 @@ class EmailPoller:
                         except Exception as _e:
                             log.debug("suppressed: %s", _e)
                         
-                        # Log to activity
+                        # Log to activity (CRM activity feed — global cross-contact log)
                         try:
-                            from src.core.db_dal import log_activity
-                            log_activity(
-                                event_type="po_received",
-                                ref_type="quote",
+                            from src.api.data_layer import _log_crm_activity
+                            _log_crm_activity(
                                 ref_id=matched_quote or sol_number or "",
-                                detail=f"PO {po_number or '?'} from {po_detect.get('sender_email','')}. "
-                                       f"{'Auto-marked ' + matched_quote + ' as WON.' if matched_quote else 'No matching quote found.'}",
+                                event_type="po_received",
+                                description=f"PO {po_number or '?'} from {po_detect.get('sender_email','')}. "
+                                            f"{'Auto-marked ' + matched_quote + ' as WON.' if matched_quote else 'No matching quote found.'}",
+                                actor="email_poller",
+                                metadata={"ref_type": "quote", "po_number": po_number or ""},
                             )
                         except Exception as _e:
-                            log.debug("suppressed: %s", _e)
+                            log.warning("email_poller _log_crm_activity failed: %s", _e)
                         
                         # Auto reply-all: queue for batch confirmation at end of poll cycle
                         try:
