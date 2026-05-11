@@ -113,3 +113,67 @@ class TestSqlSiteGuards:
             "scprs_universal_pull.py auto-close UPDATE must guard on "
             "status='sent' so it can't overwrite a manual mark."
         )
+
+
+class TestForbiddenPrev:
+    """PR-η Phase 2 (2026-05-11): the dashboard.py operator paths flip
+    quote→won when an order is created, but must NOT clobber 'cancelled'
+    or re-fire if status is already 'won' (idempotency). The forbidden_prev
+    parameter encodes that semantic — equivalent to the old raw SQL's
+    `AND status NOT IN ('won', 'cancelled')` guard."""
+
+    def test_forbidden_prev_blocks_when_already_won(self):
+        _seed("R26Q-FORBID-1", "won")
+        ok = set_quote_status_atomic(
+            "R26Q-FORBID-1", "won",
+            forbidden_prev=["won", "cancelled"],
+            source="dashboard_order_created",
+        )
+        assert ok is False
+        assert _status("R26Q-FORBID-1") == "won"
+
+    def test_forbidden_prev_blocks_when_cancelled(self):
+        _seed("R26Q-FORBID-2", "cancelled")
+        ok = set_quote_status_atomic(
+            "R26Q-FORBID-2", "won",
+            forbidden_prev=["won", "cancelled"],
+            source="dashboard_order_created",
+        )
+        assert ok is False
+        assert _status("R26Q-FORBID-2") == "cancelled"
+
+    def test_forbidden_prev_allows_normal_flip(self):
+        _seed("R26Q-FORBID-3", "sent")
+        ok = set_quote_status_atomic(
+            "R26Q-FORBID-3", "won",
+            forbidden_prev=["won", "cancelled"],
+            source="dashboard_order_created",
+        )
+        assert ok is True
+        assert _status("R26Q-FORBID-3") == "won"
+
+    def test_forbidden_prev_and_expected_prev_are_mutex(self):
+        import pytest
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            set_quote_status_atomic(
+                "R26Q-FORBID-4", "won",
+                expected_prev="sent",
+                forbidden_prev=["cancelled"],
+            )
+
+    def test_forbidden_prev_with_extra_columns(self):
+        _seed("R26Q-FORBID-5", "sent")
+        ok = set_quote_status_atomic(
+            "R26Q-FORBID-5", "won",
+            forbidden_prev=["won", "cancelled"],
+            extra_columns={"po_number": "PO-12345"},
+            source="dashboard_order_from_po_email",
+        )
+        assert ok is True
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT status, po_number FROM quotes WHERE quote_number=?",
+                ("R26Q-FORBID-5",),
+            ).fetchone()
+        assert row["status"] == "won"
+        assert row["po_number"] == "PO-12345"

@@ -4204,18 +4204,27 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
                       f"Order {oid} created from quote {qn} — ${qt.get('total',0):,.2f}",
                       actor="system", metadata={"order_id": oid, "institution": order["institution"]})
     # ── Mark linked quote as 'won' since it has a confirmed order ──
+    # PR-η Phase 2 (2026-05-11): migrated from raw `UPDATE quotes SET status`
+    # through set_quote_status_atomic so the audit_trail + telemetry hooks
+    # fire consistently. forbidden_prev=['won','cancelled'] preserves the
+    # original idempotency guard (don't re-fire on already-won; never undo
+    # a cancellation). po_number passed through extra_columns ONLY when
+    # non-empty, preserving the COALESCE-on-empty semantic from the raw
+    # SQL (operator may create an order without a PO number yet).
     _won_rowcount = 0
     if qn:
         try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                cur = conn.execute("""
-                    UPDATE quotes SET status = 'won',
-                        po_number = COALESCE(NULLIF(?, ''), po_number),
-                        updated_at = ?
-                    WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
-                """, (po_number, datetime.now().isoformat(), qn))
-                _won_rowcount = cur.rowcount or 0
+            from src.core.quote_lifecycle_shared import set_quote_status_atomic
+            _extra = {"updated_at": datetime.now().isoformat()}
+            if po_number:
+                _extra["po_number"] = po_number
+            _won_rowcount = 1 if set_quote_status_atomic(
+                quote_id=qn,
+                new_status="won",
+                forbidden_prev=["won", "cancelled"],
+                source="dashboard_order_created",
+                extra_columns=_extra,
+            ) else 0
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
     # BUILD-9: calibrate oracle on the order-from-quote won path. Prior to
@@ -4427,18 +4436,23 @@ def _create_order_from_po_email(po_data: dict) -> dict:
                       f"Order {oid} created from PO email — PO#{po_num} · ${total:,.2f}" + (f" · Linked to quote {qn}" if qn else ""),
                       actor="system", metadata={"order_id": oid, "po_number": po_num, "source": "email_po", "quote_linked": qn})
     # ── Mark linked quote as 'won' since PO confirms the order ──
+    # PR-η Phase 2 (2026-05-11): twin of the order-from-quote path above.
+    # See that block for the migration rationale + forbidden_prev/COALESCE
+    # semantic preservation.
     _won_rowcount = 0
     if qn:
         try:
-            from src.core.db import get_db as _get_db
-            with _get_db() as _conn:
-                _cur = _conn.execute("""
-                    UPDATE quotes SET status = 'won',
-                        po_number = COALESCE(NULLIF(?, ''), po_number),
-                        updated_at = ?
-                    WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
-                """, (po_num, datetime.now().isoformat(), qn))
-                _won_rowcount = _cur.rowcount or 0
+            from src.core.quote_lifecycle_shared import set_quote_status_atomic
+            _extra = {"updated_at": datetime.now().isoformat()}
+            if po_num:
+                _extra["po_number"] = po_num
+            _won_rowcount = 1 if set_quote_status_atomic(
+                quote_id=qn,
+                new_status="won",
+                forbidden_prev=["won", "cancelled"],
+                source="dashboard_order_from_po_email",
+                extra_columns=_extra,
+            ) else 0
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
     # BUILD-9: calibrate oracle on the order-from-PO-email won path. This

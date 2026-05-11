@@ -60,9 +60,11 @@ BASELINE_EXEMPTIONS: set[str] = {
     # If you see this line shift, double-check `set_quote_status_atomic`
     # internals haven't regressed.
     "src/core/db.py",
-    # Operator-initiated flips in dashboard.py — Phase 2 target for
-    # PR-η. These run inside Flask request context; safest to migrate.
-    "src/api/dashboard.py",
+    # dashboard.py — MIGRATED 2026-05-11 (PR-η Phase 2). Both
+    # operator-initiated order-creation paths now route through
+    # set_quote_status_atomic with forbidden_prev=['won','cancelled'].
+    # File NO LONGER exempt; the lint will block any new raw writer
+    # that lands here.
     # Daemon-side flips — lower priority because they have their own
     # idempotency / replay guarantees. Migrate after operator paths.
     "src/agents/award_tracker.py",
