@@ -99,12 +99,29 @@ def _find_rfqs_by_solicitation(rfqs: dict, sol_number: str) -> list[str]:
     return out
 
 
-def _latest_id(rfqs: dict, rids: list[str]) -> str:
-    """Pick the most-recently-updated rid (canonical for dedup)."""
+def _latest_id(rfqs: dict, rids: list[str]) -> str | None:
+    """Pick the canonical rid for a dedup group.
+
+    Filter rules (2026-05-11 audit lesson):
+      1. Drop records already in a terminal status (dismissed / archived /
+         no_response / duplicate). They shouldn't be candidates — they're
+         done.
+      2. Among remaining, pick by created_at, NOT updated_at. Prod
+         updated_at gets touched by bulk maintenance passes (e.g., schema
+         migration writes), syncing the column across all records to the
+         same instant. created_at is the truthful per-record signal.
+      3. If nothing remains, return None (caller skips this group).
+    """
+    TERMINAL = {"dismissed", "archived", "no_response", "duplicate", "cancelled"}
+    eligible = [
+        rid for rid in rids
+        if (rfqs.get(rid, {}).get("status") or "").lower() not in TERMINAL
+    ]
+    if not eligible:
+        return None
     def _key(rid: str) -> str:
-        r = rfqs.get(rid, {})
-        return (r.get("updated_at") or r.get("created_at") or "")
-    return max(rids, key=_key)
+        return rfqs.get(rid, {}).get("created_at") or ""
+    return max(eligible, key=_key)
 
 
 def main() -> int:
@@ -148,17 +165,23 @@ def main() -> int:
     ts_rids = _find_rfqs_by_solicitation(rfqs, TARRNA_SOLIS_SOL_NUMBER)
     if ts_rids:
         canonical = _latest_id(rfqs, ts_rids)
-        for rid in ts_rids:
-            if rfqs[rid].get("status") in ("dismissed", "archived", "no_response",
-                                            "duplicate"):
-                continue
-            if rid == canonical:
-                actions.append(("rfq", rid, "no_response",
-                                f"canonical_of_dedup_group sol={TARRNA_SOLIS_SOL_NUMBER} "
-                                "past_due_no_sent_at"))
-            else:
-                actions.append(("rfq", rid, "duplicate",
-                                f"dup_of={canonical} sol={TARRNA_SOLIS_SOL_NUMBER}"))
+        if canonical is None:
+            # All Tarrna Solis records already terminal — nothing to do.
+            log.info("triage: all sol=%s records already terminal, skipping",
+                     TARRNA_SOLIS_SOL_NUMBER)
+        else:
+            for rid in ts_rids:
+                if (rfqs[rid].get("status") or "").lower() in (
+                    "dismissed", "archived", "no_response", "duplicate",
+                ):
+                    continue
+                if rid == canonical:
+                    actions.append(("rfq", rid, "no_response",
+                                    f"canonical_of_dedup_group sol={TARRNA_SOLIS_SOL_NUMBER} "
+                                    "past_due_no_sent_at"))
+                else:
+                    actions.append(("rfq", rid, "duplicate",
+                                    f"dup_of={canonical} sol={TARRNA_SOLIS_SOL_NUMBER}"))
 
     # ── Report ──
     if not actions:
