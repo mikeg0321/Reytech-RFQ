@@ -147,10 +147,19 @@ def _heal(conn: sqlite3.Connection, rec: dict) -> None:
         blob["line_items"] = items
     blob["_unit_price_backfilled_at"] = now_iso
     table = "price_checks" if rec["kind"] == "pc" else "rfqs"
-    conn.execute(
-        f"UPDATE {table} SET data_json=?, updated_at=? WHERE id=?",
-        (json.dumps(blob, default=str), now_iso, rec["id"]),
-    )
+    # `price_checks` has no `updated_at` column on prod (only `rfqs` does).
+    # Detect once per table so the UPDATE shape matches the schema.
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if "updated_at" in cols:
+        conn.execute(
+            f"UPDATE {table} SET data_json=?, updated_at=? WHERE id=?",
+            (json.dumps(blob, default=str), now_iso, rec["id"]),
+        )
+    else:
+        conn.execute(
+            f"UPDATE {table} SET data_json=? WHERE id=?",
+            (json.dumps(blob, default=str), rec["id"]),
+        )
 
 
 def run(db_path: str | None, *, apply: bool = False,
