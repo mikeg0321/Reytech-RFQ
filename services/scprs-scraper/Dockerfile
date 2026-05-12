@@ -9,6 +9,7 @@ RUN playwright install chromium
 # Copy the scraper modules from the main app
 COPY scprs_browser.py .
 COPY scprs_public_search.py .
+COPY proofpoint_browser.py .
 COPY app.py .
 
 EXPOSE 8001
