@@ -2435,11 +2435,16 @@ def generate_rfq_package(rid):
             if locked_qn:
                 t.step(f"Reusing locked quote number: {locked_qn}")
             else:
-                # Ghost-data gate (incident rfq_7813c4e1 / R26Q45 2026-05-01):
-                # never burn a real counter seq on an RFQ that hasn't passed
-                # ingest sanity — placeholder sol#, zero items, Reytech buyer.
-                from src.api.dashboard import is_ready_for_quote_allocation
-                _ok, _reasons = is_ready_for_quote_allocation(r)
+                # Ghost-data gate with auto-synth fallback (PR substrate
+                # 2026-05-12): when the only blocker is a placeholder
+                # sol#, the wrapper synthesizes `RT-<AGENCY>-<YYMMDD>-<id>`
+                # and persists in place so Generate proceeds without
+                # forcing the operator to manually type a fake sol#.
+                # Items=0 / Reytech-internal buyer still block as before.
+                from src.api.dashboard import try_unblock_quote_allocation
+                _ok, _reasons, _synthed = try_unblock_quote_allocation(rid, r)
+                if _synthed:
+                    t.step(f"Auto-synthesized sol#: {r.get('solicitation_number')}")
                 if not _ok:
                     t.fail("Quote number allocation BLOCKED — ghost data",
                            reasons=_reasons)
@@ -3339,12 +3344,13 @@ def rfq_generate_quote(rid):
         except Exception as _e:
             log.debug('suppressed in rfq_generate_quote: %s', _e)
     if not locked_qn:
-        # Ghost-data gate (mirrors generate_rfq_package — incident
-        # rfq_7813c4e1 / R26Q45 2026-05-01). Refuse to burn a counter
-        # seq when the RFQ has placeholder sol#, zero items, or a
-        # Reytech-internal buyer.
-        from src.api.dashboard import is_ready_for_quote_allocation
-        _ok, _reasons = is_ready_for_quote_allocation(r)
+        # Ghost-data gate with auto-synth fallback. Mirrors the
+        # generate_rfq_package call site above so both paths heal
+        # placeholder-sol# records the same way.
+        from src.api.dashboard import try_unblock_quote_allocation
+        _ok, _reasons, _synthed = try_unblock_quote_allocation(rid, r)
+        if _synthed:
+            t.step(f"Auto-synthesized sol#: {r.get('solicitation_number')}")
         if not _ok:
             t.fail("Quote number allocation BLOCKED — ghost data",
                    reasons=_reasons)

@@ -1681,38 +1681,38 @@ def _create_record(
     # readers already coerce both shapes.
     received_at = email_received_at or now
 
-    # ── CalVet sol# synthesizer (PR substrate 2026-05-12) ──
-    # CalVet doesn't always issue a real solicitation number. Without one,
-    # the parser falls back to "WORKSHEET" / filename stem / AUTO_<id>, and
-    # `is_ready_for_quote_allocation` (dashboard.py) blocks Generate with
-    # a placeholder-number error — even though the buyer has real items
-    # and a real ship-to. Mike P000 spec 2026-05-11: synthesize a stable
-    # Reytech-internal sol# so CalVet RFQs/PCs can progress without the
-    # operator typing a fake one.
+    # ── Universal sol# synthesizer (PR substrate 2026-05-12) ──
+    # Expanded from CalVet-only to all agencies after Mike hit the
+    # placeholder block on a real quoting attempt (rfq_8efe9fae,
+    # Keith Alsing CalVet, sol#='WORKSHEET'/rfq#='WORKSHEET'). The
+    # failure class is universal: any buyer that ships an RFQ without
+    # a real solicitation number leaves the parser falling back to a
+    # placeholder string. The allocation gate blocks Generate on those
+    # placeholders even when the record has real items + ship-to.
     #
-    # Form: `RT-CALVET-<YYMMDD>-<short_id>`. The `RT-` prefix is registered
-    # in `_is_placeholder_number` (dashboard.py) as NOT a placeholder, so
-    # the synthesized number cleanly clears the allocation gate without
-    # making genuinely-junk strings ("WORKSHEET", "GOOD", "RFQ") pass.
+    # Rule: when the extracted sol# is a placeholder AND items > 0,
+    # synthesize `RT-<AGENCY>-<YYMMDD>-<short_id>` deterministically.
+    # The `RT-` prefix is registered in `_is_placeholder_number`
+    # (dashboard.py) as NOT a placeholder, so the synthesized number
+    # cleanly clears the allocation gate without making genuinely-junk
+    # strings ("WORKSHEET", "GOOD", "RFQ") pass. Operator can override
+    # the synthesized value by typing a real sol# in the detail header.
     extracted_sol = (
         classification.solicitation_number
         or header.get("solicitation_number", "")
         or header.get("pc_number", "")
     )
     resolved_sol = extracted_sol
-    if (
-        (classification.agency or "").lower() == "calvet"
-        and _looks_like_sol_placeholder(extracted_sol)
-        and items
-    ):
+    if _looks_like_sol_placeholder(extracted_sol) and items:
         try:
             _ymd = (now or "")[:10].replace("-", "")[2:]  # YYMMDD slice
         except Exception:
             _ymd = ""
-        resolved_sol = f"RT-CALVET-{_ymd}-{short_id}"
+        _agency_tag = ((classification.agency or "unk") or "unk").upper()
+        resolved_sol = f"RT-{_agency_tag}-{_ymd}-{short_id}"
         log.info(
-            "calvet sol synthesizer: %r → %r (no real sol# from buyer)",
-            extracted_sol, resolved_sol,
+            "sol synthesizer: %r → %r (no real sol# from buyer, agency=%s)",
+            extracted_sol, resolved_sol, _agency_tag,
         )
 
     record: Dict[str, Any] = {

@@ -1758,6 +1758,122 @@ def is_ready_for_quote_allocation(rfq: dict) -> tuple[bool, list[str]]:
     return (len(reasons) == 0, reasons)
 
 
+def _synthesize_internal_sol(record: dict, record_type: str) -> str:
+    """Mint a Reytech-internal `RT-<AGENCY>-<YYMMDD>-<short_id>` sol#
+    from the record's existing fields. Used by `try_unblock_…` below
+    for records that pre-date the ingest-time synthesizer (PR #922).
+
+    Form is identical to what ingest_pipeline._create_record produces
+    on new ingests, so an old record that gets synth'd here looks
+    indistinguishable from a fresh one to downstream consumers.
+    """
+    agency = ((record.get("agency") or "unk") or "unk").upper()
+    created = record.get("created_at") or record.get("received_at") or ""
+    try:
+        ymd = (str(created)[:10].replace("-", "")[2:]) or ""
+    except Exception:
+        ymd = ""
+    rid = record.get("id") or ""
+    short_id = rid.split("_", 1)[-1] if "_" in rid else rid
+    return f"RT-{agency}-{ymd}-{short_id}"
+
+
+def try_unblock_quote_allocation(rid: str, rfq: dict) -> tuple[bool, list[str], bool]:
+    """Gate-with-auto-synth wrapper around `is_ready_for_quote_allocation`.
+
+    Used by routes that gate Generate. When the only blocker is a
+    placeholder solicitation_number AND the record has real items +
+    a non-Reytech buyer, synthesize a Reytech-internal `RT-…` sol#
+    in-place, persist via `_save_single_rfq`, and re-check the gate.
+
+    Returns: (ok, reasons, synthesized_now). `synthesized_now=True`
+    means the record was mutated + saved during this call so the
+    caller can log/audit the change. Pure predicate path stays in
+    `is_ready_for_quote_allocation` for ghost-scan / admin callers.
+
+    Mike P000 follow-on 2026-05-12: rfq_8efe9fae predated the
+    ingest-time synthesizer (it had sol#='WORKSHEET'), and the
+    operator-facing block "Cannot allocate a Reytech quote number"
+    was friction with zero upside — the buyer's CalVet form had no
+    real sol# at all. Now any record with the same shape self-heals
+    on the first Generate attempt instead of forcing a manual fix
+    on the detail page.
+    """
+    ok, reasons = is_ready_for_quote_allocation(rfq)
+    if ok:
+        return (True, [], False)
+
+    items = rfq.get("line_items") or rfq.get("items") or []
+    buyer_email = (rfq.get("requestor_email") or "").lower().strip()
+
+    # Only attempt auto-synth when the ONLY blocker is the placeholder
+    # sol# (NOT when items=0 or buyer is internal). Refusing to synth
+    # on those keeps the gate honest for the cases it was designed for.
+    sol = rfq.get("solicitation_number") or ""
+    rfq_num = rfq.get("rfq_number") or ""
+    placeholder_blocks_only = (
+        items
+        and not buyer_email.endswith("@reytechinc.com")
+        and (_is_placeholder_number(sol) or _is_placeholder_number(rfq_num))
+        and all("placeholder" in r for r in reasons)
+    )
+    if not placeholder_blocks_only:
+        return (False, reasons, False)
+
+    synth = _synthesize_internal_sol(rfq, "rfq")
+    rfq["solicitation_number"] = synth
+    rfq["rfq_number"] = synth
+    try:
+        _save_single_rfq(rid, rfq)
+    except Exception as e:
+        log.error("auto-synth save failed for %s: %s", rid, e)
+        return (False, reasons + [f"auto-synth save failed: {e}"], False)
+    log.info(
+        "auto-synth sol# on Generate gate: rfq %s sol=%r → %r",
+        rid, sol or rfq_num, synth,
+    )
+    # Re-check the gate against the mutated record
+    ok2, reasons2 = is_ready_for_quote_allocation(rfq)
+    return (ok2, reasons2, True)
+
+
+def try_unblock_pc_quote_allocation(pcid: str, pc: dict) -> tuple[bool, list[str], bool]:
+    """PC mirror of `try_unblock_quote_allocation`. Same shape, same
+    rules — only auto-synths when the placeholder pc_number is the
+    sole blocker."""
+    from src.api.dashboard import _save_single_pc as _save_pc  # local for clarity
+    ok, reasons = is_ready_for_pc_quote_allocation(pc)
+    if ok:
+        return (True, [], False)
+
+    items = pc.get("items") or pc.get("line_items") or []
+    buyer_email = (pc.get("requestor_email") or "").lower().strip()
+    pc_num = pc.get("pc_number") or ""
+    placeholder_blocks_only = (
+        items
+        and not buyer_email.endswith("@reytechinc.com")
+        and _is_placeholder_number(pc_num)
+        and all("placeholder" in r for r in reasons)
+    )
+    if not placeholder_blocks_only:
+        return (False, reasons, False)
+
+    synth = _synthesize_internal_sol(pc, "pc")
+    pc["pc_number"] = synth
+    pc["solicitation_number"] = synth
+    try:
+        _save_pc(pcid, pc)
+    except Exception as e:
+        log.error("auto-synth save failed for %s: %s", pcid, e)
+        return (False, reasons + [f"auto-synth save failed: {e}"], False)
+    log.info(
+        "auto-synth pc#: pc %s num=%r → %r",
+        pcid, pc_num, synth,
+    )
+    ok2, reasons2 = is_ready_for_pc_quote_allocation(pc)
+    return (ok2, reasons2, True)
+
+
 def is_ready_for_pc_quote_allocation(pc: dict) -> tuple[bool, list[str]]:
     """PC-side mirror of `is_ready_for_quote_allocation`.
 
