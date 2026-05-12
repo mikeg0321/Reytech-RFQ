@@ -288,6 +288,14 @@ def _build_static_field_map(quote: Quote, profile: FormProfile) -> dict[str, str
         # Vendor
         "vendor.name": quote.vendor.name,
         "vendor.supplier_name": quote.vendor.name,
+        # `vendor.business_name` is the legacy alias used by 703a/703b/
+        # calrecycle74/drug_free reytech_standard YAML profiles. Without
+        # this mapping those forms silently shipped with a blank
+        # "Business Name" field (PR substrate 2026-05-12 follow-on to
+        # Mike's email-contract spec). Aliasing — not separate data —
+        # because the YAML profile is just a different pdf_field label
+        # for the same canonical vendor name.
+        "vendor.business_name": quote.vendor.name,
         "vendor.representative": quote.vendor.representative,
         "vendor.address": quote.vendor.address.display(),
         "vendor.phone": quote.vendor.phone,

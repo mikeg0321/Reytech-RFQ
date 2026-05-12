@@ -97,6 +97,10 @@ def validate(filled_pdf_bytes: bytes, quote: Quote, profile: FormProfile) -> Val
     static_checks = {
         "vendor.name": quote.vendor.name,
         "vendor.supplier_name": quote.vendor.name,
+        # Mirror fill_engine's `vendor.business_name` alias so QA verifies
+        # the field for profiles that use the legacy semantic key
+        # (703a/703b/calrecycle74/drug_free).
+        "vendor.business_name": quote.vendor.name,
         "vendor.representative": quote.vendor.representative,
         "vendor.email": quote.vendor.email,
         "vendor.phone": quote.vendor.phone,
