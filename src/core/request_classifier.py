@@ -929,11 +929,16 @@ def _extract_solicitation(corpus: str, text_samples: List[str]) -> str:
     all_text = corpus + " " + " ".join(text_samples)
 
     # ── Labeled solicitation patterns (highest priority) ──
+    # NOTE: every pattern REQUIRES an explicit separator (`:` or `#` or
+    # `\s+Number`) between the label and the captured number. Without
+    # that, `\bSol\s*([A-Z0-9]…)` happily matches `Sol` *inside*
+    # `Solicitation` and captures `icitation` — see prior CI failure
+    # 2026-05-12 (`'ICITATION'` extracted from the CCHCS packet
+    # fixture). Always anchor the label end with non-letter chars.
     for pat in (
         r"\bSolicitation\s+Number\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
         r"\bSolicitation\s*#\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
-        r"\bSol(?:icitation)?\s*#\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
-        r"\bSol\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
+        r"\bSol\s*#\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
         r"\bBid\s+(?:Number|#)\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
         r"\bRFQ\s*(?:Number|#)\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
         # Subject-line natural-language anchors. Catches Mike's real DSH

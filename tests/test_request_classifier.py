@@ -372,6 +372,22 @@ class TestExtractSolicitation:
             "Adam Equipment Part Number 2010017786", [],
         ) == ""
 
+    def test_does_not_capture_icitation_from_solicitation(self):
+        """Regression for CI failure 2026-05-12: the `\\bSol\\s*[:#]?…`
+        pattern matched `Sol` *inside* the word `SOLICITATION` and
+        captured `ICITATION` as the sol#. The CCHCS packet fixture's
+        page-1 caption is `SOLICITATION NUMBER: 10843276` — must
+        extract `10843276`, never `ICITATION`."""
+        from src.core.request_classifier import _extract_solicitation
+        # Note: with the labeled `Solicitation Number:` pattern firing
+        # first, the bare "SOLICITATION" without `#`/`Number:` should
+        # NOT match anything in isolation.
+        assert _extract_solicitation("SOLICITATION", []) == ""
+        # With Number: present, the labeled pattern fires correctly.
+        assert _extract_solicitation(
+            "SOLICITATION NUMBER: 10843276", [],
+        ) == "10843276"
+
 
 # ─── Email-only (no attachments) ────────────────────────────────────────
 
