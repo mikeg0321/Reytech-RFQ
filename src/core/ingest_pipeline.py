@@ -607,94 +607,108 @@ def _dispatch_parser(
     )
 
     shape = classification.shape
+    base_items: List[Dict[str, Any]] = []
+    base_header: Dict[str, Any] = {}
+    base_parser_label = "?"
+    base_error: Optional[str] = None
 
-    # CCHCS LPA IT Goods RFQ — parse as generic RFQ PDF for now (the LPA
-    # template's line items live in AcroForm fields that the generic parser
-    # can read). The dedicated LPA parser + row-by-row extraction is a
-    # follow-up; for now we get header + rows via the field-value scan.
+    # ── Stage 1: base parser dispatch by shape ──
+    # Each branch fills (base_items, base_header) or sets base_error.
+    # Stage 2 below runs Vision verification on every PDF regardless of
+    # which base parser ran.
+
     if shape == SHAPE_CCHCS_IT_RFQ:
+        base_parser_label = "generic_rfq (cchcs_it_rfq)"
         try:
             from src.forms.generic_rfq_parser import parse_generic_rfq
             parsed = parse_generic_rfq([path])
-            return (
-                parsed.get("items", []),
-                parsed.get("header", {}),
-                None,
-            )
+            base_items = parsed.get("items", []) or []
+            base_header = parsed.get("header", {}) or {}
         except Exception as e:
-            return [], {}, f"cchcs_it_rfq (via generic parser) crashed: {e}"
+            base_error = f"cchcs_it_rfq (via generic parser) crashed: {e}"
 
-    # CCHCS packet has its own dedicated parser
-    if shape == SHAPE_CCHCS_PACKET:
+    elif shape == SHAPE_CCHCS_PACKET:
+        base_parser_label = "cchcs_packet"
         try:
             from src.forms.cchcs_packet_parser import parse_cchcs_packet
             parsed = parse_cchcs_packet(path)
             if not parsed.get("ok"):
-                return [], {}, parsed.get("error", "cchcs parse failed")
-            return (
-                parsed.get("line_items", []),
-                parsed.get("header", {}),
-                None,
-            )
+                base_error = parsed.get("error", "cchcs parse failed")
+            else:
+                base_items = parsed.get("line_items", []) or []
+                base_header = parsed.get("header", {}) or {}
         except Exception as e:
-            return [], {}, f"cchcs parser crashed: {e}"
+            base_error = f"cchcs parser crashed: {e}"
 
-    # AMS 704 (DOCX, fillable PDF, or DocuSign PDF) — they all flow through
-    # the same parser which handles format detection internally
-    if shape in (SHAPE_PC_704_DOCX, SHAPE_PC_704_PDF_FILLABLE, SHAPE_PC_704_PDF_DOCUSIGN):
+    elif shape in (SHAPE_PC_704_DOCX, SHAPE_PC_704_PDF_FILLABLE,
+                   SHAPE_PC_704_PDF_DOCUSIGN):
+        base_parser_label = "ams_704"
         try:
             from src.forms.price_check import parse_ams704
             parsed = parse_ams704(path)
             if parsed.get("error"):
-                return [], {}, parsed.get("error")
-            return (
-                parsed.get("line_items", []),
-                parsed.get("header", {}),
-                None,
-            )
+                base_error = parsed.get("error")
+            else:
+                base_items = parsed.get("line_items", []) or []
+                base_header = parsed.get("header", {}) or {}
         except Exception as e:
-            return [], {}, f"ams704 parser crashed: {e}"
+            base_error = f"ams704 parser crashed: {e}"
 
-    # Generic RFQ formats — fall through to the generic parser
-    if shape in (SHAPE_GENERIC_RFQ_PDF, SHAPE_GENERIC_RFQ_DOCX, SHAPE_GENERIC_RFQ_XLSX):
+    elif shape in (SHAPE_GENERIC_RFQ_PDF, SHAPE_GENERIC_RFQ_DOCX,
+                   SHAPE_GENERIC_RFQ_XLSX):
+        base_parser_label = "generic_rfq"
         try:
             from src.forms.generic_rfq_parser import parse_generic_rfq
             parsed = parse_generic_rfq([path])
-            base_items = parsed.get("items", [])
-            base_header = parsed.get("header", {})
-
-            # ── Vision verification pass (Mike P000 2026-05-11) ──
-            # The generic regex parser is fast and reliable for known
-            # templates but DROPS ITEMS on multi-page image-only PDFs
-            # and on layouts the regex doesn't cover. CalVet 2026-05-11
-            # RFQ surfaced 5 of 15-16 items, Mike missed the bid window.
-            # Fix class: always cross-check generic-parser output against
-            # Vision AI on PDFs and take the higher item count.
-            #
-            # The Vision pass only runs on PDFs (Vision can't open .xlsx
-            # or .docx without a separate path). The cost is one Anthropic
-            # call per generic-RFQ-PDF ingest — bounded by the daily
-            # quota check inside parse_with_vision itself.
-            vision_items = _vision_verify_items_if_pdf(
-                path, base_items, base_header,
-            )
-            if vision_items is not None and len(vision_items) > len(base_items):
-                log.info(
-                    "ingest._parse_files: Vision verification beat generic "
-                    "parser on %s — regex=%d vs vision=%d items; using vision.",
-                    os.path.basename(path), len(base_items), len(vision_items),
-                )
-                # Preserve the regex header (it has agency-specific fields
-                # like institution / requestor / delivery_zip the generic
-                # parser learned over time); only swap the items list.
-                return (vision_items, base_header, None)
-
-            return (base_items, base_header, None)
+            base_items = parsed.get("items", []) or []
+            base_header = parsed.get("header", {}) or {}
         except Exception as e:
-            return [], {}, f"generic parser crashed: {e}"
+            base_error = f"generic parser crashed: {e}"
 
-    # Unknown shape — nothing to parse
-    return [], {}, f"no parser for shape {shape}"
+    else:
+        return [], {}, f"no parser for shape {shape}"
+
+    # ── Stage 2: Vision verification — applied to EVERY shape ──
+    # Mike directive 2026-05-11: "ship vision, should be a part of every
+    # parse". The CCHCS PC test (pc_5728f934) proved the failure class
+    # isn't limited to generic-RFQ-PDF: AMS 704 ingest also dropped 2
+    # items that Vision found. Same root cause (multi-page coverage),
+    # same fix shape (cross-check Vision, take the higher count).
+    #
+    # Vision verification is a no-op on non-PDF paths (helper
+    # early-returns). On PDFs it triggers when the suspicion gate is
+    # met: multi-page, 0 items, or <3 items/page. Cost is bounded by
+    # the daily Anthropic quota check inside parse_with_vision.
+    #
+    # If the base parser errored out entirely, we still try Vision as
+    # a recovery pass — better to ship items from Vision than to
+    # propagate a parse failure with no items.
+    try:
+        vision_items = _vision_verify_items_if_pdf(
+            path, base_items, base_header,
+        )
+    except Exception as _ve:
+        log.debug("vision verify outer suppressed: %s", _ve)
+        vision_items = None
+
+    if vision_items is not None and len(vision_items) > len(base_items):
+        log.info(
+            "ingest._dispatch_parser: Vision beat %s on %s — "
+            "base=%d vs vision=%d items; using vision.",
+            base_parser_label, os.path.basename(path),
+            len(base_items), len(vision_items),
+        )
+        # Header from base parser is preserved (agency-specific fields
+        # like institution / requestor / delivery_zip). Only the items
+        # list swaps to Vision's longer extraction.
+        return (vision_items, base_header, None)
+
+    # Base parser errored AND Vision couldn't recover → propagate the
+    # base error so the operator sees a useful message.
+    if base_error and not base_items:
+        return [], base_header, base_error
+
+    return (base_items, base_header, None)
 
 
 def _vision_verify_items_if_pdf(
