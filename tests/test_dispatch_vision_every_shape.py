@@ -7,22 +7,27 @@ revealed that the AMS 704 path ALSO drops items that Vision sees —
 same failure class as the generic-RFQ-PDF path, just on a different
 ingest shape.
 
-Mike: "ship vision, should be a part of every parse".
+PR-A (2026-05-11): Mike pushed Vision-primary after the rfq_0ebe242f
+phantom-item incident: "Vision is verification right? ... relying on
+regex could just be creating bad data... garbage in, garbage out... I
+don't want any of that."
 
-This module pins that the refactored `_dispatch_parser` wraps EVERY
-shape with Vision verification + uses Vision's items when it finds
-more. The same `_vision_verify_items_if_pdf` helper from PR #908 is
-called; the per-shape branch only fills `base_items` / `base_header`.
+Architecture: for PDF shapes, Vision is the TRUTH source for items;
+the base parser is now a SANITY-CHECK signal consulted only to flag
+disagreements for operator review. The same `_vision_primary_extract`
+helper is called from every PDF branch; per-shape branches only fill
+`base_items` / `base_header` and the count for the disagreement gate.
 
 Shapes covered:
-  - SHAPE_GENERIC_RFQ_PDF   (was already Vision-verified)
-  - SHAPE_PC_704_PDF_*      (NEW — close the second gap)
-  - SHAPE_CCHCS_IT_RFQ      (NEW)
-  - SHAPE_CCHCS_PACKET      (NEW)
+  - SHAPE_GENERIC_RFQ_PDF
+  - SHAPE_PC_704_PDF_*
+  - SHAPE_CCHCS_IT_RFQ
+  - SHAPE_CCHCS_PACKET
 
-Each test mocks the base parser AND the Vision helper to assert the
-post-PR behavior: when Vision returns more items, Vision wins; the
-base parser's header is preserved either way.
+Each test mocks the base parser AND `_vision_primary_extract` to assert
+the post-PR behavior: Vision items always win on PDFs; the base
+parser's header is preserved; large count disagreements set the
+`_needs_review` header flag.
 """
 from __future__ import annotations
 
@@ -51,66 +56,74 @@ def _classification(shape: str):
     return c
 
 
-# ─── SHAPE_GENERIC_RFQ_PDF — already Vision-verified pre-refactor ─────────
+# ─── SHAPE_GENERIC_RFQ_PDF — Vision-primary on PDFs ───────────────────────
 
 
-def test_generic_rfq_pdf_vision_replaces_base_when_higher(tmp_path):
+def test_generic_rfq_pdf_vision_is_primary(tmp_path):
     f = tmp_path / "calvet.pdf"
     f.write_bytes(b"%PDF-1.4 stub")
     base = [{"description": "a"}, {"description": "b"}]
     visionx = [{"description": f"v{i}"} for i in range(15)]
     with patch("src.forms.generic_rfq_parser.parse_generic_rfq",
                return_value={"items": base, "header": {"institution": "CalVet"}}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=visionx):
         items, header, err = _dispatch_parser(
             str(f), _classification(SHAPE_GENERIC_RFQ_PDF))
     assert err is None
+    # Vision is primary: its 15 items beat the base parser's 2.
     assert len(items) == 15
-    # Header from base parser is preserved
-    assert header == {"institution": "CalVet"}
+    # Base parser's header value wins on agency-keyed fields.
+    assert header.get("institution") == "CalVet"
+    # Large disagreement triggers the review flag.
+    assert header.get("_needs_review") is True
 
 
-# ─── SHAPE_PC_704_PDF — NEW Vision coverage (closes the CCHCS gap) ────────
+# ─── SHAPE_PC_704_PDF — Vision-primary on AMS 704 path ────────────────────
 
 
-def test_ams_704_pdf_vision_replaces_base_when_higher(tmp_path):
+def test_ams_704_pdf_vision_primary(tmp_path):
     """CCHCS PC pc_5728f934: ams_704 parser returned 8 items, Vision
-    found 10. The new pipeline wraps the AMS 704 path with Vision
-    verification so the higher count wins."""
+    found 10. With Vision-primary, 10 items ship regardless of how the
+    base count compares."""
     f = tmp_path / "704.pdf"
     f.write_bytes(b"%PDF-1.4 stub")
     base = [{"description": f"i{i}"} for i in range(8)]
     visionx = [{"description": f"v{i}"} for i in range(10)]
     with patch("src.forms.price_check.parse_ams704",
                return_value={"line_items": base, "header": {"requestor": "Chechi"}}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=visionx):
         items, header, err = _dispatch_parser(
             str(f), _classification(SHAPE_PC_704_PDF_FILLABLE))
     assert err is None
     assert len(items) == 10
-    assert header == {"requestor": "Chechi"}
+    assert header.get("requestor") == "Chechi"
 
 
-def test_ams_704_pdf_keeps_base_when_vision_lower(tmp_path):
-    """When the 704 parser already captured everything, Vision MUST
-    NOT regress the count. Gate logic: vision > base → swap; else keep."""
+def test_ams_704_vision_wins_even_when_base_higher(tmp_path):
+    """Architectural pin: Mike's directive — Vision is the truth source.
+    When the base parser reports MORE items than Vision (could be
+    phantom matches from regex on parenthetical text), Vision still
+    wins. The disagreement gate flags it for operator review."""
     f = tmp_path / "704.pdf"
     f.write_bytes(b"%PDF-1.4 stub")
-    base = [{"description": f"i{i}"} for i in range(8)]
+    base = [{"description": f"i{i}"} for i in range(8)]  # potentially phantoms
     visionx = [{"description": "v0"}]
     with patch("src.forms.price_check.parse_ams704",
                return_value={"line_items": base, "header": {"requestor": "X"}}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=visionx):
-        items, _h, err = _dispatch_parser(
+        items, header, err = _dispatch_parser(
             str(f), _classification(SHAPE_PC_704_PDF_FILLABLE))
     assert err is None
-    assert len(items) == 8
+    # Vision is primary — its 1 item wins over base's 8.
+    assert len(items) == 1
+    # Disagreement > threshold flags for review.
+    assert header.get("_needs_review") is True
 
 
-def test_ams_704_docusign_path_gets_vision_too(tmp_path):
+def test_ams_704_docusign_path_vision_primary(tmp_path):
     """DocuSign 704 PDFs are a separate shape but the same parser/Vision
     pipeline applies — pin it explicitly."""
     f = tmp_path / "docusign_704.pdf"
@@ -119,7 +132,7 @@ def test_ams_704_docusign_path_gets_vision_too(tmp_path):
     visionx = [{"description": f"v{i}"} for i in range(6)]
     with patch("src.forms.price_check.parse_ams704",
                return_value={"line_items": base, "header": {}}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=visionx):
         items, _h, err = _dispatch_parser(
             str(f), _classification(SHAPE_PC_704_PDF_DOCUSIGN))
@@ -128,34 +141,38 @@ def test_ams_704_docusign_path_gets_vision_too(tmp_path):
 
 
 def test_ams_704_docx_skips_vision_no_op(tmp_path):
-    """DOCX path: `_vision_verify_items_if_pdf` early-returns None on
-    non-PDF, so the base 704 parser's items pass through unchanged."""
+    """DOCX path: Vision can't read non-PDF formats, so base parser items
+    pass through with a `vision_unsupported_format` warning."""
     f = tmp_path / "704.docx"
     f.write_bytes(b"PK stub")
     base = [{"description": "i1"}, {"description": "i2"}]
     with patch("src.forms.price_check.parse_ams704",
                return_value={"line_items": base, "header": {}}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
-               return_value=None):
-        items, _h, err = _dispatch_parser(
+         patch("src.core.ingest_pipeline._vision_primary_extract") as mock_vis:
+        items, header, err = _dispatch_parser(
             str(f), _classification(SHAPE_PC_704_DOCX))
+    # Vision was NOT invoked on the DOCX path.
+    mock_vis.assert_not_called()
     assert err is None
     assert len(items) == 2
+    # Warning emitted so the operator knows Vision couldn't verify.
+    warnings = header.get("_ingest_warnings") or []
+    assert any(w.get("kind") == "vision_unsupported_format" for w in warnings)
 
 
-# ─── SHAPE_CCHCS_IT_RFQ — NEW Vision coverage ─────────────────────────────
+# ─── SHAPE_CCHCS_IT_RFQ — Vision-primary ───────────────────────────────────
 
 
-def test_cchcs_it_rfq_vision_replaces_when_higher(tmp_path):
-    """CCHCS LPA IT-Goods RFQs route through the generic parser today;
-    Vision verification applies on top."""
+def test_cchcs_it_rfq_vision_primary(tmp_path):
+    """CCHCS LPA IT-Goods RFQs route through the generic parser; Vision
+    primary applies on top."""
     f = tmp_path / "lpa.pdf"
     f.write_bytes(b"%PDF-1.4 stub")
     base = [{"description": "a"}]
     visionx = [{"description": f"v{i}"} for i in range(5)]
     with patch("src.forms.generic_rfq_parser.parse_generic_rfq",
                return_value={"items": base, "header": {}}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=visionx):
         items, _h, err = _dispatch_parser(
             str(f), _classification(SHAPE_CCHCS_IT_RFQ))
@@ -163,17 +180,17 @@ def test_cchcs_it_rfq_vision_replaces_when_higher(tmp_path):
     assert len(items) == 5
 
 
-# ─── SHAPE_CCHCS_PACKET — NEW Vision coverage ─────────────────────────────
+# ─── SHAPE_CCHCS_PACKET — Vision-primary ──────────────────────────────────
 
 
-def test_cchcs_packet_vision_replaces_when_higher(tmp_path):
+def test_cchcs_packet_vision_primary(tmp_path):
     f = tmp_path / "cchcs.pdf"
     f.write_bytes(b"%PDF-1.4 stub")
     base = [{"description": "a"}, {"description": "b"}]
     visionx = [{"description": f"v{i}"} for i in range(20)]
     with patch("src.forms.cchcs_packet_parser.parse_cchcs_packet",
                return_value={"ok": True, "line_items": base, "header": {}}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=visionx):
         items, _h, err = _dispatch_parser(
             str(f), _classification(SHAPE_CCHCS_PACKET))
@@ -193,7 +210,7 @@ def test_base_parser_error_with_vision_recovery(tmp_path):
     visionx = [{"description": f"v{i}"} for i in range(3)]
     with patch("src.forms.price_check.parse_ams704",
                return_value={"error": "504 timeout"}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=visionx):
         items, _h, err = _dispatch_parser(
             str(f), _classification(SHAPE_PC_704_PDF_FILLABLE))
@@ -210,13 +227,35 @@ def test_base_parser_error_without_vision_propagates(tmp_path):
     f.write_bytes(b"%PDF-1.4 stub")
     with patch("src.forms.price_check.parse_ams704",
                return_value={"error": "504 timeout"}), \
-         patch("src.core.ingest_pipeline._vision_verify_items_if_pdf",
+         patch("src.core.ingest_pipeline._vision_primary_extract",
                return_value=None):
         items, _h, err = _dispatch_parser(
             str(f), _classification(SHAPE_PC_704_PDF_FILLABLE))
     assert err is not None
     assert "504 timeout" in err
     assert items == []
+
+
+# ─── Vision unavailable: base parser is the fallback ─────────────────────
+
+
+def test_vision_unavailable_falls_back_to_base(tmp_path):
+    """When Vision returns None (no API key, quota, crash), the base
+    parser items still ship — with a `vision_skipped` warning so the
+    operator knows verification didn't run."""
+    f = tmp_path / "rfq.pdf"
+    f.write_bytes(b"%PDF-1.4 stub")
+    base = [{"description": "a"}, {"description": "b"}]
+    with patch("src.forms.generic_rfq_parser.parse_generic_rfq",
+               return_value={"items": base, "header": {}}), \
+         patch("src.core.ingest_pipeline._vision_primary_extract",
+               return_value=None):
+        items, header, err = _dispatch_parser(
+            str(f), _classification(SHAPE_GENERIC_RFQ_PDF))
+    assert err is None
+    assert len(items) == 2
+    warnings = header.get("_ingest_warnings") or []
+    assert any(w.get("kind") == "vision_skipped" for w in warnings)
 
 
 # ─── Unknown shape — no parser at all ────────────────────────────────────

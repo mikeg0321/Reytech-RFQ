@@ -47,6 +47,7 @@ SHAPE_GENERIC_RFQ_XLSX = "generic_rfq_xlsx"    # spreadsheet RFQ
 SHAPE_GENERIC_RFQ_PDF = "generic_rfq_pdf"      # non-704 PDF RFQ
 SHAPE_GENERIC_RFQ_DOCX = "generic_rfq_docx"    # non-704 DOCX RFQ
 SHAPE_EMAIL_ONLY = "email_only"                # no attachments — body only
+SHAPE_PROOFPOINT_SECUREMESSAGE = "proofpoint_securemessage"  # encrypted-mail wrapper; real RFQ behind portal
 SHAPE_UNKNOWN = "unknown"                      # cannot classify
 
 ALL_SHAPES = {
@@ -59,6 +60,7 @@ ALL_SHAPES = {
     SHAPE_GENERIC_RFQ_PDF,
     SHAPE_GENERIC_RFQ_DOCX,
     SHAPE_EMAIL_ONLY,
+    SHAPE_PROOFPOINT_SECUREMESSAGE,
     SHAPE_UNKNOWN,
 }
 
@@ -82,6 +84,11 @@ _SHAPE_BUYER_TEMPLATE_REQUIREMENTS: Dict[str, frozenset] = {
     SHAPE_GENERIC_RFQ_PDF: frozenset(),
     SHAPE_GENERIC_RFQ_DOCX: frozenset(),
     SHAPE_EMAIL_ONLY: frozenset(),
+    # Wrapper email — the real RFQ shape isn't known yet (it's behind
+    # the Proofpoint portal). Once auto-pull or manual-pull lands the
+    # decrypted PDF, the record is re-classified against its real
+    # shape. Until then, no buyer templates apply.
+    SHAPE_PROOFPOINT_SECUREMESSAGE: frozenset(),
 }
 
 
@@ -278,6 +285,109 @@ def _has_lpa_body_signal(*text_blobs: str) -> bool:
     return False
 
 
+# ── Proofpoint SecureMessage detection ────────────────────────────────────
+# DSH and a few other state agencies wrap RFQ emails behind Proofpoint
+# Encryption. The wrapper email carries a portal link instead of the
+# actual RFQ PDF. The ingest pipeline must recognize the shape so it
+# can either auto-login (PR-A Step 7: src/agents/proofpoint_pull.py)
+# or surface a `needs_manual_pull` flag for the operator.
+
+PROOFPOINT_SENDER_PATTERNS = [
+    # Common Proofpoint Encryption gateway senders.
+    r"securemail@",
+    r"@securemail\.",
+    r"securemessage@",
+    r"@encrypt\.proofpoint",
+    r"noreply.*proofpoint",
+    r"notification.*proofpoint",
+]
+
+PROOFPOINT_SUBJECT_PATTERNS = [
+    r"\*\*\*\s*Secure\s*Mail\s*\*\*\*",
+    r"\[Secure\s*Mail\]",
+    r"Secure\s+Message\s+from",
+    r"Encrypted\s+(?:Email|Message)\s+from",
+]
+
+PROOFPOINT_BODY_PATTERNS = [
+    r"You\s+have\s+received\s+a\s+secure\s+message",
+    r"Click\s+(?:here|the\s+link).{0,80}(?:secure\s+message|encrypted\s+message)",
+    r"Proofpoint\s+Encryption",
+    r"securereader\.proofpoint",
+    r"\bsecuremail\.\w+\.gov\b",
+    r"This\s+message\s+(?:has\s+been\s+)?encrypted",
+    r"Read\s+the\s+Message",  # Proofpoint's primary CTA button text
+]
+
+
+def _detect_proofpoint_securemessage(
+    email_subject: str = "",
+    email_body: str = "",
+    email_sender: str = "",
+    attachments: Optional[List[str]] = None,
+) -> Tuple[bool, List[str]]:
+    """Detect a Proofpoint SecureMessage wrapper email.
+
+    Returns (is_proofpoint, reasons). The shape fires when 2+ signal
+    classes match across sender/subject/body/attachment-name — single
+    signals are too noisy (any email could mention "secure" in a
+    signature block). The wrapper-attachment scan catches the
+    `SecureMessage.html` or `SecureMessageATT00001.html` file that
+    Proofpoint ships alongside some wrapper emails.
+
+    Mike P000 2026-05-11 DSH use-case: secure@dsh.ca.gov sends "Secure
+    Message from DSH" with a portal link; the actual RFQ PDF (e.g.
+    AMS 704 worksheet) is behind the Proofpoint Encryption portal.
+    Without this detection the ingest creates an empty RFQ that looks
+    like a normal email-only ingest and the operator wastes time
+    looking for missing items.
+    """
+    reasons: List[str] = []
+    sender = (email_sender or "").lower()
+    sender_hit = False
+    for pat in PROOFPOINT_SENDER_PATTERNS:
+        if re.search(pat, sender, re.IGNORECASE):
+            sender_hit = True
+            reasons.append(f"proofpoint sender pattern: {pat}")
+            break
+
+    subject_hit = False
+    if email_subject:
+        for pat in PROOFPOINT_SUBJECT_PATTERNS:
+            if re.search(pat, email_subject, re.IGNORECASE):
+                subject_hit = True
+                reasons.append(f"proofpoint subject pattern: {pat}")
+                break
+
+    body_hit = False
+    if email_body:
+        for pat in PROOFPOINT_BODY_PATTERNS:
+            if re.search(pat, email_body, re.IGNORECASE):
+                body_hit = True
+                reasons.append(f"proofpoint body pattern: {pat}")
+                break
+
+    attachment_hit = False
+    if attachments:
+        for path in attachments:
+            fname = os.path.basename(path or "").lower()
+            if (
+                "securemessage" in fname
+                or "secureemail" in fname
+                or fname.startswith("securemail")
+            ):
+                attachment_hit = True
+                reasons.append(f"proofpoint wrapper attachment: {fname}")
+                break
+
+    # 2-of-4 signal threshold. The sender pattern is the strongest
+    # signal — when it fires, a single corroborating hit (subject,
+    # body, or attachment) is enough.
+    score = sum([sender_hit, subject_hit, body_hit, attachment_hit])
+    is_proofpoint = score >= 2
+    return is_proofpoint, reasons
+
+
 # ── Main entry point ─────────────────────────────────────────────────────
 
 def classify_request(
@@ -379,6 +489,28 @@ def classify_request(
             result.reasons.append(
                 f"doc '{fname}': legacy Word format, needs conversion"
             )
+
+    # ── Proofpoint SecureMessage wrapper detection ──
+    # Runs AFTER the per-file loop so any wrapper PDF/HTML attachment
+    # is overridden by the wrapper-shape verdict — the real RFQ shape
+    # cannot be known until the portal is opened. PR-A Step 6.
+    pp_hit, pp_reasons = _detect_proofpoint_securemessage(
+        email_subject=email_subject,
+        email_body=email_body,
+        email_sender=email_sender,
+        attachments=attachments,
+    )
+    if pp_hit:
+        primary_shape = SHAPE_PROOFPOINT_SECUREMESSAGE
+        # The wrapper attachment (SecureMessage.html etc.) is not
+        # the real primary file — clear it so downstream parsers
+        # don't waste a Vision call on the HTML wrapper.
+        primary_file = ""
+        primary_file_type = "proofpoint_wrapper"
+        result.reasons.extend(pp_reasons)
+        result.reasons.append(
+            "shape: proofpoint_securemessage (real RFQ behind portal)"
+        )
 
     result.shape = primary_shape
     result.primary_file = primary_file

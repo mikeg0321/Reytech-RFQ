@@ -47,6 +47,22 @@ class IngestResult:
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     reasons: List[str] = field(default_factory=list)
+    # PR-A substrate (2026-05-11): structured signals from
+    # `_dispatch_parser` that the operator surface needs to see.
+    # `needs_review=True` when Vision and base parser disagree by more
+    # than the tolerance threshold.
+    # `ingest_warnings` carries the structured warning dicts
+    # (kind/detail/counts) so the UI can render a banner that names
+    # the specific class of disagreement instead of a free-text blob.
+    # `needs_manual_pull=True` when the Proofpoint SecureMessage
+    # auto-pull (Step 7) was skipped or failed and the operator must
+    # open the portal manually to retrieve the real RFQ PDF.
+    # `proofpoint_portal_url` carries the extracted portal link so the
+    # operator surface can render it as a one-click handoff.
+    needs_review: bool = False
+    ingest_warnings: List[Dict[str, str]] = field(default_factory=list)
+    needs_manual_pull: bool = False
+    proofpoint_portal_url: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         # Emit BOTH the canonical (items_parsed) and legacy-compatible
@@ -70,6 +86,10 @@ class IngestResult:
             "errors": list(self.errors),
             "warnings": list(self.warnings),
             "reasons": list(self.reasons),
+            "needs_review": bool(self.needs_review),
+            "ingest_warnings": [dict(w) for w in self.ingest_warnings],
+            "needs_manual_pull": bool(self.needs_manual_pull),
+            "proofpoint_portal_url": self.proofpoint_portal_url,
         }
 
 
@@ -190,6 +210,83 @@ def process_buyer_request(
     record_type = "pc" if classification.is_quote_only else "rfq"
     result.record_type = record_type
 
+    # ── Step 2b: Proofpoint SecureMessage handler ──
+    # PR-A Step 8 (2026-05-11). When the classifier identifies a
+    # SecureMessage wrapper email, the real RFQ PDF is behind the
+    # Proofpoint Encryption portal. Try the auto-pull (Step 7); on
+    # success, swap the downloaded files in as the new attachment list
+    # AND re-classify against them so the downstream pipeline sees
+    # the actual RFQ shape (cchcs_packet / ams_704 / generic). On
+    # failure, mark `needs_manual_pull=True` and let the record save
+    # with empty items — the operator gets a one-click portal link
+    # plus a "pull this manually" banner.
+    if classification.shape == "proofpoint_securemessage":
+        portal_url = ""
+        try:
+            from src.agents.proofpoint_pull import (
+                extract_portal_url, is_available, pull_via_url,
+            )
+            portal_url = extract_portal_url(email_body) or ""
+            result.proofpoint_portal_url = portal_url
+            if portal_url and is_available():
+                log.info(
+                    "ingest proofpoint: auto-pull attempting (%s)",
+                    portal_url[:80],
+                )
+                downloaded = pull_via_url(portal_url)
+                if downloaded:
+                    log.info(
+                        "ingest proofpoint: auto-pull returned %d file(s) — "
+                        "re-classifying", len(downloaded),
+                    )
+                    # Replace the file list with the real RFQ files
+                    # and re-run classify so the downstream pipeline
+                    # sees the actual shape (cchcs / 704 / generic).
+                    files = downloaded
+                    try:
+                        from src.core.request_classifier import classify_request as _reclassify
+                        classification = _reclassify(
+                            attachments=files,
+                            email_body=email_body,
+                            email_subject=email_subject,
+                            email_sender=email_sender,
+                        )
+                        result.classification = classification.to_dict()
+                        result.reasons.append(
+                            f"proofpoint: auto-pull → re-classified as {classification.shape}"
+                        )
+                        # Re-evaluate record_type with the new shape.
+                        record_type = "pc" if classification.is_quote_only else "rfq"
+                        result.record_type = record_type
+                    except Exception as _rce:
+                        log.error("proofpoint re-classify failed: %s", _rce, exc_info=True)
+                        result.warnings.append(f"proofpoint re-classify: {_rce}")
+                else:
+                    log.warning(
+                        "ingest proofpoint: auto-pull returned 0 files — "
+                        "falling back to needs_manual_pull"
+                    )
+                    result.needs_manual_pull = True
+                    result.reasons.append(
+                        "proofpoint: auto-pull empty — manual portal visit required"
+                    )
+            else:
+                # Either no portal URL extractable, or auto-pull not
+                # configured (no creds / flag off / no playwright).
+                result.needs_manual_pull = True
+                if not portal_url:
+                    result.reasons.append(
+                        "proofpoint: no portal URL extractable from email body"
+                    )
+                else:
+                    result.reasons.append(
+                        "proofpoint: auto-pull not available — manual portal visit required"
+                    )
+        except Exception as _pe:
+            log.error("proofpoint handler crashed: %s", _pe, exc_info=True)
+            result.warnings.append(f"proofpoint: {_pe}")
+            result.needs_manual_pull = True
+
     # ── Step 3: parse items from the primary file ──
     items = []
     header = {}
@@ -213,6 +310,27 @@ def process_buyer_request(
 
     if parse_error:
         result.warnings.append(f"parse: {parse_error}")
+
+    # ── Step 3a: extract substrate diagnostics from header ──
+    # `_dispatch_parser` stashes `_needs_review` + `_ingest_warnings` on
+    # the header dict so they ride along with the parse result without
+    # changing the parser API. Pop them out here so they propagate to
+    # both the IngestResult (for the API/UI) and the persisted record
+    # (so the operator banner survives a page reload). Keep them off
+    # the header that the record stores under top-level fields —
+    # otherwise downstream readers that don't know about them will
+    # serialize a `header._needs_review` blob no one reads.
+    ingest_warnings: List[Dict[str, str]] = []
+    needs_review = False
+    if isinstance(header, dict):
+        ingest_warnings = list(header.pop("_ingest_warnings", None) or [])
+        needs_review = bool(header.pop("_needs_review", False))
+    result.ingest_warnings = list(ingest_warnings)
+    result.needs_review = needs_review
+    if needs_review:
+        result.reasons.append(
+            "needs_review: Vision/base parser disagreement above threshold"
+        )
 
     # ── Step 3b: body-text fallback when attachment yielded zero items ──
     # Buyers who paste the RFQ into the email body (no parseable attachment)
@@ -266,6 +384,10 @@ def process_buyer_request(
                 all_paths=all_paths,
                 gmail_thread_id=gmail_thread_id,
                 gmail_message_id=gmail_message_id,
+                needs_review=needs_review,
+                ingest_warnings=ingest_warnings,
+                needs_manual_pull=result.needs_manual_pull,
+                proofpoint_portal_url=result.proofpoint_portal_url,
             )
         else:
             record_id = _create_record(
@@ -276,6 +398,10 @@ def process_buyer_request(
                 gmail_thread_id=gmail_thread_id,
                 gmail_message_id=gmail_message_id,
                 all_paths=all_paths,
+                needs_review=needs_review,
+                ingest_warnings=ingest_warnings,
+                needs_manual_pull=result.needs_manual_pull,
+                proofpoint_portal_url=result.proofpoint_portal_url,
             )
         result.record_id = record_id
     except Exception as e:
@@ -613,9 +739,13 @@ def _dispatch_parser(
     base_error: Optional[str] = None
 
     # ── Stage 1: base parser dispatch by shape ──
-    # Each branch fills (base_items, base_header) or sets base_error.
-    # Stage 2 below runs Vision verification on every PDF regardless of
-    # which base parser ran.
+    # The base parser provides:
+    #   1. Item-extraction signal for sanity-checking Vision
+    #   2. Header fields with agency-specific tuning (institution,
+    #      requestor_name, delivery_zip) that the generic parser learns
+    #      over time and Vision doesn't always know about
+    #   3. Primary source for DOCX/XLSX (Vision can't read those)
+    # For PDFs, Stage 2 makes Vision the PRIMARY items source.
 
     if shape == SHAPE_CCHCS_IT_RFQ:
         base_parser_label = "generic_rfq (cchcs_it_rfq)"
@@ -668,47 +798,213 @@ def _dispatch_parser(
     else:
         return [], {}, f"no parser for shape {shape}"
 
-    # ── Stage 2: Vision verification — applied to EVERY shape ──
-    # Mike directive 2026-05-11: "ship vision, should be a part of every
-    # parse". The CCHCS PC test (pc_5728f934) proved the failure class
-    # isn't limited to generic-RFQ-PDF: AMS 704 ingest also dropped 2
-    # items that Vision found. Same root cause (multi-page coverage),
-    # same fix shape (cross-check Vision, take the higher count).
+    # ── Stage 2: Vision-primary item extraction (PDF only) ──
+    # Mike directive 2026-05-11 after the rfq_0ebe242f phantom-item
+    # incident: "Vision is verification right? ... relying on regex could
+    # just be creating bad data... garbage in, garbage out... I don't
+    # want any of that."
     #
-    # Vision verification is a no-op on non-PDF paths (helper
-    # early-returns). On PDFs it triggers when the suspicion gate is
-    # met: multi-page, 0 items, or <3 items/page. Cost is bounded by
-    # the daily Anthropic quota check inside parse_with_vision.
+    # Architecture: for PDF shapes, Vision is the TRUTH source for
+    # items. Regex (the base parser) is now a SANITY-CHECK signal,
+    # consulted only to flag disagreements for operator review.
     #
-    # If the base parser errored out entirely, we still try Vision as
-    # a recovery pass — better to ship items from Vision than to
-    # propagate a parse failure with no items.
+    # Decision matrix:
+    #   - Both parsers ran successfully:
+    #       * If |vision - base| > threshold: needs_review=True,
+    #         warnings record both counts. Vision items win.
+    #       * Else: Vision items used (no review needed).
+    #   - Vision unavailable: fall back to base items, tag
+    #     vision_skipped=True warning.
+    #   - Base errored, Vision succeeded: Vision recovers the parse.
+    #   - Both failed: propagate base error.
+    #
+    # Non-PDF paths (DOCX/XLSX): base parser stays primary, Vision
+    # can't read those formats. Tag vision_unsupported_format warning.
+
+    is_pdf = path.lower().endswith(".pdf")
+    warnings: List[Dict[str, str]] = []
+    needs_review = False
+
+    if not is_pdf:
+        # DOCX / XLSX / etc: Vision can't read these; base parser is
+        # the authoritative source. No verification possible.
+        if base_items:
+            warnings.append({
+                "kind": "vision_unsupported_format",
+                "detail": f"Vision verification skipped for {os.path.splitext(path)[1]} — base parser is sole source.",
+            })
+        # Annotate header with substrate diagnostics for the record.
+        if warnings:
+            base_header.setdefault("_ingest_warnings", []).extend(warnings)
+        if base_error and not base_items:
+            return [], base_header, base_error
+        return (base_items, base_header, None)
+
+    # ── PDF path: try Vision (primary) ──
     try:
-        vision_items = _vision_verify_items_if_pdf(
-            path, base_items, base_header,
-        )
+        vision_items = _vision_primary_extract(path)
     except Exception as _ve:
-        log.debug("vision verify outer suppressed: %s", _ve)
+        log.debug("vision primary call suppressed: %s", _ve)
         vision_items = None
 
-    if vision_items is not None and len(vision_items) > len(base_items):
-        log.info(
-            "ingest._dispatch_parser: Vision beat %s on %s — "
-            "base=%d vs vision=%d items; using vision.",
-            base_parser_label, os.path.basename(path),
-            len(base_items), len(vision_items),
+    # Vision unavailable / errored / quota-capped → fall back to base.
+    if vision_items is None:
+        warnings.append({
+            "kind": "vision_skipped",
+            "detail": "Vision AI unavailable; relying on base parser items only. Operator should spot-check.",
+        })
+        base_header.setdefault("_ingest_warnings", []).extend(warnings)
+        if base_error and not base_items:
+            return [], base_header, base_error
+        return (base_items, base_header, None)
+
+    # Both signals present. Decide based on disagreement.
+    primary_items, primary_warnings, primary_needs_review = (
+        _reconcile_vision_and_base(
+            vision_items=vision_items,
+            base_items=base_items,
+            base_parser_label=base_parser_label,
+            path=path,
         )
-        # Header from base parser is preserved (agency-specific fields
-        # like institution / requestor / delivery_zip). Only the items
-        # list swaps to Vision's longer extraction.
-        return (vision_items, base_header, None)
+    )
+    warnings.extend(primary_warnings)
+    if primary_needs_review:
+        needs_review = True
 
-    # Base parser errored AND Vision couldn't recover → propagate the
-    # base error so the operator sees a useful message.
-    if base_error and not base_items:
-        return [], base_header, base_error
+    # Merge headers — Vision provides defaults, base parser overrides
+    # on agency-specific fields where it has learned tuning over time.
+    merged_header = _merge_headers(vision_header={}, base_header=base_header)
+    merged_header.setdefault("_ingest_warnings", []).extend(warnings)
+    if needs_review:
+        merged_header["_needs_review"] = True
 
-    return (base_items, base_header, None)
+    if not primary_items and base_error:
+        # Both Vision and base failed to surface usable items.
+        return [], merged_header, base_error
+
+    return (primary_items, merged_header, None)
+
+
+def _vision_primary_extract(path: str) -> Optional[List[Dict[str, Any]]]:
+    """Run Vision AI as the PRIMARY items extractor on a PDF.
+
+    Returns the items list from `parse_with_vision`, or None if Vision
+    is unavailable / errored / quota-capped (caller falls back to base
+    parser items in that case).
+
+    Mike P000 2026-05-11: Vision is the truth source for content
+    extraction (proven against rfq_8efe9fae 5 -> 15, rfq_0ebe242f
+    phantom-item drop, pc_5728f934 8 -> 10). The base parser stays in
+    place for header tuning + DOCX/XLSX coverage + sanity-check signal.
+    """
+    try:
+        from src.forms.vision_parser import parse_with_vision, is_available
+        if not is_available():
+            return None
+        parsed = parse_with_vision(path)
+        if not parsed:
+            return None
+        items = parsed.get("line_items") or parsed.get("items") or []
+        return items if items else []
+    except Exception as e:
+        log.debug("vision primary extract suppressed: %s", e)
+        return None
+
+
+def _reconcile_vision_and_base(
+    vision_items: List[Dict[str, Any]],
+    base_items: List[Dict[str, Any]],
+    base_parser_label: str,
+    path: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]], bool]:
+    """Decide which items list to ship + whether the disagreement is
+    large enough to flag for operator review.
+
+    Returns (primary_items, warnings, needs_review).
+
+    Rules:
+      - Vision items are always the primary source on PDFs (Mike's
+        directive: regex creates garbage, don't trust its count).
+      - When Vision and base counts disagree by more than max(2,
+        20% of max), set needs_review=True and emit a structured
+        warning carrying both counts so the operator can audit.
+      - Disagreements WITHIN tolerance produce no warning (most
+        common case — Vision and base both report similar counts).
+    """
+    warnings: List[Dict[str, str]] = []
+    v_count = len(vision_items)
+    b_count = len(base_items)
+    delta = abs(v_count - b_count)
+    threshold = max(2, int(0.2 * max(v_count, b_count, 1)))
+
+    if delta > threshold:
+        needs_review = True
+        warnings.append({
+            "kind": "count_disagreement",
+            "detail": (
+                f"Vision found {v_count} items; {base_parser_label} "
+                f"found {b_count}. Diff {delta} > threshold {threshold} "
+                f"(20% of max). Operator should review which is "
+                f"correct."
+            ),
+            "vision_count": str(v_count),
+            "base_count": str(b_count),
+            "base_parser": base_parser_label,
+        })
+        if v_count > b_count:
+            log.info(
+                "ingest reconcile: Vision %d > base %d on %s — "
+                "needs_review (using Vision).",
+                v_count, b_count, os.path.basename(path),
+            )
+        else:
+            log.warning(
+                "ingest reconcile: base %d > Vision %d on %s — "
+                "needs_review (using Vision per Mike directive; base "
+                "may contain phantoms or Vision may have missed).",
+                b_count, v_count, os.path.basename(path),
+            )
+    else:
+        needs_review = False
+        if v_count != b_count:
+            # Small disagreement — log but don't flag.
+            log.debug(
+                "ingest reconcile: Vision %d, base %d on %s — within "
+                "tolerance, no review flag.",
+                v_count, b_count, os.path.basename(path),
+            )
+
+    # Vision is primary. Always. The point of this substrate is to
+    # stop trusting base-parser counts blindly.
+    return (vision_items, warnings, needs_review)
+
+
+def _merge_headers(
+    vision_header: Dict[str, Any], base_header: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Merge two header dicts.
+
+    Base parser wins on agency-keyed fields where it has accumulated
+    tuning (institution, requestor_name, delivery_zip, due_date). Vision
+    fills any field base parser left empty. The merge is shallow but
+    intentional: don't let Vision overwrite agency-keyed fields it
+    doesn't have special handling for.
+    """
+    if not vision_header:
+        return dict(base_header)
+    merged = dict(vision_header)
+    # Base header takes precedence on these agency-specific fields:
+    for k in ("institution", "agency", "requestor_name", "requestor_email",
+              "delivery_zip", "due_date", "price_check_number",
+              "solicitation_number"):
+        v = base_header.get(k)
+        if v not in (None, ""):
+            merged[k] = v
+    # Fold any base-only fields in
+    for k, v in base_header.items():
+        if k not in merged or merged[k] in (None, ""):
+            merged[k] = v
+    return merged
 
 
 def _vision_verify_items_if_pdf(
@@ -779,6 +1075,76 @@ def _pdf_page_count(path: str) -> int:
 
 
 # ── Record creation ─────────────────────────────────────────────────────
+
+
+def _persist_all_attachments(
+    record_id: str,
+    record_type: str,
+    paths: Optional[List[str]],
+    gmail_message_id: str = "",
+) -> int:
+    """Persist EVERY buyer-email attachment to the `rfq_files` table so
+    re-ingest / Vision-recheck scripts can find the source bytes without
+    a Gmail re-fetch fallback.
+
+    PR-A 2026-05-11: pre-fix, only the LEGACY email_poller code path
+    (in `dashboard.py`) called `save_rfq_file` — and only for the
+    primary file. The new `process_buyer_request` ingest path skipped
+    persistence entirely. Consequence: when `scripts/reingest_rfqs_through_vision.py`
+    walked rfq_files looking for the buyer's source PDF, it found
+    nothing and had to fall back to Gmail re-fetch (slow, brittle,
+    requires OAuth scope). This closes the gap so every ingest writes
+    durable copies of all attachments at create-time.
+
+    Category = "buyer_attachment" — distinguishes from "template"
+    (operator-uploaded), "source" (legacy primary-file persistence),
+    "buyer_reply" (PR-E thread-aware path), "package" (generated
+    output bundles).
+
+    Returns the count of attachments successfully persisted.
+    """
+    if not paths:
+        return 0
+    persisted = 0
+    try:
+        from src.api.dashboard import save_rfq_file
+        import mimetypes
+    except Exception as _e:
+        log.debug("attachment persistence imports unavailable: %s", _e)
+        return 0
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if not os.path.exists(path):
+                continue
+            with open(path, "rb") as fh:
+                data = fh.read()
+            if not data:
+                continue
+            ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            save_rfq_file(
+                record_id,
+                os.path.basename(path),
+                ctype,
+                data,
+                category="buyer_attachment",
+                uploaded_by=f"ingest_{record_type}",
+                gmail_message_id=gmail_message_id or "",
+            )
+            persisted += 1
+        except Exception as e:
+            log.warning(
+                "ingest %s %s: attachment persist failed for %s: %s",
+                record_type, record_id, path, e,
+            )
+    if persisted:
+        log.info(
+            "ingest %s %s: persisted %d attachment(s) to rfq_files",
+            record_type, record_id, persisted,
+        )
+    return persisted
+
 
 def _derive_requestor_name(email_sender: str) -> str:
     """Derive a display name from an email address when the PDF header
@@ -872,6 +1238,10 @@ def _create_record(
     all_paths: Optional[List[str]] = None,
     gmail_thread_id: str = "",
     gmail_message_id: str = "",
+    needs_review: bool = False,
+    ingest_warnings: Optional[List[Dict[str, str]]] = None,
+    needs_manual_pull: bool = False,
+    proofpoint_portal_url: str = "",
 ) -> str:
     """Create a new PC or RFQ with the classification stored on it."""
     now = datetime.now().isoformat()
@@ -881,7 +1251,24 @@ def _create_record(
     # operator queue treats it as done when it actually needs manual triage.
     # Body-only RFQs (no parseable attachment) hit this when the body-text
     # extractor isn't wired yet. Mark needs_review so it surfaces as triage.
-    initial_status = "needs_review" if not items else "parsed"
+    #
+    # PR-A 2026-05-11: also flip to needs_review when the Vision/base
+    # disagreement substrate set the flag. Zero-items still wins (the
+    # banner copy differs), but a record with items + disagreement
+    # surfaces in the same triage queue so the operator sees both
+    # classes of "look at me" before downstream actions run.
+    if needs_manual_pull:
+        # SecureMessage auto-pull skipped / failed — record sits in
+        # operator triage with a portal link until they pull manually.
+        # Distinct status from generic needs_review so the dashboard
+        # can render a Proofpoint-specific banner with the URL.
+        initial_status = "needs_manual_pull"
+    elif not items:
+        initial_status = "needs_review"
+    elif needs_review:
+        initial_status = "needs_review"
+    else:
+        initial_status = "parsed"
 
     # Canonicalize institution via facility_registry so two different
     # buyer-text labels for the same facility (e.g. "CSP-SAC" and
@@ -961,6 +1348,19 @@ def _create_record(
         # reference when the body extractor missed items (operator-fallback per
         # project_email_body_rfq_parser_gap.md fix shape #3).
         "body_text": (email_body or "")[:10000],
+        # PR-A 2026-05-11: substrate signal — operator banner should
+        # render when needs_review=True. ingest_warnings carries the
+        # structured kind/detail/count payload so the UI can show a
+        # specific message ("Vision found 15 items, regex found 5 —
+        # review which is correct") instead of a free-text blob.
+        "needs_review": bool(needs_review),
+        "ingest_warnings": list(ingest_warnings or []),
+        # PR-A Step 8: Proofpoint SecureMessage handoff fields. When
+        # the auto-pull (Step 7) is unavailable or returns nothing,
+        # the operator opens the portal at this URL and uploads the
+        # decrypted PDF via the manual-upload route.
+        "needs_manual_pull": bool(needs_manual_pull),
+        "proofpoint_portal_url": proofpoint_portal_url or "",
     }
 
     # Surface #17 (2026-05-04): when the buyer's PRICE CHECK / Solicitation #
@@ -1018,6 +1418,20 @@ def _create_record(
 
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(record["id"], record)
+
+    # PR-A 2026-05-11: persist every buyer-email attachment so re-ingest
+    # / Vision-recheck scripts can find the source bytes without a
+    # Gmail re-fetch fallback. Fire-and-forget — failure does not block
+    # the ingest (operator can still re-upload manually).
+    try:
+        _persist_all_attachments(
+            record["id"],
+            record_type,
+            all_paths or ([primary_path] if primary_path else []),
+            gmail_message_id=gmail_message_id,
+        )
+    except Exception as _ape:
+        log.debug("attachment persistence skipped: %s", _ape)
 
     # Fire-and-forget: refresh web MSRP for any catalog-matched items
     # whose price is stale. Scoped to just THIS record's items — no full-
@@ -1179,6 +1593,10 @@ def _update_existing_record(
     all_paths: Optional[List[str]] = None,
     gmail_thread_id: str = "",
     gmail_message_id: str = "",
+    needs_review: bool = False,
+    ingest_warnings: Optional[List[Dict[str, str]]] = None,
+    needs_manual_pull: bool = False,
+    proofpoint_portal_url: str = "",
 ) -> str:
     """Re-run classification + parsing on an existing record.
     Used when the operator clicks 'Re-parse' on an already-created PC/RFQ
@@ -1196,6 +1614,41 @@ def _update_existing_record(
         pcs = _load_price_checks()
         pc = pcs.get(record_id) or {}
         pc["_classification"] = classification.to_dict()
+        # PR-A 2026-05-11: refresh substrate diagnostics from the new
+        # ingest pass. If the re-parse no longer detects disagreement
+        # (Vision and base parser now align), `needs_review` clears so
+        # the operator sees the resolved state. Warnings are REPLACED,
+        # not appended — the latest signal is the truth source; stale
+        # warnings from prior runs would just confuse triage.
+        pc["needs_review"] = bool(needs_review)
+        pc["ingest_warnings"] = list(ingest_warnings or [])
+        # PR-A Step 8: SecureMessage handoff fields. The portal URL is
+        # only overwritten when the new pass actually carried one —
+        # otherwise we preserve whatever was captured at the original
+        # ingest so the operator's bookmark stays valid.
+        if proofpoint_portal_url:
+            pc["proofpoint_portal_url"] = proofpoint_portal_url
+        pc["needs_manual_pull"] = bool(needs_manual_pull)
+        _cur_status = pc.get("status", "")
+        if needs_manual_pull and _cur_status in ("parsed", "needs_review", ""):
+            pc["status"] = "needs_manual_pull"
+        elif not needs_manual_pull and _cur_status == "needs_manual_pull":
+            # Auto-pull (or operator) resolved the pull — drop back so
+            # the normal needs_review / parsed logic below can re-evaluate.
+            _cur_status = "parsed"
+            pc["status"] = "parsed"
+        if needs_review and _cur_status in ("parsed", ""):
+            # Flip status into the triage queue so the operator sees
+            # the disagreement on the next queue refresh. Don't override
+            # downstream statuses (quoted, sent, won, lost) — those are
+            # operator-driven and should never be regressed by a re-ingest.
+            pc["status"] = "needs_review"
+        elif not needs_review and _cur_status == "needs_review":
+            # Disagreement resolved on this re-ingest — drop back to
+            # `parsed` so the record falls out of the triage queue.
+            # Only clears the status when it was set BY a prior ingest;
+            # operator-driven statuses are untouched.
+            pc["status"] = "parsed"
         if items:
             pc["items"] = _merge_items_preserving_pricing(
                 pc.get("items") or [], items,
@@ -1227,6 +1680,18 @@ def _update_existing_record(
             pc["gmail_message_ids"] = _msgs
         pc["updated_at"] = datetime.now().isoformat()
         _save_single_pc(record_id, pc)
+        # PR-A 2026-05-11: persist re-parse attachments too. Buyer-reply
+        # ingests (PR-E flow) carry NEW PDFs on the followup message —
+        # they must be saved or the re-ingest substrate can't replay
+        # them either.
+        try:
+            _persist_all_attachments(
+                record_id, "pc",
+                all_paths or ([primary_path] if primary_path else []),
+                gmail_message_id=gmail_message_id,
+            )
+        except Exception as _ape:
+            log.debug("reparse PC attachment persistence skipped: %s", _ape)
         # Re-parse replaces items — refresh catalog MSRP for the merged set too
         if items:
             try:
@@ -1239,6 +1704,22 @@ def _update_existing_record(
         rfqs = load_rfqs()
         rfq = rfqs.get(record_id) or {}
         rfq["_classification"] = classification.to_dict()
+        # PR-A 2026-05-11: same substrate refresh as the PC branch.
+        rfq["needs_review"] = bool(needs_review)
+        rfq["ingest_warnings"] = list(ingest_warnings or [])
+        if proofpoint_portal_url:
+            rfq["proofpoint_portal_url"] = proofpoint_portal_url
+        rfq["needs_manual_pull"] = bool(needs_manual_pull)
+        _cur_status = rfq.get("status", "")
+        if needs_manual_pull and _cur_status in ("parsed", "needs_review", ""):
+            rfq["status"] = "needs_manual_pull"
+        elif not needs_manual_pull and _cur_status == "needs_manual_pull":
+            _cur_status = "parsed"
+            rfq["status"] = "parsed"
+        if needs_review and _cur_status in ("parsed", ""):
+            rfq["status"] = "needs_review"
+        elif not needs_review and _cur_status == "needs_review":
+            rfq["status"] = "parsed"
         if items:
             rfq["line_items"] = _merge_items_preserving_pricing(
                 rfq.get("line_items") or [], items,
@@ -1296,6 +1777,16 @@ def _update_existing_record(
             rfq["gmail_message_ids"] = _msgs
         rfq["updated_at"] = datetime.now().isoformat()
         _save_single_rfq(record_id, rfq)
+        # PR-A 2026-05-11: twin of the PC branch — persist re-parse
+        # attachments so re-ingest scripts can replay them later.
+        try:
+            _persist_all_attachments(
+                record_id, "rfq",
+                all_paths or ([primary_path] if primary_path else []),
+                gmail_message_id=gmail_message_id,
+            )
+        except Exception as _ape:
+            log.debug("reparse RFQ attachment persistence skipped: %s", _ape)
         if items:
             try:
                 from src.agents.product_catalog import refresh_prices_for_items_async

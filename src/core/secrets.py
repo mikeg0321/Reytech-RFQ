@@ -186,6 +186,23 @@ _REGISTRY = {
         "agents": ["email_poller"],
         "sensitive": True,
     },
+    # Proofpoint Encryption (DSH / state agencies that wrap RFQ emails
+    # behind Proofpoint SecureMessage). Auto-login is opt-in via the
+    # `ingest.proofpoint_auto_login_enabled` flag; when off, ingestion
+    # falls back to the manual-pull dashboard flag.
+    "proofpoint_email": {
+        "env": "PROOFPOINT_EMAIL",
+        "required": False,
+        "desc": "Proofpoint Encryption login email (Reytech's registered address)",
+        "agents": ["proofpoint_pull"],
+    },
+    "proofpoint_password": {
+        "env": "PROOFPOINT_PASSWORD",
+        "required": False,
+        "desc": "Proofpoint Encryption password",
+        "agents": ["proofpoint_pull"],
+        "sensitive": True,
+    },
 }
 
 
