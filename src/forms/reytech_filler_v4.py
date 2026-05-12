@@ -2846,10 +2846,25 @@ def _calrecycle_overlay_items(pdf_path, items):
             
             fields = row_coords[idx]
             
-            # Item # — 42pt wide field, use 5.5pt font
+            # Item # — 42pt wide field, use 5.5pt font.
+            # 2026-05-12 Mike P0 (CalVet rfq_8efe9fae): upstream parser
+            # stored buyer's line-sequence number in `item_number`
+            # (e.g., "15" for line 15 of 15), so the prior code drew
+            # the bare line-sequence into the SABRC Item# column. The
+            # column expects an MFG# / part number; prefer the
+            # dedicated MFG# fields and skip bare integers.
             item_rect = fields.get(f"Item Row{idx}")
             if item_rect:
-                pn = str(item.get("item_number", item.get("part_number", "")))
+                pn = ""
+                for _k in ("mfg_number", "part_number", "catalog_number"):
+                    _v = item.get(_k)
+                    if _v and str(_v).strip():
+                        pn = str(_v).strip()
+                        break
+                if not pn:
+                    _inum = str(item.get("item_number") or "").strip()
+                    if _inum and not _inum.isdigit():
+                        pn = _inum
                 font_sz = 5.5
                 # Auto-shrink if still too wide
                 item_w = item_rect[2] - item_rect[0] - 4
@@ -3230,8 +3245,33 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         return desc
 
     line_items = rfq_data.get("line_items", [])
+
+    def _mfg_for_calrecycle(it: dict) -> str:
+        """Pick the manufacturer part number for the SABRC Item# column.
+
+        The CalRecycle "Item Row" column expects an MFG# / part number,
+        NOT the line-sequence number. But many upstream parsers store
+        the buyer's row number in `item_number` (e.g., CalVet shows
+        "ITEM NO.: 15" for line 15 of 15). Preferring `item_number`
+        first as the prior code did surfaced "15" in the Item# field
+        on Mike's 2026-05-12 CalVet RFQ.
+
+        Priority: explicit MFG# fields first, then a non-numeric
+        `item_number` value, finally a numeric fallback. If every
+        candidate is a small bare integer that looks like a line
+        sequence, prefer empty rather than emit a misleading number.
+        """
+        for k in ("mfg_number", "part_number", "catalog_number"):
+            v = it.get(k)
+            if v and str(v).strip():
+                return str(v).strip()
+        inum = str(it.get("item_number") or "").strip()
+        if inum and not inum.isdigit():
+            return inum
+        return ""
+
     for idx, item in enumerate(line_items[:6], start=1):  # Template has 6 rows max
-        pn = item.get("item_number", item.get("part_number", ""))
+        pn = _mfg_for_calrecycle(item)
         desc = _cr_desc(item)
         values[f"Item Row{idx}"] = pn
         values[f"Product or Services DescriptionRow{idx}"] = desc
