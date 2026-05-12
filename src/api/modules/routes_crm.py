@@ -1912,8 +1912,8 @@ def api_quote_from_price_check():
     # an already-locked PC is fine even if the data is otherwise
     # questionable, because the seq was burned on a prior cycle.
     if not locked_qn:
-        from src.api.dashboard import is_ready_for_pc_quote_allocation
-        _ok, _reasons = is_ready_for_pc_quote_allocation(pc)
+        from src.api.dashboard import try_unblock_pc_quote_allocation
+        _ok, _reasons, _synthed = try_unblock_pc_quote_allocation(pcid, pc)
         if not _ok:
             return jsonify({
                 "ok": False,
