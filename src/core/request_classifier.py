@@ -906,19 +906,59 @@ def _pick_most_specific_agency(matches: List[str]) -> str:
 
 
 def _extract_solicitation(corpus: str, text_samples: List[str]) -> str:
-    """Pull a solicitation number out of the corpus. Patterns:
-    PREQ1234567, 10843276, RFQ-2026-XXXX, SOL-XXXX, etc."""
+    """Pull a solicitation number out of the corpus.
+
+    Priority order — most-specific labeled patterns first, then prefix
+    patterns, then bare-numeric last resort. The ordering matters
+    because bare-numeric will catch part numbers and other long digit
+    strings; the labeled forms anchor the match to "this thing the
+    buyer called a solicitation".
+
+    Patterns:
+      1. "Solicitation Number: X" / "Solicitation #: X" / "Sol#: X" (labeled)
+      2. "Bid #: X" / "Bid Number: X" (labeled)
+      3. "RFQ # X" / "RFQ-X" (prefix)
+      4. PREQ + digits (CCHCS legacy)
+      5. 8-digit bare numeric (CCHCS heuristic — last resort)
+
+    PR substrate 2026-05-12: pre-fix the bare-numeric fallback caught
+    part numbers like Adam Equipment's `2010017786` and shipped them
+    as the RFQ sol# when the labeled `25CB021` should have won. Fix:
+    labeled patterns scan first, bare numeric is a last resort.
+    """
     all_text = corpus + " " + " ".join(text_samples)
-    # Most specific first: PREQ + 6-8 digits
+
+    # ── Labeled solicitation patterns (highest priority) ──
+    for pat in (
+        r"\bSolicitation\s+Number\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
+        r"\bSolicitation\s*#\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
+        r"\bSol(?:icitation)?\s*#\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
+        r"\bSol\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
+        r"\bBid\s+(?:Number|#)\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
+        r"\bRFQ\s*(?:Number|#)\s*[:]?\s*([A-Z0-9][A-Z0-9-]{2,19})\b",
+        # Subject-line natural-language anchors. Catches Mike's real DSH
+        # case `FW: Please find attached quote request 25CB021`.
+        # NOTE: `quot(?:e|ation)` not `quote(?:ation)?` — "quote" and
+        # "quotation" diverge at char index 4 (e vs a).
+        r"\b(?:quote\s+request|request\s+for\s+quot(?:e|ation)|RFQ\s+for|RFQ\s+number)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{4,15})\b",
+        r"\b(?:rfq|quote)\s+([0-9]{2}[A-Z]{2}[0-9]{3,5})\b",  # DSH-style: 25CB021
+    ):
+        m = re.search(pat, all_text, re.IGNORECASE)
+        if m:
+            return m.group(1)
+
+    # ── Prefix patterns (medium specificity) ──
     m = re.search(r"\bPREQ(\d{6,10})\b", all_text, re.IGNORECASE)
     if m:
         return m.group(1)
-    # 8-digit CCHCS solicitation numbers (e.g. 10843276)
-    m = re.search(r"\b(\d{8})\b", all_text)
+    m = re.search(r"\bRFQ[- ]([A-Z0-9-]{4,15})\b", all_text, re.IGNORECASE)
     if m:
         return m.group(1)
-    # RFQ prefix
-    m = re.search(r"\bRFQ[- ]([A-Z0-9-]{4,15})\b", all_text, re.IGNORECASE)
+
+    # ── 8-digit bare numeric (CCHCS heuristic — last resort) ──
+    # NOTE: this catches CCHCS solicitation numbers (e.g. 10843276) but
+    # can also catch long part numbers. Kept as final fallback only.
+    m = re.search(r"\b(\d{8})\b", all_text)
     if m:
         return m.group(1)
     return ""
