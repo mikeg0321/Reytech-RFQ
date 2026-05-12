@@ -117,6 +117,44 @@ def public_search():
         return jsonify({"ok": False, "error": str(e)[:500]}), 500
 
 
+@app.route("/proofpoint/pull", methods=["POST"])
+def proofpoint_pull():
+    """Auto-login to a Proofpoint Encryption portal URL and download
+    every attachment.
+
+    Body: {"portal_url": "https://securereader.proofpoint.com/...",
+           "email": "sales@reytechinc.com",
+           "password": "...",
+           "timeout_s": 30}
+
+    Returns: {"ok": true, "data": [{"filename": "...",
+              "content_b64": "...", "size": 12345}, ...]}
+
+    Returns empty `data` list on any failure mode (no auth, no
+    attachments, timeout). The web-side caller treats empty as
+    `needs_manual_pull` and surfaces the portal URL banner.
+    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+    try:
+        from proofpoint_browser import pull as _pull
+        data = request.get_json(silent=True) or {}
+        portal_url = (data.get("portal_url") or "").strip()
+        email = (data.get("email") or "").strip()
+        password = data.get("password") or ""
+        timeout_s = int(data.get("timeout_s") or 30)
+        if not portal_url:
+            return jsonify({"ok": False, "error": "portal_url required"}), 400
+        if not email or not password:
+            return jsonify({"ok": False, "error": "email + password required"}), 400
+        result = _pull(portal_url, email, password, timeout_s=timeout_s)
+        return jsonify({"ok": True, "data": result})
+    except Exception as e:
+        log.error("proofpoint/pull failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)[:500]}), 500
+
+
 @app.route("/scrape/intercept", methods=["POST"])
 def intercept_search():
     """Search SCPRS via network interception (discovers API endpoints)."""
