@@ -50,13 +50,19 @@ class IngestResult:
     # PR-A substrate (2026-05-11): structured signals from
     # `_dispatch_parser` that the operator surface needs to see.
     # `needs_review=True` when Vision and base parser disagree by more
-    # than the tolerance threshold, or when the SecureMessage handler
-    # could not auto-pull and a human is required.
+    # than the tolerance threshold.
     # `ingest_warnings` carries the structured warning dicts
     # (kind/detail/counts) so the UI can render a banner that names
     # the specific class of disagreement instead of a free-text blob.
+    # `needs_manual_pull=True` when the Proofpoint SecureMessage
+    # auto-pull (Step 7) was skipped or failed and the operator must
+    # open the portal manually to retrieve the real RFQ PDF.
+    # `proofpoint_portal_url` carries the extracted portal link so the
+    # operator surface can render it as a one-click handoff.
     needs_review: bool = False
     ingest_warnings: List[Dict[str, str]] = field(default_factory=list)
+    needs_manual_pull: bool = False
+    proofpoint_portal_url: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         # Emit BOTH the canonical (items_parsed) and legacy-compatible
@@ -82,6 +88,8 @@ class IngestResult:
             "reasons": list(self.reasons),
             "needs_review": bool(self.needs_review),
             "ingest_warnings": [dict(w) for w in self.ingest_warnings],
+            "needs_manual_pull": bool(self.needs_manual_pull),
+            "proofpoint_portal_url": self.proofpoint_portal_url,
         }
 
 
@@ -202,6 +210,83 @@ def process_buyer_request(
     record_type = "pc" if classification.is_quote_only else "rfq"
     result.record_type = record_type
 
+    # ── Step 2b: Proofpoint SecureMessage handler ──
+    # PR-A Step 8 (2026-05-11). When the classifier identifies a
+    # SecureMessage wrapper email, the real RFQ PDF is behind the
+    # Proofpoint Encryption portal. Try the auto-pull (Step 7); on
+    # success, swap the downloaded files in as the new attachment list
+    # AND re-classify against them so the downstream pipeline sees
+    # the actual RFQ shape (cchcs_packet / ams_704 / generic). On
+    # failure, mark `needs_manual_pull=True` and let the record save
+    # with empty items — the operator gets a one-click portal link
+    # plus a "pull this manually" banner.
+    if classification.shape == "proofpoint_securemessage":
+        portal_url = ""
+        try:
+            from src.agents.proofpoint_pull import (
+                extract_portal_url, is_available, pull_via_url,
+            )
+            portal_url = extract_portal_url(email_body) or ""
+            result.proofpoint_portal_url = portal_url
+            if portal_url and is_available():
+                log.info(
+                    "ingest proofpoint: auto-pull attempting (%s)",
+                    portal_url[:80],
+                )
+                downloaded = pull_via_url(portal_url)
+                if downloaded:
+                    log.info(
+                        "ingest proofpoint: auto-pull returned %d file(s) — "
+                        "re-classifying", len(downloaded),
+                    )
+                    # Replace the file list with the real RFQ files
+                    # and re-run classify so the downstream pipeline
+                    # sees the actual shape (cchcs / 704 / generic).
+                    files = downloaded
+                    try:
+                        from src.core.request_classifier import classify_request as _reclassify
+                        classification = _reclassify(
+                            attachments=files,
+                            email_body=email_body,
+                            email_subject=email_subject,
+                            email_sender=email_sender,
+                        )
+                        result.classification = classification.to_dict()
+                        result.reasons.append(
+                            f"proofpoint: auto-pull → re-classified as {classification.shape}"
+                        )
+                        # Re-evaluate record_type with the new shape.
+                        record_type = "pc" if classification.is_quote_only else "rfq"
+                        result.record_type = record_type
+                    except Exception as _rce:
+                        log.error("proofpoint re-classify failed: %s", _rce, exc_info=True)
+                        result.warnings.append(f"proofpoint re-classify: {_rce}")
+                else:
+                    log.warning(
+                        "ingest proofpoint: auto-pull returned 0 files — "
+                        "falling back to needs_manual_pull"
+                    )
+                    result.needs_manual_pull = True
+                    result.reasons.append(
+                        "proofpoint: auto-pull empty — manual portal visit required"
+                    )
+            else:
+                # Either no portal URL extractable, or auto-pull not
+                # configured (no creds / flag off / no playwright).
+                result.needs_manual_pull = True
+                if not portal_url:
+                    result.reasons.append(
+                        "proofpoint: no portal URL extractable from email body"
+                    )
+                else:
+                    result.reasons.append(
+                        "proofpoint: auto-pull not available — manual portal visit required"
+                    )
+        except Exception as _pe:
+            log.error("proofpoint handler crashed: %s", _pe, exc_info=True)
+            result.warnings.append(f"proofpoint: {_pe}")
+            result.needs_manual_pull = True
+
     # ── Step 3: parse items from the primary file ──
     items = []
     header = {}
@@ -301,6 +386,8 @@ def process_buyer_request(
                 gmail_message_id=gmail_message_id,
                 needs_review=needs_review,
                 ingest_warnings=ingest_warnings,
+                needs_manual_pull=result.needs_manual_pull,
+                proofpoint_portal_url=result.proofpoint_portal_url,
             )
         else:
             record_id = _create_record(
@@ -313,6 +400,8 @@ def process_buyer_request(
                 all_paths=all_paths,
                 needs_review=needs_review,
                 ingest_warnings=ingest_warnings,
+                needs_manual_pull=result.needs_manual_pull,
+                proofpoint_portal_url=result.proofpoint_portal_url,
             )
         result.record_id = record_id
     except Exception as e:
@@ -1151,6 +1240,8 @@ def _create_record(
     gmail_message_id: str = "",
     needs_review: bool = False,
     ingest_warnings: Optional[List[Dict[str, str]]] = None,
+    needs_manual_pull: bool = False,
+    proofpoint_portal_url: str = "",
 ) -> str:
     """Create a new PC or RFQ with the classification stored on it."""
     now = datetime.now().isoformat()
@@ -1166,7 +1257,13 @@ def _create_record(
     # banner copy differs), but a record with items + disagreement
     # surfaces in the same triage queue so the operator sees both
     # classes of "look at me" before downstream actions run.
-    if not items:
+    if needs_manual_pull:
+        # SecureMessage auto-pull skipped / failed — record sits in
+        # operator triage with a portal link until they pull manually.
+        # Distinct status from generic needs_review so the dashboard
+        # can render a Proofpoint-specific banner with the URL.
+        initial_status = "needs_manual_pull"
+    elif not items:
         initial_status = "needs_review"
     elif needs_review:
         initial_status = "needs_review"
@@ -1258,6 +1355,12 @@ def _create_record(
         # review which is correct") instead of a free-text blob.
         "needs_review": bool(needs_review),
         "ingest_warnings": list(ingest_warnings or []),
+        # PR-A Step 8: Proofpoint SecureMessage handoff fields. When
+        # the auto-pull (Step 7) is unavailable or returns nothing,
+        # the operator opens the portal at this URL and uploads the
+        # decrypted PDF via the manual-upload route.
+        "needs_manual_pull": bool(needs_manual_pull),
+        "proofpoint_portal_url": proofpoint_portal_url or "",
     }
 
     # Surface #17 (2026-05-04): when the buyer's PRICE CHECK / Solicitation #
@@ -1492,6 +1595,8 @@ def _update_existing_record(
     gmail_message_id: str = "",
     needs_review: bool = False,
     ingest_warnings: Optional[List[Dict[str, str]]] = None,
+    needs_manual_pull: bool = False,
+    proofpoint_portal_url: str = "",
 ) -> str:
     """Re-run classification + parsing on an existing record.
     Used when the operator clicks 'Re-parse' on an already-created PC/RFQ
@@ -1517,7 +1622,21 @@ def _update_existing_record(
         # warnings from prior runs would just confuse triage.
         pc["needs_review"] = bool(needs_review)
         pc["ingest_warnings"] = list(ingest_warnings or [])
+        # PR-A Step 8: SecureMessage handoff fields. The portal URL is
+        # only overwritten when the new pass actually carried one —
+        # otherwise we preserve whatever was captured at the original
+        # ingest so the operator's bookmark stays valid.
+        if proofpoint_portal_url:
+            pc["proofpoint_portal_url"] = proofpoint_portal_url
+        pc["needs_manual_pull"] = bool(needs_manual_pull)
         _cur_status = pc.get("status", "")
+        if needs_manual_pull and _cur_status in ("parsed", "needs_review", ""):
+            pc["status"] = "needs_manual_pull"
+        elif not needs_manual_pull and _cur_status == "needs_manual_pull":
+            # Auto-pull (or operator) resolved the pull — drop back so
+            # the normal needs_review / parsed logic below can re-evaluate.
+            _cur_status = "parsed"
+            pc["status"] = "parsed"
         if needs_review and _cur_status in ("parsed", ""):
             # Flip status into the triage queue so the operator sees
             # the disagreement on the next queue refresh. Don't override
@@ -1588,7 +1707,15 @@ def _update_existing_record(
         # PR-A 2026-05-11: same substrate refresh as the PC branch.
         rfq["needs_review"] = bool(needs_review)
         rfq["ingest_warnings"] = list(ingest_warnings or [])
+        if proofpoint_portal_url:
+            rfq["proofpoint_portal_url"] = proofpoint_portal_url
+        rfq["needs_manual_pull"] = bool(needs_manual_pull)
         _cur_status = rfq.get("status", "")
+        if needs_manual_pull and _cur_status in ("parsed", "needs_review", ""):
+            rfq["status"] = "needs_manual_pull"
+        elif not needs_manual_pull and _cur_status == "needs_manual_pull":
+            _cur_status = "parsed"
+            rfq["status"] = "parsed"
         if needs_review and _cur_status in ("parsed", ""):
             rfq["status"] = "needs_review"
         elif not needs_review and _cur_status == "needs_review":
