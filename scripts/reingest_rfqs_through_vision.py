@@ -173,21 +173,116 @@ def _list_suspect_rfqs(min_items_per_page: float = 3.0,
 
 
 def _find_buyer_attachment(rfq_id: str) -> Optional[tuple[bytes, str]]:
-    """Return (file_bytes, filename) for the oldest PDF attachment on
-    this RFQ. Buyer-RFQ attachments are typically the first uploaded
-    file (category=template OR uploaded_by=system). Returns None if
-    no PDF is on file."""
+    """Return (file_bytes, filename) for the buyer-RFQ attachment.
+
+    Priority:
+      1. rfq_files row with category='buyer_rfq' (most precise — what
+         the post-PR-#910 ingest stamps onto saved attachments).
+      2. rfq_files OLDEST PDF that is NOT a supplier_quote / package /
+         template — legacy path for records ingested before the
+         category tag was added.
+      3. None — caller falls through to Gmail re-fetch.
+    """
     from src.core.db import get_db
     with get_db() as conn:
+        # Priority 1: explicit buyer_rfq tag
         row = conn.execute(
             "SELECT data, filename FROM rfq_files "
-            "WHERE rfq_id = ? AND LOWER(filename) LIKE '%.pdf' "
+            "WHERE rfq_id = ? AND category = 'buyer_rfq' "
+            "  AND LOWER(filename) LIKE '%.pdf' "
             "ORDER BY created_at ASC LIMIT 1",
             (rfq_id,),
         ).fetchone()
-        if not row:
-            return None
-        return (row["data"], row["filename"])
+        if row:
+            return (row["data"], row["filename"])
+        # Priority 2: oldest PDF that isn't a supplier quote / package
+        row = conn.execute(
+            "SELECT data, filename FROM rfq_files "
+            "WHERE rfq_id = ? "
+            "  AND LOWER(filename) LIKE '%.pdf' "
+            "  AND category NOT IN ('supplier_quote', 'package', 'generated') "
+            "ORDER BY created_at ASC LIMIT 1",
+            (rfq_id,),
+        ).fetchone()
+        if row:
+            return (row["data"], row["filename"])
+        return None
+
+
+def _fetch_buyer_attachments_from_gmail(
+    rfq: dict,
+) -> list[tuple[bytes, str]]:
+    """Re-pull buyer attachments from the original Gmail message.
+
+    Used when rfq_files has no buyer PDF — typically the case for RFQs
+    ingested before this script existed, because email_poller did not
+    persist the original PDF after parse. Reads `email_uid` /
+    `email_message_id` off the RFQ and pulls the raw message from Gmail.
+    Returns list of (bytes, filename) for every PDF attachment found;
+    empty list if Gmail unreachable, msg_id missing, or no PDFs found.
+    """
+    import email as _email_pkg
+    msg_id = (
+        rfq.get("email_message_id")
+        or rfq.get("email_uid")
+        or rfq.get("gmail_message_id")
+        or ""
+    )
+    if not msg_id:
+        return []
+    try:
+        from src.core.gmail_api import get_service, get_raw_message
+        for inbox in ("sales", "mike"):
+            try:
+                service = get_service(inbox_name=inbox)
+            except Exception:
+                continue
+            try:
+                raw = get_raw_message(service, msg_id)
+            except Exception:
+                continue
+            if not raw:
+                continue
+            try:
+                msg = _email_pkg.message_from_bytes(raw)
+            except Exception:
+                continue
+            results: list[tuple[bytes, str]] = []
+            for part in msg.walk():
+                if part.get_content_maintype() == "multipart":
+                    continue
+                fname = part.get_filename() or ""
+                if not fname.lower().endswith(".pdf"):
+                    continue
+                try:
+                    data = part.get_payload(decode=True)
+                except Exception:
+                    continue
+                if not data:
+                    continue
+                results.append((data, fname))
+            if results:
+                return results
+        return []
+    except Exception as e:
+        print(f"   gmail fetch error: {e}")
+        return []
+
+
+def _persist_buyer_attachment(
+    rfq_id: str, data: bytes, filename: str,
+) -> None:
+    """Save the re-fetched buyer attachment to rfq_files with
+    category='buyer_rfq' so future re-ingest finds it without Gmail.
+    Partial substrate fix for the missing-persist-at-ingest gap."""
+    try:
+        from src.api.dashboard import save_rfq_file
+        save_rfq_file(
+            rfq_id, filename, "application/pdf", data,
+            category="buyer_rfq", uploaded_by="reingest_script",
+        )
+    except Exception as e:
+        print(f"   warn: could not persist {filename} to rfq_files: {e}")
 
 
 def _reingest_one(rfq_id: str, rfq: dict, dry_run: bool = False) -> dict:
@@ -201,10 +296,30 @@ def _reingest_one(rfq_id: str, rfq: dict, dry_run: bool = False) -> dict:
            "error": None, "dry_run": dry_run}
 
     attach = _find_buyer_attachment(rfq_id)
+    source = "rfq_files"
     if not attach:
-        out["skipped"] = "no_pdf_attachment"
-        return out
-    data, filename = attach
+        # rfq_files had nothing usable. Try Gmail re-fetch via the
+        # stored email_uid / email_message_id. This handles RFQs
+        # ingested before the persist-buyer-attachment substrate fix.
+        gmail_attachments = _fetch_buyer_attachments_from_gmail(rfq)
+        if not gmail_attachments:
+            out["skipped"] = "no_pdf_attachment_and_gmail_fetch_failed"
+            return out
+        # Use the first PDF attachment (buyer RFQs typically have one).
+        # If there are multiple, the rest are usually instructions /
+        # terms-and-conditions; the buyer-RFQ parser excludes those by
+        # filename pattern.
+        data, filename = gmail_attachments[0]
+        source = "gmail_refetch"
+        # Persist for future runs so we don't keep re-pulling from Gmail.
+        if not dry_run:
+            _persist_buyer_attachment(rfq_id, data, filename)
+            print(f"   gmail re-fetch: {filename} ({len(data)} bytes), persisted to rfq_files")
+        else:
+            print(f"   gmail re-fetch (dry-run): {filename} ({len(data)} bytes), would persist")
+    else:
+        data, filename = attach
+    out["source"] = source
 
     # Write to temp file for process_buyer_request
     tmp_path = None
