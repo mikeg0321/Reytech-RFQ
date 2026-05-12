@@ -1014,6 +1014,13 @@ def _multi_attachment_vision_union(
         with many attachments.
       - Each contributed item gets `_source_attachment: <basename>` and
         `_extraction_source: 'vision_sibling'` for operator traceability.
+
+    Performance follow-on 2026-05-12:
+      - Reads classifier's `_per_file_info` cache instead of calling
+        `_classify_pdf` again per sibling (~200-500ms saved per file).
+      - Runs the eligible Vision calls in parallel via a thread pool
+        (Vision API is I/O bound — threads beat sequential awaits).
+        4 sibling calls go from ~20-60s wall-clock to ~5-15s.
     """
     if not primary_path or not all_files:
         return []
@@ -1037,11 +1044,27 @@ def _multi_attachment_vision_union(
         SHAPE_GENERIC_RFQ_PDF,
     )
 
+    # Pull the per-PDF classification cache the classifier already built
+    # during `classify_request`. Falls back to live _classify_pdf when
+    # cache misses (defensive — older callers may pass a synthetic
+    # classification with no cache).
+    _cache = getattr(classification, "_per_file_info", None) or {}
+
+    def _resolve_shape(path: str) -> Tuple[str, Dict[str, Any]]:
+        """Read shape + info from cache, fall back to live classify."""
+        hit = _cache.get(os.path.basename(path))
+        if hit and isinstance(hit, dict):
+            return hit.get("shape", ""), (hit.get("info") or {})
+        try:
+            return _classify_pdf(path)
+        except Exception:
+            return "", {}
+
     primary_basename = os.path.basename(primary_path)
-    extra_items: List[Dict[str, Any]] = []
-    sibling_call_count = 0
     MAX_SIBLING_CALLS = 4
 
+    # ── Stage 1: filter candidates (no Vision yet) ──
+    candidates: List[str] = []
     for path in all_files:
         if not path or not os.path.exists(path):
             continue
@@ -1049,24 +1072,14 @@ def _multi_attachment_vision_union(
             continue
         if not path.lower().endswith(".pdf"):
             continue
-        if sibling_call_count >= MAX_SIBLING_CALLS:
+        if len(candidates) >= MAX_SIBLING_CALLS:
             log.info(
                 "multi_attach_union: hit MAX_SIBLING_CALLS=%d cap, "
                 "skipping remaining PDFs", MAX_SIBLING_CALLS,
             )
             break
 
-        # Only Vision-parse PDFs whose classifier shape suggests they
-        # could carry items. Blank-form PDFs (bidder declaration, DVBE
-        # cert, Darfur cert) classify as generic-RFQ-PDF too on this
-        # repo, BUT they have low/zero pricing-page-score — so the
-        # cleanest gate is "skip if pricing_page_score == 0 AND the
-        # filename pattern matches a known non-items form". Otherwise
-        # we'd burn Vision quota on the cert PDFs in every DSH bundle.
-        try:
-            shape, info = _classify_pdf(path)
-        except Exception:
-            continue
+        shape, info = _resolve_shape(path)
         if shape != SHAPE_GENERIC_RFQ_PDF:
             continue
         pricing_score = int(info.get("pricing_page_score", 0) or 0)
@@ -1087,12 +1100,44 @@ def _multi_attachment_vision_union(
                 os.path.basename(path),
             )
             continue
+        candidates.append(path)
 
-        sibling_call_count += 1
-        sibling_items = _vision_primary_extract(path)
+    if not candidates:
+        return []
+
+    # ── Stage 2: parallel Vision calls ──
+    # Vision is I/O bound — a thread pool delivers near-linear speedup
+    # without the complexity of async. Match worker count to candidate
+    # count so we don't spin idle threads.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results: Dict[str, List[Dict[str, Any]]] = {}
+    workers = min(len(candidates), MAX_SIBLING_CALLS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_vision_primary_extract, path): path
+            for path in candidates
+        }
+        for fut in as_completed(futures):
+            path = futures[fut]
+            try:
+                sibling_items = fut.result() or []
+            except Exception as e:
+                log.debug(
+                    "multi_attach_union: Vision call for %s failed: %s",
+                    os.path.basename(path), e,
+                )
+                sibling_items = []
+            results[path] = sibling_items
+
+    # ── Stage 3: union, deduped against primary ──
+    # Iterate in `candidates` order (deterministic) rather than completion
+    # order so the merged item list is reproducible run-to-run on the
+    # same input bundle.
+    extra_items: List[Dict[str, Any]] = []
+    for path in candidates:
+        sibling_items = results.get(path) or []
         if not sibling_items:
             continue
-
         contributed = 0
         for it in sibling_items:
             if not isinstance(it, dict):
