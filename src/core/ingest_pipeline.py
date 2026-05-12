@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -331,6 +332,56 @@ def process_buyer_request(
         result.reasons.append(
             "needs_review: Vision/base parser disagreement above threshold"
         )
+
+    # ── Step 3a-multi: Multi-attachment item union (P000 substrate #3) ──
+    # The classifier's pricing-page tiebreak (PR #921) picks the BEST
+    # single PDF as primary. But buyer bundles can split items across
+    # multiple PDFs — e.g., a 30-item pricing page sent as Attachment-B-1
+    # + Attachment-B-2 (continuation). Without this union step, only the
+    # primary's items land on the record.
+    #
+    # Rule: after the primary parse, run Vision on EVERY other buyer-RFQ
+    # PDF in `files` (skip the primary, skip non-RFQ-shaped PDFs like
+    # `Bidder_Declaration.pdf`). Dedup union into the primary list using
+    # a description+qty signature. Items contributed by sibling
+    # attachments are tagged `_source_attachment` for operator audit.
+    #
+    # Flag-gated: ingest.multi_attachment_union_enabled (default True).
+    # Conservative cap: skip when `primary_path` is None OR `files` has
+    # <2 PDFs (no siblings to scan).
+    try:
+        from src.core.flags import get_flag
+        _multi_enabled = get_flag("ingest.multi_attachment_union_enabled", True)
+    except Exception:
+        _multi_enabled = True
+
+    if (
+        _multi_enabled
+        and primary_path
+        and files
+        and len([f for f in files if f.lower().endswith(".pdf")]) >= 2
+    ):
+        try:
+            extra_items = _multi_attachment_vision_union(
+                primary_path=primary_path,
+                all_files=files,
+                classification=classification,
+                primary_items=items,
+            )
+            if extra_items:
+                items = items + extra_items
+                result.reasons.append(
+                    f"multi-attach union: +{len(extra_items)} items "
+                    f"from sibling RFQ PDFs"
+                )
+                log.info(
+                    "multi_attach_union: +%d items from sibling RFQ PDFs "
+                    "(primary=%s)",
+                    len(extra_items), os.path.basename(primary_path),
+                )
+        except Exception as _mu:
+            log.warning("multi-attachment union failed (non-fatal): %s", _mu)
+            result.warnings.append(f"multi-attach-union: {_mu}")
 
     # ── Step 3b: body-text fallback when attachment yielded zero items ──
     # Buyers who paste the RFQ into the email body (no parseable attachment)
@@ -911,6 +962,160 @@ def _vision_primary_extract(path: str) -> Optional[List[Dict[str, Any]]]:
         return None
 
 
+def _item_signature(item: Dict[str, Any]) -> str:
+    """Stable dedup signature for an extracted line item.
+
+    Used by the multi-attachment Vision union to skip items already
+    present in the primary parse. Normalizes whitespace + case + qty
+    type so `'2 EA POWER SUPPLY'` and `'2.0  ea  power supply'`
+    collide. MFG# is included when present because two items with the
+    same description but different part numbers are legitimately
+    different items (e.g., size variants).
+    """
+    desc = (item.get("description") or "").strip().lower()
+    desc = re.sub(r"\s+", " ", desc)[:120] if desc else ""
+    try:
+        qty = float(item.get("qty") or item.get("quantity") or 0)
+    except (ValueError, TypeError):
+        qty = 0.0
+    mfg = (
+        item.get("item_number")
+        or item.get("mfg_number")
+        or item.get("part_number")
+        or ""
+    )
+    mfg = str(mfg).strip().upper()
+    return f"{desc}|qty={qty:g}|mfg={mfg}"
+
+
+def _multi_attachment_vision_union(
+    primary_path: str,
+    all_files: List[str],
+    classification: "RequestClassification",  # noqa: F821
+    primary_items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Run Vision on sibling buyer-RFQ PDFs and return any items the
+    primary parse missed (deduped against `primary_items`).
+
+    P000 substrate #3 (Mike's email-contract spec 2026-05-11): "the
+    app must upload every single attachment and review it". The
+    pricing-page tiebreak picks one PDF as primary; this union step
+    closes the gap when items are split across siblings (Attachment-B-1
+    + Attachment-B-2, multi-page bundles that arrive as separate PDFs).
+
+    Conservative scope:
+      - Skip the primary itself.
+      - Skip non-PDF files (DOCX/XLSX/etc — base parser already covered).
+      - Skip PDFs whose classifier shape is NOT generic-RFQ-PDF (don't
+        Vision-parse `Bidder_Declaration.pdf`, `DVBE_Declaration.pdf`,
+        `Darfur_Contracting_Act.pdf`, etc — those are blank forms not
+        item tables).
+      - Cap at 4 sibling Vision calls to bound cost/latency on bundles
+        with many attachments.
+      - Each contributed item gets `_source_attachment: <basename>` and
+        `_extraction_source: 'vision_sibling'` for operator traceability.
+    """
+    if not primary_path or not all_files:
+        return []
+
+    try:
+        from src.forms.vision_parser import is_available
+        if not is_available():
+            return []
+    except Exception:
+        return []
+
+    # Build the dedup signature set from items the primary parse found.
+    seen_sigs = set()
+    for it in primary_items or []:
+        if isinstance(it, dict):
+            seen_sigs.add(_item_signature(it))
+
+    # Lazy import — classifier module is heavy.
+    from src.core.request_classifier import (
+        _classify_pdf,
+        SHAPE_GENERIC_RFQ_PDF,
+    )
+
+    primary_basename = os.path.basename(primary_path)
+    extra_items: List[Dict[str, Any]] = []
+    sibling_call_count = 0
+    MAX_SIBLING_CALLS = 4
+
+    for path in all_files:
+        if not path or not os.path.exists(path):
+            continue
+        if os.path.basename(path) == primary_basename:
+            continue
+        if not path.lower().endswith(".pdf"):
+            continue
+        if sibling_call_count >= MAX_SIBLING_CALLS:
+            log.info(
+                "multi_attach_union: hit MAX_SIBLING_CALLS=%d cap, "
+                "skipping remaining PDFs", MAX_SIBLING_CALLS,
+            )
+            break
+
+        # Only Vision-parse PDFs whose classifier shape suggests they
+        # could carry items. Blank-form PDFs (bidder declaration, DVBE
+        # cert, Darfur cert) classify as generic-RFQ-PDF too on this
+        # repo, BUT they have low/zero pricing-page-score — so the
+        # cleanest gate is "skip if pricing_page_score == 0 AND the
+        # filename pattern matches a known non-items form". Otherwise
+        # we'd burn Vision quota on the cert PDFs in every DSH bundle.
+        try:
+            shape, info = _classify_pdf(path)
+        except Exception:
+            continue
+        if shape != SHAPE_GENERIC_RFQ_PDF:
+            continue
+        pricing_score = int(info.get("pricing_page_score", 0) or 0)
+        fname_lower = os.path.basename(path).lower()
+        looks_like_cert = any(
+            kw in fname_lower for kw in (
+                "bidder_decl", "bidder declaration",
+                "dvbe_decl", "dvbe declaration",
+                "darfur", "drug_free", "drug free",
+                "postconsumer", "post_consumer", "recycled",
+                "std_204", "std204", "payee_data",
+                "calrecycle", "std_205", "std205",
+            )
+        )
+        if pricing_score == 0 and looks_like_cert:
+            log.debug(
+                "multi_attach_union: skipping cert/blank-form PDF %s",
+                os.path.basename(path),
+            )
+            continue
+
+        sibling_call_count += 1
+        sibling_items = _vision_primary_extract(path)
+        if not sibling_items:
+            continue
+
+        contributed = 0
+        for it in sibling_items:
+            if not isinstance(it, dict):
+                continue
+            sig = _item_signature(it)
+            if sig in seen_sigs:
+                continue
+            seen_sigs.add(sig)
+            # Tag the source so the operator can audit which attachment
+            # contributed this item if the union surfaces a mistake.
+            it["_source_attachment"] = os.path.basename(path)
+            it["_extraction_source"] = "vision_sibling"
+            extra_items.append(it)
+            contributed += 1
+        if contributed:
+            log.info(
+                "multi_attach_union: +%d items from sibling %s (Vision %d total)",
+                contributed, os.path.basename(path), len(sibling_items),
+            )
+
+    return extra_items
+
+
 def _reconcile_vision_and_base(
     vision_items: List[Dict[str, Any]],
     base_items: List[Dict[str, Any]],
@@ -975,6 +1180,61 @@ def _reconcile_vision_and_base(
             )
             return (vision_items, warnings, True)
 
+    # ── Low-density confidence gate (P000 substrate #2 — full form) ──
+    # The zero-items gate above catches binary failures. This gate
+    # catches the silent failure class Mike named on 2026-05-11: the
+    # CalVet 4-page RFQ where the parser extracted 5 items when the
+    # real RFQ had 15-16. Rule: pages * MIN_ITEMS_PER_PAGE > extracted
+    # ⇒ suspect missed items, flag for review.
+    #
+    # Threshold tuning: real RFQ pricing pages observed in the
+    # codebase carry 4-8 line items per page (CCHCS LPA, DSH ATTACHMENT
+    # B, CalVet equivalents). A floor of 2 items/page is the
+    # conservative "almost-certainly-missing-rows" line; anything
+    # below that on a multi-page PDF deserves a second look.
+    primary_count = max(v_count, b_count)
+    if primary_count > 0 and primary_count < 100:  # 100 cap = sanity guard
+        try:
+            page_count = _pdf_page_count(path)
+        except Exception:
+            page_count = 0
+        # Only fire on multi-page PDFs (1-page low-density is normal —
+        # a single-item RFQ is legitimate).
+        MIN_ITEMS_PER_PAGE = 2.0
+        if page_count >= 2:
+            density = primary_count / page_count
+            if density < MIN_ITEMS_PER_PAGE:
+                warnings.append({
+                    "kind": "low_item_density",
+                    "detail": (
+                        f"Only {primary_count} items extracted from a "
+                        f"{page_count}-page PDF ({os.path.basename(path)}) "
+                        f"— {density:.1f} items/page, below the "
+                        f"{MIN_ITEMS_PER_PAGE:.0f} items/page floor. "
+                        f"Probable missed rows on a multi-page items table. "
+                        f"Operator should review against the source PDF."
+                    ),
+                    "vision_count": str(v_count),
+                    "base_count": str(b_count),
+                    "page_count": str(page_count),
+                    "items_per_page": f"{density:.2f}",
+                    "base_parser": base_parser_label,
+                })
+                log.warning(
+                    "ingest reconcile: low item density %.2f items/page on "
+                    "%s (%d items, %d pages) — needs_review",
+                    density, os.path.basename(path), primary_count, page_count,
+                )
+                # Continue to the count_disagreement check below — both
+                # warnings can fire on the same parse. Don't early-return.
+                _low_density_review = True
+            else:
+                _low_density_review = False
+        else:
+            _low_density_review = False
+    else:
+        _low_density_review = False
+
     if delta > threshold:
         needs_review = True
         warnings.append({
@@ -1014,7 +1274,7 @@ def _reconcile_vision_and_base(
 
     # Vision is primary. Always. The point of this substrate is to
     # stop trusting base-parser counts blindly.
-    return (vision_items, warnings, needs_review)
+    return (vision_items, warnings, needs_review or _low_density_review)
 
 
 def _merge_headers(
