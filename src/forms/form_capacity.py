@@ -65,13 +65,18 @@ FORM_CAPACITY: dict[str, dict] = {
         "has_overflow": False,
         "overflow_fn": None,
     },
-    # CalRecycle 74 — bid-package internal form. 6 rows, no overflow.
-    # Silent-drop site Mike hit today: line 3228 of reytech_filler_v4.py.
+    # CalRecycle 74 — bid-package internal form. 6 rows on page 1 + SABRC
+    # reference table on page 2. Overflow IS implemented at
+    # `reytech_filler_v4.py:3110-3155`: when items > 6, additional
+    # CalRecycle 74 line-item pages are appended (each carrying 6 more
+    # rows) and the SABRC reference table is preserved at the end.
+    # Registry was previously stale and blocked QA on 15-item CalVet RFQs
+    # (Mike P0 2026-05-12 rfq_8efe9fae).
     "calrecycle74": {
         "rows_pg1": 6,
         "rows_pg2": 0,
-        "has_overflow": False,
-        "overflow_fn": None,
+        "has_overflow": True,
+        "overflow_fn": "fill_calrecycle_standalone:append_overflow",
     },
     # OBS 1600 (CA Agricultural Food Product Cert) — 18 rows per
     # CLAUDE.md. Reytech doesn't grow any food, so this is always
