@@ -3380,11 +3380,13 @@ def api_item_link_lookup():
     """
     import time as _time
     _t0 = _time.monotonic()
-    # Bumped 14→42s on 2026-05-05 (Mike P0): "rather it take time and work,
-    # validate item, then time out." Client budget is 45s — leaving 3s headroom
-    # for Flask + Railway round-trip. shared_item_utils.js holds the matching
-    # _LOOKUP_BUDGET_MS = 45000 constant in lockstep.
-    _ENDPOINT_BUDGET = 42.0
+    # Tightened 42→18s on 2026-05-12 (Mike: "not a good UX, waiting this
+    # long on a url paste" — screenshot showed 27s/45s spinner). The
+    # synchronous Claude semantic-match leg (5-15s) is dropped below;
+    # what's left is scrape + (rarely) Claude web_search fallback, which
+    # should comfortably fit in 18s. Client budget reduced to 20s in
+    # lockstep (shared_item_utils.js _LOOKUP_BUDGET_MS).
+    _ENDPOINT_BUDGET = 18.0
 
     data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
@@ -3444,25 +3446,23 @@ def api_item_link_lookup():
                 except Exception as _ev_e:
                     log.debug("recycle-evict retry failed: %s", _ev_e)
 
-        # ── Claude semantic match: AI product validation ──
-        # When client sends pc_description, compare it to found title.
-        # Only call Claude if token match is uncertain (< 70%) AND we have time budget.
-        _time_left = _ENDPOINT_BUDGET - (_time.monotonic() - _t0)
-        if _pc_desc and result.get("ok") and result.get("title") and _time_left > 3.0:
-            _found_title = result.get("title", "")
-            _token_score = _quick_token_match(_pc_desc, _found_title)
-            if _token_score < 70:
-                try:
-                    from src.agents.item_link_lookup import claude_semantic_match
-                    _sem = claude_semantic_match(
-                        _pc_desc, _found_title, float(result.get("price") or 0))
-                    if _sem.get("ok"):
-                        result["server_confidence"] = _sem["confidence"]
-                        result["server_match"] = _sem["is_match"]
-                        result["server_reasoning"] = _sem.get("reasoning", "")
-                except Exception as _sem_err:
-                    log.debug("Semantic match error: %s", _sem_err)
-
+        # ── Synchronous Claude semantic match REMOVED 2026-05-12 ──
+        # Mike: "not a good UX, waiting this long on a url paste."
+        # The semantic match (5-15s Claude call) only influenced
+        # `_aiVerified` in the client, which is used to override the
+        # client-side `_productMatchScore` gate when the operator's
+        # original description is empty/short (<5 chars). For the
+        # common case (operator pastes URL on a row that already has a
+        # buyer description), semantic match never fired or made no
+        # difference — `_productMatchScore` already scored the same
+        # token overlap locally.
+        #
+        # The endpoint now returns the scrape result as soon as it has
+        # one. Empty-desc edge cases fall back to operator-typed
+        # description, same as PC pages do today. If a deferred async
+        # validation pass is ever wanted, it should be a separate
+        # /api/item-link/validate endpoint the client polls after the
+        # fast result lands — never inline on the hot path.
         return jsonify(result)
     except Exception as e:
         log.error("item_link_lookup API error: %s", e)

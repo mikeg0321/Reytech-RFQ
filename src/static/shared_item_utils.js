@@ -114,19 +114,26 @@ function _fireLinkLookup(idx, url, mode) {
   }
   var metaId = (mode === 'rfq') ? 'rfq_link_meta_' + idx : 'link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
-  // 45s client-side budget — Mike (2026-05-05): "rather it take time
-  // and work, validate item, then time out." Old 15s cap fell short when
-  // Claude web_search + scrape + semantic-match chained. Server budget
-  // bumped to 42s in lockstep (routes_pricecheck_admin.py). Spinner shows
-  // live elapsed seconds so operator can see it's still working.
-  var _LOOKUP_BUDGET_MS = 45000;
+  // 20s client-side budget — tightened from 45s on 2026-05-12 (Mike:
+  // "not a good UX, waiting this long on a url paste" — screenshot
+  // showed 27s/45s spinner). Server dropped the synchronous Claude
+  // semantic-match leg (5-15s), so 20s is comfortable for scrape +
+  // Claude web_search fallback and forces a fast failure mode for
+  // genuine stalls. Server budget reduced to 18s in lockstep
+  // (routes_pricecheck_admin.py).
+  //
+  // Spinner is a compact one-line badge with an explicit hint that
+  // the operator can keep working — the cost cell is editable while
+  // the lookup runs, and the autofill backfills cleanly when it lands.
+  var _LOOKUP_BUDGET_MS = 20000;
   var _t0 = Date.now();
   var _done = false;
   function _renderProgress() {
     if (!metaEl || _done) return;
     var _el = Math.floor((Date.now() - _t0) / 1000);
-    metaEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up\u2026 ('
-      + _el + 's / 45s \u2014 validating product)</span>';
+    metaEl.innerHTML = '<span style="color:#d29922;font-size:11px">\u23F3 '
+      + _el + 's</span> <span style="color:#8b949e;font-size:11px">'
+      + '\u2014 keep typing, we\u2019ll backfill</span>';
   }
   _renderProgress();
   var _progressTimer = setInterval(_renderProgress, 1000);
@@ -134,7 +141,7 @@ function _fireLinkLookup(idx, url, mode) {
     if (_done) return;
     _done = true;
     clearInterval(_progressTimer);
-    if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">Lookup timed out \u2014 paste cost manually</span>';
+    if (metaEl) metaEl.innerHTML = '<span style="color:#d29922;font-size:11px">Lookup timed out \u2014 paste cost manually</span>';
     _triggerAutosaveForMode(mode);
   }, _LOOKUP_BUDGET_MS);
   // Send PC description for server-side semantic matching (Claude AI)
