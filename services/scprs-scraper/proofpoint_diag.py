@@ -24,6 +24,97 @@ from typing import Any, Dict, List, Optional
 log = logging.getLogger("proofpoint_diag")
 
 
+async def _enumerate_rows(page) -> List[Dict[str, Any]]:
+    """Enumerate anything that looks like a clickable message row in the
+    inbox. PrimeFaces dataTable, custom list views, and bare table rows
+    all qualify. Falls back to a JS-eval scan when the standard
+    PrimeFaces selectors fail."""
+    rows: List[Dict[str, Any]] = []
+    selectors = [
+        "tr[data-rk]",
+        "tr[role='row']",
+        "tr.ui-datatable-selectable",
+        "tr.messageRow",
+        ".ui-datalist-content li",
+        "[data-message-id]",
+        ".message-row",
+        "tbody tr",  # any table body row as a fallback
+    ]
+    for sel in selectors:
+        try:
+            elements = await page.query_selector_all(sel)
+            for el in elements[:10]:
+                try:
+                    txt = (await el.inner_text())[:200].strip()
+                    cls = await el.get_attribute("class") or ""
+                    data_rk = await el.get_attribute("data-rk") or ""
+                    rid = await el.get_attribute("id") or ""
+                    onclick = await el.get_attribute("onclick") or ""
+                    rows.append({
+                        "selector": sel,
+                        "id": rid,
+                        "data_rk": data_rk,
+                        "class": cls[:100],
+                        "text_preview": txt[:200],
+                        "has_onclick": bool(onclick),
+                    })
+                except Exception as e:
+                    rows.append({"selector": sel, "error": str(e)})
+        except Exception as e:
+            rows.append({"selector": sel, "enum_error": str(e)})
+
+    # JS-eval fallback: scan every element on the page for ones whose
+    # id/className mentions message/inbox/item/row, and any element with
+    # an onclick handler. Returns top 30 candidates with their tag, id,
+    # class, dataset, and first 100 chars of text.
+    try:
+        candidates = await page.evaluate(
+            """() => {
+                const out = [];
+                const seen = new Set();
+                const re = /messag|item|row|inbox|email|attach|envelope/i;
+                document.querySelectorAll('*').forEach(el => {
+                    const tag = el.tagName;
+                    const id = el.id || '';
+                    const cls = el.className && el.className.toString ? el.className.toString() : '';
+                    const onclick = el.getAttribute && el.getAttribute('onclick') ? 'y' : '';
+                    if (!re.test(id + ' ' + cls) && !onclick) return;
+                    const key = tag + '|' + id + '|' + cls.slice(0, 60);
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    // Skip pure decoration (scripts, styles)
+                    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK') return;
+                    const rect = el.getBoundingClientRect();
+                    const visible = rect.width > 0 && rect.height > 0;
+                    out.push({
+                        tag,
+                        id,
+                        cls: cls.slice(0, 100),
+                        onclick: onclick || '',
+                        visible,
+                        x: Math.round(rect.x),
+                        y: Math.round(rect.y),
+                        w: Math.round(rect.width),
+                        h: Math.round(rect.height),
+                        text: (el.innerText || '').slice(0, 140).replace(/\\s+/g, ' ').trim(),
+                        data: Object.fromEntries(
+                            Array.from(el.attributes || [])
+                                .filter(a => a.name.startsWith('data-'))
+                                .map(a => [a.name, a.value])
+                        ),
+                    });
+                });
+                return out.slice(0, 50);
+            }"""
+        )
+        for c in candidates:
+            c["selector"] = "_js_scan"
+            rows.append(c)
+    except Exception as e:
+        rows.append({"selector": "_js_scan", "enum_error": str(e)})
+    return rows
+
+
 async def _snapshot(page, name: str) -> Dict[str, Any]:
     """Capture one step's worth of diagnostic state from a Playwright page."""
     step: Dict[str, Any] = {"name": name}
@@ -39,8 +130,36 @@ async def _snapshot(page, name: str) -> Dict[str, Any]:
         html = await page.content()
         step["html_head"] = html[:5000]
         step["html_len"] = len(html)
+        # Find HTML snippets around attachment-related keywords so we
+        # can see the actual markup without dumping the whole 600KB page.
+        snippets: Dict[str, List[str]] = {}
+        for kw in ("attach", "pdf", "envelope", "paperclip", "download",
+                   "SecureMessage", "ATT00"):
+            idx = 0
+            kw_lower = kw.lower()
+            found = []
+            html_lower = html.lower()
+            while len(found) < 3:
+                pos = html_lower.find(kw_lower, idx)
+                if pos < 0:
+                    break
+                start = max(0, pos - 100)
+                end = min(len(html), pos + 400)
+                found.append(html[start:end])
+                idx = pos + len(kw_lower)
+            if found:
+                snippets[kw] = found
+        step["html_snippets"] = snippets
     except Exception as e:
         step["html_error"] = str(e)
+    # Clean visible-text dump — what the user actually SEES on screen,
+    # without HTML/CSS noise. Truncate to keep response sane.
+    try:
+        body_text = await page.inner_text("body", timeout=5000)
+        step["body_text"] = body_text[:4000]
+        step["body_text_len"] = len(body_text)
+    except Exception as e:
+        step["body_text_error"] = str(e)
     # Screenshot — PNG, full page, base64-encoded.
     try:
         png_bytes = await page.screenshot(full_page=True, timeout=10000)
@@ -261,7 +380,72 @@ async def inspect_portal_async(
                         pass
                 except Exception as e:
                     result["errors"].append(f"submit: {e}")
-            result["steps"].append(await _snapshot(page, "post_login"))
+            post_login_step = await _snapshot(page, "post_login")
+            # Add inbox-row enumeration so we can see the message-list
+            # structure and pick the click target.
+            try:
+                post_login_step["inbox_rows"] = await _enumerate_rows(page)
+            except Exception as e:
+                post_login_step["inbox_rows_error"] = str(e)
+            result["steps"].append(post_login_step)
+
+            # ── Step 2b: open message ──
+            # Try to click into the first message in the inbox. PrimeFaces
+            # dataTable rows have data-rk and are flagged
+            # `ui-datatable-selectable`. Some tables need a double-click;
+            # try single first.
+            open_step: Dict[str, Any] = {"name": "open_message"}
+            clicked = False
+            for sel in [
+                "tr[data-rk]:visible",
+                "tr.ui-datatable-selectable:visible",
+                "tr[role='row'][data-rk]",
+                ".message-row:visible",
+                ".ui-datalist-content li:visible",
+            ]:
+                try:
+                    first_row = await page.query_selector(sel)
+                    if first_row:
+                        # Try double-click first since PrimeFaces often
+                        # uses dblclick to open vs single-click to select.
+                        await first_row.dblclick(timeout=5000)
+                        clicked = True
+                        open_step["click_selector"] = sel
+                        open_step["click_method"] = "dblclick"
+                        break
+                except Exception as e:
+                    open_step.setdefault("click_attempts", []).append(
+                        {"selector": sel, "error": str(e)}
+                    )
+            # Fallback: try the JSF row-select action by ID if no dblclick worked.
+            if not clicked:
+                for sel in [
+                    "a[href*='message']:visible",
+                    "[onclick*='selectRow']:visible",
+                    "[onclick*='openMessage']:visible",
+                ]:
+                    try:
+                        target = await page.query_selector(sel)
+                        if target:
+                            await target.click(timeout=5000)
+                            clicked = True
+                            open_step["click_selector"] = sel
+                            open_step["click_method"] = "click"
+                            break
+                    except Exception as e:
+                        open_step.setdefault("fallback_attempts", []).append(
+                            {"selector": sel, "error": str(e)}
+                        )
+            open_step["clicked"] = clicked
+            if clicked:
+                try:
+                    await page.wait_for_load_state(
+                        "domcontentloaded", timeout=10000,
+                    )
+                except PWTimeout:
+                    pass
+            open_step.update(await _snapshot(page, "open_message"))
+            result["steps"].append(open_step)
 
             # ── Step 3: attachment scan ──
             attach_step: Dict[str, Any] = {"name": "attachments"}

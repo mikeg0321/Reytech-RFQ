@@ -168,7 +168,24 @@ async def _pull_async(
                 log.info("proofpoint_browser: no login form, session warm")
 
             # ── Enumerate + download attachments ──
+            # Real DSH Proofpoint markup (calibrated 2026-05-12 via the
+            # /proofpoint/inspect diagnostic): the wrapper email's
+            # secure inbox auto-opens the message, rendering attachment
+            # links inline as:
+            #
+            #   <span class="header-attachment-item">
+            #     <a href="#" onclick="mojarra.jsfcljs(...,'_blank');return false">
+            #       <img src="images/fileicons/pdf.gif">RFQ 25CB021.pdf
+            #     </a>
+            #   </span>
+            #
+            # The onclick fires a JSF postback that either streams a
+            # download directly OR opens a `_blank` popup carrying the
+            # bytes. We handle both via expect_download with a popup
+            # fallback. Other selectors stay as fallbacks for non-DSH
+            # Proofpoint deployments.
             selectors = [
+                "span.header-attachment-item a",  # DSH/Proofpoint reader
                 "a.attachment-link",
                 "a[download]",
                 "a[href*='/attachment/']",
@@ -192,13 +209,63 @@ async def _pull_async(
                 log.warning("proofpoint_browser: no attachments detected")
                 return []
 
-            for idx, el in enumerate(elements):
+            # Dedupe by visible filename — DSH inbox renders the same
+            # attachment 4x in the header strip (likely a rendering
+            # quirk for multi-part MIME). Without dedupe we'd download
+            # the same bytes multiple times.
+            seen_filenames: set = set()
+            unique_elements = []
+            for el in elements:
                 try:
-                    async with page.expect_download(timeout=ms) as dl_info:
-                        await el.click()
-                    download = await dl_info.value
+                    name = (await el.inner_text()).strip()
+                except Exception:
+                    name = ""
+                if name and name in seen_filenames:
+                    continue
+                if name:
+                    seen_filenames.add(name)
+                unique_elements.append((name, el))
+            log.info(
+                "proofpoint_browser: %d unique attachment(s) after dedupe",
+                len(unique_elements),
+            )
+
+            for idx, (fname_hint, el) in enumerate(unique_elements):
+                download = None
+                try:
+                    # JSF postback may stream the download directly OR
+                    # open a `_blank` popup that carries it.
+                    try:
+                        async with page.expect_download(timeout=10000) as dl_info:
+                            await el.click()
+                        download = await dl_info.value
+                    except PWTimeout:
+                        # Fall back to popup capture — some JSF setups
+                        # route the bytes through a new window.
+                        try:
+                            async with page.expect_popup(timeout=5000) as popup_info:
+                                await el.click()
+                            popup = await popup_info.value
+                            try:
+                                async with popup.expect_download(timeout=ms) as dl_info:
+                                    pass  # download in flight
+                                download = await dl_info.value
+                            finally:
+                                try:
+                                    await popup.close()
+                                except Exception:
+                                    pass
+                        except Exception as _pe:
+                            log.warning(
+                                "proofpoint_browser: popup fallback failed for #%d (%s): %s",
+                                idx, fname_hint, _pe,
+                            )
+                            continue
+                    if download is None:
+                        continue
                     suggested = (
                         download.suggested_filename
+                        or fname_hint
                         or f"proofpoint_attachment_{idx}_{uuid.uuid4().hex[:8]}.bin"
                     )
                     out_path = os.path.join(download_tmp, suggested)
@@ -215,15 +282,20 @@ async def _pull_async(
                             "proofpoint_browser: downloaded %s (%d bytes)",
                             suggested, len(data),
                         )
-                        # Clean up the temp file — bytes are now in `out`.
                         try:
                             os.unlink(out_path)
                         except Exception:
                             pass
                 except PWTimeout:
-                    log.warning("proofpoint_browser: download #%d timeout", idx)
+                    log.warning(
+                        "proofpoint_browser: download #%d (%s) timed out",
+                        idx, fname_hint,
+                    )
                 except Exception as e:
-                    log.warning("proofpoint_browser: download #%d failed: %s", idx, e)
+                    log.warning(
+                        "proofpoint_browser: download #%d (%s) failed: %s",
+                        idx, fname_hint, e,
+                    )
         finally:
             try:
                 await context.close()
