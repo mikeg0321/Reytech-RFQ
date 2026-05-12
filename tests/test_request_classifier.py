@@ -207,6 +207,105 @@ class TestGenericXlsxRFQ:
         assert r.is_quote_only is False
 
 
+# ─── Multi-attachment pricing-page tiebreak (DSH-style bundles) ────────
+#
+# DSH (and similar) split a single RFQ across multiple PDFs:
+#   - Cover letter (DSH 2010 with provisions/instructions)
+#   - Attachment A — Bidder info & certifications
+#   - Attachment B — Goods & services pricing (THE LINE ITEMS)
+#   - Attachment C — Required forms list
+#
+# All four classify as SHAPE_GENERIC_RFQ_PDF. The classifier must pick
+# Attachment B as `primary_file` so Vision parses the items, not the
+# cover sheet (which has no item table → Vision returns 0 items).
+
+def _make_pdf_with_text(path: str, text: str) -> None:
+    """Synthesize a tiny single-page PDF containing the given text."""
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+
+    c = canvas.Canvas(path, pagesize=letter)
+    width, height = letter
+    y = height - 60
+    for line in text.splitlines():
+        c.drawString(50, y, line[:90])
+        y -= 14
+        if y < 60:
+            c.showPage()
+            y = height - 60
+    c.save()
+
+
+class TestPricingPageTiebreak:
+    def test_dsh_bundle_picks_attachment_b(self, tmp_path):
+        """Classifier must prefer the pricing page over cover/cert/forms
+        when all 4 PDFs in a buyer's RFQ bundle classify as generic."""
+        from src.core.request_classifier import (
+            classify_request, SHAPE_GENERIC_RFQ_PDF,
+        )
+
+        cover = tmp_path / "RFQ_25CB021.pdf"
+        attA = tmp_path / "RFQ__25CB021.pdf"
+        attB = tmp_path / "RFQ___25CB021.pdf"
+        attC = tmp_path / "RFQ____25CB021.pdf"
+
+        _make_pdf_with_text(str(cover), (
+            "DEPARTMENT OF STATE HOSPITALS - ATASCADERO\n"
+            "Solicitation Number: 25CB021\n"
+            "Bidder Instructions\n"
+            "General Provisions: DGS.ca.gov\n"
+            "GENAI Disclosure Factsheet\n"
+        ))
+        _make_pdf_with_text(str(attA), (
+            "ATTACHMENT A - BIDDER'S INFORMATION AND CERTIFICATIONS\n"
+            "Solicitation Number: 25CB021\n"
+            "Firm's Legal Name:\n"
+            "BIDDER'S CERTIFICATIONS\n"
+        ))
+        _make_pdf_with_text(str(attB), (
+            "ATTACHMENT B - GOODS AND SERVICES PRICING PAGE 1\n"
+            "Solicitation #: 25CB021\n"
+            "# DESCRIPTION OF GOODS / SERVICES QTY UOM UNIT PRICE EXTENSION\n"
+            "1 POWER SUPPLY ADAM SCALE 12VDC 2 EACH\n"
+            "2 PHILIPS NORELCO BLADES QP210/80 1500 EACH\n"
+        ))
+        _make_pdf_with_text(str(attC), (
+            "ATTACHMENT C - REQUIRED FORMS\n"
+            "Solicitation #: 25CB021\n"
+            "Darfur Contracting Act Certification\n"
+            "DVBE Declaration\n"
+            "Bidder Declaration\n"
+        ))
+
+        # Mix the order so we don't accidentally win by alphabetical/insertion
+        r = classify_request(attachments=[
+            str(cover), str(attA), str(attC), str(attB),
+        ])
+        assert r.shape == SHAPE_GENERIC_RFQ_PDF
+        assert r.primary_file == "RFQ___25CB021.pdf", (
+            f"expected pricing page (attB) to win as primary, got "
+            f"{r.primary_file!r}. reasons: {r.reasons}"
+        )
+
+    def test_pricing_score_scores_known_markers(self):
+        """`_pricing_page_score` must non-zero-score known pricing-page
+        text and return 0 for cover-letter text."""
+        from src.core.request_classifier import _pricing_page_score
+
+        cover_text = (
+            "DEPARTMENT OF STATE HOSPITALS - ATASCADERO "
+            "Solicitation Number: 25CB021 Bidder Instructions"
+        )
+        pricing_text = (
+            "ATTACHMENT B - GOODS AND SERVICES PRICING PAGE 1 "
+            "DESCRIPTION OF GOODS / SERVICES QTY UOM UNIT PRICE EXTENSION"
+        )
+        assert _pricing_page_score(cover_text) == 0
+        assert _pricing_page_score(pricing_text) > 0
+        # Pricing page should outscore cover by a wide margin
+        assert _pricing_page_score(pricing_text) >= 4
+
+
 # ─── Email-only (no attachments) ────────────────────────────────────────
 
 class TestEmailOnlyClassification:

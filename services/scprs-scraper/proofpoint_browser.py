@@ -209,24 +209,34 @@ async def _pull_async(
                 log.warning("proofpoint_browser: no attachments detected")
                 return []
 
-            # Dedupe by visible filename — DSH inbox renders the same
-            # attachment 4x in the header strip (likely a rendering
-            # quirk for multi-part MIME). Without dedupe we'd download
-            # the same bytes multiple times.
-            seen_filenames: set = set()
+            # Dedupe by onclick JSF backing ID — NOT by visible filename.
+            # Calibration 2026-05-12: the DSH inbox shows the same
+            # display name (`RFQ 25CB021.pdf`) for 4 distinct
+            # attachments (JSF indexes `:0:`, `:1:`, `:2:`, `:3:`).
+            # Each is a different file — cover sheet, item list, spec
+            # page, etc. Earlier filename-dedupe silently dropped the
+            # item-list PDF and left only the cover sheet (no items).
+            seen_keys: set = set()
             unique_elements = []
             for el in elements:
                 try:
+                    onclick = (await el.get_attribute("onclick")) or ""
+                    href = (await el.get_attribute("href")) or ""
                     name = (await el.inner_text()).strip()
                 except Exception:
+                    onclick = ""
+                    href = ""
                     name = ""
-                if name and name in seen_filenames:
+                # Onclick is the strong dedupe key (JSF backing ID is
+                # unique per attachment). Fall back to href, then to
+                # display name + position as a last resort.
+                key = onclick or href or f"{name}|{len(unique_elements)}"
+                if key in seen_keys:
                     continue
-                if name:
-                    seen_filenames.add(name)
+                seen_keys.add(key)
                 unique_elements.append((name, el))
             log.info(
-                "proofpoint_browser: %d unique attachment(s) after dedupe",
+                "proofpoint_browser: %d unique attachment(s) after onclick-dedupe",
                 len(unique_elements),
             )
 
@@ -268,19 +278,40 @@ async def _pull_async(
                         or fname_hint
                         or f"proofpoint_attachment_{idx}_{uuid.uuid4().hex[:8]}.bin"
                     )
-                    out_path = os.path.join(download_tmp, suggested)
+                    # Disambiguate filename collisions — DSH sends 4
+                    # attachments named `RFQ 25CB021.pdf` (different
+                    # JSF IDs, different bytes). Without suffix, each
+                    # save_as would overwrite the prior and we'd return
+                    # 4 entries pointing to the same final bytes. Use
+                    # the `out` list state to know what filenames have
+                    # been claimed so far.
+                    existing_names = {o["filename"] for o in out}
+                    final_name = suggested
+                    if final_name in existing_names:
+                        stem, dot, ext = suggested.rpartition(".")
+                        if stem and dot:
+                            n = 2
+                            while f"{stem}_{n}.{ext}" in existing_names:
+                                n += 1
+                            final_name = f"{stem}_{n}.{ext}"
+                        else:
+                            n = 2
+                            while f"{suggested}_{n}" in existing_names:
+                                n += 1
+                            final_name = f"{suggested}_{n}"
+                    out_path = os.path.join(download_tmp, final_name)
                     await download.save_as(out_path)
                     if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
                         with open(out_path, "rb") as fh:
                             data = fh.read()
                         out.append({
-                            "filename": suggested,
+                            "filename": final_name,
                             "content_b64": base64.b64encode(data).decode("ascii"),
                             "size": len(data),
                         })
                         log.info(
                             "proofpoint_browser: downloaded %s (%d bytes)",
-                            suggested, len(data),
+                            final_name, len(data),
                         )
                         try:
                             os.unlink(out_path)

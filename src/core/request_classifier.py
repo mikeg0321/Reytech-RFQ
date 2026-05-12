@@ -422,6 +422,7 @@ def classify_request(
     primary_shape = SHAPE_EMAIL_ONLY
     primary_file = ""
     primary_file_type = ""
+    primary_pricing_score = 0  # tiebreak among equal-rank PDFs
     producer = ""
     inline_text_samples: List[str] = []
     inline_form_field_sample: List[str] = []
@@ -451,20 +452,40 @@ def classify_request(
                         f"pdf '{fname}': CCHCS packet (18+ pgs, 183 form fields, CCHCS headers)"
                     )
                     break  # packet is authoritative — skip the rest
-                # Otherwise, keep looking but hold as candidate
-                if primary_shape in (SHAPE_EMAIL_ONLY, SHAPE_UNKNOWN) or _shape_rank(shape) > _shape_rank(primary_shape):
+                # Tiebreak among equal-rank PDFs by "pricing page" score
+                # (DSH-style bundles ship 4 PDFs: cover, vendor cert,
+                # pricing page, required forms — all rank GENERIC_RFQ_PDF.
+                # Without content-aware selection the alphabetically-first
+                # cover sheet wins and Vision parses 0 items.)
+                incoming_pricing = int(info.get("pricing_page_score", 0) or 0)
+                incoming_rank = _shape_rank(shape)
+                current_rank = _shape_rank(primary_shape)
+                is_better = (
+                    primary_shape in (SHAPE_EMAIL_ONLY, SHAPE_UNKNOWN)
+                    or incoming_rank > current_rank
+                    or (
+                        incoming_rank == current_rank
+                        and incoming_pricing > primary_pricing_score
+                    )
+                )
+                if is_better:
                     primary_shape = shape
                     primary_file = fname
                     primary_file_type = "pdf"
+                    primary_pricing_score = incoming_pricing
                     producer = info.get("producer", "")
                     inline_field_count = info.get("field_count", 0)
                     page_count = info.get("page_count", 0)
                     inline_text_samples.append(info.get("text_sample", ""))
                     if shape == SHAPE_PC_704_PDF_DOCUSIGN:
                         docusign_detected = True
+                    pricing_tag = (
+                        f", pricing_score={incoming_pricing}"
+                        if incoming_pricing else ""
+                    )
                     result.reasons.append(
                         f"pdf '{fname}': {shape} (producer={producer[:30]!r}, "
-                        f"{inline_field_count} fields, {page_count} pgs)"
+                        f"{inline_field_count} fields, {page_count} pgs{pricing_tag})"
                     )
         elif ext == ".docx":
             shape, info = _classify_docx(path)
@@ -715,9 +736,57 @@ def _classify_pdf(path: str) -> Tuple[str, Dict[str, Any]]:
 
     # ── Fallback: non-704 PDF RFQ ──
     if info["page_count"] > 0:
+        info["pricing_page_score"] = _pricing_page_score(info["text_sample"])
         return SHAPE_GENERIC_RFQ_PDF, info
 
     return SHAPE_UNKNOWN, info
+
+
+# ── Multi-attachment pricing-page detector ───────────────────────────────
+#
+# DSH and similar agencies split a single RFQ across multiple attachments —
+# one cover letter (instructions), one bidder-info form, one pricing page
+# with the actual line items, one required-forms list. All look like
+# SHAPE_GENERIC_RFQ_PDF to the classifier, and without a content tiebreak
+# the alphabetically-first one (usually the cover sheet) wins as
+# `primary_file` — and Vision returns 0 items because there's no table.
+#
+# This scorer reads the page-1 text sample and returns a non-negative int.
+# Higher = stronger evidence this is the pricing/items page. Used only as
+# a tiebreak among same-rank PDFs in `classify_request`.
+_PRICING_PAGE_MARKERS: List[Tuple[str, int]] = [
+    # Strong: explicit pricing-page headers
+    (r"\bDESCRIPTION\s+OF\s+GOODS\s*/?\s*SERVICES?\b", 4),
+    (r"\bGOODS\s+AND\s+SERVICES\s+PRICING\s+PAGE\b", 4),
+    (r"\bATTACHMENT\s+B\b.{0,40}\bPRICING\b", 4),
+    (r"\bPRICING\s+PAGE\b", 3),
+    # Strong: pricing column header combos
+    (r"\bUNIT\s+PRICE\b.{0,20}\bEXTENSION\b", 3),
+    (r"\bQTY\b.{0,10}\bUOM\b.{0,20}\bUNIT\s+PRICE\b", 3),
+    (r"\bLINE\s*ITEMS?\b.{0,40}\bUNIT\s+PRICE\b", 2),
+    # Weaker: any pricing markers
+    (r"\bUNIT\s+PRICE\b", 1),
+    (r"\bEXTENSION\b", 1),
+    (r"\bTOTAL\s+PRICE\b", 1),
+]
+
+
+def _pricing_page_score(text: str) -> int:
+    """Return non-negative integer 'pricing page' confidence score.
+
+    0 = no pricing markers found. Higher = stronger evidence this PDF is
+    the line-items pricing page in a multi-attachment buyer RFQ bundle.
+    """
+    if not text:
+        return 0
+    score = 0
+    for pat, weight in _PRICING_PAGE_MARKERS:
+        try:
+            if re.search(pat, text, re.IGNORECASE):
+                score += weight
+        except re.error:
+            continue
+    return score
 
 
 def _classify_docx(path: str) -> Tuple[str, Dict[str, Any]]:
