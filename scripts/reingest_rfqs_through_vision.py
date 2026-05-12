@@ -55,20 +55,22 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 
-def _resolve_rfq_ids(identifiers: list[str]) -> list[tuple[str, dict]]:
-    """Map user-supplied identifiers (sol#, partial number, rfq_id) to
-    actual rfq records. Returns list of (rfq_id, rfq_record_dict).
+def _resolve_rfq_ids(identifiers: list[str]) -> list[tuple[str, dict, str]]:
+    """Map user-supplied identifiers (sol#, partial number, rfq_id, pc_id)
+    to actual records. Returns list of (id, record_dict, record_type)
+    where record_type is "rfq" or "pc".
 
-    Multiple matches → print and skip with an explanatory message so
-    the operator can re-run with a more specific identifier.
+    Searches both `rfqs` and `price_checks` tables. Multiple matches →
+    print and skip so the operator can re-run with a more specific id.
     """
     from src.core.db import get_db
-    matches: list[tuple[str, dict]] = []
+    matches: list[tuple[str, dict, str]] = []
     seen_ids: set[str] = set()
     with get_db() as conn:
         for ident in identifiers:
             like = f"%{ident}%"
-            rows = conn.execute(
+            # Search RFQs
+            rfq_rows = conn.execute(
                 "SELECT id, rfq_number, solicitation_number, status, "
                 "received_at, data_json "
                 "FROM rfqs "
@@ -76,30 +78,61 @@ def _resolve_rfq_ids(identifiers: list[str]) -> list[tuple[str, dict]]:
                 "ORDER BY received_at DESC LIMIT 5",
                 (ident, like, like),
             ).fetchall()
-            if not rows:
-                print(f"  ⚠  '{ident}': no match in rfqs table — skipping")
+            # Search PCs (parallel structure)
+            pc_rows = conn.execute(
+                "SELECT id, pc_number, pc_data, status, created_at, "
+                "source_file, email_uid, requestor "
+                "FROM price_checks "
+                "WHERE id = ? OR pc_number LIKE ? OR LOWER(requestor) LIKE ? "
+                "ORDER BY created_at DESC LIMIT 5",
+                (ident, like, like.lower()),
+            ).fetchall()
+
+            all_candidates = (
+                [(r, "rfq") for r in rfq_rows]
+                + [(r, "pc") for r in pc_rows]
+            )
+            if not all_candidates:
+                print(f"  ⚠  '{ident}': no match in rfqs/price_checks — skipping")
                 continue
-            if len(rows) > 1 and rows[0]["id"] != ident:
-                print(f"  ⚠  '{ident}': {len(rows)} candidates — please re-run "
-                      f"with a more specific id:")
-                for r in rows:
-                    print(f"      {r['id']}  rfq_number={r['rfq_number']}  "
-                          f"sol={r['solicitation_number']}  status={r['status']}")
+            if len(all_candidates) > 1 and not any(
+                r["id"] == ident for r, _ in all_candidates
+            ):
+                print(f"  ⚠  '{ident}': {len(all_candidates)} candidates "
+                      f"— re-run with a more specific id:")
+                for r, rtype in all_candidates:
+                    num = r["rfq_number"] if rtype == "rfq" else r["pc_number"]
+                    print(f"      [{rtype}] {r['id']}  num={num}  "
+                          f"status={r['status']}")
                 continue
-            row = rows[0]
+            row, rec_type = all_candidates[0]
             rid = row["id"]
             if rid in seen_ids:
                 continue
             seen_ids.add(rid)
-            try:
-                r_dict = json.loads(row["data_json"] or "{}")
-            except (TypeError, json.JSONDecodeError):
-                r_dict = {}
-            r_dict.setdefault("id", rid)
-            r_dict.setdefault("rfq_number", row["rfq_number"] or "")
-            r_dict.setdefault("solicitation_number", row["solicitation_number"] or "")
+            if rec_type == "rfq":
+                try:
+                    r_dict = json.loads(row["data_json"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    r_dict = {}
+                r_dict.setdefault("id", rid)
+                r_dict.setdefault("rfq_number", row["rfq_number"] or "")
+                r_dict.setdefault("solicitation_number",
+                                  row["solicitation_number"] or "")
+            else:
+                try:
+                    r_dict = json.loads(row["pc_data"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    r_dict = {}
+                r_dict.setdefault("id", rid)
+                r_dict.setdefault("pc_number", row["pc_number"] or "")
+                r_dict.setdefault("solicitation_number",
+                                  row["pc_number"] or "")
+                r_dict.setdefault("source_file", row["source_file"] or "")
+                r_dict.setdefault("email_uid", row["email_uid"] or "")
+                r_dict.setdefault("requestor_name", row["requestor"] or "")
             r_dict.setdefault("status", row["status"] or "")
-            matches.append((rid, r_dict))
+            matches.append((rid, r_dict, rec_type))
     return matches
 
 
@@ -172,17 +205,29 @@ def _list_suspect_rfqs(min_items_per_page: float = 3.0,
     return matches
 
 
-def _find_buyer_attachment(rfq_id: str) -> Optional[tuple[bytes, str]]:
-    """Return (file_bytes, filename) for the buyer-RFQ attachment.
+def _find_buyer_attachment(
+    rfq_id: str, rec_type: str = "rfq", rfq: Optional[dict] = None,
+) -> Optional[tuple[bytes, str]]:
+    """Return (file_bytes, filename) for the buyer attachment.
 
     Priority:
-      1. rfq_files row with category='buyer_rfq' (most precise — what
-         the post-PR-#910 ingest stamps onto saved attachments).
-      2. rfq_files OLDEST PDF that is NOT a supplier_quote / package /
-         template — legacy path for records ingested before the
-         category tag was added.
+      0. (PC only) `price_checks.source_file` path on disk — that's
+         where the PC ingest pipeline writes original PDFs.
+      1. rfq_files row with category='buyer_rfq' (most precise).
+      2. rfq_files OLDEST PDF that isn't a supplier_quote / package /
+         template — legacy path.
       3. None — caller falls through to Gmail re-fetch.
     """
+    # ── PC priority 0: source_file on disk ──
+    if rec_type == "pc" and rfq:
+        src = (rfq.get("source_file") or "").strip()
+        if src and os.path.exists(src):
+            try:
+                with open(src, "rb") as fh:
+                    data = fh.read()
+                return (data, os.path.basename(src))
+            except Exception as e:
+                print(f"   warn: source_file {src} read failed: {e}")
     from src.core.db import get_db
     with get_db() as conn:
         # Priority 1: explicit buyer_rfq tag
@@ -285,17 +330,23 @@ def _persist_buyer_attachment(
         print(f"   warn: could not persist {filename} to rfq_files: {e}")
 
 
-def _reingest_one(rfq_id: str, rfq: dict, dry_run: bool = False) -> dict:
-    """Re-run the ingest pipeline against the buyer-RFQ attachment for
-    one RFQ. Returns a status dict."""
-    out = {"rfq_id": rfq_id, "rfq_number": rfq.get("rfq_number", ""),
-           "sol": rfq.get("solicitation_number", ""),
+def _reingest_one(
+    rfq_id: str, rfq: dict, dry_run: bool = False, rec_type: str = "rfq",
+) -> dict:
+    """Re-run the ingest pipeline against the buyer attachment.
+
+    rec_type: "rfq" or "pc" — determines table lookup + downstream
+    record_type passed to process_buyer_request.
+    """
+    out = {"rfq_id": rfq_id, "record_type": rec_type,
+           "rfq_number": rfq.get("rfq_number") or rfq.get("pc_number") or "",
+           "sol": rfq.get("solicitation_number") or rfq.get("pc_number") or "",
            "status": rfq.get("status", ""),
            "items_before": len(rfq.get("line_items") or rfq.get("items") or []),
            "items_after": None, "delta": None, "skipped": None,
            "error": None, "dry_run": dry_run}
 
-    attach = _find_buyer_attachment(rfq_id)
+    attach = _find_buyer_attachment(rfq_id, rec_type=rec_type, rfq=rfq)
     source = "rfq_files"
     if not attach:
         # rfq_files had nothing usable. Try Gmail re-fetch via the
@@ -353,7 +404,7 @@ def _reingest_one(rfq_id: str, rfq: dict, dry_run: bool = False) -> dict:
             email_subject=rfq.get("email_subject", "") or "",
             email_sender=rfq.get("requestor_email", "") or "",
             existing_record_id=rfq_id,
-            existing_record_type="rfq",
+            existing_record_type=rec_type,
         )
         result_dict = result.to_dict() if hasattr(result, "to_dict") else result
         out["items_after"] = result_dict.get("items_parsed")
@@ -387,10 +438,11 @@ def main():
 
     if args.auto_suspect:
         print(f"Scanning RFQs for items/page ratio < {args.min_ratio}...")
-        targets = _list_suspect_rfqs(min_items_per_page=args.min_ratio)
+        suspect = _list_suspect_rfqs(min_items_per_page=args.min_ratio)
+        targets = [(rid, r, "rfq") for rid, r in suspect]
         print(f"Found {len(targets)} suspect RFQs:")
-        for rid, r in targets:
-            print(f"  - {rid}  sol={r.get('solicitation_number','?'):<22} "
+        for rid, r, rtype in targets:
+            print(f"  - [{rtype}] {rid}  sol={r.get('solicitation_number','?'):<22} "
                   f"status={r.get('status','?'):<10} "
                   f"items={r.get('_diag_items',0)}  pages={r.get('_diag_pages',0)}  "
                   f"ratio={r.get('_diag_ratio',0)}")
@@ -406,19 +458,21 @@ def main():
         if not targets:
             print("  (no matches resolved)")
             return 1
-        print(f"Resolved {len(targets)} RFQ(s):")
-        for rid, r in targets:
-            print(f"  - {rid}  sol={r.get('solicitation_number','?')}  "
+        print(f"Resolved {len(targets)} record(s):")
+        for rid, r, rtype in targets:
+            print(f"  - [{rtype}] {rid}  "
+                  f"sol={r.get('solicitation_number') or r.get('pc_number') or '?'}  "
                   f"items_before={len(r.get('line_items') or r.get('items') or [])}")
 
     if args.dry_run:
         print("\n[DRY RUN] No records will be modified.")
-    print(f"\nRe-ingesting {len(targets)} RFQ(s)...\n")
+    print(f"\nRe-ingesting {len(targets)} record(s)...\n")
 
     results = []
-    for rid, r in targets:
-        print(f">> {rid}  ({r.get('solicitation_number','?')})")
-        out = _reingest_one(rid, r, dry_run=args.dry_run)
+    for rid, r, rtype in targets:
+        label = r.get('solicitation_number') or r.get('pc_number') or '?'
+        print(f">> [{rtype}] {rid}  ({label})")
+        out = _reingest_one(rid, r, dry_run=args.dry_run, rec_type=rtype)
         results.append(out)
         if out.get("skipped"):
             print(f"   SKIPPED: {out['skipped']}")
@@ -441,7 +495,8 @@ def main():
     if upgraded:
         print("  Top upgrades:")
         for r in sorted(upgraded, key=lambda x: -x["delta"])[:10]:
-            print(f"    + {r['rfq_id']:<14} sol={r['sol']:<22}  "
+            print(f"    + [{r.get('record_type','?')}] {r['rfq_id']:<16} "
+                  f"sol={r['sol']:<22}  "
                   f"{r['items_before']:>2} → {r['items_after']:>2}")
     return 0
 
