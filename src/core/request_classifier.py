@@ -311,10 +311,17 @@ PROOFPOINT_SUBJECT_PATTERNS = [
 
 PROOFPOINT_BODY_PATTERNS = [
     r"You\s+have\s+received\s+a\s+secure\s+message",
+    # Real DSH wrapper email phrasing (calibrated 2026-05-12 against
+    # 25CB021 sample): "This is a secure message. Click here ..."
+    r"This\s+is\s+a\s+secure\s+message",
     r"Click\s+(?:here|the\s+link).{0,80}(?:secure\s+message|encrypted\s+message)",
     r"Proofpoint\s+Encryption",
     r"securereader\.proofpoint",
-    r"\bsecuremail\.\w+\.gov\b",
+    # Match multi-segment subdomains like `securemail.dsh.ca.gov`
+    # (the prior `\w+` regex only matched one segment before `.gov`).
+    r"\bsecuremail\.[\w.-]+\.gov\b",
+    # Real DSH portal path observed 2026-05-12.
+    r"securemail\.[\w.-]+\.gov/formpostdir/securereader",
     r"This\s+message\s+(?:has\s+been\s+)?encrypted",
     r"Read\s+the\s+Message",  # Proofpoint's primary CTA button text
 ]

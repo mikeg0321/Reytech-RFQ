@@ -139,6 +139,61 @@ class TestDetectorSignals:
         assert hit is True
         assert len(reasons) >= 4
 
+    def test_real_dsh_wrapper_email_25cb021_calibration(self):
+        """REAL-WORLD calibration sample (DSH 25CB021, May 2026):
+          - Sender is the buyer's normal Outlook address, NOT a Proofpoint
+            gateway (\"Corneliu.Butuza@dsh.ca.gov\")
+          - Subject is \"FW: Please find attached quote request 25CB021\" —
+            no Proofpoint markers
+          - Body is short: \"This is a secure message. Click here
+            https://securemail.dsh.ca.gov/formpostdir/securereader?...\"
+          - Wrapper attachment: SecureMessageAtt.html
+
+        Pre-fix this scored 1-of-4 (only the wrapper-attachment name
+        matched) → False positive class: real DSH emails ingested as
+        SHAPE_EMAIL_ONLY. This test pins the post-fix detector against
+        the actual on-the-wire DSH wrapper.
+        """
+        hit, reasons = _detect_proofpoint_securemessage(
+            email_subject="FW: Please find attached quote request 25CB021",
+            email_sender='"Butuza, Corneliu@DSH-A" <Corneliu.Butuza@dsh.ca.gov>',
+            email_body=(
+                "This is a secure message. Click here "
+                "https://securemail.dsh.ca.gov/formpostdir/securereader?"
+                "id=IEAcvLIKBaWCqFS2XQkZRtOcA5sGXlar&brand=5039a2d3  by "
+                "2026-06-07 17:33 PDT to read your message.   After that, "
+                "open the attachment."
+            ),
+            attachments=[
+                "/tmp/SecureMessageAtt.html",
+                "/tmp/logo.png",
+                "/tmp/lock.gif",
+            ],
+        )
+        assert hit is True, (
+            f"real DSH wrapper must detect; reasons={reasons}"
+        )
+        # Both signals corroborate (body phrase + wrapper attachment).
+        kinds = " ".join(reasons)
+        assert "body pattern" in kinds
+        assert "wrapper attachment" in kinds
+
+    def test_securemail_multi_segment_subdomain_body_pattern(self):
+        """The body URL pattern must match multi-segment domains like
+        `securemail.dsh.ca.gov` (not just single-segment `securemail.foo.gov`).
+        Regression for the \\w+ → [\\w.-]+ fix."""
+        # Body alone (single signal) doesn't clear threshold but we
+        # verify the regex matches by inspecting the reasons list.
+        hit, reasons = _detect_proofpoint_securemessage(
+            email_body="click https://securemail.dsh.ca.gov/x to read",
+        )
+        body_hit = any(
+            "securemail" in r and "body pattern" in r for r in reasons
+        )
+        assert body_hit, (
+            f"multi-segment domain securemail.dsh.ca.gov must match; reasons={reasons}"
+        )
+
     def test_normal_dsh_email_does_not_fire(self):
         """Regular DSH email with a real RFQ PDF attached must NOT be
         flagged as a Proofpoint wrapper just because the agency
