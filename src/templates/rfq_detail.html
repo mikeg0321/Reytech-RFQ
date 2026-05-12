@@ -543,7 +543,7 @@
   <thead><tr>
    <th scope="col">#</th><th scope="col" style="width:55px">Qty</th><th scope="col" style="width:55px">UOM</th><th scope="col">Part #</th><th scope="col">Description</th>
    <th scope="col" style="min-width:220px">Item Link</th>
-   <th scope="col">Your Cost</th><th scope="col" style="width:70px" title="Prior-price history for this item. 📊N = N prior prices found (click cell for details). 📦 = catalog match only. — = no history.">📊 History</th><th scope="col" style="width:80px">Markup</th><th scope="col">Bid Price</th><th scope="col">Subtotal</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
+   <th scope="col">Your Cost</th><th scope="col" style="width:90px" title="Cost × Qty — match this against your supplier quote's line totals.">Ext. Cost</th><th scope="col" style="width:70px" title="Prior-price history for this item. 📊N = N prior prices found (click cell for details). 📦 = catalog match only. — = no history.">📊 History</th><th scope="col" style="width:80px">Markup</th><th scope="col">Bid Price</th><th scope="col" title="Bid × Qty — your customer-facing line total.">Ext. Bid</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
   </tr></thead>
   <tbody>
   {% if not (r.get("line_items") or r.get("items")) %}
@@ -560,7 +560,7 @@
   {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr data-line-no="{{ i.line_number or (loop.index0 + 1) }}">
    <td style="font-size:13px"><input type="text" name="linenum_{{loop.index0}}" value="{{i.line_number or (loop.index0 + 1)}}" readonly ondblclick="this.removeAttribute('readonly');this.select()" style="width:32px;text-align:center;font-weight:700;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px;cursor:default" title="Line # (double-click to edit)"><span class="win-warn-slot" data-testid="win-warn-line-{{ i.line_number or (loop.index0 + 1) }}" style="display:block;margin-top:2px"></span></td>
-   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" max="999999" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity">{% if i.get('qty_changed') and i.get('pc_original_qty') %}<div data-testid="line-qty-changed-badge" title="Qty drifted from Price Check ({{ i.pc_original_qty }} → {{ i.qty }}). Price may need re-review." style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(210,153,34,.18);color:#d29922;border-radius:3px;font-weight:600;text-align:center">Δ PC {{ i.pc_original_qty }}</div>{% elif i.get('repriced_reason') == 'qty_change' %}<div data-testid="line-repriced-badge" title="Auto-repriced because qty drifted from Price Check" style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(63,185,80,.15);color:#3fb950;border-radius:3px;font-weight:600;text-align:center">✓ reprice</div>{% endif %}</td>
+   <td><input type="number" name="qty_{{loop.index0}}" value="{{ (i.qty or 1)|float|int }}" min="1" max="999999" step="1" class="num-in pricing-num" style="width:72px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="this.value=Math.max(1,Math.round(parseFloat(this.value)||1));recalc()" onwheel="this.blur()" aria-label="Quantity (whole numbers only)">{% if i.get('qty_changed') and i.get('pc_original_qty') %}<div data-testid="line-qty-changed-badge" title="Qty drifted from Price Check ({{ i.pc_original_qty }} → {{ i.qty }}). Price may need re-review." style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(210,153,34,.18);color:#d29922;border-radius:3px;font-weight:600;text-align:center">Δ PC {{ i.pc_original_qty }}</div>{% elif i.get('repriced_reason') == 'qty_change' %}<div data-testid="line-repriced-badge" title="Auto-repriced because qty drifted from Price Check" style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(63,185,80,.15);color:#3fb950;border-radius:3px;font-weight:600;text-align:center">✓ reprice</div>{% endif %}</td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6" aria-label="Unit of measure"></td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
    <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
@@ -574,7 +574,7 @@
     </div>
    </td>
    <td>
-    <input type="number" step="0.01" min="0" max="999999.99" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromCost({{loop.index0}})" aria-label="Supplier cost">
+    <input type="number" step="0.01" min="0" max="999999.99" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in pricing-num" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromCost({{loop.index0}})" onwheel="this.blur()" aria-label="Supplier cost">
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
      {% if i.scprs_last_price %}{% if i.get('scprs_po') %}<a href="/api/v1/harvest/po-screenshot/{{i.scprs_po}}" target="_blank" style="text-decoration:none">{% endif %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:#58a6ff;cursor:{% if i.get('scprs_po') %}pointer{% else %}help{% endif %}" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %} · PO Total (not per-unit){% endif %}{% if i.get('scprs_po') %} · PO {{i.scprs_po}} — click to view{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %}<span style="font-size:9px;opacity:.7"> (PO total)</span>{% endif %}</span>{% if i.get('scprs_po') %}</a>{% endif %}{% endif %}
      {% if i.get('amazon_price') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(251,146,60,.15);color:#fb923c;cursor:help" title="Amazon price">AMZ ${{'{:.2f}'.format(i.amazon_price)}}</span>{% endif %}
@@ -585,6 +585,7 @@
      <input type="hidden" name="scprs_{{loop.index0}}" value="{{i.scprs_last_price or ''}}">
     </div>
    </td>
+   <td class="mono" style="font-size:14px;color:#8b949e;text-align:right;padding-right:8px" id="extcost_{{loop.index0}}">—</td>
    <td id="intel_{{loop.index0}}" style="font-size:14px;text-align:center;cursor:pointer" title="Click to open price history popup" onclick="showIntel({{loop.index0}})">
     {% if i.get('price_intel') and i.price_intel.get('history_count', 0) > 0 %}
      <span style="color:#58a6ff" title="{{i.price_intel.history_count}} prior price{{'s' if i.price_intel.history_count != 1 else ''}} — click for details">📊{{i.price_intel.history_count}}</span>
@@ -596,11 +597,11 @@
    </td>
    <td>
     <div style="display:flex;align-items:center;gap:2px">
-     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{i.get('markup_pct', '')}}" placeholder="%" class="num-in" style="width:55px;font-size:15px;font-weight:700;padding:6px 8px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="recalcFromMarkup({{loop.index0}},true)">
+     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{ (i.get('markup_pct') or 0)|float|int if i.get('markup_pct') not in (None, '') else '' }}" placeholder="%" class="num-in pricing-num" style="width:55px;font-size:15px;font-weight:700;padding:6px 8px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="this.value=Math.max(0,Math.min(200,Math.round(parseFloat(this.value)||0)));recalcFromMarkup({{loop.index0}},true)" onwheel="this.blur()" aria-label="Markup percent (whole number 0-200)">
      <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
     </div>
    </td>
-   <td><input type="number" step="0.01" min="0" max="999999.99" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromBid({{loop.index0}})" aria-label="Bid price per unit">
+   <td><input type="number" step="0.01" min="0" max="999999.99" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in pricing-num" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromBid({{loop.index0}})" onwheel="this.blur()" aria-label="Bid price per unit">
     {% if i.get('oracle_price') and i.get('oracle_price')|float > 0 %}
     {# Phase 4: auto-surface Oracle recommendation on every item row — no click required #}
     <div style="margin-top:3px">
@@ -2638,6 +2639,26 @@ function recalc(){
   if(p>0)itemsPriced++;
   const subEl=document.getElementById(`sub_${i}`);
   if(subEl)subEl.textContent=s?`$${s.toFixed(2)}`:'—';
+  // P0 2026-05-11 (Mike RFQ rfq_8efe9fae): add an Ext. Cost cell that
+  // mirrors what the supplier quote's per-line totals should equal.
+  // Lets the operator eye-check each row against the supplier PDF
+  // without doing the cost*qty math in their head.
+  const extCostEl=document.getElementById(`extcost_${i}`);
+  if(extCostEl)extCostEl.textContent=(c*q)?`$${(c*q).toFixed(2)}`:'—';
+  // P0 2026-05-11 qty validation: flag when qty matches the part #
+  // on the same row (item-number-as-qty pattern from the buyer-RFQ
+  // parser bug). Red-border the qty input + tooltip explains.
+  const partEl=document.querySelector(`[name=part_${i}]`);
+  if(qEl && partEl){
+    const partStr=(partEl.value||'').trim();
+    const qtyStr=String(q);
+    if(partStr && qtyStr===partStr && q>1000){
+      qEl.style.border='2px solid #f85149';
+      qEl.title=`Qty ${q} matches Part # — likely the buyer-RFQ parser put the item number in the qty column. Verify against supplier quote.`;
+    } else if(qEl.style.border==='2px solid rgb(248, 81, 73)'){
+      qEl.style.border=''; qEl.title='';
+    }
+  }
   const m=p>0&&c>0?((p-c)/p*100):null;
   const el=document.getElementById(`mg_${i}`);
   if(el){if(m!==null){el.textContent=m.toFixed(1)+'%';el.style.color=m>=20?'#3fb950':m>=10?'#d29922':'#f85149'}
