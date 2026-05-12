@@ -43,7 +43,7 @@ ANTHROPIC_API_KEY = _get_api_key()
 # PDF → Image Conversion
 # ═══════════════════════════════════════════════════════════════════════
 
-def _pdf_pages_to_base64(pdf_path: str, dpi: int = 200, max_pages: int = 10) -> list:
+def _pdf_pages_to_base64(pdf_path: str, dpi: int = 200, max_pages: int = 30) -> list:
     """Convert PDF pages to base64-encoded PNG images.
     Returns list of {"base64": str, "page": int}."""
     results = []
@@ -237,7 +237,11 @@ def _call_vision_api(page_images: list, system_prompt: str = None) -> Optional[d
             },
             json={
                 "model": _model,
-                "max_tokens": 4096,
+                # P000 fix 2026-05-11: 4096 was tight for 15+ item RFQs with
+                # rich McKesson/MFG descriptions — JSON truncated mid-array,
+                # parse failed, items dropped silently. 16k gives headroom
+                # for ~40-item RFQs with full enrichment.
+                "max_tokens": 16000,
                 "system": _system_blocks,
                 "messages": [{"role": "user", "content": content}],
             },

@@ -660,16 +660,108 @@ def _dispatch_parser(
         try:
             from src.forms.generic_rfq_parser import parse_generic_rfq
             parsed = parse_generic_rfq([path])
-            return (
-                parsed.get("items", []),
-                parsed.get("header", {}),
-                None,
+            base_items = parsed.get("items", [])
+            base_header = parsed.get("header", {})
+
+            # ── Vision verification pass (Mike P000 2026-05-11) ──
+            # The generic regex parser is fast and reliable for known
+            # templates but DROPS ITEMS on multi-page image-only PDFs
+            # and on layouts the regex doesn't cover. CalVet 2026-05-11
+            # RFQ surfaced 5 of 15-16 items, Mike missed the bid window.
+            # Fix class: always cross-check generic-parser output against
+            # Vision AI on PDFs and take the higher item count.
+            #
+            # The Vision pass only runs on PDFs (Vision can't open .xlsx
+            # or .docx without a separate path). The cost is one Anthropic
+            # call per generic-RFQ-PDF ingest — bounded by the daily
+            # quota check inside parse_with_vision itself.
+            vision_items = _vision_verify_items_if_pdf(
+                path, base_items, base_header,
             )
+            if vision_items is not None and len(vision_items) > len(base_items):
+                log.info(
+                    "ingest._parse_files: Vision verification beat generic "
+                    "parser on %s — regex=%d vs vision=%d items; using vision.",
+                    os.path.basename(path), len(base_items), len(vision_items),
+                )
+                # Preserve the regex header (it has agency-specific fields
+                # like institution / requestor / delivery_zip the generic
+                # parser learned over time); only swap the items list.
+                return (vision_items, base_header, None)
+
+            return (base_items, base_header, None)
         except Exception as e:
             return [], {}, f"generic parser crashed: {e}"
 
     # Unknown shape — nothing to parse
     return [], {}, f"no parser for shape {shape}"
+
+
+def _vision_verify_items_if_pdf(
+    path: str, base_items: list, base_header: dict,
+) -> Optional[list]:
+    """Run Vision AI as a verification pass against the generic parser.
+
+    Returns the Vision-extracted items if Vision ran successfully AND
+    found more items than the base parser; None otherwise (signaling
+    "no upgrade — keep base").
+
+    Runs only on PDFs. Image+office formats already use Vision directly
+    in their own routes; this helper is the missing verification layer
+    for the generic-RFQ-PDF shape.
+
+    Mike P000 2026-05-11 RFQ rfq_8efe9fae: the buyer's CalVet RFQ landed
+    with 5 items from generic_rfq_parser. The true count was 15-16.
+    Vision AI (Claude) reliably reads multi-page PDFs and would have
+    surfaced all 15. The classifier_v2 pipeline never invoked Vision
+    on this shape — this helper closes that gap.
+    """
+    try:
+        if not path.lower().endswith(".pdf"):
+            return None
+        # ── Heuristic gate: only spend a Vision call when there's
+        # reason to suspect generic-parser missed items. The gate
+        # triggers when ANY of these are true:
+        #   - PDF has multiple pages (multi-page is the failure class)
+        #   - Generic parser returned 0 items (full miss)
+        #   - Items/page ratio is suspicious (< 3 per page)
+        page_count = _pdf_page_count(path)
+        base_count = len(base_items)
+        items_per_page = (base_count / page_count) if page_count > 0 else base_count
+        suspicious = (
+            page_count > 1
+            or base_count == 0
+            or items_per_page < 3.0
+        )
+        if not suspicious:
+            return None
+
+        from src.forms.vision_parser import parse_with_vision, is_available
+        if not is_available():
+            log.debug("vision verify: Vision AI not available")
+            return None
+        log.info(
+            "ingest._vision_verify: running Vision (pages=%d, base_items=%d)",
+            page_count, base_count,
+        )
+        parsed = parse_with_vision(path)
+        if not parsed:
+            return None
+        vision_items = parsed.get("line_items") or parsed.get("items") or []
+        return vision_items if vision_items else None
+    except Exception as e:
+        log.debug("vision verify suppressed: %s", e)
+        return None
+
+
+def _pdf_page_count(path: str) -> int:
+    """Cheap page count via pypdf. Returns 0 on error (caller treats
+    that as "unknown" — does not block Vision verification)."""
+    try:
+        from pypdf import PdfReader
+        return len(PdfReader(path).pages)
+    except Exception:
+        return 0
 
 
 # ── Record creation ─────────────────────────────────────────────────────
