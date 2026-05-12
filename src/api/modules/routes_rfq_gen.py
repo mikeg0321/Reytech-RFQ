@@ -366,12 +366,31 @@ def api_rfq_autosave(rid):
         if pkg_forms is not None and isinstance(pkg_forms, dict):
             r["package_forms"] = pkg_forms
 
-        # Save tax rate if provided
+        # Save tax rate if provided.
+        # P0 2026-05-11 (Mike RFQ rfq_8efe9fae): autosave's _getFormData
+        # always emits `tax_rate: parseFloat(taxRateEl.value)||0` — so a
+        # momentarily-empty / page-load-race / not-yet-rendered input
+        # sends 0, and this handler used to unconditionally overwrite
+        # disk with that 0, wiping a previously-validated CDTFA rate
+        # (e.g., 8.35% FRESNO). Refusing to overwrite a non-zero saved
+        # rate with a zero closes the silent-data-loss surface. An
+        # operator who genuinely wants 0% tax can still clear it via
+        # an explicit zero by first hitting the 🔍 Verify button at
+        # the new address (which goes through the dedicated tax-lookup
+        # route, not the autosave).
         tax_rate = data.get("tax_rate")
         if tax_rate is not None:
             from src.core.validation import validate_header_field
             v, _ = validate_header_field("tax_rate", tax_rate)
-            r["tax_rate"] = v
+            prior = float(r.get("tax_rate") or 0)
+            if v > 0 or prior == 0:
+                r["tax_rate"] = v
+            else:
+                log.info(
+                    "RFQ autosave %s: ignoring tax_rate=0 overwrite "
+                    "(prior=%.3f); use 🔍 Verify to change tax intentionally.",
+                    rid, prior,
+                )
 
         # Save shipping if provided
         if data.get("shipping_option") is not None:
