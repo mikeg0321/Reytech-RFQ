@@ -14,4 +14,6 @@ COPY app.py .
 
 EXPOSE 8001
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8001", "--workers", "1", "--threads", "2", "--timeout", "300"]
+# Shell-form CMD so $PORT (set by Railway) expands at container start.
+# Falls back to 8001 when running outside Railway (local dev).
+CMD sh -c "gunicorn app:app --bind 0.0.0.0:${PORT:-8001} --workers 1 --threads 2 --timeout 300"
