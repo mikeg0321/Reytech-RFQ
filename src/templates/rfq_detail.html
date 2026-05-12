@@ -77,6 +77,25 @@
  </div>
  {% endif %}
 
+ {# ── Ingest warnings banner (P000 substrate) ──────────────────────────
+    Surfaces the structured warnings the ingest pipeline records on the
+    record: zero_items_on_pdf, low_item_density, count_disagreement,
+    vision_skipped, vision_unsupported_format. Without this banner the
+    operator sees `status: needs_review` in the queue but no reason WHY
+    until they dig into Source. The detail text already carries the
+    page count + item counts so the operator can self-diagnose.        #}
+ {% set _iw = r.get('ingest_warnings') or [] %}
+ {% if _iw %}
+ <div data-testid="ingest-warnings-banner" style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.35);font-size:13px">
+  <div style="font-weight:700;color:#d29922;margin-bottom:4px">⚠ Ingest review needed{% if r.needs_review %} · status flagged needs_review{% endif %}</div>
+  <ul style="margin:0;padding:0 0 0 18px;color:#c9d1d9">
+   {% for w in _iw %}
+   <li style="margin:2px 0"><span style="color:#d29922;font-weight:600">{{ w.get('kind','?')|replace('_',' ') }}:</span> {{ w.get('detail','') }}</li>
+   {% endfor %}
+  </ul>
+ </div>
+ {% endif %}
+
  <!-- Phase 1.6 PR3a: Fill-Plan panel (read-only) -->
  <div id="rt-fillplan-panel" data-quote-id="{{ rid }}" data-quote-type="rfq" style="margin-top:12px"></div>
 
