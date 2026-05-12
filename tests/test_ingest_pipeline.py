@@ -582,6 +582,89 @@ class TestPlaceholderDetector:
         assert _looks_like_sol_placeholder("AUTO_abc12345") is True
 
 
+class TestItemSignature:
+    """`_item_signature` is the dedup key for the multi-attachment
+    Vision union. Two items that describe the same line in different
+    case/whitespace MUST collide; two items that differ in qty or
+    MFG# MUST NOT collide."""
+
+    def test_case_and_whitespace_normalize(self):
+        from src.core.ingest_pipeline import _item_signature
+        a = {"description": "  POWER  SUPPLY ADAM SCALE  ", "qty": 2, "item_number": "WCA86920"}
+        b = {"description": "power supply adam scale", "qty": 2.0, "item_number": "wca86920"}
+        assert _item_signature(a) == _item_signature(b)
+
+    def test_qty_difference_distinguishes(self):
+        from src.core.ingest_pipeline import _item_signature
+        a = {"description": "blades", "qty": 1500}
+        b = {"description": "blades", "qty": 1000}
+        assert _item_signature(a) != _item_signature(b)
+
+    def test_mfg_difference_distinguishes(self):
+        """Same description + qty but different MFG# = different items
+        (size variants etc.)."""
+        from src.core.ingest_pipeline import _item_signature
+        a = {"description": "coverall", "qty": 4, "item_number": "MICROMAX-XL"}
+        b = {"description": "coverall", "qty": 4, "item_number": "MICROMAX-XXL"}
+        assert _item_signature(a) != _item_signature(b)
+
+
+class TestLowDensityGate:
+    """P000 substrate #2 — full form. The zero-items gate already fires
+    on binary 0 cases; this one catches the silent failure class where
+    e.g. 5 items get extracted from a 4-page items table."""
+
+    def _reconcile(self, vision_items, base_items, page_count):
+        """Helper: call _reconcile_vision_and_base with a fake PDF whose
+        page count is controlled via a monkey-patched _pdf_page_count."""
+        from src.core import ingest_pipeline as ip
+        orig = ip._pdf_page_count
+        ip._pdf_page_count = lambda _p: page_count
+        try:
+            return ip._reconcile_vision_and_base(
+                vision_items=vision_items,
+                base_items=base_items,
+                base_parser_label="generic_rfq",
+                path="/tmp/fake.pdf",
+            )
+        finally:
+            ip._pdf_page_count = orig
+
+    def test_low_density_on_multipage_fires_review(self):
+        """3 items extracted from a 5-page PDF = 0.6 items/page,
+        below the 2.0 floor. Must flag needs_review."""
+        items = [{"description": f"item {i}", "qty": 1} for i in range(3)]
+        primary, warnings, needs_review = self._reconcile(items, items, page_count=5)
+        assert needs_review is True
+        kinds = [w["kind"] for w in warnings]
+        assert "low_item_density" in kinds
+
+    def test_normal_density_does_not_fire(self):
+        """12 items on a 2-page PDF = 6.0 items/page, well above the
+        floor. No low-density warning."""
+        items = [{"description": f"item {i}", "qty": 1} for i in range(12)]
+        primary, warnings, needs_review = self._reconcile(items, items, page_count=2)
+        kinds = [w["kind"] for w in warnings]
+        assert "low_item_density" not in kinds
+
+    def test_single_page_low_density_does_not_fire(self):
+        """A 1-page RFQ with 1 item is legitimate (single-line RFQs
+        exist). The density gate is for multi-page (>=2) only."""
+        items = [{"description": "blades", "qty": 1500}]
+        primary, warnings, needs_review = self._reconcile(items, items, page_count=1)
+        kinds = [w["kind"] for w in warnings]
+        assert "low_item_density" not in kinds
+
+    def test_zero_items_takes_precedence(self):
+        """When BOTH parsers return 0 items, zero_items_on_pdf fires
+        (early-return path) — low_item_density does NOT also fire."""
+        primary, warnings, needs_review = self._reconcile([], [], page_count=4)
+        assert needs_review is True
+        kinds = [w["kind"] for w in warnings]
+        assert "zero_items_on_pdf" in kinds
+        assert "low_item_density" not in kinds  # early-returned before the density check
+
+
 class TestCalvetSolSynthesizer:
     def test_synthesizer_fires_when_calvet_no_sol(self, temp_data_dir, tmp_path):
         """When agency=calvet, sol# is junk, AND items exist, the
