@@ -1,20 +1,18 @@
-"""Pricing math substrate tests — PR-1, 2026-05-06 audit substrate fix.
+"""Pricing math substrate tests — PR-1 (2026-05-06) + Mike P0 fix (2026-05-12).
 
-Both PC and RFQ save paths now call `reconcile_line_item` /
-`reconcile_items` from `src/core/pricing_math.py`. These tests pin
-the math against the rules the audit named:
+`reconcile_line_item` is now intent-aware. The Heel Donut flow (PC SAVE
+PRICES — operator types OUR PRICE, markup must follow) calls with
+`prefer="price"`. All other callers — RFQ autosave, enrichment, ingest
+reparse — use the default `prefer="markup"`, which makes the operator's
+typed markup_pct sticky: a stale persisted price can no longer reverse-
+derive markup and silently overwrite operator intent.
 
-  Rule 1: cost + price → derive markup_pct (Mike P0 from 2026-05-05:
-          typed OUR PRICE $16 with cost $8, expected markup=100%,
-          got stale 20%).
-  Rule 2: cost + markup → derive price (forward auto-compute when
-          price was missing — was the legacy PC behavior).
-  Rule 3: insufficient signal → leave alone.
-
-The "PC and RFQ produce identical output" test is the load-bearing
-one: it imports the pure helper from both call sites' perspective and
-runs the same input through, asserting equality. If a future change
-adds new pricing logic to only one side, this test fails.
+The 2026-05-12 incident this enforces: Mike was quoting `rfq_8efe9fae`
+at 8% markup. Each RFQ autosave reverse-derived markup from a stale 35%
+price snapshot, rewriting markup_pct to 35% on disk every save. Mike
+saw the final quote at 35% and reported "i never once touched any of
+those actions". The bug was the default — autosave inherited the PC's
+price-wins semantic.
 """
 from __future__ import annotations
 
@@ -27,65 +25,91 @@ from src.core.pricing_math import (
 )
 
 
-# ── Rule 1: reverse-derive markup ─────────────────────────────────
+# ── prefer="price": Heel Donut (PC SAVE PRICES) ───────────────────
 
 
-def test_rule1_heel_donut_incident_8_to_16_yields_100pct():
-    """Mike's exact 2026-05-05 incident reproduction."""
+def test_price_wins_heel_donut_incident_8_to_16_yields_100pct():
+    """2026-05-05 incident: PC SAVE PRICES path. Operator types $16
+    against $8 cost; stored markup=20 must flip to 100."""
     item = {"vendor_cost": 8, "unit_price": 16, "markup_pct": 20, "qty": 1}
-    reconcile_line_item(item)
+    reconcile_line_item(item, prefer="price")
     assert item["markup_pct"] == 100.0
     assert item["pricing"]["markup_pct"] == 100.0
-    # Both PC alias and RFQ alias should match
     assert item["unit_price"] == 16
     assert item["price_per_unit"] == 16
 
 
-def test_rule1_skips_within_tolerance():
+def test_price_wins_skips_within_tolerance():
     """Stored markup within 0.5pt of derived → leave alone (no log spam)."""
     item = {"vendor_cost": 10, "unit_price": 12.50, "markup_pct": 25.1}
-    reconcile_line_item(item)
-    # 25.1 vs derived 25.0 — diff 0.1, under 0.5 tolerance, leave alone
+    reconcile_line_item(item, prefer="price")
     assert item["markup_pct"] == 25.1
 
 
-def test_rule1_overwrites_when_drift_exceeds_tolerance():
+def test_price_wins_overwrites_when_drift_exceeds_tolerance():
     item = {"vendor_cost": 10, "unit_price": 12.50, "markup_pct": 30}
-    reconcile_line_item(item)
+    reconcile_line_item(item, prefer="price")
     # 30 vs derived 25.0 — diff 5.0, exceeds tolerance, overwrite
     assert item["markup_pct"] == 25.0
 
 
-def test_rule1_fills_missing_markup():
-    item = {"supplier_cost": 100, "price_per_unit": 125}  # RFQ aliases
+# ── prefer="markup" (default): autosave + enrichment + ingest ─────
+
+
+def test_markup_wins_default_protects_operator_intent():
+    """Mike P0 2026-05-12 (`rfq_8efe9fae`): operator set markup=8% on
+    a record whose persisted unit_price still reflects the prior 35%
+    snapshot. Default autosave reconcile must FORWARD-COMPUTE price
+    from cost+markup — never reverse-derive markup back to 35%."""
+    item = {"vendor_cost": 100, "unit_price": 135, "markup_pct": 8, "qty": 1}
+    reconcile_line_item(item)  # default prefer="markup"
+    # markup is sticky at the operator's typed 8%
+    assert item["markup_pct"] == 8
+    # price gets healed to match the markup intent
+    assert item["unit_price"] == 108.0
+    assert item["price_per_unit"] == 108.0
+
+
+def test_markup_wins_idempotent_when_already_coherent():
+    """Stable record (cost+markup+price all agree): default reconcile
+    is a no-op. No log spam, no mutation."""
+    item = {"vendor_cost": 100, "unit_price": 135, "markup_pct": 35}
+    before_markup = item["markup_pct"]
+    before_price = item["unit_price"]
     reconcile_line_item(item)
+    assert item["markup_pct"] == before_markup
+    assert item["unit_price"] == before_price
+
+
+def test_markup_wins_fills_missing_markup_when_only_cost_price():
+    """No markup present → back-fill from cost+price. Same as the
+    legacy behavior when markup was None; nothing operator-typed gets
+    overwritten."""
+    item = {"supplier_cost": 100, "price_per_unit": 125}
+    reconcile_line_item(item)  # default prefer="markup"
     assert item["markup_pct"] == 25.0
-    # PC aliases also written so PC readers see the same data
     assert item["vendor_cost"] == 100
     assert item["unit_price"] == 125
 
 
-# ── Rule 2: forward-compute price ─────────────────────────────────
-
-
-def test_rule2_cost_plus_markup_derives_price():
+def test_markup_wins_forward_computes_when_price_missing():
     item = {"vendor_cost": 50, "markup_pct": 30}
-    reconcile_line_item(item)
+    reconcile_line_item(item)  # default
     assert item["unit_price"] == 65.0
     assert item["price_per_unit"] == 65.0
     assert item["pricing"]["recommended_price"] == 65.0
 
 
-def test_rule2_pricing_dict_input():
+def test_markup_wins_pricing_dict_input():
     item = {"pricing": {"unit_cost": 80, "markup_pct": 25}}
-    reconcile_line_item(item)
+    reconcile_line_item(item)  # default
     assert item["unit_price"] == 100.0
 
 
-# ── Rule 3: insufficient signal ───────────────────────────────────
+# ── Insufficient signal — never mutate ────────────────────────────
 
 
-def test_rule3_only_cost_leaves_price_alone():
+def test_only_cost_leaves_price_alone():
     item = {"vendor_cost": 50}
     reconcile_line_item(item)
     assert "unit_price" not in item or item.get("unit_price") in (None, 0)
@@ -94,40 +118,27 @@ def test_rule3_only_cost_leaves_price_alone():
 
 def test_no_bid_skipped():
     item = {"vendor_cost": 50, "unit_price": 200, "markup_pct": 10, "no_bid": True}
-    reconcile_line_item(item)
+    reconcile_line_item(item, prefer="price")
     # markup left untouched even though it'd derive to 300%
     assert item["markup_pct"] == 10
 
 
 def test_zero_cost_no_zero_division():
     item = {"vendor_cost": 0, "unit_price": 100, "markup_pct": 25}
-    reconcile_line_item(item)
-    # Cost is 0, no derivation possible — leave markup alone
+    reconcile_line_item(item, prefer="price")
     assert item["markup_pct"] == 25
 
 
 # ── PC and RFQ identical-math contract ────────────────────────────
 
 
-def test_pc_alias_input_and_rfq_alias_input_produce_same_output():
-    """Critical contract: feed the same logical pricing into the PC
-    field-name shape AND the RFQ field-name shape; reconciled output
-    must be numerically identical. This is the load-bearing test for
-    'one source of truth across both paths.'"""
-    pc_item = {
-        "vendor_cost": 100,
-        "unit_price": 130,
-        "markup_pct": 20,  # stale — should get rewritten to 30
-    }
-    rfq_item = {
-        "supplier_cost": 100,
-        "price_per_unit": 130,
-        "markup_pct": 20,  # stale — should get rewritten to 30
-    }
-    reconcile_line_item(pc_item)
-    reconcile_line_item(rfq_item)
-    # Both items should now report the same canonical numbers under
-    # both naming conventions.
+def test_pc_alias_input_and_rfq_alias_input_produce_same_output_price_wins():
+    """Heel Donut: both field-name shapes resolve to identical canonical
+    output under prefer='price'."""
+    pc_item = {"vendor_cost": 100, "unit_price": 130, "markup_pct": 20}
+    rfq_item = {"supplier_cost": 100, "price_per_unit": 130, "markup_pct": 20}
+    reconcile_line_item(pc_item, prefer="price")
+    reconcile_line_item(rfq_item, prefer="price")
     assert pc_item["markup_pct"] == rfq_item["markup_pct"] == 30.0
     assert pc_item["unit_price"] == rfq_item["unit_price"] == 130
     assert pc_item["price_per_unit"] == rfq_item["price_per_unit"] == 130
@@ -135,21 +146,27 @@ def test_pc_alias_input_and_rfq_alias_input_produce_same_output():
     assert pc_item["supplier_cost"] == rfq_item["supplier_cost"] == 100
 
 
-def test_canonical_unit_price_agrees_after_reconcile():
-    """After reconcile, canonical_unit_price (read path) must agree with
-    the persisted unit_price (write path). The 2026-04-23 stale-price
-    incident was exactly this gap."""
+def test_pc_alias_input_and_rfq_alias_input_produce_same_output_markup_wins():
+    """Default autosave path: same shape on both sides, prefer='markup'.
+    Markup stays at 20; price gets healed from 130 → cost*1.20 = 120."""
+    pc_item = {"vendor_cost": 100, "unit_price": 130, "markup_pct": 20}
+    rfq_item = {"supplier_cost": 100, "price_per_unit": 130, "markup_pct": 20}
+    reconcile_line_item(pc_item)
+    reconcile_line_item(rfq_item)
+    assert pc_item["markup_pct"] == rfq_item["markup_pct"] == 20
+    assert pc_item["unit_price"] == rfq_item["unit_price"] == 120.0
+    assert pc_item["price_per_unit"] == rfq_item["price_per_unit"] == 120.0
+
+
+def test_canonical_unit_price_agrees_after_reconcile_price_wins():
     item = {"vendor_cost": 465.40, "unit_price": 558.48, "markup_pct": 20}
-    reconcile_line_item(item)
-    # Reverse-derived markup from cost+price overrides the stale 20%
+    reconcile_line_item(item, prefer="price")
     derived = round((558.48 - 465.40) / 465.40 * 100, 1)
     assert item["markup_pct"] == derived
-    # The read-path canonical accessor recomputes from cost*markup, so
-    # after reconciliation they MUST match within rounding.
     assert abs(canonical_unit_price(item) - 558.48) < 0.01
 
 
-# ── Both call sites import it ─────────────────────────────────────
+# ── Call sites import the helper ──────────────────────────────────
 
 
 def test_pc_save_prices_imports_reconcile():
@@ -158,6 +175,20 @@ def test_pc_save_prices_imports_reconcile():
     with open(p, encoding="utf-8") as f:
         src = f.read()
     assert "from src.core.pricing_math import reconcile_items" in src
+
+
+def test_pc_save_prices_uses_price_wins():
+    """PC SAVE PRICES must pin `prefer='price'` so the Heel Donut flow
+    works. If a refactor drops the kwarg, this test fails so the next
+    operator who types OUR PRICE doesn't get stale markup downstream."""
+    p = os.path.join(os.path.dirname(__file__), "..",
+                     "src/api/modules/routes_pricecheck.py")
+    with open(p, encoding="utf-8") as f:
+        src = f.read()
+    assert 'prefer="price"' in src or "prefer='price'" in src, (
+        "PC SAVE PRICES must call reconcile_items with prefer='price'. "
+        "Without it, operator-typed OUR PRICE won't propagate to markup_pct."
+    )
 
 
 def test_rfq_autosave_imports_reconcile():
@@ -177,14 +208,10 @@ def test_rfq_form_update_imports_reconcile():
 
 
 def test_no_inline_reverse_markup_remains_in_pc_save():
-    """The PR #765 inline block must be GONE from routes_pricecheck.py.
-    If anyone re-adds inline reverse-markup math here, this test fails
-    so they consolidate to pricing_math instead."""
     p = os.path.join(os.path.dirname(__file__), "..",
                      "src/api/modules/routes_pricecheck.py")
     with open(p, encoding="utf-8") as f:
         src = f.read()
-    # The exact SAVE-PRICES log line from the inline block
     assert "SAVE-PRICES reverse-markup" not in src, (
         "Inline reverse-markup block re-added to routes_pricecheck.py. "
         "Use src.core.pricing_math.reconcile_items instead."
@@ -194,19 +221,36 @@ def test_no_inline_reverse_markup_remains_in_pc_save():
 # ── reconcile_items list helper ────────────────────────────────────
 
 
-def test_reconcile_items_returns_touched_count():
+def test_reconcile_items_returns_touched_count_price_wins():
     items = [
-        {"vendor_cost": 10, "unit_price": 12, "markup_pct": 50},  # stale → fix
-        {"vendor_cost": 5, "markup_pct": 100},                    # forward → fill
-        {"vendor_cost": 100, "unit_price": 125, "markup_pct": 25},  # already right
-        {"no_bid": True, "vendor_cost": 1, "unit_price": 100, "markup_pct": 99},  # skipped
+        {"vendor_cost": 10, "unit_price": 12, "markup_pct": 50},
+        {"vendor_cost": 5, "markup_pct": 100},
+        {"vendor_cost": 100, "unit_price": 125, "markup_pct": 25},
+        {"no_bid": True, "vendor_cost": 1, "unit_price": 100, "markup_pct": 99},
     ]
-    n = reconcile_items(items)
-    # First two changed; third is no-op; fourth is no-bid (skipped, unchanged).
+    n = reconcile_items(items, prefer="price")
     assert n == 2
     assert items[0]["markup_pct"] == 20.0
     assert items[1]["unit_price"] == 10.0
     assert items[2]["markup_pct"] == 25
-    # No-bid item must be untouched — markup stays at the bogus 99.
     assert items[3]["markup_pct"] == 99
     assert items[3]["unit_price"] == 100
+
+
+def test_reconcile_items_default_markup_wins_protects_intent():
+    """Default prefer='markup' on an autosave-shaped batch: markup is
+    sticky on every item; price gets forward-computed where it drifted."""
+    items = [
+        {"vendor_cost": 100, "unit_price": 135, "markup_pct": 8},   # Mike's case
+        {"vendor_cost": 50, "unit_price": 75, "markup_pct": 50},    # coherent
+        {"vendor_cost": 200, "markup_pct": 10},                     # no price
+    ]
+    reconcile_items(items)  # default
+    # Mike's case: 8% intent preserved, price healed
+    assert items[0]["markup_pct"] == 8
+    assert items[0]["unit_price"] == 108.0
+    # Coherent: unchanged
+    assert items[1]["markup_pct"] == 50
+    assert items[1]["unit_price"] == 75.0
+    # Missing price filled
+    assert items[2]["unit_price"] == 220.0

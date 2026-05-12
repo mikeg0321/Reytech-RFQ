@@ -175,27 +175,35 @@ def _write_margin(item: dict, cost: float, price: float) -> None:
         item["margin_pct"] = round((price - cost) / price * 100, 1)
 
 
-def reconcile_line_item(item: dict) -> dict:
+def reconcile_line_item(item: dict, prefer: str = "markup") -> dict:
     """Make cost / markup / price agree on a single line item.
 
     Mutates `item` in place and returns it. Skips no-bid items.
 
-    Resolution rules, in order:
+    `prefer` controls which field is treated as operator truth when
+    cost + markup + price are all present but disagree:
 
-    1. **Both cost and price present, markup stale or missing**:
-       reverse-derive markup_pct = (price - cost) / cost * 100.
-       This is the case the 2026-05-05 incident exposed (Mike P0):
-       operator types OUR PRICE directly, expects markup to follow.
+    * `"markup"` (default) — markup_pct is sticky. If cost+markup are
+      explicit, price is forward-computed from `cost * (1 + markup/100)`
+      even if a stale price disagrees. Reverse-markup only fires when
+      markup is absent. Used by autosave, enrichment, ingest reparse —
+      paths where the operator's typed markup must not be silently
+      overwritten by a stale persisted price. (Mike P0 2026-05-12
+      `rfq_8efe9fae`: autosave was reverse-deriving 35% from a stale
+      price snapshot and clobbering the operator's 8% intent.)
 
-    2. **Cost and markup present, price stale or missing**:
-       forward-compute price = cost * (1 + markup_pct/100).
-       Standard quote math — `_recompute_unit_price` legacy path.
+    * `"price"` — price is sticky. If cost+price are explicit, markup
+      is reverse-derived from `(price - cost) / cost * 100` overriding
+      any stale markup. Used by PC `_do_save_prices` where the
+      operator's explicit interaction is typing OUR PRICE and expects
+      markup_pct to follow. (Mike P0 2026-05-05 Heel Donut: cost=$8,
+      stale markup=20%, operator types price=$16 → markup must flip
+      to 100%.)
 
-    3. **Insufficient signal**: leave alone. Caller hasn't given us
-       enough information to reconcile.
-
-    Both PC and RFQ save paths MUST call this after any write that
-    touches cost, markup, or price. New pricing rules land here once.
+    In both modes, an item with only cost+price (markup absent) gets
+    markup reverse-derived as a back-fill. An item with only cost+markup
+    (price absent) gets price forward-computed. An item with only cost
+    or no useful signal is left alone.
     """
     if item.get("no_bid"):
         return item
@@ -204,45 +212,69 @@ def reconcile_line_item(item: dict) -> dict:
     price = _read_price(item)
     markup = _read_markup(item)
 
-    # Rule 1: cost + price → derive markup
-    if cost > 0 and price > 0:
+    if cost <= 0:
+        return item
+
+    if prefer == "price":
+        # Price-wins semantic (PC `_do_save_prices` Heel Donut flow).
+        if price > 0:
+            try:
+                derived_markup = round((price - cost) / cost * 100, 1)
+            except ZeroDivisionError:
+                return item
+            if markup is None or abs(markup - derived_markup) > _MARKUP_DRIFT_TOLERANCE_PCT:
+                _write_markup(item, derived_markup)
+                _pm_log.info(
+                    "reconcile reverse-markup [prefer=price]: cost=%.2f price=%.2f → markup=%.1f%% (was %s)",
+                    cost, price, derived_markup, markup,
+                )
+            _write_cost(item, cost)
+            _write_price(item, price)
+            _write_margin(item, cost, price)
+            return item
+        if markup is not None:
+            derived_price = round(cost * (1 + markup / 100.0), 2)
+            _write_cost(item, cost)
+            _write_price(item, derived_price)
+            _write_margin(item, cost, derived_price)
+            return item
+        return item
+
+    # prefer == "markup" (default) — markup is sticky.
+    if markup is not None:
+        derived_price = round(cost * (1 + markup / 100.0), 2)
+        if price <= 0 or abs(price - derived_price) >= 0.01:
+            if price > 0 and abs(price - derived_price) >= 0.01:
+                _pm_log.info(
+                    "reconcile forward-price [prefer=markup]: cost=%.2f markup=%.1f%% → price=%.2f (was %.2f)",
+                    cost, markup, derived_price, price,
+                )
+            _write_price(item, derived_price)
+            price = derived_price
+        _write_cost(item, cost)
+        _write_margin(item, cost, price)
+        return item
+
+    # markup absent + cost + price → back-fill markup (no operator
+    # intent to overwrite). This keeps fresh-ingest records coherent.
+    if price > 0:
         try:
             derived_markup = round((price - cost) / cost * 100, 1)
-        except ZeroDivisionError:  # cost > 0 above; defensive
+        except ZeroDivisionError:
             return item
-        if markup is None or abs(markup - derived_markup) > _MARKUP_DRIFT_TOLERANCE_PCT:
-            _write_markup(item, derived_markup)
-            _pm_log.info(
-                "reconcile reverse-markup: cost=%.2f price=%.2f → markup=%.1f%% (was %s)",
-                cost, price, derived_markup, markup,
-            )
-        # Always echo cost/price to all aliases + recompute margin so
-        # PC and RFQ readers see the same numbers regardless of which
-        # field name they pick.
+        _write_markup(item, derived_markup)
         _write_cost(item, cost)
         _write_price(item, price)
         _write_margin(item, cost, price)
         return item
 
-    # Rule 2: cost + markup → derive price
-    if cost > 0 and markup is not None and price <= 0:
-        derived_price = round(cost * (1 + markup / 100.0), 2)
-        _write_cost(item, cost)
-        _write_price(item, derived_price)
-        _write_margin(item, cost, derived_price)
-        _pm_log.info(
-            "reconcile forward-price: cost=%.2f markup=%.1f%% → price=%.2f",
-            cost, markup, derived_price,
-        )
-        return item
-
-    # Rule 3: insufficient signal — leave alone.
     return item
 
 
-def reconcile_items(items: list) -> int:
+def reconcile_items(items: list, prefer: str = "markup") -> int:
     """Apply `reconcile_line_item` across a list. Returns count of items
-    that changed (markup or price moved)."""
+    that changed (markup or price moved). See `reconcile_line_item` for
+    `prefer` semantics."""
     if not isinstance(items, list):
         return 0
     touched = 0
@@ -251,7 +283,7 @@ def reconcile_items(items: list) -> int:
             continue
         before_markup = _read_markup(it)
         before_price = _read_price(it)
-        reconcile_line_item(it)
+        reconcile_line_item(it, prefer=prefer)
         if _read_markup(it) != before_markup or _read_price(it) != before_price:
             touched += 1
     return touched
