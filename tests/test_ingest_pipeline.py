@@ -582,6 +582,166 @@ class TestPlaceholderDetector:
         assert _looks_like_sol_placeholder("AUTO_abc12345") is True
 
 
+class TestClassifierPerFileCache:
+    """Performance follow-on 2026-05-12 — classifier publishes
+    `_per_file_info` so the multi-attach Vision union doesn't have to
+    re-call `_classify_pdf` per sibling. Pin: cache exists, has the
+    expected shape, and is NOT serialized to record JSON."""
+
+    def test_per_file_info_populated_for_pdf_attachments(self, tmp_path):
+        from src.core.request_classifier import classify_request
+
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+
+        def make_pdf(p, text):
+            c = canvas.Canvas(str(p), pagesize=letter)
+            y = 750
+            for line in text.splitlines():
+                c.drawString(50, y, line[:90]); y -= 14
+            c.save()
+
+        cover = tmp_path / "cover.pdf"
+        pricing = tmp_path / "pricing.pdf"
+        make_pdf(cover, "COVER LETTER\nBidder Instructions")
+        make_pdf(pricing, "DESCRIPTION OF GOODS / SERVICES UNIT PRICE EXTENSION")
+
+        r = classify_request(attachments=[str(cover), str(pricing)])
+        assert "cover.pdf" in r._per_file_info
+        assert "pricing.pdf" in r._per_file_info
+        assert r._per_file_info["pricing.pdf"]["info"]["pricing_page_score"] > 0
+        assert r._per_file_info["cover.pdf"]["info"].get("pricing_page_score", 0) == 0
+
+    def test_per_file_info_excluded_from_to_dict(self, tmp_path):
+        """The cache is internal — it must not bloat the record JSON."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[], email_body="test")
+        # Manually populate to confirm it would be filterable
+        r._per_file_info["fake.pdf"] = {"shape": "x", "info": {"k": "v"}}
+        d = r.to_dict()
+        assert "_per_file_info" not in d
+
+
+class TestMultiAttachCacheUsage:
+    """Pin: `_multi_attachment_vision_union` reads from
+    classification._per_file_info instead of re-calling _classify_pdf
+    when the cache has entries for the sibling files."""
+
+    def test_union_skips_reclassification_when_cache_present(self, tmp_path, monkeypatch):
+        from src.core import ingest_pipeline as ip
+        from src.core.request_classifier import (
+            RequestClassification, SHAPE_GENERIC_RFQ_PDF,
+        )
+
+        # Two real (empty) PDFs so os.path.exists is True
+        primary = tmp_path / "primary.pdf"
+        sibling = tmp_path / "sibling.pdf"
+        from reportlab.pdfgen import canvas
+        for p in (primary, sibling):
+            c = canvas.Canvas(str(p)); c.drawString(50, 750, "x"); c.save()
+
+        # Force is_available True, _vision_primary_extract a stub that
+        # returns a known item — and count _classify_pdf calls.
+        calls = {"classify": 0, "vision": 0}
+
+        def fake_classify(_path):
+            calls["classify"] += 1
+            return SHAPE_GENERIC_RFQ_PDF, {"pricing_page_score": 5, "page_count": 1}
+
+        def fake_vision(path):
+            calls["vision"] += 1
+            return [{"description": "sibling item", "qty": 1}]
+
+        monkeypatch.setattr(
+            "src.forms.vision_parser.is_available", lambda: True,
+        )
+        # `_classify_pdf` is imported lazily inside the union via
+        # `from src.core.request_classifier import …`, so patch the
+        # source module. `_vision_primary_extract` is at module level
+        # in ingest_pipeline so patch there.
+        monkeypatch.setattr("src.core.request_classifier._classify_pdf", fake_classify)
+        monkeypatch.setattr(ip, "_vision_primary_extract", fake_vision)
+
+        # Pre-populate the cache for the sibling — the union should
+        # NOT re-call _classify_pdf when it can read from cache.
+        classification = RequestClassification(
+            shape=SHAPE_GENERIC_RFQ_PDF,
+            agency="dsh",
+            primary_file="primary.pdf",
+        )
+        classification._per_file_info["sibling.pdf"] = {
+            "shape": SHAPE_GENERIC_RFQ_PDF,
+            "info": {"pricing_page_score": 5, "page_count": 1},
+        }
+
+        extras = ip._multi_attachment_vision_union(
+            primary_path=str(primary),
+            all_files=[str(primary), str(sibling)],
+            classification=classification,
+            primary_items=[],
+        )
+        assert calls["classify"] == 0, (
+            f"_classify_pdf was called {calls['classify']} times — cache "
+            f"should have served the sibling without re-classification"
+        )
+        assert calls["vision"] == 1
+        assert len(extras) == 1
+        assert extras[0]["description"] == "sibling item"
+        assert extras[0]["_source_attachment"] == "sibling.pdf"
+        assert extras[0]["_extraction_source"] == "vision_sibling"
+
+    def test_union_falls_back_to_live_classify_on_cache_miss(self, tmp_path, monkeypatch):
+        """Defensive: classification objects from older code paths may
+        lack a populated `_per_file_info`. The union should still work
+        by calling _classify_pdf live."""
+        from src.core import ingest_pipeline as ip
+        from src.core.request_classifier import (
+            RequestClassification, SHAPE_GENERIC_RFQ_PDF,
+        )
+        from reportlab.pdfgen import canvas
+        primary = tmp_path / "primary.pdf"
+        sibling = tmp_path / "sibling.pdf"
+        for p in (primary, sibling):
+            c = canvas.Canvas(str(p)); c.drawString(50, 750, "x"); c.save()
+
+        calls = {"classify": 0, "vision": 0}
+
+        def fake_classify(_path):
+            calls["classify"] += 1
+            return SHAPE_GENERIC_RFQ_PDF, {"pricing_page_score": 5}
+
+        def fake_vision(_path):
+            calls["vision"] += 1
+            return [{"description": "ok", "qty": 1}]
+
+        monkeypatch.setattr(
+            "src.forms.vision_parser.is_available", lambda: True,
+        )
+        # `_classify_pdf` is imported lazily inside the union via
+        # `from src.core.request_classifier import …`, so patch the
+        # source module. `_vision_primary_extract` is at module level
+        # in ingest_pipeline so patch there.
+        monkeypatch.setattr("src.core.request_classifier._classify_pdf", fake_classify)
+        monkeypatch.setattr(ip, "_vision_primary_extract", fake_vision)
+
+        # Classification with EMPTY cache
+        classification = RequestClassification(
+            shape=SHAPE_GENERIC_RFQ_PDF,
+            agency="dsh",
+            primary_file="primary.pdf",
+        )
+        extras = ip._multi_attachment_vision_union(
+            primary_path=str(primary),
+            all_files=[str(primary), str(sibling)],
+            classification=classification,
+            primary_items=[],
+        )
+        # Falls back to live classify since cache is empty
+        assert calls["classify"] == 1
+        assert calls["vision"] == 1
+        assert len(extras) == 1
+
+
 class TestItemSignature:
     """`_item_signature` is the dedup key for the multi-attachment
     Vision union. Two items that describe the same line in different

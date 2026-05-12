@@ -156,6 +156,12 @@ class RequestClassification:
     institution: str = ""
     producer_signature: str = ""  # PDF /Producer metadata
     meta: Dict[str, Any] = field(default_factory=dict)
+    # Per-PDF classification cache — populated during `classify_request`
+    # so downstream consumers (e.g. `_multi_attachment_vision_union` in
+    # ingest_pipeline) don't have to re-call `_classify_pdf` on every
+    # sibling PDF. Keyed by basename → {"shape": ..., "info": {...}}.
+    # Excluded from `to_dict()` to keep the persisted record JSON lean.
+    _per_file_info: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -438,6 +444,10 @@ def classify_request(
 
         if ext == ".pdf":
             shape, info = _classify_pdf(path)
+            # Cache the per-PDF classification before any filtering so
+            # downstream consumers (multi-attach Vision union) can read
+            # shape + pricing_page_score without re-running _classify_pdf.
+            result._per_file_info[fname] = {"shape": shape, "info": info}
             if shape and shape != SHAPE_UNKNOWN:
                 # Prefer packet > 704 > generic. CCHCS packet wins outright.
                 if shape == SHAPE_CCHCS_PACKET:
