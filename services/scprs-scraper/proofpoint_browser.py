@@ -79,14 +79,28 @@ async def _pull_async(
             await page.goto(portal_url, wait_until="domcontentloaded", timeout=ms)
 
             # ── Login (skipped when persistent session is fresh) ──
+            # Real DSH portal uses PrimeFaces with name='dialog:username'
+            # and 'dialog:password' (NOT the generic 'email' / 'password'
+            # names). Calibrated 2026-05-12 against
+            # securemail.dsh.ca.gov/formpostdir/securereader — title
+            # "Encrypted Email Login", form action="/securereader/login.jsf".
+            # The portal pre-fills the username with the recipient's
+            # email when arriving from a wrapper email link, so we
+            # only really need to type the password.
             try:
                 email_input = await page.wait_for_selector(
-                    "input[name='email'], input[type='email'], input#email",
+                    "input[name='email'], input[type='email'], input#email, "
+                    "input[name='dialog:username'], input[name*='username'], "
+                    "input[id*='username']",
                     timeout=5000,
                 )
                 if email_input is not None:
                     log.info("proofpoint_browser: login form present")
-                    await email_input.fill(email)
+                    # Overwrite even when pre-filled (idempotent).
+                    try:
+                        await email_input.fill(email)
+                    except Exception as _fe:
+                        log.debug("email fill suppressed: %s", _fe)
                     # Some deployments use a 2-step email-then-password
                     # flow; try the continue button first.
                     try:
@@ -97,16 +111,26 @@ async def _pull_async(
                             timeout=2000,
                         )
                         if cont:
-                            await cont.click()
+                            # Only click if password field NOT visible
+                            # yet — otherwise it's a single-step form
+                            # and clicking submit too early posts an
+                            # empty password.
+                            pw_test = await page.query_selector(
+                                "input[type='password']"
+                            )
+                            if not pw_test:
+                                await cont.click()
                     except PWTimeout:
-                        pass  # single-step form — password already visible
+                        pass
                     pw_input = await page.wait_for_selector(
-                        "input[name='password'], input[type='password']",
+                        "input[name='password'], input[type='password'], "
+                        "input[name='dialog:password']",
                         timeout=ms,
                     )
                     await pw_input.fill(password)
                     submit = await page.wait_for_selector(
                         "button[type='submit'], input[type='submit'], "
+                        "input[name='dialog:continueButton'], "
                         "button:has-text('Sign In'), button:has-text('Continue'), "
                         "button:has-text('Read Message')",
                         timeout=ms,
