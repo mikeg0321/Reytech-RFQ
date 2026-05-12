@@ -2244,8 +2244,15 @@ def _do_save_prices_locked(pcid):
     # exact same math runs on the RFQ side via routes_rfq_gen autosave
     # and routes_rfq.update. Single source of truth for cost/markup/price
     # coherence across PC + RFQ.
+    #
+    # `prefer="price"` — this is the PC SAVE PRICES route where operator
+    # explicit interaction is typing OUR PRICE; markup_pct must follow
+    # (2026-05-05 Heel Donut). Other callers (RFQ autosave, enrichment,
+    # ingest) leave prefer at the default "markup" so an operator's
+    # typed markup_pct is sticky and not overwritten by stale price
+    # (2026-05-12 Mike P0 rfq_8efe9fae).
     from src.core.pricing_math import reconcile_items as _reconcile
-    _reconcile(items)
+    _reconcile(items, prefer="price")
 
     # Log what we're about to save for debugging
     for i, it in enumerate(items[:3]):  # first 3 items
