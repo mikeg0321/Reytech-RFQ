@@ -306,6 +306,89 @@ class TestPricingPageTiebreak:
         assert _pricing_page_score(pricing_text) >= 4
 
 
+# ─── Solicitation-number extractor (labeled patterns) ──────────────────
+#
+# PR substrate 2026-05-12: the pre-fix `_extract_solicitation` fell
+# through to the 8-digit bare-numeric fallback for unlabeled corpora,
+# which silently grabbed Adam Equipment part number `2010017786` as
+# the DSH 25CB021 sol#. Labeled patterns now scan first.
+
+class TestExtractSolicitation:
+    def test_labeled_solicitation_number_wins_over_bare_numeric(self):
+        from src.core.request_classifier import _extract_solicitation
+        # The bare numeric would match 12345678 (8 digits) if it were
+        # the only signal, but the labeled `Solicitation Number: X`
+        # should win.
+        s = _extract_solicitation(
+            "Adam PN 12345678 — Solicitation Number: 25CB021 some text",
+            [],
+        )
+        assert s == "25CB021"
+
+    def test_subject_line_quote_request_pattern(self):
+        """Catches Mike's real DSH subject:
+        `FW: Please find attached quote request 25CB021`."""
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "FW: Please find attached quote request 25CB021", [],
+        ) == "25CB021"
+
+    def test_request_for_quotation_pattern(self):
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "Request for quotation 25CB021", [],
+        ) == "25CB021"
+        # And with a colon separator
+        assert _extract_solicitation(
+            "Request for Quote: ABC123", [],
+        ) == "ABC123"
+
+    def test_sol_hash_alphanumeric(self):
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "Sol# CALVET-2026-001", [],
+        ) == "CALVET-2026-001"
+
+    def test_preq_prefix_still_works(self):
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "Re: CCHCS PREQ10843276 attached", [],
+        ) == "10843276"
+
+    def test_eight_digit_bare_fallback(self):
+        """Bare 8-digit numeric is the LAST fallback. Real CCHCS sol#s
+        match this shape (e.g. 10843276)."""
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "Some text 10843276 attached", [],
+        ) == "10843276"
+
+    def test_ten_digit_bare_does_not_match(self):
+        """10-digit bare numerics (Adam Equipment PN style) must NOT
+        match the 8-digit fallback. Mike's DSH test showed
+        `2010017786` was being mis-extracted as the sol# pre-fix."""
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "Adam Equipment Part Number 2010017786", [],
+        ) == ""
+
+    def test_does_not_capture_icitation_from_solicitation(self):
+        """Regression for CI failure 2026-05-12: the `\\bSol\\s*[:#]?…`
+        pattern matched `Sol` *inside* the word `SOLICITATION` and
+        captured `ICITATION` as the sol#. The CCHCS packet fixture's
+        page-1 caption is `SOLICITATION NUMBER: 10843276` — must
+        extract `10843276`, never `ICITATION`."""
+        from src.core.request_classifier import _extract_solicitation
+        # Note: with the labeled `Solicitation Number:` pattern firing
+        # first, the bare "SOLICITATION" without `#`/`Number:` should
+        # NOT match anything in isolation.
+        assert _extract_solicitation("SOLICITATION", []) == ""
+        # With Number: present, the labeled pattern fires correctly.
+        assert _extract_solicitation(
+            "SOLICITATION NUMBER: 10843276", [],
+        ) == "10843276"
+
+
 # ─── Email-only (no attachments) ────────────────────────────────────────
 
 class TestEmailOnlyClassification:
