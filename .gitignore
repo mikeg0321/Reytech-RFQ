@@ -101,3 +101,6 @@ docs/AUDIT_DEEP_E2E_2026_05_07.md
 docs/AUDIT_FULL_E2E_2026_05_07.md
 docs/AUDIT_HANDOFF_2026_05_07.md
 docs/AUDIT_HOME_QUOTING_GROWTH_2026_05_06.md
+
+# Ephemeral test-fire scripts (run against prod via `cat | railway ssh`).
+.tf_*.py

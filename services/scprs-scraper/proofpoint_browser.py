@@ -96,9 +96,25 @@ async def _pull_async(
                 )
                 if email_input is not None:
                     log.info("proofpoint_browser: login form present")
-                    # Overwrite even when pre-filled (idempotent).
+                    # Skip the email fill when the field is pre-filled
+                    # (DSH portal does this when arriving from a wrapper
+                    # email link) OR when it's read-only/disabled — both
+                    # cases would otherwise time out for 30s on
+                    # `.fill()` waiting for "element to be enabled".
+                    # Diagnostic capture against the real DSH portal
+                    # 2026-05-12 confirmed dialog:username is locked.
                     try:
-                        await email_input.fill(email)
+                        existing = (await email_input.get_attribute("value")) or ""
+                        readonly = await email_input.get_attribute("readonly")
+                        disabled = await email_input.is_disabled()
+                        if existing.strip() and (readonly is not None or disabled):
+                            log.info(
+                                "proofpoint_browser: username pre-filled + locked "
+                                "(value=%r, readonly=%s, disabled=%s) — skipping fill",
+                                existing[:40], readonly is not None, disabled,
+                            )
+                        else:
+                            await email_input.fill(email)
                     except Exception as _fe:
                         log.debug("email fill suppressed: %s", _fe)
                     # Some deployments use a 2-step email-then-password
@@ -128,11 +144,22 @@ async def _pull_async(
                         timeout=ms,
                     )
                     await pw_input.fill(password)
+                    # Submit-selector order matters — try the SPECIFIC
+                    # DSH continue button first. Generic
+                    # `input[type='submit']` matches multiple elements
+                    # on the DSH page (the first being a HIDDEN Log Out
+                    # button), causing `wait_for_selector` to lock onto
+                    # the wrong one. Diagnostic capture 2026-05-12
+                    # confirmed three submits exist: pfptEndSessionBtn
+                    # (Log Out, hidden), pfptContinueSessionBtn (also
+                    # hidden), and dialog:continueButton (the real one).
                     submit = await page.wait_for_selector(
-                        "button[type='submit'], input[type='submit'], "
                         "input[name='dialog:continueButton'], "
-                        "button:has-text('Sign In'), button:has-text('Continue'), "
-                        "button:has-text('Read Message')",
+                        "button:has-text('Read Message'), "
+                        "button:has-text('Sign In'), "
+                        "button:has-text('Continue'), "
+                        "button[type='submit']:visible, "
+                        "input[type='submit']:visible",
                         timeout=ms,
                     )
                     await submit.click()
@@ -141,7 +168,24 @@ async def _pull_async(
                 log.info("proofpoint_browser: no login form, session warm")
 
             # ── Enumerate + download attachments ──
+            # Real DSH Proofpoint markup (calibrated 2026-05-12 via the
+            # /proofpoint/inspect diagnostic): the wrapper email's
+            # secure inbox auto-opens the message, rendering attachment
+            # links inline as:
+            #
+            #   <span class="header-attachment-item">
+            #     <a href="#" onclick="mojarra.jsfcljs(...,'_blank');return false">
+            #       <img src="images/fileicons/pdf.gif">RFQ 25CB021.pdf
+            #     </a>
+            #   </span>
+            #
+            # The onclick fires a JSF postback that either streams a
+            # download directly OR opens a `_blank` popup carrying the
+            # bytes. We handle both via expect_download with a popup
+            # fallback. Other selectors stay as fallbacks for non-DSH
+            # Proofpoint deployments.
             selectors = [
+                "span.header-attachment-item a",  # DSH/Proofpoint reader
                 "a.attachment-link",
                 "a[download]",
                 "a[href*='/attachment/']",
@@ -165,38 +209,124 @@ async def _pull_async(
                 log.warning("proofpoint_browser: no attachments detected")
                 return []
 
-            for idx, el in enumerate(elements):
+            # Dedupe by onclick JSF backing ID — NOT by visible filename.
+            # Calibration 2026-05-12: the DSH inbox shows the same
+            # display name (`RFQ 25CB021.pdf`) for 4 distinct
+            # attachments (JSF indexes `:0:`, `:1:`, `:2:`, `:3:`).
+            # Each is a different file — cover sheet, item list, spec
+            # page, etc. Earlier filename-dedupe silently dropped the
+            # item-list PDF and left only the cover sheet (no items).
+            seen_keys: set = set()
+            unique_elements = []
+            for el in elements:
                 try:
-                    async with page.expect_download(timeout=ms) as dl_info:
-                        await el.click()
-                    download = await dl_info.value
+                    onclick = (await el.get_attribute("onclick")) or ""
+                    href = (await el.get_attribute("href")) or ""
+                    name = (await el.inner_text()).strip()
+                except Exception:
+                    onclick = ""
+                    href = ""
+                    name = ""
+                # Onclick is the strong dedupe key (JSF backing ID is
+                # unique per attachment). Fall back to href, then to
+                # display name + position as a last resort.
+                key = onclick or href or f"{name}|{len(unique_elements)}"
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                unique_elements.append((name, el))
+            log.info(
+                "proofpoint_browser: %d unique attachment(s) after onclick-dedupe",
+                len(unique_elements),
+            )
+
+            for idx, (fname_hint, el) in enumerate(unique_elements):
+                download = None
+                try:
+                    # JSF postback may stream the download directly OR
+                    # open a `_blank` popup that carries it.
+                    try:
+                        async with page.expect_download(timeout=10000) as dl_info:
+                            await el.click()
+                        download = await dl_info.value
+                    except PWTimeout:
+                        # Fall back to popup capture — some JSF setups
+                        # route the bytes through a new window.
+                        try:
+                            async with page.expect_popup(timeout=5000) as popup_info:
+                                await el.click()
+                            popup = await popup_info.value
+                            try:
+                                async with popup.expect_download(timeout=ms) as dl_info:
+                                    pass  # download in flight
+                                download = await dl_info.value
+                            finally:
+                                try:
+                                    await popup.close()
+                                except Exception:
+                                    pass
+                        except Exception as _pe:
+                            log.warning(
+                                "proofpoint_browser: popup fallback failed for #%d (%s): %s",
+                                idx, fname_hint, _pe,
+                            )
+                            continue
+                    if download is None:
+                        continue
                     suggested = (
                         download.suggested_filename
+                        or fname_hint
                         or f"proofpoint_attachment_{idx}_{uuid.uuid4().hex[:8]}.bin"
                     )
-                    out_path = os.path.join(download_tmp, suggested)
+                    # Disambiguate filename collisions — DSH sends 4
+                    # attachments named `RFQ 25CB021.pdf` (different
+                    # JSF IDs, different bytes). Without suffix, each
+                    # save_as would overwrite the prior and we'd return
+                    # 4 entries pointing to the same final bytes. Use
+                    # the `out` list state to know what filenames have
+                    # been claimed so far.
+                    existing_names = {o["filename"] for o in out}
+                    final_name = suggested
+                    if final_name in existing_names:
+                        stem, dot, ext = suggested.rpartition(".")
+                        if stem and dot:
+                            n = 2
+                            while f"{stem}_{n}.{ext}" in existing_names:
+                                n += 1
+                            final_name = f"{stem}_{n}.{ext}"
+                        else:
+                            n = 2
+                            while f"{suggested}_{n}" in existing_names:
+                                n += 1
+                            final_name = f"{suggested}_{n}"
+                    out_path = os.path.join(download_tmp, final_name)
                     await download.save_as(out_path)
                     if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
                         with open(out_path, "rb") as fh:
                             data = fh.read()
                         out.append({
-                            "filename": suggested,
+                            "filename": final_name,
                             "content_b64": base64.b64encode(data).decode("ascii"),
                             "size": len(data),
                         })
                         log.info(
                             "proofpoint_browser: downloaded %s (%d bytes)",
-                            suggested, len(data),
+                            final_name, len(data),
                         )
-                        # Clean up the temp file — bytes are now in `out`.
                         try:
                             os.unlink(out_path)
                         except Exception:
                             pass
                 except PWTimeout:
-                    log.warning("proofpoint_browser: download #%d timeout", idx)
+                    log.warning(
+                        "proofpoint_browser: download #%d (%s) timed out",
+                        idx, fname_hint,
+                    )
                 except Exception as e:
-                    log.warning("proofpoint_browser: download #%d failed: %s", idx, e)
+                    log.warning(
+                        "proofpoint_browser: download #%d (%s) failed: %s",
+                        idx, fname_hint, e,
+                    )
         finally:
             try:
                 await context.close()

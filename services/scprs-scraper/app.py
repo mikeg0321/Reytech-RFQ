@@ -117,6 +117,48 @@ def public_search():
         return jsonify({"ok": False, "error": str(e)[:500]}), 500
 
 
+@app.route("/proofpoint/inspect", methods=["POST"])
+def proofpoint_inspect():
+    """Diagnostic mirror of /proofpoint/pull — runs the same login flow
+    but captures URL/title/HTML/DOM/screenshot at each step (nav,
+    post_login, attachments). Used by auto-pull v2 development to
+    iterate on selectors without burning code-deploy cycles.
+
+    Body: {"portal_url": "...", "email": "...", "password": "...",
+           "timeout_s": 30, "persist_cookies": false}
+
+    Returns: {"ok": true, "data": {portal_url, login_attempted,
+              login_form_detected, submit_clicked, errors, steps: [...]}}
+
+    Each step carries `screenshot_b64` (PNG) + `html_head` (5000 chars)
+    + DOM enumerations of inputs/buttons/forms/links. The data payload
+    is several MB; intended for ad-hoc dev work, not high-volume calls.
+    """
+    auth_err = _check_auth()
+    if auth_err:
+        return auth_err
+    try:
+        from proofpoint_diag import inspect_portal as _inspect
+        data = request.get_json(silent=True) or {}
+        portal_url = (data.get("portal_url") or "").strip()
+        email = (data.get("email") or "").strip()
+        password = data.get("password") or ""
+        timeout_s = int(data.get("timeout_s") or 30)
+        persist_cookies = bool(data.get("persist_cookies") or False)
+        if not portal_url:
+            return jsonify({"ok": False, "error": "portal_url required"}), 400
+        if not email or not password:
+            return jsonify({"ok": False, "error": "email + password required"}), 400
+        result = _inspect(
+            portal_url, email, password,
+            timeout_s=timeout_s, persist_cookies=persist_cookies,
+        )
+        return jsonify({"ok": True, "data": result})
+    except Exception as e:
+        log.error("proofpoint/inspect failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)[:500]}), 500
+
+
 @app.route("/proofpoint/pull", methods=["POST"])
 def proofpoint_pull():
     """Auto-login to a Proofpoint Encryption portal URL and download
