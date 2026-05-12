@@ -96,9 +96,25 @@ async def _pull_async(
                 )
                 if email_input is not None:
                     log.info("proofpoint_browser: login form present")
-                    # Overwrite even when pre-filled (idempotent).
+                    # Skip the email fill when the field is pre-filled
+                    # (DSH portal does this when arriving from a wrapper
+                    # email link) OR when it's read-only/disabled — both
+                    # cases would otherwise time out for 30s on
+                    # `.fill()` waiting for "element to be enabled".
+                    # Diagnostic capture against the real DSH portal
+                    # 2026-05-12 confirmed dialog:username is locked.
                     try:
-                        await email_input.fill(email)
+                        existing = (await email_input.get_attribute("value")) or ""
+                        readonly = await email_input.get_attribute("readonly")
+                        disabled = await email_input.is_disabled()
+                        if existing.strip() and (readonly is not None or disabled):
+                            log.info(
+                                "proofpoint_browser: username pre-filled + locked "
+                                "(value=%r, readonly=%s, disabled=%s) — skipping fill",
+                                existing[:40], readonly is not None, disabled,
+                            )
+                        else:
+                            await email_input.fill(email)
                     except Exception as _fe:
                         log.debug("email fill suppressed: %s", _fe)
                     # Some deployments use a 2-step email-then-password
@@ -128,11 +144,22 @@ async def _pull_async(
                         timeout=ms,
                     )
                     await pw_input.fill(password)
+                    # Submit-selector order matters — try the SPECIFIC
+                    # DSH continue button first. Generic
+                    # `input[type='submit']` matches multiple elements
+                    # on the DSH page (the first being a HIDDEN Log Out
+                    # button), causing `wait_for_selector` to lock onto
+                    # the wrong one. Diagnostic capture 2026-05-12
+                    # confirmed three submits exist: pfptEndSessionBtn
+                    # (Log Out, hidden), pfptContinueSessionBtn (also
+                    # hidden), and dialog:continueButton (the real one).
                     submit = await page.wait_for_selector(
-                        "button[type='submit'], input[type='submit'], "
                         "input[name='dialog:continueButton'], "
-                        "button:has-text('Sign In'), button:has-text('Continue'), "
-                        "button:has-text('Read Message')",
+                        "button:has-text('Read Message'), "
+                        "button:has-text('Sign In'), "
+                        "button:has-text('Continue'), "
+                        "button[type='submit']:visible, "
+                        "input[type='submit']:visible",
                         timeout=ms,
                     )
                     await submit.click()

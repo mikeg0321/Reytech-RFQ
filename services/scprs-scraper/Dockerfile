@@ -10,6 +10,7 @@ RUN playwright install chromium
 COPY scprs_browser.py .
 COPY scprs_public_search.py .
 COPY proofpoint_browser.py .
+COPY proofpoint_diag.py .
 COPY app.py .
 
 EXPOSE 8001
