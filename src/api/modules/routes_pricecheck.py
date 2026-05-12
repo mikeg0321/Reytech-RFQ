@@ -2897,7 +2897,21 @@ def api_pc_lookup_tax_rate(pcid):
 
 
 def _api_pc_lookup_tax_rate_locked(pcid):
-    """Inner body — always runs under `_save_pcs_lock`."""
+    """Inner body — always runs under `_save_pcs_lock`.
+
+    P0 2026-05-12 (matches the RFQ fix from 2026-05-11): clicking
+    Verify on the PC tax rate silently clobbered line-item costs that
+    Mike had just typed but autosave hadn't flushed yet (3s debounce
+    in pc_detail.html). Root cause: `_load_price_checks()` reads STALE
+    items at the top of this handler, then `_save_single_pc()` writes
+    the whole blob back — line_items round-trip-and-overwrite under
+    the lock, blowing away in-flight client edits when the autosave
+    debounce later posts and finds the disk has moved on.
+
+    Fix: do the canonical CDTFA round-trip first, then re-load INSIDE
+    the lock immediately before the save and overlay ONLY the tax keys.
+    Any autosave that landed during the CDTFA call is preserved.
+    """
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -2920,10 +2934,14 @@ def _api_pc_lookup_tax_rate_locked(pcid):
             rate_pct = round(result["rate"] * 100, 3)
             _source = result.get("source", "")
             _is_validated = bool(result.get("validated"))
-            pc["tax_rate"] = rate_pct
-            pc["tax_validated"] = _is_validated
-            pc["tax_source"] = _source
-            _save_single_pc(pcid, pc)
+            # ── P0 2026-05-12: re-load INSIDE the lock just before the
+            # save, then overlay ONLY the tax keys. Mirrors the RFQ fix.
+            pcs_fresh = _load_price_checks()
+            pc_fresh = pcs_fresh.get(pcid) or pc
+            pc_fresh["tax_rate"] = rate_pct
+            pc_fresh["tax_validated"] = _is_validated
+            pc_fresh["tax_source"] = _source
+            _save_single_pc(pcid, pc_fresh)
             warning = None
             if not _is_validated:
                 warning = ("Lookup fell back to the CA base rate — CDTFA did not "

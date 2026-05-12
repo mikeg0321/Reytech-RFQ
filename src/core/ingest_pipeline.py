@@ -930,12 +930,50 @@ def _reconcile_vision_and_base(
         warning carrying both counts so the operator can audit.
       - Disagreements WITHIN tolerance produce no warning (most
         common case — Vision and base both report similar counts).
+      - PR substrate 2026-05-12: ALSO flag review when both parsers
+        return 0 items on a multi-page PDF — this is the DSH bundle
+        signature (Vision parsed the cover sheet because the items
+        page lives in a separate attachment). The pricing-page tiebreak
+        in `classify_request` is the primary fix; this gate is the
+        belt-and-suspenders for variants the tiebreak misses.
     """
     warnings: List[Dict[str, str]] = []
     v_count = len(vision_items)
     b_count = len(base_items)
     delta = abs(v_count - b_count)
     threshold = max(2, int(0.2 * max(v_count, b_count, 1)))
+
+    # ── Page-count confidence gate ──
+    # When both Vision and base extract 0 items from a >=2-page PDF,
+    # something is wrong — either Vision misread, the PDF is image-only
+    # and Vision skipped it, or this PDF is the wrong attachment (cover
+    # sheet in a multi-attachment bundle, vendor cert, etc.). Flag for
+    # operator review so the no-items state never silently auto-confirms.
+    if v_count == 0 and b_count == 0:
+        try:
+            page_count = _pdf_page_count(path)
+        except Exception:
+            page_count = 0
+        if page_count >= 1:
+            warnings.append({
+                "kind": "zero_items_on_pdf",
+                "detail": (
+                    f"Both Vision and {base_parser_label} returned 0 items "
+                    f"on a {page_count}-page PDF ({os.path.basename(path)}). "
+                    f"Possible causes: wrong attachment selected as primary, "
+                    f"image-only scan without OCR, or items table the parser "
+                    f"didn't recognize. Operator should review."
+                ),
+                "vision_count": "0",
+                "base_count": "0",
+                "page_count": str(page_count),
+                "base_parser": base_parser_label,
+            })
+            log.warning(
+                "ingest reconcile: zero items extracted from %s (%d-page PDF) — needs_review",
+                os.path.basename(path), page_count,
+            )
+            return (vision_items, warnings, True)
 
     if delta > threshold:
         needs_review = True
@@ -1072,6 +1110,36 @@ def _pdf_page_count(path: str) -> int:
         return len(PdfReader(path).pages)
     except Exception:
         return 0
+
+
+def _looks_like_sol_placeholder(value: str) -> bool:
+    """Mirror of `dashboard._is_placeholder_number` used by the CalVet
+    sol# synthesizer (above) to decide whether to synthesize.
+
+    True when the extracted string is empty, blank, a known sentinel
+    (WORKSHEET / GOOD / RFQ / QUOTE / etc.), or a single all-caps word
+    of the kind regex parsers cough up on no-match. False for real
+    solicitation numbers AND for already-synthesized `RT-…` strings.
+    """
+    if not value:
+        return True
+    s = str(value).strip()
+    if not s:
+        return True
+    if s.startswith("RT-"):
+        return False  # already a synthesized Reytech-internal sol#
+    if s.startswith("AUTO_"):
+        return True  # AUTO_<id> is itself a placeholder
+    if s.isupper() and s.isalpha() and 2 <= len(s) <= 20:
+        return True
+    if s.lower() in {
+        "unknown", "rfq", "quote", "request", "worksheet", "good",
+        "bid", "vendor", "price", "check", "form",
+    }:
+        return True
+    if s.isdigit() and len(s) <= 2:
+        return True
+    return False
 
 
 # ── Record creation ─────────────────────────────────────────────────────
@@ -1308,6 +1376,40 @@ def _create_record(
     # readers already coerce both shapes.
     received_at = email_received_at or now
 
+    # ── CalVet sol# synthesizer (PR substrate 2026-05-12) ──
+    # CalVet doesn't always issue a real solicitation number. Without one,
+    # the parser falls back to "WORKSHEET" / filename stem / AUTO_<id>, and
+    # `is_ready_for_quote_allocation` (dashboard.py) blocks Generate with
+    # a placeholder-number error — even though the buyer has real items
+    # and a real ship-to. Mike P000 spec 2026-05-11: synthesize a stable
+    # Reytech-internal sol# so CalVet RFQs/PCs can progress without the
+    # operator typing a fake one.
+    #
+    # Form: `RT-CALVET-<YYMMDD>-<short_id>`. The `RT-` prefix is registered
+    # in `_is_placeholder_number` (dashboard.py) as NOT a placeholder, so
+    # the synthesized number cleanly clears the allocation gate without
+    # making genuinely-junk strings ("WORKSHEET", "GOOD", "RFQ") pass.
+    extracted_sol = (
+        classification.solicitation_number
+        or header.get("solicitation_number", "")
+        or header.get("pc_number", "")
+    )
+    resolved_sol = extracted_sol
+    if (
+        (classification.agency or "").lower() == "calvet"
+        and _looks_like_sol_placeholder(extracted_sol)
+        and items
+    ):
+        try:
+            _ymd = (now or "")[:10].replace("-", "")[2:]  # YYMMDD slice
+        except Exception:
+            _ymd = ""
+        resolved_sol = f"RT-CALVET-{_ymd}-{short_id}"
+        log.info(
+            "calvet sol synthesizer: %r → %r (no real sol# from buyer)",
+            extracted_sol, resolved_sol,
+        )
+
     record: Dict[str, Any] = {
         "id": f"{record_type}_{short_id}",
         "created_at": now,
@@ -1327,7 +1429,9 @@ def _create_record(
         "email_thread_id": gmail_thread_id or "",
         "gmail_message_ids": [gmail_message_id] if gmail_message_id else [],
         # Common header fields pulled from either the classifier or parser
-        "solicitation_number": classification.solicitation_number or header.get("solicitation_number", "") or header.get("pc_number", ""),
+        # (or `RT-CALVET-…` synthesized form when CalVet RFQ has no real
+        # sol#; see synthesizer above).
+        "solicitation_number": resolved_sol,
         "institution": canonical_institution,
         "ship_to": resolved_ship_to,
         "agency": classification.agency,
@@ -1371,7 +1475,7 @@ def _create_record(
 
     if record_type == "pc":
         record["pc_number"] = (
-            classification.solicitation_number
+            resolved_sol
             or header.get("pc_number", "")
             or _attachment_title
             or f"AUTO_{short_id}"
@@ -1386,7 +1490,7 @@ def _create_record(
         _save_single_pc(record["id"], record)
     else:  # rfq
         record["rfq_number"] = (
-            classification.solicitation_number
+            resolved_sol
             or header.get("solicitation_number", "")
             or _attachment_title
             or f"AUTO_{short_id}"

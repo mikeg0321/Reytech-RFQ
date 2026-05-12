@@ -1689,6 +1689,12 @@ def _is_placeholder_number(value: str) -> bool:
         return True
     if s.startswith("AUTO_"):
         return False
+    # `RT-<AGENCY>-<YYMMDD>-<rec_short>` is the Reytech-synthesized form
+    # minted by `ingest_pipeline._create_record` when an agency (currently
+    # CalVet) doesn't issue real sol#s. Treat as a real number — the gate
+    # is for blocking buyer-content junk, not synthesized identifiers.
+    if s.startswith("RT-"):
+        return False
     # Single all-caps word (any length) — junk like "WORKSHEET", "GOOD", "RFQ", "QUOTE"
     if s.isupper() and s.isalpha() and 2 <= len(s) <= 20:
         return True
