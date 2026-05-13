@@ -274,3 +274,71 @@ def test_js_orig_desc_missing_governs_cost_gate():
     assert "_origDescMissing" in body, (
         "Symmetric description-missing gate must use _origDescMissing"
     )
+
+
+# ── Fix 5: Operator-write protection (Mike P0 2026-05-12 live drive) ──
+# rfq_b57f85f7 driving session: pasting supplier URLs overwrote operator-set
+# MFG# (with vendor SKU) and operator-set cost (with scraped per-unit price).
+# Item 4 MFG# `846788` → `AWD-5-1010C`. Item 5 cost $81.32/BX → $487.89/CS.
+# Item 6 cost $122.22/CS → $8.25/PK. Operator gets no warning, just silent
+# clobber. The fix gates both writes on existing-value presence and surfaces
+# the scrape result as a "kept your X (lookup wanted Y)" candidate instead.
+
+
+def test_js_mfg_protection_rfq_no_longer_unconditional_overwrite():
+    """RFQ mode previously branched `isPC ? ... : true` on MFG# fill —
+    i.e. always overwrite on RFQ. The fix must guard on `!curMfg` so an
+    operator-set MFG# survives URL paste."""
+    src = _read_js("src/static/shared_item_utils.js")
+    start = src.index("function _applyLinkData(")
+    body = src[start:start + 6000]
+    # Old destructive branch must be gone
+    assert "isPC ? (isSubstitute || !curMfg) : true" not in body, (
+        "RFQ MFG# fill must no longer unconditionally overwrite"
+    )
+    # New symmetric guard must be present
+    assert "shouldFillMfg" in body, (
+        "MFG# fill must compute a shouldFillMfg gate that respects existing curMfg on RFQ"
+    )
+    assert "isPC ? (isSubstitute || !curMfg) : !curMfg" in body, (
+        "New gate must require empty curMfg on RFQ before overwriting"
+    )
+
+
+def test_js_mfg_protection_surfaces_candidate_when_blocked():
+    """When operator MFG# differs from scrape MFG#, the kept-yours candidate
+    must appear in filled[] so the operator sees what scrape found."""
+    src = _read_js("src/static/shared_item_utils.js")
+    start = src.index("function _applyLinkData(")
+    body = src[start:start + 6000]
+    assert "MFG# kept your" in body, (
+        "Blocked MFG# overwrite must surface a 'MFG# kept your X (lookup wanted Y)' candidate"
+    )
+
+
+def test_js_cost_protection_blocks_when_operator_has_cost():
+    """When operator already entered a cost, scraped value must NOT overwrite —
+    surface as candidate instead."""
+    src = _read_js("src/static/shared_item_utils.js")
+    start = src.index("function _applyLinkData(")
+    # Body window must reach past the MFG# block to the cost block (~12000 chars in).
+    body = src[start:start + 14000]
+    assert "_operatorCostHeld" in body, (
+        "Cost fill must compute _operatorCostHeld flag from existingCost"
+    )
+    assert "cost kept your $" in body, (
+        "Blocked cost overwrite must surface a 'cost kept your $X (lookup wanted $Y)' candidate"
+    )
+
+
+def test_js_cost_protection_allows_same_value_recompute():
+    """Tolerance must allow scraped == existing (within $0.01) to no-op
+    without firing the candidate path — otherwise every page load nags the
+    operator about prices they already accepted."""
+    src = _read_js("src/static/shared_item_utils.js")
+    start = src.index("function _applyLinkData(")
+    body = src[start:start + 14000]
+    # The diff guard uses Math.abs(...) > 0.01
+    assert "Math.abs(_scrapedCost - existingCost) > 0.01" in body, (
+        "Cost differs check must use a $0.01 tolerance, not strict inequality"
+    )

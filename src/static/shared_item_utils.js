@@ -317,19 +317,31 @@ function _applyLinkData(idx, d, mode) {
   }
 
   // MFG#: never use ASIN (B0XXXXXXXX) as part number — procurement requires real MFG#
-  // PC: only fill if substitute mode or empty. RFQ: always overwrite with real MFG#.
+  // Operator-write protection (Mike P0 2026-05-12 live drive of rfq_b57f85f7):
+  // the scrape lands a VENDOR-side SKU (e.g. heymedsupply's "AWD-5-1010C") but
+  // the buyer's RFQ asked for a McKesson catalog # (e.g. "846788"). Silently
+  // overwriting means we quote the wrong identifier and contract validation
+  // fails. Both PC and RFQ modes now respect a non-empty operator-set MFG# —
+  // if it differs from the scrape, surface the scraped value as a candidate
+  // and don't touch the field.
+  //   PC: fill only when in substitute mode OR field is empty (existing rule)
+  //   RFQ: fill only when field is empty (CHANGED from "always overwrite")
   var mfgEl = document.querySelector('[name="itemnum_' + idx + '"]') || document.querySelector('[name="part_' + idx + '"]');
   var mfgVal = (d.mfg_number || d.part_number || '').trim();
   if (mfgEl && mfgVal) {
     var isAsin = /^B0[A-Z0-9]{8}$/.test(mfgVal);
     if (!isAsin) {
       var curMfg = (mfgEl.value || '').trim();
-      if (isPC ? (isSubstitute || !curMfg) : true) {
+      var shouldFillMfg = isPC ? (isSubstitute || !curMfg) : !curMfg;
+      if (shouldFillMfg) {
         var mfgWasLocked = mfgEl.readOnly;
         mfgEl.readOnly = false; // unlock for auto-fill from lookup
         mfgEl.value = mfgVal;
         mfgEl.readOnly = mfgWasLocked; // restore
         filled.push('MFG# ' + mfgVal);
+      } else if (curMfg && curMfg.toLowerCase() !== mfgVal.toLowerCase()) {
+        // Operator-write protection: surface scraped MFG# as candidate but keep theirs.
+        filled.push('MFG# kept your "' + curMfg + '" (lookup wanted "' + mfgVal + '")');
       }
     }
   }
@@ -377,7 +389,22 @@ function _applyLinkData(idx, d, mode) {
       // the MSRP wasn't separately verified — they may want to
       // research the real MSRP before quoting at the markup.
       var msrpUnverified = !!d.single_price_promoted;
-      if (lp > 0) {
+      // Operator-write protection (Mike P0 2026-05-12 live drive of rfq_b57f85f7):
+      // when the operator has already typed a cost, NEVER overwrite it from
+      // a scrape — surface the scraped price as a candidate instead. Race
+      // case: operator pastes URL + manual cost in a single batch; the
+      // async scrape lands seconds later and was silently clobbering hand-
+      // typed values. Item 5 ($81.32/BX overwritten by $487.89/CS) and
+      // item 6 ($122.22/CS overwritten by $8.25/PK) both proved this live.
+      var _scrapedCost = lp > 0 ? lp : (d.price && d.price > 0 ? parseFloat(d.price) : 0);
+      var _operatorCostHeld = existingCost > 0;
+      var _scrapeDiffers = _scrapedCost > 0 && Math.abs(_scrapedCost - existingCost) > 0.01;
+      if (_operatorCostHeld && _scrapeDiffers) {
+        // Operator already entered a cost that differs from the lookup. Keep theirs,
+        // surface scraped value as candidate so they can decide if it's worth swapping.
+        filled.push('cost kept your $' + existingCost.toFixed(2)
+          + ' (lookup wanted $' + _scrapedCost.toFixed(2) + ')');
+      } else if (lp > 0) {
         // MSRP available — use it as cost basis
         costEl.value = lp.toFixed(2);
         if (msrpUnverified) {
