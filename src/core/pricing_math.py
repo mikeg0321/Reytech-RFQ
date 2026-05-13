@@ -61,9 +61,11 @@ def canonical_unit_price(item: dict) -> float:
     # on that record's persisted item dict so the `is None` guard fell
     # through to the stale `unit_price` fallback instead of reading
     # `pricing.unit_cost` where the real $465.40 lived.
-    cost = (_coerce_float(p.get("unit_cost"))
+    # Operator-typed wins over scrape — symmetric with `_read_cost`.
+    # See `_read_cost` docstring for the mat-on-PVSP incident context.
+    cost = (_coerce_float(item.get("supplier_cost"))
             or _coerce_float(item.get("vendor_cost"))
-            or _coerce_float(item.get("supplier_cost"))
+            or _coerce_float(p.get("unit_cost"))
             or _coerce_float(item.get("cost")))
     # 2026-05-11: prior `or`-chain treated markup_pct=0.0 as missing
     # (Python falsy: `0.0 or X` evaluates to X). For a give-away or
@@ -169,12 +171,21 @@ def _markup_is_sane(markup_pct: float | None) -> bool:
 
 
 def _read_cost(item: dict) -> float:
-    """Pull cost from any alias. Priority matches `canonical_unit_price` so
-    derivations use the same source field on read and write."""
+    """Pull cost from any alias. Operator-typed wins over scrape.
+
+    `supplier_cost` is what `validate_rfq_item` writes when the operator
+    types a value in the RFQ cost cell. `pricing.unit_cost` is the
+    URL-paste / catalog scrape. The operator has hands-on cart visibility
+    that beats a fuzzy catalog match — so when both exist, the typed value
+    wins. Closes the bug class where premium SKUs whose initial scrape
+    matched the wrong variant ($59.99 mat instead of $448 Waterhog Elite)
+    were impossible to manually correct because every save round-trip
+    reverted the typed cost back to the stale catalog reference.
+    """
     p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
-    raw = (_coerce_float(p.get("unit_cost"))
+    raw = (_coerce_float(item.get("supplier_cost"))
            or _coerce_float(item.get("vendor_cost"))
-           or _coerce_float(item.get("supplier_cost"))
+           or _coerce_float(p.get("unit_cost"))
            or _coerce_float(item.get("cost"))
            or _coerce_float(p.get("cost")))
     return float(raw or 0)
@@ -499,9 +510,11 @@ def is_unit_price_stale(item: dict, tolerance: float = 0.005) -> bool:
         stored = _coerce_float(p.get("recommended_price"))
     if stored is None or stored <= 0:
         return False  # nothing persisted to compare against
-    cost = (_coerce_float(p.get("unit_cost"))
+    # Operator-typed wins over scrape — symmetric with `_read_cost`.
+    # See `_read_cost` docstring for the mat-on-PVSP incident context.
+    cost = (_coerce_float(item.get("supplier_cost"))
             or _coerce_float(item.get("vendor_cost"))
-            or _coerce_float(item.get("supplier_cost"))
+            or _coerce_float(p.get("unit_cost"))
             or _coerce_float(item.get("cost")))
     markup = _coerce_float(item.get("markup_pct"))
     if markup is None:
