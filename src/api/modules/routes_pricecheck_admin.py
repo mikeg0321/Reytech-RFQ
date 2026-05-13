@@ -2458,6 +2458,218 @@ def oracle_digest_preview():
 # ═══ QA Heartbeat (PR-Q) ════════════════════════════════════════════════════
 
 
+@bp.route("/admin/funnel", methods=["GET"])
+@auth_required
+@safe_route
+def admin_funnel_diagnostic():
+    """PR-M (2026-05-13): autonomous-quote-completion funnel surface.
+
+    Mike's directive: "quotes have to be accurate and completed
+    autonomously." Before optimizing pricing, we have to see where the
+    funnel stalls. Walks the last N days of price_checks, breaks the
+    pipeline into stages, and surfaces the stall reasons at each step.
+
+    Stages (ordered by where work flows):
+       1. Created (any PC row exists)
+       2. Has items (parsed successfully — non-empty items)
+       3. Priced (status reached priced/draft/quoted)
+       4. Sent (status=sent)
+       5. Resolved (status in won/lost)
+
+    For each stall, surfaces the stated reason from status_history.
+    Empty `reason` is the canary — it's an operator action without
+    audit trail (52 April duplicates were exactly this).
+    """
+    try:
+        days = max(1, int(request.args.get("days", 30)))
+    except (TypeError, ValueError):
+        days = 30
+    from src.api.data_layer import _load_price_checks
+    pcs = _load_price_checks() or {}
+    cutoff = datetime.now() - timedelta(days=days)
+
+    # Pull only the window we care about
+    in_window = []
+    for pid, pc in pcs.items():
+        try:
+            created = pc.get("created_at", "")
+            t = datetime.fromisoformat(created.rstrip("Z").split("+")[0])
+            if t >= cutoff:
+                in_window.append((pid, pc))
+        except (TypeError, ValueError):
+            continue
+
+    # Stage classification — each PC lands at exactly one stage
+    stages: dict[str, list] = {
+        "created_empty":   [],  # status=new/parse_error/never_parsed
+        "parsed_unpriced": [],  # has items but never priced
+        "priced_not_sent": [],  # priced/draft/quoted but not sent
+        "sent":            [],
+        "resolved_won":    [],
+        "resolved_lost":   [],
+        "resolved_other":  [],  # expired/dismissed/duplicate/archived
+    }
+    PRICED = {"priced", "draft", "quoted", "generated", "auto_drafted",
+              "ready", "completed", "converted"}
+    OTHER_RESOLVED = {"expired", "dismissed", "duplicate", "archived",
+                      "deleted", "no_response", "not_responding",
+                      "reclassified", "cancelled", "void"}
+
+    for pid, pc in in_window:
+        status = (pc.get("status") or "new").lower()
+        items = pc.get("items") or []
+        has_items = bool(items) and len(items) > 0
+        if status == "won":
+            stages["resolved_won"].append((pid, pc))
+        elif status == "lost":
+            stages["resolved_lost"].append((pid, pc))
+        elif status in OTHER_RESOLVED:
+            stages["resolved_other"].append((pid, pc))
+        elif status == "sent" or pc.get("sent_at"):
+            stages["sent"].append((pid, pc))
+        elif status in PRICED:
+            stages["priced_not_sent"].append((pid, pc))
+        elif has_items:
+            stages["parsed_unpriced"].append((pid, pc))
+        else:
+            stages["created_empty"].append((pid, pc))
+
+    # Reason breakdown for the resolved_other bucket — this is where
+    # the 52 April duplicates live, and where the audit trail tells
+    # us whether the operator was deliberate or overloaded.
+    other_reasons: dict = {}
+    other_no_reason = 0
+    for pid, pc in stages["resolved_other"]:
+        reason = (pc.get("closed_reason") or "").strip()
+        # Pull last status_history entry's reason if closed_reason empty
+        if not reason:
+            hist = pc.get("status_history") or []
+            if isinstance(hist, list) and hist:
+                last = hist[-1] if isinstance(hist[-1], dict) else {}
+                reason = (last.get("reason") or "").strip()
+        if not reason:
+            other_no_reason += 1
+            key = f"{pc.get('status','?')}:(no reason)"
+        else:
+            key = f"{pc.get('status','?')}:{reason[:60]}"
+        other_reasons[key] = other_reasons.get(key, 0) + 1
+
+    # Render
+    total = len(in_window)
+    def _pct(n):
+        return f"{(100.0 * n / total):.1f}%" if total else "—"
+
+    rows_html = ""
+    stage_labels = [
+        ("created_empty",   "Created — never parsed",  "#8b949e",
+         "Email landed, PC row created, but parser yielded no items"),
+        ("parsed_unpriced", "Parsed — never priced",   "#d29922",
+         "Items extracted but enrichment/pricing never ran"),
+        ("priced_not_sent", "Priced — not sent",       "#a78bfa",
+         "Ready to send, operator didn't"),
+        ("sent",            "Sent",                    "#58a6ff",
+         "Quote shipped, awaiting outcome"),
+        ("resolved_won",    "Won",                     "#3fb950",
+         "Awarded to Reytech"),
+        ("resolved_lost",   "Lost",                    "#f85149",
+         "Awarded to competitor"),
+        ("resolved_other",  "Resolved (other)",        "#8b949e",
+         "expired/dismissed/duplicate/archived"),
+    ]
+    for key, label, color, hint in stage_labels:
+        n = len(stages[key])
+        rows_html += (
+            f'<tr><td><strong style="color:{color}">{label}</strong>'
+            f'<div style="opacity:.6;font-size:11px;margin-top:2px">'
+            f'{hint}</div></td>'
+            f'<td style="text-align:right;font-size:18px;font-weight:600;'
+            f'color:{color}">{n}</td>'
+            f'<td style="text-align:right;opacity:.7">{_pct(n)}</td></tr>'
+        )
+
+    # Top stall reasons for the other-resolved bucket
+    reason_rows = ""
+    other_total = len(stages["resolved_other"])
+    if other_reasons:
+        for k, n in sorted(other_reasons.items(),
+                            key=lambda x: -x[1])[:15]:
+            badge_color = ("#f85149" if "(no reason)" in k else "#8b949e")
+            reason_rows += (
+                f'<tr><td style="font-family:monospace;font-size:11px">'
+                f'<span style="color:{badge_color}">{k}</span></td>'
+                f'<td style="text-align:right">{n}</td></tr>'
+            )
+    else:
+        reason_rows = ('<tr><td colspan="2" style="opacity:.6">'
+                       'No resolved-other PCs in window.</td></tr>')
+
+    no_reason_pct = (100.0 * other_no_reason / other_total) if other_total else 0
+    audit_color = (
+        "#3fb950" if no_reason_pct < 20 else
+        "#d29922" if no_reason_pct < 50 else "#f85149"
+    )
+
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Funnel Diagnostic — Reytech</title>
+<style>
+  body{{margin:0;padding:20px;background:#010409;color:#e6edf3;
+       font-family:system-ui,sans-serif}}
+  .wrap{{max-width:900px;margin:0 auto}}
+  h1{{font-size:18px;margin:8px 0 14px}}
+  h2{{font-size:14px;margin:18px 0 8px;color:#8b949e;
+       text-transform:uppercase;letter-spacing:.5px}}
+  table{{width:100%;border-collapse:collapse;font-size:13px;
+       background:#0d1117;border:1px solid #30363d;border-radius:8px;
+       overflow:hidden;margin-bottom:18px}}
+  th,td{{padding:8px 12px;text-align:left;
+       border-bottom:1px solid #21262d;vertical-align:middle}}
+  th{{background:#161b22;color:#8b949e;font-weight:600;font-size:12px;
+       text-transform:uppercase;letter-spacing:.4px}}
+  .meta{{color:#8b949e;font-size:12px;margin-top:14px}}
+  .banner{{padding:10px 14px;background:#1f6feb22;
+       border:1px solid #1f6feb55;border-radius:8px;color:#58a6ff;
+       font-size:13px;margin-bottom:18px}}
+  .audit{{padding:8px 12px;background:{audit_color}22;
+       border:1px solid {audit_color}55;color:{audit_color};
+       border-radius:6px;font-size:13px;margin-bottom:14px}}
+</style></head><body><div class="wrap">
+<div class="banner">
+  📊 <strong>Autonomous-completion funnel</strong> — last <strong>{days}</strong> days.
+  Total PCs in window: <strong>{total}</strong>.
+  Mike's directive: "quotes have to be accurate and completed
+  autonomously." This is the surface that shows where they stall.
+</div>
+<h1>Funnel breakdown — last {days} days</h1>
+<table>
+  <thead><tr><th>Stage</th><th style="text-align:right">Count</th>
+       <th style="text-align:right">% of total</th></tr></thead>
+  <tbody>{rows_html}</tbody>
+</table>
+
+<h2>Resolved-other stall reasons</h2>
+<div class="audit">
+  Audit trail health: <strong>{other_no_reason}/{other_total}</strong>
+  ({no_reason_pct:.0f}%) resolved-other PCs have <strong>no recorded reason</strong>.
+  After PR-M every status flip captures reason in status_history, so
+  this number should drop to ≤10% going forward. Higher = operator
+  triage without context.
+</div>
+<table>
+  <thead><tr><th>status:reason</th>
+       <th style="text-align:right">PCs</th></tr></thead>
+  <tbody>{reason_rows}</tbody>
+</table>
+<div class="meta">
+  Top-line numbers for /goal: at 33 bids/mo target, the "sent" row needs
+  to be ~33×{days}/30 = <strong>{int(33 * days / 30)}</strong>. Current
+  sent count: <strong>{len(stages["sent"])}</strong>. Gap analysis lives
+  in the upstream stages above.
+</div>
+</div></body></html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 @bp.route("/admin/qa/heartbeat", methods=["GET"])
 @auth_required
 @safe_route
@@ -6345,7 +6557,18 @@ def api_pc_update_status(pcid):
 
 
 def _api_pc_update_status_locked(pcid):
-    """Inner body — always runs under `_save_pcs_lock`."""
+    """Inner body — always runs under `_save_pcs_lock`.
+
+    PR-M (2026-05-13): captures `reason` for ALL status transitions,
+    not just won/lost/expired. The 2026-05-13 forensics found 52
+    April PCs marked `duplicate` with NO audit trail because the
+    prior version only wrote `closed_reason` for the W/L/E branch.
+    Without per-transition reasons we can't tell legitimate dedup
+    from operator-overload reflex, and we can't fix the funnel.
+    Every status change now writes its reason + actor + timestamp
+    to `pc.status_history` (append-only) plus the existing
+    `closed_reason` mirror for backward-compat.
+    """
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -6357,13 +6580,36 @@ def _api_pc_update_status_locked(pcid):
         return jsonify({"ok": False, "error": f"Invalid status. Valid: {', '.join(sorted(valid_statuses_for('pc')))}"})
     old = pc.get("status", "")
     pc["status"] = new_status
-    if new_status in ("won", "lost", "expired"):
-        pc["closed_at"] = datetime.now().isoformat()
-        if data.get("reason"):
-            pc["closed_reason"] = data["reason"]
+    now_iso = datetime.now().isoformat()
+
+    # PR-M: capture transition reason on EVERY status change. Reason
+    # falls into status_history regardless of branch, so the funnel
+    # diagnostic can read why a PC stalled at any node.
+    reason = (data.get("reason") or "").strip()
+    actor = (data.get("actor") or "user").strip()
+    history = pc.get("status_history") or []
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        "from": old, "to": new_status,
+        "at": now_iso, "actor": actor,
+        "reason": reason or "",
+    })
+    pc["status_history"] = history
+
+    # Terminal-status mirrors (preserve existing semantics).
+    if new_status in ("won", "lost", "expired", "duplicate",
+                       "dismissed", "archived", "no_response"):
+        pc["closed_at"] = now_iso
+        # Always mirror to closed_reason so existing reads still work.
+        # Empty reason for a terminal status surfaces as the warning
+        # signal: "operator triaged but didn't say why."
+        pc["closed_reason"] = reason or pc.get("closed_reason", "")
     _save_single_pc(pcid, pc)
-    log.info("PC %s status: %s → %s", pcid, old, new_status)
-    return jsonify({"ok": True, "old": old, "new": new_status})
+    log.info("PC %s status: %s → %s (reason=%r actor=%s)",
+             pcid, old, new_status, reason[:60], actor)
+    return jsonify({"ok": True, "old": old, "new": new_status,
+                    "reason_captured": bool(reason)})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
