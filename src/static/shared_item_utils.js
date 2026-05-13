@@ -399,7 +399,27 @@ function _applyLinkData(idx, d, mode) {
       var _scrapedCost = lp > 0 ? lp : (d.price && d.price > 0 ? parseFloat(d.price) : 0);
       var _operatorCostHeld = existingCost > 0;
       var _scrapeDiffers = _scrapedCost > 0 && Math.abs(_scrapedCost - existingCost) > 0.01;
-      if (_operatorCostHeld && _scrapeDiffers) {
+      // PR-AC 2026-05-13 (Bug 4 from PC #10846357 walkthrough):
+      // operator-write protection above was inverted for the explicit-URL-paste
+      // case. Mike pasted the canonical Uline URL for H-3647GR; scrape returned
+      // the correct $448 price; existing cost was $59.99 from a STALE catalog
+      // entry (poisoned by a prior wrong scrape on the same SKU). The "keep
+      // yours" branch kept $59.99 and silently buried $776 of profit. The
+      // signal that distinguishes "operator typed cost, async scrape lands"
+      // from "operator pastes canonical URL for matching SKU" is the MFG#
+      // match: when the scraped MFG# equals the row's MFG# exactly AND the
+      // token match score is decent (>=70), the operator is correcting bad
+      // catalog data — accept the scrape and let them see what changed.
+      var _curMfgLower = (curMfg || '').toLowerCase();
+      var _scrapedMfgLower = (mfgVal || '').toLowerCase();
+      var _mfgExact = _curMfgLower && _scrapedMfgLower && _curMfgLower === _scrapedMfgLower;
+      if (_operatorCostHeld && _scrapeDiffers && _mfgExact && _matchScore >= 70) {
+        // Exact MFG# match + healthy token match — operator is fixing the
+        // catalog, not racing async scrape. Accept the scraped cost.
+        costEl.value = _scrapedCost.toFixed(2);
+        filled.push('cost UPDATED $' + existingCost.toFixed(2)
+          + ' → $' + _scrapedCost.toFixed(2) + ' (MFG# ' + curMfg + ' match, URL paste)');
+      } else if (_operatorCostHeld && _scrapeDiffers) {
         // Operator already entered a cost that differs from the lookup. Keep theirs,
         // surface scraped value as candidate so they can decide if it's worth swapping.
         filled.push('cost kept your $' + existingCost.toFixed(2)
