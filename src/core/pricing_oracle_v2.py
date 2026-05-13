@@ -204,8 +204,151 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
             log.debug("scprs_rollup sidecar skipped: %s", _rl_e)
             result["scprs_rollup"] = None
 
+    # Step 9: SCPRS rollup price cap (PR-R, 2026-05-13). Active mode for
+    # what PR-J was running in shadow. When the rollup has enough samples
+    # (count >= MIN_SAMPLES) and the oracle-recommended quote_price is
+    # above the agency-specific p75, lower it to p75. Record the cap
+    # transition on `recommendation.caps_applied` so `_build_oracle_audit`
+    # snapshots it for the measurement loop, and stash the pre-cap price
+    # on `recommendation.quote_price_pre_cap` so downstream readers can
+    # see "what would this have been without the cap."
+    #
+    # Why p75 not p90: 2026-05-13 forensics showed we're losing 94-105%
+    # over the winning competitor on confirmed CCHCS losses. p75 is the
+    # "we want to be competitive on the easier 50% of lines" floor.
+    # p90 would only cap on the egregious outliers and miss the bulk of
+    # the WR collapse. Mike's "no minimum profit = +volume" frame backs
+    # this aggressive setting.
+    #
+    # Cap is gated by `_scprs_rollup_cap_enabled()` which now auto-binds
+    # when scprs_awards has fresh data (post-PR-O the bridge keeps it
+    # fresh on every scheduled pull). Operators can disable per-Railway
+    # via ORACLE_USE_SCPRS_ROLLUP=off.
+    try:
+        if _scprs_rollup_cap_enabled():
+            _apply_scprs_rollup_cap(result)
+    except Exception as _cap_e:
+        log.debug("scprs_rollup cap skipped: %s", _cap_e)
+
     db.close()
     return result
+
+
+# ── PR-R: SCPRS rollup cap binding (active mode for PR-J shadow) ───────
+
+
+SCPRS_CAP_MIN_SAMPLES = 5
+"""Don't cap a line unless we have at least this many SCPRS rows in the
+(MFG#/UNSPSC, agency, qty_band) bucket. Below this, the p75 estimate is
+noise — capping based on a 2-row history risks pricing below cost on
+single-vendor categories. Mike's Q1 priority: MFG# > UNSPSC, agency >
+global, so the bucket has to be specific enough to trust."""
+
+SCPRS_CAP_FRESH_DAYS = 30
+"""When ORACLE_USE_SCPRS_ROLLUP is unset (i.e. default), the cap binds
+only if scprs_awards has fresh data (last `created_at` within this many
+days). Pre-PR-O the awards table was frozen 60 days at 2026-03-14 and
+capping against stale percentiles would have pulled prices toward stale
+winners. With PR-O the bridge runs after every scheduled pull, so this
+guard auto-disables the cap if the bridge ever stops firing again."""
+
+
+def _scprs_rollup_cap_enabled() -> bool:
+    """True when the SCPRS rollup cap is active.
+
+    Precedence:
+      1. `ORACLE_USE_SCPRS_ROLLUP=on/off` — explicit env wins
+      2. otherwise: auto-active when scprs_awards has rows newer than
+         `SCPRS_CAP_FRESH_DAYS` days (proves the post-pull bridge is
+         actually running)
+    """
+    import os as _os
+    val = _os.environ.get("ORACLE_USE_SCPRS_ROLLUP", "").strip().lower()
+    if val in ("1", "true", "yes", "on"):
+        return True
+    if val in ("0", "false", "no", "off"):
+        return False
+    # Auto-detect: cap is live iff scprs_awards has fresh data.
+    try:
+        from datetime import datetime as _dt, timedelta as _td
+        from src.core.db import get_db
+        cutoff = (_dt.now() - _td(days=SCPRS_CAP_FRESH_DAYS)).isoformat()
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM scprs_awards "
+                "WHERE created_at >= ?",
+                (cutoff,),
+            ).fetchone()
+        return bool(row and row["n"] > 0)
+    except Exception:
+        return False
+
+
+def _apply_scprs_rollup_cap(result: dict) -> None:
+    """Cap `result["recommendation"]["quote_price"]` to the rollup p75
+    when it exceeds the agency-specific bucket. Mutates `result` in
+    place. No-op when:
+      - no rollup data was attached (no MFG# / UNSPSC)
+      - bucket is below SCPRS_CAP_MIN_SAMPLES
+      - p75 is missing or <= 0
+      - recommendation doesn't exist or already <= p75
+
+    Records the transition under `recommendation.caps_applied` (a list
+    of dicts) and stashes the pre-cap price on
+    `recommendation.quote_price_pre_cap` for the audit trail.
+    """
+    rec = result.get("recommendation") or {}
+    if not isinstance(rec, dict):
+        return
+    rollup = result.get("scprs_rollup") or {}
+    if not isinstance(rollup, dict) or not rollup:
+        return
+    try:
+        count = int(rollup.get("count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count < SCPRS_CAP_MIN_SAMPLES:
+        return
+    try:
+        p75 = float(rollup.get("p75") or 0)
+    except (TypeError, ValueError):
+        p75 = 0.0
+    if p75 <= 0:
+        return
+    try:
+        cur_price = float(rec.get("quote_price") or 0)
+    except (TypeError, ValueError):
+        return
+    if cur_price <= p75:
+        return
+    # Bind the cap. Pre-cap price preserved on the rec dict for the
+    # audit; caps_applied list extended so multiple cap sources (volume-
+    # aware, category-intel, etc.) can stack later.
+    rec["quote_price_pre_cap"] = cur_price
+    rec["quote_price"] = round(p75, 2)
+    caps = rec.get("caps_applied") or []
+    if not isinstance(caps, list):
+        caps = []
+    caps.append({
+        "source": "scprs_rollup",
+        "cap_price": round(p75, 2),
+        "pre_cap_price": cur_price,
+        "delta_pct": round(((cur_price - p75) / p75) * 100, 2),
+        "match_key": rollup.get("match_key", ""),
+        "match_key_type": rollup.get("match_key_type", ""),
+        "sample_count": count,
+    })
+    rec["caps_applied"] = caps
+    # Make the rationale visible to the operator
+    prior_rationale = rec.get("rationale", "") or ""
+    cap_note = (
+        f"SCPRS rollup cap: lowered from ${cur_price:.2f} → ${p75:.2f} "
+        f"(p75 of {count} prior wins)"
+    )
+    rec["rationale"] = (
+        f"{prior_rationale} [{cap_note}]" if prior_rationale else cap_note
+    ).strip()
+    result["recommendation"] = rec
 
 
 PHASE3_MARKUP_FILTER_DATE = "2026-04-25"

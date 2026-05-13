@@ -408,13 +408,19 @@ def get_drift_stats(window_days: int = 30,
 
 
 def _scprs_rollup_cap_enabled() -> bool:
-    """Mirror of pricing_oracle_v2 helper. Returns True when the SCPRS
-    rollup cap is currently ACTIVE in production. The shadow logger uses
-    this to choose between `would_cap` / `no_cap` (cap dormant) and
-    `cap_active` (cap is binding live)."""
-    import os
-    val = os.environ.get("ORACLE_USE_SCPRS_ROLLUP", "")
-    return val.lower() in ("1", "true", "yes", "on")
+    """Delegates to `pricing_oracle_v2._scprs_rollup_cap_enabled` so the
+    shadow logger and the active cap binding always read the same
+    answer. PR-R (2026-05-13): post-PR-O auto-detect — when the env var
+    is unset, the cap is active iff scprs_awards has fresh rows."""
+    try:
+        from src.core.pricing_oracle_v2 import _scprs_rollup_cap_enabled as _impl
+        return _impl()
+    except Exception:
+        # Defensive fallback for the very early-boot window before the
+        # oracle module is importable. Treat as off — shadow logger will
+        # tag rows as `would_cap`/`no_cap` instead of `cap_active`,
+        # which is the correct conservative answer.
+        return False
 
 
 def log_operator_drift_shadow(
