@@ -2455,6 +2455,128 @@ def oracle_digest_preview():
     return preview_html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+@bp.route("/oracle/drift/preview", methods=["GET"])
+@auth_required
+@safe_route
+def oracle_drift_preview():
+    """PR-I (2026-05-13): operator-drift preview.
+
+    Shows the running tally of (sent_price − rec_price) per line at
+    Mark-Sent. The signal here is "did the operator override the cap?"
+    — answerable at N=500 lines/mo, an order of magnitude faster than
+    the WR-based loop. The capped-above-oracle cohort is the highest-
+    leverage tuning surface: if those lines win at parity with
+    un-overridden lines, the cap is too tight; if they lose, the cap
+    bind was correct and we should tighten further.
+
+    Optional `?days=N` (default 30). Pure read-only.
+    """
+    from src.core.operator_kpi import get_drift_stats
+    try:
+        days = max(1, int(request.args.get("days", 30)))
+    except (TypeError, ValueError):
+        days = 30
+    stats = get_drift_stats(window_days=days)
+    if not stats.get("ok"):
+        return (f"<pre>drift preview error: {stats.get('error','?')}</pre>",
+                500, {"Content-Type": "text/html; charset=utf-8"})
+
+    rows_html = ""
+    for s in stats.get("per_cap_source", []) or []:
+        rows_html += (
+            f'<tr><td>{s["source"]}</td>'
+            f'<td>{s["line_count"]}</td>'
+            f'<td>{s["median_drift_pct"]:+.2f}%</td></tr>'
+        )
+    if not rows_html:
+        rows_html = ('<tr><td colspan="3" style="opacity:.6">'
+                     'No capped lines in window yet.</td></tr>')
+
+    n = stats.get("line_count", 0)
+    qc = stats.get("quote_count", 0)
+    med = stats.get("median_drift_pct")
+    p25 = stats.get("p25_drift_pct")
+    p75 = stats.get("p75_drift_pct")
+    capped = stats.get("capped_lines", 0)
+    above = stats.get("capped_above_oracle", 0)
+    below = stats.get("capped_below_oracle", 0)
+    med_s = f"{med:+.2f}%" if med is not None else "—"
+    p25_s = f"{p25:+.2f}%" if p25 is not None else "—"
+    p75_s = f"{p75:+.2f}%" if p75 is not None else "—"
+
+    preview_html = f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Operator Drift Preview — Reytech</title>
+<style>
+  body{{margin:0;padding:20px;background:#010409;color:#e6edf3;
+       font-family:system-ui,sans-serif}}
+  .wrap{{max-width:780px;margin:0 auto}}
+  .banner{{padding:10px 14px;background:#1f6feb22;border:1px solid #1f6feb55;
+       border-radius:8px;color:#58a6ff;font-size:13px;margin-bottom:18px}}
+  .banner strong{{color:#79c0ff}}
+  h1{{font-size:18px;margin:8px 0 14px}}
+  h2{{font-size:14px;margin:18px 0 8px;color:#8b949e;
+       text-transform:uppercase;letter-spacing:.5px}}
+  table{{width:100%;border-collapse:collapse;font-size:13px;
+       background:#0d1117;border:1px solid #30363d;border-radius:8px;
+       overflow:hidden}}
+  th,td{{padding:8px 12px;text-align:left;
+       border-bottom:1px solid #21262d}}
+  th{{background:#161b22;color:#8b949e;font-weight:600;font-size:12px;
+       text-transform:uppercase;letter-spacing:.4px}}
+  tr:last-child td{{border-bottom:0}}
+  .kpis{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}}
+  .kpi{{background:#0d1117;border:1px solid #30363d;border-radius:8px;
+       padding:10px 12px}}
+  .kpi .label{{font-size:11px;color:#8b949e;text-transform:uppercase;
+       letter-spacing:.4px}}
+  .kpi .val{{font-size:18px;color:#e6edf3;margin-top:4px;font-weight:600}}
+  .meta{{color:#8b949e;font-size:12px;margin-top:14px}}
+</style></head><body><div class="wrap">
+<div class="banner">
+  📊 <strong>Operator drift preview</strong> — last
+  <strong>{days}</strong> days. Pure read-only; this is the
+  measurement surface for the PR-J shadow-mode cap evaluator.
+</div>
+<h1>Operator drift — last {days} days</h1>
+<div class="kpis">
+  <div class="kpi"><div class="label">Lines tracked</div>
+       <div class="val">{n}</div></div>
+  <div class="kpi"><div class="label">Quotes</div>
+       <div class="val">{qc}</div></div>
+  <div class="kpi"><div class="label">Median drift</div>
+       <div class="val">{med_s}</div></div>
+  <div class="kpi"><div class="label">P25 / P75 drift</div>
+       <div class="val" style="font-size:14px">{p25_s} / {p75_s}</div></div>
+</div>
+<h2>Cap behavior</h2>
+<table>
+  <thead><tr><th>Metric</th><th>Lines</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Capped lines (total)</td><td>{capped}</td>
+        <td style="opacity:.7">A cap fired during pricing.</td></tr>
+    <tr><td>Capped + operator went ABOVE</td><td>{above}</td>
+        <td style="opacity:.7">Operator overrode the cap upward.</td></tr>
+    <tr><td>Capped + operator went BELOW</td><td>{below}</td>
+        <td style="opacity:.7">Operator went lower than the cap.</td></tr>
+  </tbody>
+</table>
+<h2>Per cap source — median drift</h2>
+<table>
+  <thead><tr><th>Source</th><th>Lines</th>
+       <th>Median operator drift</th></tr></thead>
+  <tbody>{rows_html}</tbody>
+</table>
+<div class="meta">
+  Drift = (sent_price − rec_price) / rec_price × 100. Positive =
+  operator sent above oracle (less conservative). Negative = operator
+  sent below oracle (more conservative). Capped-above-oracle is the
+  highest-leverage tuning cohort.
+</div>
+</div></body></html>"""
+    return preview_html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 # ═══ Match Feedback / Rejection ═════════════════════════════════════════════
 
 @bp.route("/api/pricecheck/<pcid>/reject-match/<int:idx>", methods=["POST"])
@@ -5942,6 +6064,20 @@ def _api_pc_send_quote_locked(pcid):
             )
         except Exception as _kpi_e:
             log.debug("KPI logging suppressed: %s", _kpi_e)
+
+        # PR-I (2026-05-13): operator-drift per-line capture. ~10 rows
+        # per Mark-Sent into operator_drift_line, which gives the digest
+        # a high-volume signal for cap-tuning decisions. Sibling call to
+        # log_quote_sent above — same best-effort discipline.
+        try:
+            from src.core.operator_kpi import log_operator_drift
+            log_operator_drift(
+                quote_id=pcid, quote_type="pc",
+                items=pc.get("items") or [],
+                agency_key=(pc.get("agency_key") or pc.get("agency") or ""),
+            )
+        except Exception as _drift_e:
+            log.debug("operator_drift logging suppressed: %s", _drift_e)
 
         return jsonify({"ok": True, "sent_to": to_email, "quote": qn})
     except Exception as e:

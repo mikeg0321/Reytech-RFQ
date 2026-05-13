@@ -372,6 +372,21 @@ def _api_rfq_mark_sent_manually_locked(rid):
     except Exception as _kpi_e:
         log.debug("KPI logging suppressed: %s", _kpi_e)
 
+    # PR-I (2026-05-13): operator-drift per-line capture. Higher-signal
+    # than WR at low monthly volume — every Mark-Sent emits up to ~10
+    # rows of (sent_price, rec_price, caps_applied) into the
+    # operator_drift_line table. The shadow-mode cap evaluator (PR-J)
+    # reads from this surface.
+    try:
+        from src.core.operator_kpi import log_operator_drift
+        log_operator_drift(
+            quote_id=rid, quote_type="rfq",
+            items=r.get("items") or r.get("line_items") or [],
+            agency_key=(r.get("agency_key") or r.get("agency") or ""),
+        )
+    except Exception as _drift_e:
+        log.debug("operator_drift logging suppressed: %s", _drift_e)
+
     # Fire on_sent hooks. Each wrapped so one failure cannot block the
     # mark-sent flip — the status write is the source of truth; hooks are
     # best-effort archive/log side-effects.

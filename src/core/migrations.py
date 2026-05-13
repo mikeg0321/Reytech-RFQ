@@ -1480,6 +1480,53 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_cil_match_quality
             ON competitor_intel_lines(matched_by);
     """),
+
+    (45, "operator_drift_line", """
+        -- 2026-05-13 (PR-I): operator-drift metric. At N=50 sent quotes/mo
+        -- the WR confidence interval swamps any realistic cap-binding
+        -- effect — we'd need 9-12 months of awards data to call a cap
+        -- bind "better" or "worse" at p<0.05. But every Mark-Sent click
+        -- gives us up to ~10 lines of (sent_price, rec_price, caps) — a
+        -- ~500-point/mo dataset that lets us answer the actionable
+        -- question: "operator overrides the cap N% of the time — do those
+        -- lines win at a different rate than non-overridden lines?"
+        --
+        -- One row per LINE per Mark-Sent click. The 'caps_applied_json'
+        -- column carries the raw envelope; 'cap_sources' is a normalized
+        -- comma-joined string for fast aggregation (e.g. WHERE cap_sources
+        -- LIKE '%scprs_rollup%'). drift_pct = (sent - rec) / rec * 100;
+        -- positive = operator went ABOVE oracle (less conservative),
+        -- negative = operator went BELOW (more conservative).
+        --
+        -- Joins back to scprs_awards via quote_id ↔ source_rfq_id ↔
+        -- po_number once an award lands, so we can label each drift row
+        -- WON/LOST. Until that join happens, this is shadow-only.
+        CREATE TABLE IF NOT EXISTS operator_drift_line (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id            TEXT NOT NULL,
+            quote_type          TEXT NOT NULL,
+            sent_at             TEXT NOT NULL,
+            agency_key          TEXT DEFAULT '',
+            line_idx            INTEGER,
+            item_number         TEXT DEFAULT '',
+            mfg_number          TEXT DEFAULT '',
+            sent_price          REAL,
+            rec_price           REAL,
+            rec_pre_cap_price   REAL,
+            drift_pct           REAL,
+            caps_applied_json   TEXT,
+            cap_sources         TEXT DEFAULT '',
+            scprs_match_count   INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_odl_quote
+            ON operator_drift_line(quote_id);
+        CREATE INDEX IF NOT EXISTS idx_odl_sent_at
+            ON operator_drift_line(sent_at);
+        CREATE INDEX IF NOT EXISTS idx_odl_cap_sources
+            ON operator_drift_line(cap_sources);
+        CREATE INDEX IF NOT EXISTS idx_odl_agency
+            ON operator_drift_line(agency_key);
+    """),
 ]
 
 
