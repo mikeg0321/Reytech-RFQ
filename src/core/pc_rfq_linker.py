@@ -505,10 +505,20 @@ def find_matching_pcs_for_cchcs(rfq_data, pcs, max_results=3):
 
 # Price fields ported verbatim from the PC line. These are Mike's commitment
 # prices used to publish the RFQ for public bidding — DO NOT re-derive them.
+#
+# 2026-05-13 (PR-G): added `oracle_audit` to the allowlist. The reprice
+# adapter (`pc_rfq_reprice_adapter.oracle_pricer_for_line`) now emits a
+# JSON snapshot of the cap audit + SCPRS rollup data per line; the
+# measurement loop (oracle_weekly_report) joins it to outcome to
+# compute capped-vs-uncapped win rate. Without this entry, every
+# qty-changed reprice silently discarded the audit and the
+# measurement substrate read NULL on every repriced line. Audit as a
+# single envelope (not 5 separate fields) so future cap types stack.
 _VERBATIM_PRICE_FIELDS = (
     "supplier_cost", "cost", "unit_cost", "unit_price",
     "bid_price", "sell_price", "price_per_unit",
     "markup_pct", "scprs_last_price",
+    "oracle_audit",
 )
 
 # Non-price fields worth carrying over so the operator sees the same item

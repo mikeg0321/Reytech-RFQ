@@ -57,6 +57,31 @@ def _line_cost(line: dict) -> float | None:
     return None
 
 
+def _build_oracle_audit(result: dict, rec: dict, snapshot_at: str) -> dict:
+    """Build the snapshot that proves what the oracle saw at pricing time.
+
+    PR-G (2026-05-13) — captures the cap audit + rollup data so the
+    measurement loop can later answer "did capping this line improve
+    the outcome?" The shape is a single JSON-friendly dict (vs adding
+    5 separate fields) so it survives `_VERBATIM_PRICE_FIELDS` as one
+    entry, and future cap types (floor, volume-ceiling, etc.) stack
+    inside the same envelope without another allowlist edit.
+
+    Always returns a dict — `caps_applied` may be `[]` and
+    `scprs_rollup` may be `None`, but presence-of-snapshot itself is
+    the signal that "the oracle considered the cap." Absence at read
+    time means the pricer never ran.
+    """
+    return {
+        "rec_price": rec.get("quote_price"),
+        "rec_pre_cap_price": rec.get("quote_price_pre_cap"),
+        "caps_applied": rec.get("caps_applied") or [],
+        "scprs_rollup": result.get("scprs_rollup"),
+        "oracle_version": "v2.1",
+        "snapshot_at": snapshot_at,
+    }
+
+
 def oracle_pricer_for_line(line: dict, agency: str = "") -> dict | None:
     """Production pricer passed to `reprice_qty_changed_lines`.
 
@@ -68,6 +93,14 @@ def oracle_pricer_for_line(line: dict, agency: str = "") -> dict | None:
     we return None rather than propagating the exception. Getting a drifted
     line WRONG is worse than getting it un-repriced — the operator sees
     `skipped_no_price` in the summary and can follow up manually.
+
+    2026-05-13 (PR-G): now passes `mfg_number=` + `unspsc=` to
+    `get_pricing()` so the SCPRS rollup actually fires on this path,
+    AND emits an `oracle_audit` field carrying the cap audit + rollup
+    snapshot. The reprice adapter's allowlist (`_VERBATIM_PRICE_FIELDS`)
+    is extended in pc_rfq_linker.py to pass that field through. Without
+    both changes, every PC→RFQ qty-changed reprice silently discarded
+    the cap audit and the loop's measurement substrate was empty.
     """
     desc = (line.get("description") or line.get("desc") or "").strip()
     if not desc:
@@ -83,6 +116,7 @@ def oracle_pricer_for_line(line: dict, agency: str = "") -> dict | None:
 
     mfg = (line.get("mfg_number") or line.get("part_number")
            or line.get("item_number") or "").strip()
+    unspsc = (line.get("unspsc") or "").strip()
     cost = _line_cost(line)
 
     try:
@@ -94,6 +128,8 @@ def oracle_pricer_for_line(line: dict, agency: str = "") -> dict | None:
             item_number=mfg,
             department=agency or "",
             upc=(line.get("upc") or "").strip(),
+            mfg_number=mfg,    # PR-G: enable rollup lookup on reprice path
+            unspsc=unspsc,
         )
     except Exception as e:
         log.warning("oracle_pricer_for_line: get_pricing failed for %r: %s",
@@ -120,9 +156,15 @@ def oracle_pricer_for_line(line: dict, agency: str = "") -> dict | None:
     if markup_pct is None and final_cost and final_cost > 0:
         markup_pct = round(((bid - final_cost) / final_cost) * 100, 1)
 
+    from datetime import datetime as _dt
+    snapshot_at = _dt.now().isoformat(timespec="seconds")
+
     out: dict = {
         "unit_price": round(float(bid), 2),
         "bid_price": round(float(bid), 2),
+        # PR-G: oracle audit snapshot — passes through the allowlist as
+        # a single envelope so future cap types don't force another edit.
+        "oracle_audit": _build_oracle_audit(result, rec, snapshot_at),
     }
     if final_cost and final_cost > 0:
         out["supplier_cost"] = round(float(final_cost), 2)
@@ -132,6 +174,7 @@ def oracle_pricer_for_line(line: dict, agency: str = "") -> dict | None:
         except (TypeError, ValueError):
             pass
 
-    log.info("oracle_pricer: %r qty=%d → $%.2f (markup %s%%)",
-             desc[:60], qty, bid, markup_pct)
+    _caps_n = len(out["oracle_audit"]["caps_applied"])
+    log.info("oracle_pricer: %r qty=%d → $%.2f (markup %s%%, caps=%d)",
+             desc[:60], qty, bid, markup_pct, _caps_n)
     return out
