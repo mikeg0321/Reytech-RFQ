@@ -2455,6 +2455,123 @@ def oracle_digest_preview():
     return preview_html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
+# ═══ QA Heartbeat (PR-Q) ════════════════════════════════════════════════════
+
+
+@bp.route("/admin/qa/heartbeat", methods=["GET"])
+@auth_required
+@safe_route
+def admin_qa_heartbeat():
+    """PR-Q (2026-05-13): QA/QC heartbeat surface.
+
+    Renders the latest result of each check in `qa_heartbeat` so
+    Mike can see at-a-glance whether the data pipelines are healthy.
+    Why it exists: prod forensics on 2026-05-13 revealed
+    `scprs_awards` was 60 days stale + `scheduler_heartbeats` was
+    empty + 52% April PC dedup rate with no audit trail — silent
+    degradation that nobody saw. This is the surface that will catch
+    the next one early.
+
+    Optional `?run=1` triggers a fresh check cycle before rendering.
+    """
+    from src.core.qa_heartbeat import latest_status, run_and_persist
+    if request.args.get("run") == "1":
+        run_and_persist()
+    results = latest_status()
+    # Count pass/warn/fail for header strip
+    p = sum(1 for r in results.values() if r.get("status") == "pass")
+    w = sum(1 for r in results.values() if r.get("status") == "warn")
+    f = sum(1 for r in results.values() if r.get("status") == "fail")
+    overall_color = "#3fb950" if f == 0 and w == 0 else (
+        "#d29922" if f == 0 else "#f85149"
+    )
+    rows_html = ""
+    if not results:
+        rows_html = ('<tr><td colspan="4" style="opacity:.6">'
+                     'No checks have run yet. Hit '
+                     '<a href="?run=1" style="color:#79c0ff">'
+                     '<code>?run=1</code></a> to fire a cycle.</td></tr>')
+    for name, r in sorted(results.items()):
+        s = r.get("status", "fail")
+        color = {"pass": "#3fb950", "warn": "#d29922",
+                 "fail": "#f85149"}.get(s, "#8b949e")
+        bg = {"pass": "rgba(63,185,80,.12)",
+              "warn": "rgba(210,153,34,.12)",
+              "fail": "rgba(248,81,73,.12)"}.get(s, "rgba(139,148,158,.12)")
+        val = r.get("value") or {}
+        try:
+            val_str = json.dumps(val)
+        except Exception:
+            val_str = str(val)
+        rows_html += (
+            f'<tr>'
+            f'<td><strong>{name}</strong>'
+            f'<div style="opacity:.6;font-size:11px;margin-top:2px">'
+            f'{r.get("ran_at","")[:19]}</div></td>'
+            f'<td><span style="padding:2px 8px;border-radius:3px;'
+            f'background:{bg};color:{color};font-weight:600;'
+            f'font-size:11px;text-transform:uppercase">{s}</span></td>'
+            f'<td style="font-size:12px">{r.get("message","")}</td>'
+            f'<td style="font-size:11px;font-family:monospace;opacity:.75">'
+            f'{val_str[:120]}</td>'
+            f'</tr>'
+        )
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<title>QA Heartbeat — Reytech</title>
+<style>
+  body{{margin:0;padding:20px;background:#010409;color:#e6edf3;
+       font-family:system-ui,sans-serif}}
+  .wrap{{max-width:1100px;margin:0 auto}}
+  .banner{{padding:10px 14px;background:{overall_color}22;
+       border:1px solid {overall_color}55;border-radius:8px;
+       color:{overall_color};font-size:13px;margin-bottom:18px}}
+  h1{{font-size:18px;margin:8px 0 14px}}
+  table{{width:100%;border-collapse:collapse;font-size:13px;
+       background:#0d1117;border:1px solid #30363d;border-radius:8px;
+       overflow:hidden}}
+  th,td{{padding:8px 12px;text-align:left;
+       border-bottom:1px solid #21262d;vertical-align:top}}
+  th{{background:#161b22;color:#8b949e;font-weight:600;font-size:12px;
+       text-transform:uppercase;letter-spacing:.4px}}
+  .meta{{color:#8b949e;font-size:12px;margin-top:14px}}
+  code{{background:#0d1117;padding:1px 5px;border-radius:3px;
+       border:1px solid #30363d}}
+</style></head><body><div class="wrap">
+<div class="banner">
+  🩺 <strong>{p} pass · {w} warn · {f} fail</strong>.
+  Latest heartbeat snapshot.
+  <a href="?run=1" style="color:#79c0ff;margin-left:8px">Run new cycle now →</a>
+</div>
+<h1>QA / QC heartbeat — Reytech RFQ</h1>
+<table>
+  <thead><tr><th>Check</th><th>Status</th><th>Message</th><th>Value</th></tr></thead>
+  <tbody>{rows_html}</tbody>
+</table>
+<div class="meta">
+  Each check runs periodically (scheduler entry: every 15 min) and
+  writes one row to <code>qa_heartbeat</code>. Thresholds are
+  env-tunable (<code>QA_*_WARN_H</code>, <code>QA_*_FAIL_H</code>,
+  etc.). To extend: add a new <code>(name, fn)</code> tuple to
+  <code>CHECKS</code> in <code>src/core/qa_heartbeat.py</code>.
+</div>
+</div></body></html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@bp.route("/api/admin/qa/heartbeat", methods=["GET", "POST"])
+@auth_required
+@safe_route
+def api_admin_qa_heartbeat():
+    """JSON endpoint. POST or `?run=1` to trigger a cycle; otherwise
+    returns the latest cached status."""
+    from src.core.qa_heartbeat import latest_status, run_and_persist
+    if request.method == "POST" or request.args.get("run") == "1":
+        result = run_and_persist()
+        return jsonify({"ok": True, **result})
+    return jsonify({"ok": True, "results": latest_status()})
+
+
 @bp.route("/oracle/drift/preview", methods=["GET"])
 @auth_required
 @safe_route

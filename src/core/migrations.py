@@ -1577,6 +1577,43 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_ods_agency
             ON operator_drift_shadow(agency_key);
     """),
+
+    (49, "qa_heartbeat", """
+        -- 2026-05-13 (PR-Q): QA/QC heartbeat. Mike's directive after
+        -- the prod forensics revealed scprs_awards table frozen at
+        -- 2026-03-14 (60 days stale) + scheduler_heartbeats EMPTY +
+        -- 52% April PC dedup rate with no audit trail. The data was
+        -- silently degrading and no one knew.
+        --
+        -- Each row = one named check result, written every cycle.
+        -- Old rows pruned to keep table bounded. Latest row per
+        -- check_name is queried by the /admin/qa surface + the alert
+        -- pathway.
+        --
+        -- `status` ∈ {'pass','warn','fail'}:
+        --   pass    check ran, value within threshold
+        --   warn    value approaching threshold (early canary)
+        --   fail    value outside threshold (action needed now)
+        -- `value_json` carries the raw measurement + thresholds + any
+        -- diagnostic context so the dashboard can show the operator
+        -- what failed without re-running the check.
+        CREATE TABLE IF NOT EXISTS qa_heartbeat (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ran_at      TEXT NOT NULL,
+            check_name  TEXT NOT NULL,
+            status      TEXT NOT NULL,
+            value_json  TEXT,
+            threshold   TEXT,
+            message     TEXT,
+            cycle_id    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_qa_check_ran
+            ON qa_heartbeat(check_name, ran_at);
+        CREATE INDEX IF NOT EXISTS idx_qa_status
+            ON qa_heartbeat(status, ran_at);
+        CREATE INDEX IF NOT EXISTS idx_qa_cycle
+            ON qa_heartbeat(cycle_id);
+    """),
 ]
 
 
