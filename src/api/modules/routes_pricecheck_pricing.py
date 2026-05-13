@@ -881,7 +881,18 @@ def api_pricecheck_mark_sent(pcid):
 
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
-    
+
+    # PR-U (2026-05-13): fire drift + shadow drift logs on the canonical
+    # operator Mark-Sent path. Pre-PR-U the substrate only logged on
+    # /send-quote (which Mike's workflow doesn't use), so PR-S
+    # auto-recommendations had near-zero input data even with weeks of
+    # operator activity. Best-effort — never blocks the mark-sent flip.
+    try:
+        from src.core.operator_kpi import fire_drift_logs_on_send
+        fire_drift_logs_on_send(pcid, "pc", pc)
+    except Exception as _drift_e:
+        log.debug("fire_drift_logs_on_send (mark-sent) suppressed: %s", _drift_e)
+
     log.info("PC %s marked SENT: pc#=%s institution=%s doc_id=%s",
              pcid, pc.get("pc_number"), pc.get("institution"), doc_id)
     return jsonify({"ok": True, "status": "sent", "sent_at": now,
@@ -982,6 +993,15 @@ def _api_pricecheck_mark_sent_manually_locked(pcid):
                             actor="user")
     except Exception as _e:
         log.debug("log_lifecycle_event(pc sent manual) suppressed: %s", _e)
+
+    # PR-U (2026-05-13): drift + shadow logs on the manual mark-sent path
+    # too. Same fix as /mark-sent above; operator emails out-of-band ➜
+    # still hits this endpoint ➜ digest needs the signal.
+    try:
+        from src.core.operator_kpi import fire_drift_logs_on_send
+        fire_drift_logs_on_send(pcid, "pc", pc)
+    except Exception as _drift_e:
+        log.debug("fire_drift_logs_on_send (mark-sent-manually) suppressed: %s", _drift_e)
 
     log.info("PC %s marked SENT manually: sent_to=%s attachment=%s prior=%s",
              pcid, sent_to, bool(attachment), old_status)

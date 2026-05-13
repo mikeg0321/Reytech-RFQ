@@ -311,6 +311,49 @@ def log_operator_drift(
                 "rows_logged": 0}
 
 
+def fire_drift_logs_on_send(quote_id: str, quote_type: str, pc_or_rfq: dict) -> dict:
+    """Single entry point for Mark-Sent drift logging.
+
+    PR-U (2026-05-13): the walkthrough audit found that drift logging
+    only fired on `/api/pricecheck/<id>/send-quote` (Mike doesn't use),
+    while the canonical operator path is `/api/pricecheck/<id>/mark-sent`
+    + `/mark-sent-manually` + RFQ equivalents — none of which called
+    `log_operator_drift` or `log_operator_drift_shadow`. Result: every
+    week of operator activity emptied to the digest with no signal,
+    PR-S auto-recommendations had near-zero input. Centralising the
+    call here means every future mark-sent variant just calls one
+    function.
+
+    Returns the combined result dict; never raises. Best-effort —
+    a logging failure must not block a Mark-Sent flip.
+    """
+    if not quote_id or not isinstance(pc_or_rfq, dict):
+        return {"ok": False, "error": "quote_id + dict required"}
+    items = pc_or_rfq.get("items") or pc_or_rfq.get("line_items") or []
+    agency_key = (
+        pc_or_rfq.get("agency_key")
+        or pc_or_rfq.get("agency")
+        or pc_or_rfq.get("institution")
+        or ""
+    )
+    result: dict = {"drift": None, "shadow": None}
+    try:
+        result["drift"] = log_operator_drift(
+            quote_id=quote_id, quote_type=quote_type,
+            items=items, agency_key=agency_key,
+        )
+    except Exception as e:
+        log.debug("fire_drift_logs (drift) suppressed: %s", e)
+    try:
+        result["shadow"] = log_operator_drift_shadow(
+            quote_id=quote_id, quote_type=quote_type,
+            items=items, agency_key=agency_key,
+        )
+    except Exception as e:
+        log.debug("fire_drift_logs (shadow) suppressed: %s", e)
+    return result
+
+
 def get_drift_lines_per_agency(window_days: int = 7) -> list:
     """PR-S helper: aggregate every operator_drift_line row in the window
     by agency_key. Used by `auto_recommendations.build_*`.
