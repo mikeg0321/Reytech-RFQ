@@ -343,3 +343,152 @@ def test_app_boot_calls_cleanup_placeholder_asin_urls():
     assert "cleanup_placeholder_asin_in_json" in body, (
         "Boot must invoke JSON-side placeholder-ASIN backfill"
     )
+
+
+# ── PR-B1 extension: scrub the nested pricing.* chip-data fields ─
+
+
+def test_cleanup_scrubs_pricing_amazon_url(tmp_path):
+    """Live drive 2026-05-13 on pc_5728f934 rows 4/5/9/10: PR #936's
+    backfill scrubbed `item.item_link` but not `item.pricing.amazon_url`.
+    Server-side chip render at routes_pricecheck.py:692 reads the
+    nested field, so chips kept showing `Amazon · B07XXX…` on rows
+    where the visible link was already canonical Uline.
+
+    The extended scrub must clear the nested URL too."""
+    from src.agents.product_catalog import cleanup_placeholder_asin_in_json
+    rfqs_path = tmp_path / "rfqs.json"
+    pcs_path = tmp_path / "price_checks.json"
+    rfqs_path.write_text("{}", encoding="utf-8")
+    pcs_path.write_text(json.dumps({
+        "pc_chip_leak": {
+            "items": [
+                {
+                    # item_link already canonical (operator pasted Uline)
+                    "item_link": "https://www.uline.com/Product/Detail/H-3647GR",
+                    "pricing": {
+                        # but the nested chip-data still has the placeholder
+                        "amazon_url": "https://www.amazon.com/dp/B07XXXXXXX",
+                        "amazon_asin": "B07XXXXXXX",
+                        "amazon_price": 59.99,
+                        "unit_cost": 59.99,
+                    },
+                },
+            ],
+        },
+    }), encoding="utf-8")
+    res = cleanup_placeholder_asin_in_json(
+        rfqs_path=str(rfqs_path), pcs_path=str(pcs_path),
+    )
+    # The placeholder URL got scrubbed
+    assert res["pc_items_cleared"] >= 1, res
+    after = json.loads(pcs_path.read_text(encoding="utf-8"))
+    pricing = after["pc_chip_leak"]["items"][0]["pricing"]
+    assert pricing["amazon_url"] == "", (
+        f"pricing.amazon_url must be cleared; got {pricing['amazon_url']!r}"
+    )
+    # The stale ASIN cache must clear too so the chip render falls back
+    # to fresh lookup rather than re-rendering the same placeholder
+    assert pricing["amazon_asin"] == "", (
+        f"pricing.amazon_asin must be cleared; got {pricing['amazon_asin']!r}"
+    )
+    # And the placeholder-derived amazon_price must clear so the chip
+    # doesn't re-render with stale dollars
+    assert not pricing.get("amazon_price"), (
+        f"pricing.amazon_price must clear when ASIN was placeholder; "
+        f"got {pricing.get('amazon_price')!r}"
+    )
+    # Operator-typed canonical item_link untouched
+    assert after["pc_chip_leak"]["items"][0]["item_link"] == \
+        "https://www.uline.com/Product/Detail/H-3647GR"
+
+
+def test_cleanup_scrubs_supplier_and_web_url(tmp_path):
+    """Same pattern affects pricing.supplier_url and pricing.web_url
+    when those URLs carry placeholder ASINs."""
+    from src.agents.product_catalog import cleanup_placeholder_asin_in_json
+    rfqs_path = tmp_path / "rfqs.json"
+    pcs_path = tmp_path / "price_checks.json"
+    rfqs_path.write_text(json.dumps({
+        "rfq_b": {
+            "line_items": [
+                {
+                    "item_link": "https://www.uline.com/p/H-1234",
+                    "pricing": {
+                        "supplier_url": "https://www.amazon.com/dp/B08XXXXXXX",
+                        "web_url": "https://www.amazon.com/dp/B07H123456",
+                    },
+                },
+            ],
+        },
+    }), encoding="utf-8")
+    pcs_path.write_text("{}", encoding="utf-8")
+    cleanup_placeholder_asin_in_json(
+        rfqs_path=str(rfqs_path), pcs_path=str(pcs_path),
+    )
+    after = json.loads(rfqs_path.read_text(encoding="utf-8"))
+    pricing = after["rfq_b"]["line_items"][0]["pricing"]
+    assert pricing["supplier_url"] == "", pricing
+    assert pricing["web_url"] == "", pricing
+
+
+def test_cleanup_leaves_real_pricing_chip_data_alone(tmp_path):
+    """No false positives — a real ASIN under `pricing.amazon_url`
+    must survive the scrub, including its price/asin sibling fields."""
+    from src.agents.product_catalog import cleanup_placeholder_asin_in_json
+    rfqs_path = tmp_path / "rfqs.json"
+    pcs_path = tmp_path / "price_checks.json"
+    real_url = "https://www.amazon.com/dp/B077JQYDTN"
+    pcs_path.write_text(json.dumps({
+        "pc_real": {
+            "items": [
+                {
+                    "item_link": real_url,
+                    "pricing": {
+                        "amazon_url": real_url,
+                        "amazon_asin": "B077JQYDTN",
+                        "amazon_price": 24.99,
+                        "unit_cost": 24.99,
+                    },
+                },
+            ],
+        },
+    }), encoding="utf-8")
+    rfqs_path.write_text("{}", encoding="utf-8")
+    res = cleanup_placeholder_asin_in_json(
+        rfqs_path=str(rfqs_path), pcs_path=str(pcs_path),
+    )
+    assert res["pc_items_cleared"] == 0, res
+    after = json.loads(pcs_path.read_text(encoding="utf-8"))
+    pricing = after["pc_real"]["items"][0]["pricing"]
+    assert pricing["amazon_url"] == real_url
+    assert pricing["amazon_asin"] == "B077JQYDTN"
+    assert pricing["amazon_price"] == 24.99
+
+
+def test_cleanup_extension_idempotent_with_nested_fields(tmp_path):
+    """Re-running the extended backfill on already-clean data must not
+    re-touch any record (matches the existing idempotency contract)."""
+    from src.agents.product_catalog import cleanup_placeholder_asin_in_json
+    rfqs_path = tmp_path / "rfqs.json"
+    pcs_path = tmp_path / "price_checks.json"
+    rfqs_path.write_text("{}", encoding="utf-8")
+    pcs_path.write_text(json.dumps({
+        "pc_x": {"items": [{
+            "item_link": "",
+            "pricing": {
+                "amazon_url": "https://www.amazon.com/dp/B07XXXXXXX",
+                "amazon_asin": "B07XXXXXXX",
+            },
+        }]},
+    }), encoding="utf-8")
+    res1 = cleanup_placeholder_asin_in_json(
+        rfqs_path=str(rfqs_path), pcs_path=str(pcs_path),
+    )
+    assert res1["pc_items_cleared"] >= 1
+    res2 = cleanup_placeholder_asin_in_json(
+        rfqs_path=str(rfqs_path), pcs_path=str(pcs_path),
+    )
+    assert res2["pc_items_cleared"] == 0, (
+        "Second pass must be a no-op — file was already scrubbed"
+    )

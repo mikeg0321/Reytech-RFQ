@@ -2572,9 +2572,48 @@ def cleanup_placeholder_asin_in_json(rfqs_path: str = "", pcs_path: str = "") ->
         return {"rfq_items_cleared": 0, "pc_items_cleared": 0,
                 "rfqs_touched": 0, "pcs_touched": 0, "error": str(e)}
 
+    def _scrub_field(parent: dict, key: str, rec_id: str, where: str) -> int:
+        """Scrub a single URL-bearing field on a dict, in place.
+
+        Returns 1 if the field was cleared (placeholder ASIN found), 0
+        otherwise. `where` is a short tag like "item_link" or
+        "pricing.amazon_url" for the audit log.
+        """
+        if not isinstance(parent, dict):
+            return 0
+        url = (parent.get(key) or "")
+        url = url.strip() if isinstance(url, str) else ""
+        if not url:
+            return 0
+        try:
+            asin = _extract_asin(url)
+        except Exception:
+            asin = ""
+        if not asin or not is_placeholder_asin(asin):
+            return 0
+        parent[key] = ""
+        log.warning(
+            "ASIN CLEANUP json: %s — placeholder %s in %s (%s)",
+            rec_id, asin, where, url[:80],
+        )
+        return 1
+
     def _scrub(items_field_path: str) -> tuple:
-        """Walk records in <path>, scrub placeholder item_links.
-        Returns (items_cleared, records_touched).
+        """Walk records in <path>, scrub every placeholder-ASIN URL.
+
+        Returns (urls_cleared, records_touched). One item can contribute
+        multiple cleared URLs (item_link + pricing.amazon_url + ...) — each
+        cleared URL counts once toward urls_cleared.
+
+        2026-05-13 extension (PR after #936): the original backfill only
+        scrubbed `item.item_link`. Server-side chip rendering at
+        routes_pricecheck.py:692-723 reads `item.pricing.amazon_url`,
+        `item.pricing.amazon_asin`, and `item.pricing.supplier_url`
+        directly — those nested fields persisted the old placeholder ASINs
+        even after the operator pasted a clean canonical URL. Result:
+        chips showed `Amazon · B07XXX…` on rows where the visible item
+        link was Uline. Confirmed live on pc_5728f934 rows 4/5/9/10
+        during the 2026-05-13 sourcing pass.
         """
         if not os.path.exists(items_field_path):
             return 0, 0
@@ -2585,7 +2624,7 @@ def cleanup_placeholder_asin_in_json(rfqs_path: str = "", pcs_path: str = "") ->
             log.debug("cleanup_placeholder_asin_in_json: load %s failed: %s",
                       items_field_path, e)
             return 0, 0
-        items_cleared = 0
+        urls_cleared = 0
         records_touched = 0
         if not isinstance(data, dict):
             return 0, 0
@@ -2601,21 +2640,49 @@ def cleanup_placeholder_asin_in_json(rfqs_path: str = "", pcs_path: str = "") ->
                 for it in items:
                     if not isinstance(it, dict):
                         continue
-                    url = (it.get("item_link") or "").strip()
-                    if not url:
-                        continue
-                    try:
-                        asin = _extract_asin(url)
-                    except Exception:
-                        asin = ""
-                    if asin and is_placeholder_asin(asin):
-                        it["item_link"] = ""
-                        items_cleared += 1
+                    # Top-level item_link — original PR #936 surface.
+                    n = _scrub_field(it, "item_link", rec_id, "item_link")
+                    if n:
+                        urls_cleared += n
                         touched_here = True
-                        log.warning(
-                            "ASIN CLEANUP json: %s item — placeholder %s in %s",
-                            rec_id, asin, url[:80],
-                        )
+                    # Nested pricing.* fields that feed the chip render.
+                    pricing = it.get("pricing")
+                    if isinstance(pricing, dict):
+                        for fld in ("amazon_url", "supplier_url",
+                                    "web_url", "best_supplier_url",
+                                    "catalog_url"):
+                            n = _scrub_field(pricing, fld, rec_id,
+                                             f"pricing.{fld}")
+                            if n:
+                                urls_cleared += n
+                                touched_here = True
+                        # If the URL got scrubbed, the bare ASIN field
+                        # and the cached price that came from the
+                        # placeholder match should also clear — otherwise
+                        # the chip renderer at routes_pricecheck.py:690
+                        # falls back to `unit_cost` + the stale `asin`
+                        # and re-renders the same bad chip.
+                        a_url = (pricing.get("amazon_url") or "").strip()
+                        if not a_url and pricing.get("amazon_asin"):
+                            asin_val = str(pricing.get("amazon_asin", "")).strip()
+                            try:
+                                is_ph = is_placeholder_asin(asin_val) if asin_val else False
+                            except Exception:
+                                is_ph = False
+                            if is_ph:
+                                pricing["amazon_asin"] = ""
+                                # `amazon_price` was derived from the
+                                # placeholder match; clearing it lets the
+                                # next real lookup write a fresh value.
+                                if pricing.get("amazon_price"):
+                                    pricing["amazon_price"] = ""
+                                urls_cleared += 1
+                                touched_here = True
+                                log.warning(
+                                    "ASIN CLEANUP json: %s — placeholder asin "
+                                    "%s cleared from pricing.amazon_asin",
+                                    rec_id, asin_val,
+                                )
             if touched_here:
                 records_touched += 1
         if records_touched:
@@ -2625,7 +2692,7 @@ def cleanup_placeholder_asin_in_json(rfqs_path: str = "", pcs_path: str = "") ->
             except Exception as e:
                 log.error("cleanup_placeholder_asin_in_json: save %s failed: %s",
                           items_field_path, e)
-        return items_cleared, records_touched
+        return urls_cleared, records_touched
 
     rfq_cleared, rfqs_touched = _scrub(rfqs_path)
     pc_cleared, pcs_touched = _scrub(pcs_path)
