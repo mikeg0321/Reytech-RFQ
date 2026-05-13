@@ -166,17 +166,55 @@ def generate_weekly_report():
 
             # Recent losses
             losses = conn.execute("""
-                SELECT quote_number, competitor_name, competitor_price,
+                SELECT id, quote_number, competitor_name, competitor_price,
                        our_price, price_delta_pct, agency, loss_reason_class, found_at
                 FROM competitor_intel WHERE outcome='lost'
                 AND found_at > ? ORDER BY found_at DESC
             """, (week_ago,)).fetchall()
             report["losses"] = [{
-                "quote": r[0], "competitor": r[1], "their_price": r[2],
-                "our_price": r[3], "delta_pct": r[4], "agency": r[5],
-                "reason": r[6], "date": (r[7] or "")[:10]
+                "id": r[0], "quote": r[1], "competitor": r[2], "their_price": r[3],
+                "our_price": r[4], "delta_pct": r[5], "agency": r[6],
+                "reason": r[7], "date": (r[8] or "")[:10]
             } for r in losses]
             report["loss_count"] = len(losses)
+
+            # 2026-05-13 (PR-D): per-line loss breakdown. PR-C started
+            # persisting line-level deltas to competitor_intel_lines so
+            # the digest can show "lost item 4 by 18%, item 7 by 2%,
+            # item 9 we were cheaper" instead of just one PO-level row.
+            # Attach `lines: [...]` to each loss dict when child rows
+            # exist. Losses without child rows (legacy data or awards
+            # without `lines` info) stay as-is — back-compat preserved.
+            try:
+                for L in report["losses"]:
+                    if not L.get("id"):
+                        L["lines"] = []
+                        continue
+                    line_rows = conn.execute(
+                        """SELECT line_num, scprs_description, scprs_unit_price,
+                                  scprs_quantity, scprs_mfg, our_item_idx,
+                                  our_unit_price, price_delta_pct, matched_by
+                           FROM competitor_intel_lines
+                           WHERE competitor_intel_id = ?
+                           ORDER BY ABS(COALESCE(price_delta_pct, 0)) DESC,
+                                    line_num""",
+                        (L["id"],),
+                    ).fetchall()
+                    L["lines"] = [{
+                        "line_num": lr[0],
+                        "desc": (lr[1] or "")[:80],
+                        "their_price": lr[2],
+                        "qty": lr[3],
+                        "their_mfg": lr[4],
+                        "our_idx": lr[5],
+                        "our_price": lr[6],
+                        "delta_pct": lr[7],
+                        "matched_by": lr[8] or "none",
+                    } for lr in line_rows]
+            except Exception as _e:
+                log.debug("per-line digest enrichment skipped: %s", _e)
+                for L in report["losses"]:
+                    L.setdefault("lines", [])
 
             # Calibration table state
             try:
@@ -302,6 +340,72 @@ def format_report_email(report):
         for l in losses[:10]:
             delta = f"+{l['delta_pct']:.1f}%" if l.get("delta_pct") else "—"
             html += f'<tr style="border-bottom:1px solid #21262d"><td style="padding:4px;color:#e6edf3">{l["quote"]}</td><td style="color:#f0883e">{l["competitor"]}</td><td style="text-align:right;color:#f85149">{delta}</td><td style="color:#8b949e;font-size:12px">{l.get("reason","")}</td></tr>'
+            # 2026-05-13 (PR-D): per-line breakdown — surface the SCPRS
+            # line-level deltas under each loss. This is the actionable
+            # form of the digest: instead of just "we lost the PO," Mike
+            # sees which specific markups cost the bundle. Sorted by
+            # |delta| desc so the worst offenders surface first. Only
+            # render if PR-C's child rows are present; otherwise skip
+            # (legacy losses without per-line data stay one-row).
+            per_lines = l.get("lines") or []
+            if per_lines:
+                html += (
+                    '<tr><td colspan="4" style="padding:0 4px 8px 16px;'
+                    'background:#0d1117">'
+                    '<table style="width:100%;border-collapse:collapse;'
+                    'font-size:11px;margin:4px 0">'
+                    '<tr style="color:#484f58">'
+                    '<th style="text-align:left;padding:3px 6px;font-weight:600">Line</th>'
+                    '<th style="text-align:left;padding:3px 6px;font-weight:600">SCPRS Item</th>'
+                    '<th style="text-align:right;padding:3px 6px;font-weight:600">Their $</th>'
+                    '<th style="text-align:right;padding:3px 6px;font-weight:600">Our $</th>'
+                    '<th style="text-align:right;padding:3px 6px;font-weight:600">Δ%</th>'
+                    '<th style="text-align:left;padding:3px 6px;font-weight:600">Match</th>'
+                    '</tr>'
+                )
+                for pl in per_lines[:15]:
+                    # Color the delta — red if competitor was cheaper
+                    # (we lost on this line), green if we were cheaper
+                    # (we lost the bundle despite winning this line),
+                    # grey if no comparison possible.
+                    dpct = pl.get("delta_pct")
+                    if dpct is None:
+                        d_str = "—"
+                        d_color = "#484f58"
+                    elif dpct < -2:
+                        d_str = f"{dpct:+.1f}%"
+                        d_color = "#f85149"   # competitor cheaper
+                    elif dpct > 2:
+                        d_str = f"{dpct:+.1f}%"
+                        d_color = "#3fb950"   # we were cheaper
+                    else:
+                        d_str = f"{dpct:+.1f}%"
+                        d_color = "#d29922"   # essentially tied
+                    their_p = f"${pl['their_price']:,.2f}" if pl.get("their_price") else "—"
+                    our_p = f"${pl['our_price']:,.2f}" if pl.get("our_price") else "—"
+                    match_color = {
+                        "mfg_exact": "#3fb950",
+                        "desc_tokens": "#d29922",
+                        "none": "#484f58",
+                    }.get(pl.get("matched_by", "none"), "#484f58")
+                    desc_short = (pl.get("desc") or "")[:60]
+                    html += (
+                        f'<tr style="color:#8b949e">'
+                        f'<td style="padding:2px 6px">{pl.get("line_num", "")}</td>'
+                        f'<td style="padding:2px 6px;color:#c9d1d9">{desc_short}</td>'
+                        f'<td style="text-align:right;padding:2px 6px;color:#f0883e">{their_p}</td>'
+                        f'<td style="text-align:right;padding:2px 6px;color:#58a6ff">{our_p}</td>'
+                        f'<td style="text-align:right;padding:2px 6px;color:{d_color};font-weight:600">{d_str}</td>'
+                        f'<td style="padding:2px 6px;color:{match_color};font-size:10px">{pl.get("matched_by", "none")}</td>'
+                        f'</tr>'
+                    )
+                if len(per_lines) > 15:
+                    html += (
+                        f'<tr><td colspan="6" style="padding:3px 6px;'
+                        f'color:#484f58;font-style:italic">'
+                        f'… {len(per_lines) - 15} more lines</td></tr>'
+                    )
+                html += '</table></td></tr>'
         html += '</table>'
 
     # Calibration state
