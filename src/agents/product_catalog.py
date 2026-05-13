@@ -2430,6 +2430,218 @@ def cleanup_polluted_catalog_rows() -> dict:
         conn.close()
 
 
+def cleanup_placeholder_asin_urls() -> dict:
+    """Backfill twin to `cleanup_polluted_catalog_rows`. NULLs out
+    `product_suppliers.supplier_url` and `product_catalog.amazon_url`
+    where the recorded URL contains a placeholder ASIN.
+
+    Surfaced live 2026-05-12 on pc_5728f934: items 4/5/6/9/10 had
+    templated Amazon URLs (B07XXXXXXX, B08XXXXXXX, B07H3989EX,
+    B07H123456, B0ABCDEF12) stamped on them by failed lookups that
+    landed before the new write-time gate (`sanitize_supplier_url`).
+    The gate stops new pollution; this backfill clears the existing
+    rows so the MFG#→ASIN join key stops resolving to junk.
+
+    Idempotent: rows whose URL is already empty / non-Amazon / a real
+    ASIN are untouched. Logs every row it changes for audit. Called
+    from app boot (`_deferred_init`) alongside
+    `cleanup_polluted_catalog_rows`.
+
+    Returns {"supplier_urls_cleared", "catalog_urls_cleared",
+    "rows_touched"}.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    try:
+        from src.agents.item_link_lookup import (
+            _extract_asin, is_placeholder_asin,
+        )
+    except Exception as e:
+        log.error("cleanup_placeholder_asin_urls: import failed: %s", e)
+        conn.close()
+        return {"supplier_urls_cleared": 0, "catalog_urls_cleared": 0,
+                "rows_touched": 0, "error": str(e)}
+    cleared_supplier = 0
+    cleared_catalog = 0
+    rows_touched = 0
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        # product_suppliers.supplier_url
+        try:
+            rows = conn.execute(
+                "SELECT product_id, supplier_name, supplier_url "
+                "FROM product_suppliers "
+                "WHERE supplier_url IS NOT NULL "
+                "  AND supplier_url LIKE '%amazon%' "
+                "  AND LENGTH(TRIM(supplier_url)) > 0"
+            ).fetchall()
+        except Exception as _e:
+            log.debug("product_suppliers scan suppressed: %s", _e)
+            rows = []
+        for r in rows:
+            url = r["supplier_url"] or ""
+            try:
+                asin = _extract_asin(url)
+            except Exception:
+                asin = ""
+            if asin and is_placeholder_asin(asin):
+                conn.execute(
+                    "UPDATE product_suppliers SET supplier_url='', updated_at=? "
+                    "WHERE product_id=? AND supplier_name=?",
+                    (now, r["product_id"], r["supplier_name"]),
+                )
+                cleared_supplier += 1
+                rows_touched += 1
+                log.warning(
+                    "ASIN CLEANUP supplier: pid=%s supplier=%s — placeholder %s in URL %s",
+                    r["product_id"], r["supplier_name"], asin, url[:80],
+                )
+        # product_catalog.amazon_url (column may not exist on legacy DBs)
+        try:
+            rows = conn.execute(
+                "SELECT id, amazon_url FROM product_catalog "
+                "WHERE amazon_url IS NOT NULL "
+                "  AND LENGTH(TRIM(amazon_url)) > 0"
+            ).fetchall()
+        except Exception as _e:
+            log.debug("product_catalog.amazon_url not present or scan failed: %s", _e)
+            rows = []
+        for r in rows:
+            url = r["amazon_url"] or ""
+            try:
+                asin = _extract_asin(url)
+            except Exception:
+                asin = ""
+            if asin and is_placeholder_asin(asin):
+                conn.execute(
+                    "UPDATE product_catalog SET amazon_url='', updated_at=? WHERE id=?",
+                    (now, r["id"]),
+                )
+                cleared_catalog += 1
+                rows_touched += 1
+                log.warning(
+                    "ASIN CLEANUP catalog: id=%s — placeholder %s in amazon_url %s",
+                    r["id"], asin, url[:80],
+                )
+        if rows_touched:
+            conn.commit()
+            log.info(
+                "ASIN CLEANUP: cleared %d placeholder URLs (suppliers=%d, catalog=%d)",
+                rows_touched, cleared_supplier, cleared_catalog,
+            )
+        return {
+            "supplier_urls_cleared": cleared_supplier,
+            "catalog_urls_cleared": cleared_catalog,
+            "rows_touched": rows_touched,
+        }
+    except Exception as e:
+        log.error("ASIN CLEANUP failed: %s", e, exc_info=True)
+        return {"supplier_urls_cleared": cleared_supplier,
+                "catalog_urls_cleared": cleared_catalog,
+                "rows_touched": rows_touched,
+                "error": str(e)}
+    finally:
+        conn.close()
+
+
+def cleanup_placeholder_asin_in_json(rfqs_path: str = "", pcs_path: str = "") -> dict:
+    """JSON-side twin of `cleanup_placeholder_asin_urls`. Walks
+    data/rfqs.json and data/price_checks.json, NULLs out item_link on
+    any line whose link is a placeholder Amazon URL.
+
+    Default paths come from `src.core.paths.DATA_DIR`; override for
+    tests. Idempotent — re-runs find nothing to clear after the first
+    pass. Logs every line it touches for audit.
+
+    Returns {"rfq_items_cleared", "pc_items_cleared",
+    "rfqs_touched", "pcs_touched"}.
+    """
+    try:
+        from src.core.paths import DATA_DIR as _DD
+    except ImportError:
+        _DD = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))), "data")
+    rfqs_path = rfqs_path or os.path.join(_DD, "rfqs.json")
+    pcs_path = pcs_path or os.path.join(_DD, "price_checks.json")
+    try:
+        from src.agents.item_link_lookup import (
+            _extract_asin, is_placeholder_asin,
+        )
+    except Exception as e:
+        log.error("cleanup_placeholder_asin_in_json: import failed: %s", e)
+        return {"rfq_items_cleared": 0, "pc_items_cleared": 0,
+                "rfqs_touched": 0, "pcs_touched": 0, "error": str(e)}
+
+    def _scrub(items_field_path: str) -> tuple:
+        """Walk records in <path>, scrub placeholder item_links.
+        Returns (items_cleared, records_touched).
+        """
+        if not os.path.exists(items_field_path):
+            return 0, 0
+        try:
+            with open(items_field_path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            log.debug("cleanup_placeholder_asin_in_json: load %s failed: %s",
+                      items_field_path, e)
+            return 0, 0
+        items_cleared = 0
+        records_touched = 0
+        if not isinstance(data, dict):
+            return 0, 0
+        for rec_id, rec in list(data.items()):
+            if not isinstance(rec, dict):
+                continue
+            touched_here = False
+            # RFQs use "line_items"; PCs use "items" (legacy) + "parsed.line_items"
+            for items_key in ("items", "line_items"):
+                items = rec.get(items_key)
+                if not isinstance(items, list):
+                    continue
+                for it in items:
+                    if not isinstance(it, dict):
+                        continue
+                    url = (it.get("item_link") or "").strip()
+                    if not url:
+                        continue
+                    try:
+                        asin = _extract_asin(url)
+                    except Exception:
+                        asin = ""
+                    if asin and is_placeholder_asin(asin):
+                        it["item_link"] = ""
+                        items_cleared += 1
+                        touched_here = True
+                        log.warning(
+                            "ASIN CLEANUP json: %s item — placeholder %s in %s",
+                            rec_id, asin, url[:80],
+                        )
+            if touched_here:
+                records_touched += 1
+        if records_touched:
+            try:
+                with open(items_field_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, default=str)
+            except Exception as e:
+                log.error("cleanup_placeholder_asin_in_json: save %s failed: %s",
+                          items_field_path, e)
+        return items_cleared, records_touched
+
+    rfq_cleared, rfqs_touched = _scrub(rfqs_path)
+    pc_cleared, pcs_touched = _scrub(pcs_path)
+    if rfqs_touched or pcs_touched:
+        log.info(
+            "ASIN CLEANUP json: cleared %d items across %d RFQs + %d PCs",
+            rfq_cleared + pc_cleared, rfqs_touched, pcs_touched,
+        )
+    return {
+        "rfq_items_cleared": rfq_cleared,
+        "pc_items_cleared": pc_cleared,
+        "rfqs_touched": rfqs_touched,
+        "pcs_touched": pcs_touched,
+    }
+
+
 def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str = "") -> list:
     """
     Find best catalog matches for a line item from a Price Check or RFQ.
@@ -3061,6 +3273,23 @@ def add_supplier_price(product_id: int, supplier_name: str, price: float,
                        url: str = "", sku: str = "", shipping: float = 0,
                        in_stock: bool = True) -> bool:
     """Record/update a supplier's price for a product."""
+    # Placeholder-ASIN gate (Mike P0 2026-05-12 live drive of pc_5728f934):
+    # five items had templated Amazon URLs (B07XXXXXXX, B0ABCDEF12,
+    # B07H123456, B08XXXXXXX, B07H3989EX) persisted into item_link and the
+    # catalog. Once a placeholder ASIN lands in product_suppliers it
+    # poisons the MFG#→ASIN join key forever. Refuse the write here so
+    # the catalog stays clean. The helper lives in item_link_lookup so
+    # the same regex is reused at the autosave + bulk-scrape choke
+    # points (see also the PC/RFQ autosave gates).
+    if url:
+        try:
+            from src.agents.item_link_lookup import sanitize_supplier_url
+            url = sanitize_supplier_url(url)
+        except Exception as _e:
+            # Never block a price write on a sanitizer crash; just log
+            # and proceed with the original URL. The autosave gates are
+            # the primary defense; this is defense-in-depth.
+            log.debug("sanitize_supplier_url crashed in add_supplier_price: %s", _e)
     conn = _get_conn()
     now = datetime.now(timezone.utc).isoformat()
     try:
