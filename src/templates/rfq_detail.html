@@ -4139,7 +4139,7 @@ document.addEventListener('keydown',function(e){
    if(!cats[cat]) cats[cat]=[];
    cats[cat].push(f);
   });
-  function renderSection(label,icon,files){
+  function renderSection(label,icon,files,canDelete){
    if(!files||files.length===0) return '';
    var s='<div style="margin-bottom:10px"><div style="font-size:14px;font-weight:700;color:var(--tx2);margin-bottom:6px">'+icon+' '+label+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
    files.forEach(function(f){
@@ -4148,19 +4148,42 @@ document.addEventListener('keydown',function(e){
     s+='<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:13px;color:var(--tx)">';
     s+='<a href="#" class="rfq-file-preview" data-url="'+previewUrl.replace(/"/g,'&quot;')+'" data-title="'+f.filename.replace(/"/g,'&quot;')+'" style="color:var(--ac);text-decoration:none;cursor:pointer" title="Preview">👁️</a> ';
     s+='<a href="/rfq/'+RID+'/file/'+f.id+'" target="_blank" style="color:var(--tx);text-decoration:none">'+f.filename+'</a>';
-    s+=' <span style="color:var(--tx2);font-size:14px">('+kb+'KB)</span></span>';
+    s+=' <span style="color:var(--tx2);font-size:14px">('+kb+'KB)</span>';
+    // PR-AE 2026-05-13: × button on template + attachment chips so
+    // operator can remove a wrong-uploaded file without DB surgery.
+    // Generated outputs intentionally lack × — they regen via the
+    // existing Generate path.
+    if(canDelete){
+     s+=' <a href="#" class="rfq-file-delete" data-id="'+f.id+'" data-filename="'+f.filename.replace(/"/g,'&quot;')+'" title="Delete this file" style="color:var(--tx2);text-decoration:none;cursor:pointer;padding:0 4px;font-weight:700">×</a>';
+    }
+    s+='</span>';
    });
    return s+'</div></div>';
   }
   var html='';
-  html+=renderSection('Source Templates','📋',cats.template);
-  html+=renderSection('Generated Files','📦',cats.generated);
-  html+=renderSection('Other Attachments','📎',cats.attachment);
+  html+=renderSection('Source Templates','📋',cats.template,true);
+  html+=renderSection('Generated Files','📦',cats.generated,false);
+  html+=renderSection('Other Attachments','📎',cats.attachment,true);
   document.getElementById('rfq-files-list').innerHTML=html;
-  // Attach preview click handlers via delegation (avoids inline onclick quoting issues)
+  // Attach preview + delete click handlers via delegation (avoids inline
+  // onclick quoting issues).
   document.getElementById('rfq-files-list').addEventListener('click',function(e){
    var link=e.target.closest('.rfq-file-preview');
-   if(link){e.preventDefault();previewPdf(link.getAttribute('data-url'),link.getAttribute('data-title'));}
+   if(link){e.preventDefault();previewPdf(link.getAttribute('data-url'),link.getAttribute('data-title'));return;}
+   var del=e.target.closest('.rfq-file-delete');
+   if(del){
+    e.preventDefault();
+    var fid=del.getAttribute('data-id');
+    var fname=del.getAttribute('data-filename')||'this file';
+    if(!confirm('Delete "'+fname+'"? This cannot be undone.')) return;
+    fetch('/api/rfq/'+RID+'/file/'+fid,{method:'DELETE',credentials:'same-origin'})
+     .then(function(r){return r.json();})
+     .then(function(d){
+      if(d&&d.ok){location.reload();}
+      else{alert('Delete failed: '+((d&&d.error)||'unknown error'));}
+     })
+     .catch(function(){alert('Delete failed: network error');});
+   }
   });
   // Populate attachment checkboxes for email
   buildAttachmentList(cats.generated);

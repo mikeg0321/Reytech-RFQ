@@ -57,6 +57,51 @@ def api_rfq_files(rid):
     return jsonify({"ok": True, "files": files, "count": len(files)})
 
 
+@bp.route("/api/rfq/<rid>/file/<file_id>", methods=["DELETE"])
+@auth_required
+@safe_route
+def api_delete_rfq_file(rid, file_id):
+    """Delete a single rfq_files row.
+
+    PR-AE 2026-05-13 (Bug 1 from PC #10846357 walkthrough): operator
+    accidentally uploaded the wrong bid-package template and had no
+    way to remove it without DB-side surgery. This route lets the UI
+    delete a per-file chip safely.
+
+    Safety rails:
+      - file must belong to this rfq_id (defense against ID swaps)
+      - category must be 'template' OR 'attachment' (NEVER 'generated' —
+        those are Reytech outputs and have their own bulk-regen path)
+      - returns the deleted filename so the toast can echo it back
+    """
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+    if not re.match(r"^rf_[a-f0-9]{8,16}$", file_id or ""):
+        return jsonify({"ok": False, "error": "invalid file_id"}), 400
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, rfq_id, filename, category FROM rfq_files "
+            "WHERE id=? AND rfq_id=? LIMIT 1",
+            (file_id, rid),
+        ).fetchone()
+        if not row:
+            return jsonify({"ok": False, "error": "file not found"}), 404
+        cat = (row["category"] or "").lower()
+        if cat not in ("template", "attachment"):
+            return jsonify({
+                "ok": False,
+                "error": f"refusing to delete category '{cat}' — use "
+                         "the regen path for generated outputs",
+            }), 403
+        conn.execute("DELETE FROM rfq_files WHERE id=? AND rfq_id=?",
+                     (file_id, rid))
+        conn.commit()
+        log.info("Deleted rfq_file id=%s filename=%s category=%s rfq_id=%s",
+                 file_id, row["filename"], cat, rid)
+    return jsonify({"ok": True, "deleted": 1, "filename": row["filename"]})
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # RFQ Status Management — reopen, edit, resubmit
 # ═══════════════════════════════════════════════════════════════════════
