@@ -172,6 +172,44 @@
       {{ pipeline_html | default('') | safe }}
      </div>
 
+     {# PR-X (2026-05-13): Vision validation status pill at top of page.
+        The walkthrough audit found the detailed vision_validation panel
+        (PR-P) sits below the Generate button — operator could click
+        Send (or not validate at all) before scrolling down to see
+        "🚨 TOTAL field blank" errors. This one-line pill at the top
+        makes a FAIL state impossible to miss. Anchor jumps to the
+        detailed panel for per-issue review. Stays invisible when no
+        validation has run yet (no noise on parsed-but-not-generated PCs). #}
+     {% set _vv_pill = pc.get('vision_validation') %}
+     {% if _vv_pill %}
+     <a href="#vision-validation-panel"
+        data-testid="vision-status-pill"
+        style="display:inline-flex;align-items:center;gap:8px;
+               font-size:13px;font-weight:600;text-decoration:none;
+               margin:8px 0 12px 0;padding:6px 14px;border-radius:20px;
+               {% if _vv_pill.overall_passed %}
+                color:var(--gn);background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);
+               {% elif _vv_pill.total_errors > 0 %}
+                color:var(--rd);background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);
+               {% elif _vv_pill.skipped_reason %}
+                color:var(--mu);background:rgba(167,139,250,.10);border:1px solid rgba(167,139,250,.30);
+               {% else %}
+                color:var(--yl);background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.30);
+               {% endif %}">
+      {% if _vv_pill.overall_passed %}
+       ✅ Vision: All {{ _vv_pill.files|length }} forms passed
+      {% elif _vv_pill.total_errors > 0 %}
+       🚨 Vision: {{ _vv_pill.total_errors }} error{{ '' if _vv_pill.total_errors == 1 else 's' }}
+       {% if _vv_pill.total_warnings > 0 %} + {{ _vv_pill.total_warnings }} warning{{ '' if _vv_pill.total_warnings == 1 else 's' }}{% endif %}
+       — review before Send ↓
+      {% elif _vv_pill.skipped_reason %}
+       ⏸ Vision skipped — run Generate
+      {% else %}
+       ⚠️ Vision: {{ _vv_pill.total_warnings }} warning{{ '' if _vv_pill.total_warnings == 1 else 's' }}
+      {% endif %}
+     </a>
+     {% endif %}
+
      <!-- Phase 1.6 PR3a: Fill-Plan panel (read-only). Surfaces, per required form,
           whether the package will fill correctly, fall back to generic, or fill blank. -->
      <div id="rt-fillplan-panel" data-quote-id="{{ pcid }}" data-quote-type="pc" style="margin:10px 0"></div>
