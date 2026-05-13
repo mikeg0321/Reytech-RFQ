@@ -3884,6 +3884,22 @@ def _do_generate_original_locked(pcid):
         except Exception as _vqe:
             log.info("GENERATE-ORIGINAL %s: Visual QA skipped: %s", pcid, _vqe)
 
+        # PR-P (2026-05-13): persist validation across the whole package
+        # so the PC detail page can render the report after a reload.
+        # Pre-PR-P the visual-QA result above only landed in `qa_warnings`
+        # of the JSON response — the operator would see it on Generate
+        # but lose it on page reload, and had no way to see whether OTHER
+        # forms in the package (quote PDF, packet) passed validation.
+        # validate_pc_package walks every generated file, runs vision,
+        # and writes `pc.vision_validation` so the panel renders the
+        # same structured report every time.
+        try:
+            from src.agents.package_validator import validate_pc_package
+            validate_pc_package(pcid)
+        except Exception as _vpe:
+            log.warning("GENERATE-ORIGINAL %s: package validator skipped: %s",
+                        pcid, _vpe)
+
         resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
         if _qa_warnings:
             resp["qa_warnings"] = _qa_warnings
@@ -3897,6 +3913,30 @@ def _do_generate_original_locked(pcid):
 
     log.error("GENERATE-ORIGINAL %s FAILED: %s", pcid, result.get("error"))
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+
+
+# ─── PR-P: package validator endpoint ─────────────────────────────────
+
+
+@bp.route("/api/pricecheck/<pcid>/validate-package", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_validate_package(pcid):
+    """PR-P (2026-05-13): re-run vision validation across every generated
+    PDF in this PC's package + persist the report on the PC dict.
+
+    Operator hits this from the PC detail page when they want a fresh
+    validation pass without regenerating. Standing rule preserved: this
+    endpoint does NOT send anything — it only inspects and reports.
+    """
+    try:
+        from src.agents.package_validator import validate_pc_package
+        report = validate_pc_package(pcid)
+        return jsonify(report)
+    except Exception as e:
+        log.exception("validate-package %s failed: %s", pcid, e)
+        return jsonify({"ok": False, "error": str(e),
+                        "summary_line": f"Validator crashed: {e}"}), 500
 
 
 # NOTE: /api/pricecheck/download/<filename> is defined in routes_crm.py

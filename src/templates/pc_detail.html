@@ -532,6 +532,90 @@
       </div>
      </div>
 
+     {# PR-P (2026-05-13): Vision validation panel.
+        Persists `pc.vision_validation` after Generate; this block reads
+        it server-side and renders a structured pass/warn/fail report.
+        Operator can re-validate without regenerating via the button —
+        the endpoint `/api/pricecheck/<id>/validate-package` re-walks
+        every generated PDF, re-runs vision, and rewrites the persisted
+        report. Standing rule preserved: this surface NEVER sends. #}
+     {% set _vv = pc.get('vision_validation') %}
+     {% if _vv %}
+     <div id="vision-validation-panel" data-testid="vision-validation-panel"
+          style="margin-bottom:12px;border-radius:8px;padding:12px 16px;
+                 {% if _vv.overall_passed %}
+                  background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.35);
+                 {% elif _vv.total_errors > 0 %}
+                  background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);
+                 {% else %}
+                  background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.35);
+                 {% endif %}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px">
+       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:14px;font-weight:700">
+         {% if _vv.overall_passed %}✅ Vision Validation Passed
+         {% elif _vv.total_errors > 0 %}🚨 Vision Validation Found Errors
+         {% elif _vv.skipped_reason %}⏸ Vision Validation Skipped
+         {% else %}⚠️ Vision Validation: Warnings Only
+         {% endif %}
+        </span>
+        <span style="font-size:11px;color:var(--mu);background:rgba(167,139,250,.15);padding:2px 8px;border-radius:8px">PR-P</span>
+       </div>
+       <button data-testid="pc-revalidate-btn"
+               onclick="revalidatePackage(this)"
+               style="font-size:12px;background:rgba(255,255,255,.06);
+                      color:var(--tx);border:1px solid var(--bd);
+                      border-radius:6px;padding:5px 12px;cursor:pointer">
+        🔍 Re-validate
+       </button>
+      </div>
+      <div style="font-size:13px;color:var(--tx2)">{{ _vv.summary_line }}</div>
+      {% if _vv.validated_at %}
+      <div style="font-size:11px;color:var(--mu);margin-top:2px">Last validated: {{ _vv.validated_at[:19].replace('T', ' ') }}</div>
+      {% endif %}
+      {% if _vv.files and (_vv.total_errors > 0 or _vv.total_warnings > 0) %}
+      <ul style="margin:8px 0 0 0;padding-left:18px;font-size:12px;color:var(--tx2)">
+       {% for f in _vv.files %}
+        {% if f.errors or f.warnings %}
+         <li style="margin-bottom:4px">
+          <strong>{{ f.name }}</strong>
+          {% if not f.passed %}<span style="color:var(--rd);margin-left:6px">FAIL</span>{% endif %}
+          {% for err in f.errors %}
+           <div style="color:var(--rd);margin:2px 0 0 8px">• {{ err.description }}{% if err.field_name %} [{{ err.field_name }}]{% endif %}{% if err.page %} (p.{{ err.page }}){% endif %}</div>
+          {% endfor %}
+          {% for w in f.warnings %}
+           <div style="color:var(--yl);margin:2px 0 0 8px">• {{ w.description }}{% if w.field_name %} [{{ w.field_name }}]{% endif %}{% if w.page %} (p.{{ w.page }}){% endif %}</div>
+          {% endfor %}
+         </li>
+        {% endif %}
+       {% endfor %}
+      </ul>
+      {% endif %}
+     </div>
+     <script>
+     function revalidatePackage(btn) {
+       var orig = btn.textContent;
+       btn.textContent = '⏳ Running…';
+       btn.disabled = true;
+       fetch('/api/pricecheck/{{ pcid }}/validate-package', {
+         method: 'POST',
+         headers: {'Content-Type': 'application/json'},
+       }).then(function(r) { return r.json(); })
+        .then(function(j) {
+          // Reload to pick up the fresh persisted report (cheap; server
+          // already has all state). Avoids re-rendering the panel client-
+          // side which would duplicate the jinja logic.
+          window.location.reload();
+        }).catch(function(err) {
+          btn.textContent = '❌ Error';
+          btn.disabled = false;
+          setTimeout(function(){ btn.textContent = orig; }, 2000);
+          console.error('validate-package failed', err);
+        });
+     }
+     </script>
+     {% endif %}
+
      <!-- Actions: Save + Preview + Fill/Download -->
      <!-- Generate Quote banner — only visible for formal 704b/703b quote requests -->
      {% if pc.get('is_quote_request') or pc.get('form_type') in ('704b', '703b') %}
