@@ -1067,6 +1067,78 @@ def run_scheduled_pulls(notify_fn=None):
     conn.close()
     for row in due:
         pull_agency(row["agency_key"], notify_fn=notify_fn)
+    # PR-O (2026-05-13): normalize fresh scprs_po_master/lines rows into
+    # scprs_awards so the WR JOIN, margin cap, chip colors, and weekly
+    # auto-recommend digest all read fresh data. Pre-fix the scheduler
+    # would pull POs but never run the bridge — awards table was frozen
+    # 60 days at 2026-03-14 even though the master/lines tables were
+    # current. See `rebuild_intelligence_tables()` below.
+    try:
+        rebuild_intelligence_tables(notify_fn=notify_fn)
+    except Exception as e:
+        log.error("post-pull rebuild_intelligence_tables failed: %s", e, exc_info=True)
+
+
+def rebuild_intelligence_tables(notify_fn=None) -> Dict[str, int]:
+    """Normalize scprs_po_master/lines → scprs_awards + won_quotes_kb +
+    vendor_intel + buyer_intel + competitors.
+
+    Returns a dict of {table_name: row_count_after}.
+
+    PR-O (2026-05-13): the canonical post-pull step. Idempotent — every
+    build_* uses INSERT OR IGNORE/REPLACE keyed on PO number, so re-running
+    after no new pulls is a no-op. Safe to call from:
+      - the SCPRS scheduler (every 30 min after pull cycle)
+      - admin endpoints `/api/v1/harvest/rebuild-intel` + `/reprocess`
+      - the boot-time one-shot in `_scprs_autostart` (catches up after
+        outages so the awards table doesn't lag indefinitely)
+      - the standalone `scripts/run_scprs_harvest.py` CLI (manual ops)
+
+    All build_* functions live in `scripts/run_scprs_harvest.py` — kept
+    there so the script is the single source of truth for normalization
+    SQL (one place to fix when schemas evolve). This wrapper handles the
+    sys.path import dance.
+    """
+    import sys as _sys, os as _os
+    _scripts_dir = _os.path.join(_os.path.dirname(_os.path.dirname(
+        _os.path.dirname(_os.path.abspath(__file__)))), "scripts")
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from run_scprs_harvest import (  # type: ignore[import-not-found]
+        build_vendor_intel, build_buyer_intel, build_competitors,
+        build_won_quotes_kb, build_scprs_awards, get_conn,
+    )
+    conn = get_conn()
+    results: Dict[str, int] = {}
+    try:
+        # Order matters only for the run_scprs_harvest CLI logging — all
+        # writes are independent and idempotent.
+        results["vendor_intel"] = build_vendor_intel(conn) or 0
+        results["buyer_intel"] = build_buyer_intel(conn) or 0
+        results["competitors"] = build_competitors(conn) or 0
+        results["won_quotes_kb"] = build_won_quotes_kb(conn) or 0
+        results["scprs_awards"] = build_scprs_awards(conn) or 0
+        log.info(
+            "rebuild_intelligence_tables: scprs_awards=%d, won_quotes_kb=%d, "
+            "vendor_intel=%d, buyer_intel=%d, competitors=%d",
+            results["scprs_awards"], results["won_quotes_kb"],
+            results["vendor_intel"], results["buyer_intel"],
+            results["competitors"],
+        )
+        if notify_fn:
+            try:
+                notify_fn("bell",
+                          f"📊 SCPRS normalized: {results['scprs_awards']} awards, "
+                          f"{results['won_quotes_kb']} won quotes",
+                          "info")
+            except Exception as _e:
+                log.debug("notify suppressed: %s", _e)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return results
 
 
 def get_engine_status() -> dict:
