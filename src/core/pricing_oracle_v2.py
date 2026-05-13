@@ -180,12 +180,10 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     # Step 7: Cross-sell
     result["cross_sell"] = _get_cross_sell(db, description)
 
-    # Step 8: SCPRS rollup sidecar (Phase 1.5-B, 2026-05-13).
+    # Step 8: SCPRS rollup sidecar (Phase 1.5-B sidecar, PR #947).
     # When the caller supplied a MFG# or UNSPSC, look up the
     # pre-computed (key, agency, qty_band) → (count, mean, p50, p75, p90)
-    # bucket and attach it as a sidecar. Recommendation logic above is
-    # NOT consulted — this is preview-only until the flagged binding
-    # ships. Bucket lookup honors Mike's Q1 priority via
+    # bucket and attach it. Bucket lookup honors Mike's Q1 priority via
     # `lookup_price_stat`: MFG# > UNSPSC, agency-specific > "*".
     _mfg_for_rollup = (mfg_number or item_number or "").strip()
     _unspsc_for_rollup = (unspsc or "").strip()
@@ -204,8 +202,131 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
             log.debug("scprs_rollup sidecar skipped: %s", _rl_e)
             result["scprs_rollup"] = None
 
+    # Step 9: SCPRS p75 CAP (Phase 1.5-B real bind, env-flagged).
+    # When ORACLE_USE_SCPRS_ROLLUP=1 AND the rollup has count >=
+    # MIN_SAMPLES (default 5), cap the recommendation's quote_price at
+    # the rollup's p75. Semantically: "75% of comparable POs awarded
+    # at $X or less, so we shouldn't bid above that." The cap can only
+    # LOWER, never raise — this is the safest possible binding. Flag
+    # default is "0" so prod behavior is unchanged until Mike opts in.
+    try:
+        _apply_scprs_rollup_cap(result, cost)
+    except Exception as _cap_e:
+        log.debug("scprs rollup cap skipped: %s", _cap_e)
+
     db.close()
     return result
+
+
+# ── Phase 1.5-B: SCPRS rollup cap ─────────────────────────────────────────
+#
+# 2026-05-13. Default OFF. When ORACLE_USE_SCPRS_ROLLUP=1 AND the
+# rollup bucket has count >= MIN_SAMPLES (default 5) AND the rec's
+# quote_price exceeds the rollup percentile, the cap pulls quote_price
+# down to the percentile value. The cap is monotonic — it can only
+# lower, never raise.
+#
+# Bounds are env-configurable so we can tune from telemetry without
+# a deploy:
+#   ORACLE_USE_SCPRS_ROLLUP=1                   → enable the cap
+#   ORACLE_SCPRS_ROLLUP_MIN_SAMPLES=N           → min count to apply (5)
+#   ORACLE_SCPRS_ROLLUP_PERCENTILE=p50|p75|p90  → which percentile (p75)
+
+
+def _scprs_rollup_cap_enabled() -> bool:
+    import os as _os
+    v = _os.getenv("ORACLE_USE_SCPRS_ROLLUP", "0").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def _scprs_rollup_min_samples() -> int:
+    import os as _os
+    try:
+        return max(1, int(_os.getenv("ORACLE_SCPRS_ROLLUP_MIN_SAMPLES", "5")))
+    except (TypeError, ValueError):
+        return 5
+
+
+def _scprs_rollup_cap_percentile() -> str:
+    import os as _os
+    v = _os.getenv("ORACLE_SCPRS_ROLLUP_PERCENTILE", "p75").strip().lower()
+    return v if v in ("p50", "p75", "p90") else "p75"
+
+
+def _apply_scprs_rollup_cap(result: dict, cost) -> None:
+    """Cap result["recommendation"]["quote_price"] at the rollup
+    percentile when the flag is on. Mutates `result` in place.
+
+    No-op when:
+      • flag off (ORACLE_USE_SCPRS_ROLLUP != "1")
+      • rollup empty / None
+      • sample too thin (count < MIN_SAMPLES)
+      • percentile value missing or <= 0
+      • rec already at/below the cap (cap is monotonic)
+      • rec quote_price missing or <= 0
+
+    When the cap fires, the recommendation gains:
+      • `quote_price_pre_cap` — what we would have bid pre-cap
+      • `caps_applied: [...]` — list of cap records (source, percentile,
+        cap_price, pre_cap_price, match_key, sample_count). List form
+        because future caps (e.g. SCPRS p50 for ultra-thin margins,
+        volume-aware ceiling) can stack.
+      • `markup_pct` re-derived against the new price when cost > 0
+    """
+    if not _scprs_rollup_cap_enabled():
+        return
+    rollup = result.get("scprs_rollup") or {}
+    count = rollup.get("count") or 0
+    if count < _scprs_rollup_min_samples():
+        return
+    pct_key = _scprs_rollup_cap_percentile()
+    cap_price = rollup.get(pct_key)
+    try:
+        cap_price = float(cap_price) if cap_price is not None else 0.0
+    except (TypeError, ValueError):
+        cap_price = 0.0
+    if cap_price <= 0:
+        return
+    rec = result.get("recommendation") or {}
+    cur_price = rec.get("quote_price")
+    try:
+        cur_price = float(cur_price) if cur_price is not None else 0.0
+    except (TypeError, ValueError):
+        cur_price = 0.0
+    if cur_price <= 0 or cur_price <= cap_price:
+        return
+
+    rec["quote_price_pre_cap"] = round(cur_price, 2)
+    rec["quote_price"] = round(cap_price, 2)
+    caps = rec.get("caps_applied")
+    if not isinstance(caps, list):
+        caps = []
+    caps.append({
+        "source": "scprs_rollup",
+        "percentile": pct_key,
+        "cap_price": round(cap_price, 2),
+        "pre_cap_price": round(cur_price, 2),
+        "match_key": rollup.get("match_key"),
+        "match_key_type": rollup.get("match_key_type"),
+        "sample_count": count,
+    })
+    rec["caps_applied"] = caps
+
+    # Re-derive markup_pct against the new price so consumers see the
+    # right math. If cost is missing/zero we leave markup_pct alone.
+    try:
+        c = float(cost) if cost is not None else 0.0
+    except (TypeError, ValueError):
+        c = 0.0
+    if c > 0:
+        rec["markup_pct"] = round((cap_price - c) / c * 100, 1)
+
+    result["recommendation"] = rec
+    log.info(
+        "SCPRS rollup cap: %.2f → %.2f (%s, n=%d, key=%s)",
+        cur_price, cap_price, pct_key, count,
+        rollup.get("match_key"),
+    )
 
 
 PHASE3_MARKUP_FILTER_DATE = "2026-04-25"
