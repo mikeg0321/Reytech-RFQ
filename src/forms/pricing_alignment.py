@@ -201,9 +201,20 @@ def extract_pdf_totals(pdf_path: str, form_id: str = "") -> Optional[Dict]:
         return None
 
     def _find_money(label_re: str) -> Optional[float]:
-        """Find a $ amount on the same line as `label_re`."""
+        """Find a $ amount on the same line as `label_re`.
+
+        🚨 2026-05-12 Mike P0 rfq_8efe9fae: the regex previously made
+        `$` optional (`\$?`). For a quote PDF rendering `TAX (8.35%)
+        $724.12`, the non-greedy `.{0,40}?` captured the FIRST number
+        after `TAX` — which is `8.35` (the rate inside parens), NOT
+        the real tax amount `$724.12`. Result: the pricing-alignment
+        QA banner falsely reported `quote TAX $8.35 ≠ canonical
+        $724.12` and blocked send — even though the PDF was correct.
+
+        Require `$` so percent-in-parens labels don't leak.
+        """
         m = re.search(
-            label_re + r".{0,40}?\$?\s*([\d,]+\.\d{2})",
+            label_re + r".{0,80}?\$\s*([\d,]+\.\d{2})",
             text,
             re.IGNORECASE,
         )
