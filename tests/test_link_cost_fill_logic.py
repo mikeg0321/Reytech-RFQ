@@ -133,3 +133,65 @@ def test_apply_tier_uses_data_base_cost_consistently():
     assert "costInp.setAttribute('data-base-cost', baseCost.toFixed(4))" in source
     # Tier == 0: restore + clear
     assert "costInp.removeAttribute('data-base-cost')" in source
+
+
+# ── PR-AC 2026-05-13 — URL-paste MFG-match override (Bug 4) ──────────
+
+
+def test_mfg_match_override_branch_precedes_keep_yours():
+    """PR-AC: when the scraped MFG# exactly matches the row's MFG# AND
+    the token match score is >=70, the URL paste is an explicit operator
+    correction of a stale catalog entry — accept the scrape instead of
+    keeping the existing (catalog-filled) cost.
+
+    Trigger case: PC #10846357 / H-3647GR Waterhog Elite 6x8 / cost was
+    $59.99 from a poisoned catalog entry; Mike pasted the canonical
+    Uline URL whose scrape returned $448. Pre-PR-AC the operator-write-
+    protection branch fired and silently kept $59.99 — a $388/unit
+    underprice that would've shipped at 13.8% margin instead of 25%.
+
+    The override branch MUST appear textually before the original
+    keep-yours branch so it has first-match priority.
+    """
+    import os
+    full = os.path.join(os.path.dirname(__file__), "..",
+                         "src/static/shared_item_utils.js")
+    with open(full, encoding="utf-8") as f:
+        source = f.read()
+    # Override branch exists with all four required guards
+    assert "_mfgExact" in source
+    assert "_curMfgLower === _scrapedMfgLower" in source
+    assert "_operatorCostHeld && _scrapeDiffers && _mfgExact && _matchScore >= 70" in source
+    # The override sets costEl.value to the scraped cost (corrective)
+    assert "costEl.value = _scrapedCost.toFixed(2)" in source
+    # Chip text changes to UPDATED so operator sees the correction
+    assert "cost UPDATED $" in source
+    assert "MFG# " in source and "match, URL paste" in source
+
+    # Critical ordering: override branch MUST come before the keep-yours
+    # branch so the more specific match wins.
+    idx_override = source.find("_mfgExact && _matchScore >= 70")
+    idx_keep = source.find(
+        "// Operator already entered a cost that differs from the lookup"
+    )
+    assert idx_override > 0, "override branch missing"
+    assert idx_keep > 0, "keep-yours branch missing"
+    assert idx_override < idx_keep, (
+        "override branch must come BEFORE keep-yours so MFG-exact case "
+        "wins over the generic protection"
+    )
+
+
+def test_mfg_match_override_requires_non_empty_mfg_on_both_sides():
+    """An empty curMfg or empty scrapedMfg must NOT trigger the override.
+    Otherwise an empty-equals-empty match would treat every paste as
+    'MFG# exact' and undo the entire operator-write-protection. Guard:
+    the lowercase strings must both be truthy before equality check."""
+    import os
+    full = os.path.join(os.path.dirname(__file__), "..",
+                         "src/static/shared_item_utils.js")
+    with open(full, encoding="utf-8") as f:
+        source = f.read()
+    # The conjunction must include both _curMfgLower and _scrapedMfgLower
+    # as truthiness gates before the equality check.
+    assert "_curMfgLower && _scrapedMfgLower && _curMfgLower === _scrapedMfgLower" in source
