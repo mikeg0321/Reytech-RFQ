@@ -45,7 +45,7 @@ def drain_skips() -> list[SkipReason]:
 
 def get_pricing(description, quantity=1, cost=None, item_number="",
                 department="", force_refresh=False, qty_per_uom=1,
-                line_count=None, upc=""):
+                line_count=None, upc="", mfg_number="", unspsc=""):
     """THE pricing function. Call this for everything.
     qty_per_uom: pack size (e.g., 200 for a box of 200 markers). Used to
     normalize cost to per-unit for proper comparison with market data.
@@ -54,7 +54,16 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     bucket; missing it falls to the mid-density 'lc_4_15' default.
     upc: 12-digit UPC. When present, item-memory matches by UPC first
     (strongest identifier) before MFG#/description. Pass through from
-    item['upc'] so 704B / parsed-PDF items get the strongest match."""
+    item['upc'] so 704B / parsed-PDF items get the strongest match.
+    mfg_number / unspsc: Phase 1.5-B (2026-05-13) — when either is
+    provided, the pre-computed SCPRS rollup (`scprs_price_stats`)
+    is consulted and the result attached to `result["scprs_rollup"]`.
+    This is a SIDECAR field — the existing ad-hoc market-price scans
+    + recommendation logic remain unchanged. The actual binding
+    (oracle uses rollup as the primary signal for the recommendation)
+    ships in a separate PR behind the `ORACLE_USE_SCPRS_ROLLUP` flag
+    after Mike has eyeballed the rollup data at
+    /oracle/price-stats/preview."""
     import sqlite3
     from src.core.db import DB_PATH
 
@@ -64,6 +73,7 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
         "cost": {}, "market": {}, "recommendation": {},
         "strategies": [], "tiers": [], "competitors": [],
         "cross_sell": [], "sources_used": [],
+        "scprs_rollup": None,  # populated below when MFG#/UNSPSC supplied
     }
 
     if not description or len(description.strip()) < 3:
@@ -169,6 +179,30 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
 
     # Step 7: Cross-sell
     result["cross_sell"] = _get_cross_sell(db, description)
+
+    # Step 8: SCPRS rollup sidecar (Phase 1.5-B, 2026-05-13).
+    # When the caller supplied a MFG# or UNSPSC, look up the
+    # pre-computed (key, agency, qty_band) → (count, mean, p50, p75, p90)
+    # bucket and attach it as a sidecar. Recommendation logic above is
+    # NOT consulted — this is preview-only until the flagged binding
+    # ships. Bucket lookup honors Mike's Q1 priority via
+    # `lookup_price_stat`: MFG# > UNSPSC, agency-specific > "*".
+    _mfg_for_rollup = (mfg_number or item_number or "").strip()
+    _unspsc_for_rollup = (unspsc or "").strip()
+    if _mfg_for_rollup or _unspsc_for_rollup:
+        try:
+            from src.agents.scprs_price_stats import (
+                lookup_price_stat, qty_band as _qty_band,
+            )
+            result["scprs_rollup"] = lookup_price_stat(
+                mfg_number=_mfg_for_rollup,
+                unspsc=_unspsc_for_rollup,
+                agency=department or "",
+                qty_band_filter=_qty_band(quantity),
+            )
+        except Exception as _rl_e:
+            log.debug("scprs_rollup sidecar skipped: %s", _rl_e)
+            result["scprs_rollup"] = None
 
     db.close()
     return result
