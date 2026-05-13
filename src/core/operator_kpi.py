@@ -6,9 +6,17 @@ without a timer. This module logs one row per Mark Sent click into the
 `operator_quote_sent` table (migration 34) and exposes simple analytics
 queries.
 
+PR-I (2026-05-13) extends this surface: `log_operator_drift` captures
+the (sent_price, rec_price, caps_applied) tuple for every priced line at
+Mark-Sent time, one row per LINE into `operator_drift_line` (migration
+45). This is the high-volume signal — at N=50 sent quotes/mo with ~10
+lines each, drift gives us ~500 datapoints/mo vs 50 WR datapoints — fast
+enough to call cap binds "better" or "worse" within weeks instead of
+quarters.
+
 Usage from a send route:
 
-    from src.core.operator_kpi import log_quote_sent
+    from src.core.operator_kpi import log_quote_sent, log_operator_drift
     log_quote_sent(
         quote_id=pcid,
         quote_type="pc",
@@ -17,11 +25,17 @@ Usage from a send route:
         agency_key=agency_key,
         quote_total=pc.get("total", 0),
     )
+    log_operator_drift(
+        quote_id=pcid, quote_type="pc",
+        items=pc.get("items") or [],
+        agency_key=agency_key,
+    )
 
-The function is best-effort: any error is swallowed (with a warning log)
-so a logging failure never blocks the actual send.
+Both functions are best-effort: any error is swallowed (with a warning
+log) so a logging failure never blocks the actual send.
 """
 
+import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -158,4 +172,233 @@ def get_kpi_stats(window_days: int = 7,
         "under_90_count": under_90,
         "under_90_pct": round(100.0 * under_90 / n, 1),
         "per_agency": per_agency,
+    }
+
+
+# ─── Operator drift (PR-I) ───────────────────────────────────────────────────
+
+
+def _item_sent_price(item: dict) -> Optional[float]:
+    """The price the operator actually sent for this line.
+
+    Prefer `unit_price` (the canonical billable extension input),
+    fall back to `bid_price` then `pricing.recommended_price`. Anything
+    non-positive returns None — we don't log drift on zero-priced lines.
+    """
+    for key in ("unit_price", "bid_price", "price_per_unit"):
+        v = item.get(key)
+        try:
+            if v is not None and float(v) > 0:
+                return float(v)
+        except (TypeError, ValueError):
+            continue
+    pricing = item.get("pricing") or {}
+    for key in ("recommended_price", "unit_price"):
+        v = pricing.get(key)
+        try:
+            if v is not None and float(v) > 0:
+                return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def log_operator_drift(
+    quote_id: str,
+    quote_type: str,
+    items: list,
+    agency_key: str = "",
+) -> dict:
+    """Insert one row per priced line with an oracle_audit envelope into
+    operator_drift_line. Lines without oracle_audit are skipped silently
+    (legacy lines pre-PR-H, lines the oracle couldn't price).
+
+    The drift signal answers "did the operator override the oracle?" —
+    higher-resolution than WR at low monthly volume. Skipping lines that
+    never had an oracle run is deliberate: a NULL drift row would
+    pollute the dataset with non-decisions.
+
+    Best-effort — never raises. Logging failure never blocks the actual
+    send. Idempotency: re-firing Mark-Sent on an already-sent quote will
+    insert duplicate rows. The Mark-Sent routes already gate the
+    transition; we trust that gate rather than dedupe here.
+
+    Returns {ok, rows_logged, skipped_no_audit, skipped_no_price}.
+    """
+    if not quote_id or not items:
+        return {"ok": False, "error": "quote_id+items required",
+                "rows_logged": 0}
+
+    sent_at = datetime.now().isoformat()
+    rows: list[tuple] = []
+    skipped_no_audit = 0
+    skipped_no_price = 0
+    for idx, it in enumerate(items):
+        if not isinstance(it, dict):
+            continue
+        audit = it.get("oracle_audit") or {}
+        if not isinstance(audit, dict) or not audit:
+            skipped_no_audit += 1
+            continue
+        sent = _item_sent_price(it)
+        if sent is None:
+            skipped_no_price += 1
+            continue
+        try:
+            rec = audit.get("rec_price")
+            rec_f = float(rec) if rec is not None else None
+        except (TypeError, ValueError):
+            rec_f = None
+        try:
+            pre = audit.get("rec_pre_cap_price")
+            pre_f = float(pre) if pre is not None else None
+        except (TypeError, ValueError):
+            pre_f = None
+        drift_pct: Optional[float] = None
+        if rec_f and rec_f > 0:
+            drift_pct = round(((sent - rec_f) / rec_f) * 100, 2)
+        caps = audit.get("caps_applied") or []
+        try:
+            caps_json = json.dumps(caps, default=str)
+        except (TypeError, ValueError):
+            caps_json = "[]"
+        sources = ",".join(
+            sorted({str(c.get("source") or "") for c in caps
+                    if isinstance(c, dict) and c.get("source")})
+        )
+        rollup = audit.get("scprs_rollup") or {}
+        try:
+            match_count = int(rollup.get("count") or 0) if isinstance(rollup, dict) else 0
+        except (TypeError, ValueError):
+            match_count = 0
+        rows.append((
+            str(quote_id), str(quote_type or "pc"), sent_at,
+            str(agency_key or ""), idx,
+            str(it.get("item_number") or ""),
+            str(it.get("mfg_number") or it.get("part_number") or ""),
+            sent, rec_f, pre_f, drift_pct,
+            caps_json, sources, match_count,
+        ))
+
+    if not rows:
+        return {"ok": True, "rows_logged": 0,
+                "skipped_no_audit": skipped_no_audit,
+                "skipped_no_price": skipped_no_price}
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.executemany("""
+                INSERT INTO operator_drift_line
+                (quote_id, quote_type, sent_at, agency_key,
+                 line_idx, item_number, mfg_number,
+                 sent_price, rec_price, rec_pre_cap_price, drift_pct,
+                 caps_applied_json, cap_sources, scprs_match_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, rows)
+        log.info(
+            "operator_drift: %s/%s logged %d/%d lines "
+            "(skipped: %d no audit, %d no price)",
+            quote_type, quote_id, len(rows), len(items),
+            skipped_no_audit, skipped_no_price,
+        )
+        return {"ok": True, "rows_logged": len(rows),
+                "skipped_no_audit": skipped_no_audit,
+                "skipped_no_price": skipped_no_price}
+    except Exception as e:
+        log.warning("operator_kpi log_operator_drift failed: %s", e)
+        return {"ok": False, "error": str(e),
+                "rows_logged": 0}
+
+
+def get_drift_stats(window_days: int = 30,
+                    agency_key: Optional[str] = None) -> dict:
+    """Aggregate drift stats for the digest preview.
+
+    Returns:
+        {
+          ok, window_days, line_count, quote_count,
+          median_drift_pct, p25_drift_pct, p75_drift_pct,
+          capped_lines, capped_above_oracle, capped_below_oracle,
+          per_cap_source: [{source, line_count, median_drift_pct}, ...],
+        }
+
+    "capped_above_oracle" = lines where the cap fired AND operator
+    sent MORE than the capped rec_price (operator overrode the cap
+    upward). This is the high-leverage cohort for tuning: if these
+    lines win, the cap is too tight; if they lose, the cap was right.
+    """
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            sql = """
+                SELECT quote_id, drift_pct, cap_sources, sent_price,
+                       rec_price, rec_pre_cap_price
+                FROM operator_drift_line
+                WHERE sent_at >= datetime('now', ?)
+                  AND drift_pct IS NOT NULL
+            """
+            params: list = [f"-{int(window_days)} days"]
+            if agency_key:
+                sql += " AND agency_key = ?"
+                params.append(agency_key)
+            rows = conn.execute(sql, params).fetchall()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    if not rows:
+        return {"ok": True, "window_days": window_days, "line_count": 0,
+                "quote_count": 0, "median_drift_pct": None,
+                "p25_drift_pct": None, "p75_drift_pct": None,
+                "capped_lines": 0, "capped_above_oracle": 0,
+                "capped_below_oracle": 0, "per_cap_source": []}
+
+    drifts = sorted([float(r["drift_pct"]) for r in rows])
+    n = len(drifts)
+    median = drifts[n // 2]
+    p25 = drifts[max(0, int(n * 0.25) - 1)]
+    p75 = drifts[min(n - 1, int(n * 0.75))]
+
+    quote_ids = {r["quote_id"] for r in rows}
+
+    capped_rows = [r for r in rows if r["cap_sources"]]
+    capped_above = sum(1 for r in capped_rows
+                       if r["drift_pct"] is not None
+                       and float(r["drift_pct"]) > 0)
+    capped_below = sum(1 for r in capped_rows
+                       if r["drift_pct"] is not None
+                       and float(r["drift_pct"]) < 0)
+
+    by_source: dict = {}
+    for r in capped_rows:
+        for src in (r["cap_sources"] or "").split(","):
+            src = src.strip()
+            if not src:
+                continue
+            b = by_source.setdefault(src, [])
+            if r["drift_pct"] is not None:
+                b.append(float(r["drift_pct"]))
+    per_source = []
+    for src, ds in by_source.items():
+        ds_sorted = sorted(ds)
+        m = len(ds_sorted)
+        if not m:
+            continue
+        per_source.append({
+            "source": src,
+            "line_count": m,
+            "median_drift_pct": round(ds_sorted[m // 2], 2),
+        })
+    per_source.sort(key=lambda d: -d["line_count"])
+
+    return {
+        "ok": True, "window_days": window_days,
+        "line_count": n, "quote_count": len(quote_ids),
+        "median_drift_pct": round(median, 2),
+        "p25_drift_pct": round(p25, 2),
+        "p75_drift_pct": round(p75, 2),
+        "capped_lines": len(capped_rows),
+        "capped_above_oracle": capped_above,
+        "capped_below_oracle": capped_below,
+        "per_cap_source": per_source,
     }
