@@ -4010,13 +4010,26 @@ function lookupTaxRate(e){
    } catch(_e) { /* pulse is belt-and-suspenders; never block math */ }
    recalc();triggerAutosave();
   } else {
-   valEl.innerHTML='<span style="color:#f85149" title="'+(d.error||'')+'">❌ failed</span>';
+   // Phase 1.1 (Mike 2026-05-12): surface the actual error text instead
+   // of a generic "❌ failed" badge. The most common cause is delivery
+   // address too short ("CA") because Vision ingest missed the full
+   // street; the operator needs to know to paste the full address.
+   var _errText = d.error || 'failed';
+   var _short = _errText.length > 60 ? _errText.slice(0,57) + '...' : _errText;
+   valEl.innerHTML='<span style="color:#f85149" title="'+_errText+'">❌ ' + _short + '</span>';
   }
  }).catch(function(){btn.disabled=false;btn.textContent='🔍 Verify';valEl.innerHTML='<span style="color:#f85149">❌ error</span>';});
 }
 
-// Auto-lookup tax if delivery address exists but rate not validated
-{% if not r.get('tax_validated') and (r.get('delivery_location') or r.get('ship_to')) %}
+// Auto-lookup tax if delivery address exists but rate not validated.
+// Skip when delivery_location looks too short to be a real address
+// (e.g. just "CA" from a bad CalVet ingest) — the new route-side
+// fallback handles buyer-email/agency hints, but firing on every
+// page load when the operator has no usable signal just spams the UI
+// with "❌ Delivery address too short" badges. The route can still
+// be invoked manually via the Verify button.
+{% set _del = (r.get('delivery_location') or r.get('ship_to') or '') %}
+{% if not r.get('tax_validated') and _del and _del|length >= 5 %}
 setTimeout(function(){if(parseFloat(document.getElementById('tax-rate').value||0)===0)lookupTaxRate();},1500);
 {% endif %}
 

@@ -2924,9 +2924,26 @@ def _api_pc_lookup_tax_rate_locked(pcid):
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
     data = request.get_json(force=True, silent=True) or {}
-    address = data.get("address") or pc.get("ship_to") or ""
-    if not address:
-        return jsonify({"ok": False, "error": "No address — enter Ship To first"})
+    address = (data.get("address") or pc.get("ship_to") or "").strip()
+    # Phase 1.1 (Mike 2026-05-12): mirror the RFQ-route fallback. PC
+    # records sometimes have ship_to="CA" when Vision ingest missed the
+    # full address — fall back to buyer-side signals (requestor / agency
+    # / institution / email) so the facility_registry can still match a
+    # canonical zip via the resolver.
+    fallback_hints = []
+    if len(address) < 5:
+        for key in ("requestor", "agency", "institution", "requestor_email",
+                    "buyer_name", "buyer_email"):
+            v = pc.get(key)
+            if isinstance(v, list):
+                fallback_hints.extend(str(x) for x in v if x)
+            elif v:
+                fallback_hints.append(str(v))
+        if not fallback_hints:
+            return jsonify({
+                "ok": False,
+                "error": "Ship-to address too short — paste a full street + city + zip",
+            })
     try:
         # Route through the canonical resolver so this PC button gets the
         # same answer the RFQ route + quote_generator do for the same
@@ -2936,7 +2953,33 @@ def _api_pc_lookup_tax_rate_locked(pcid):
         # canonical record is set. Closes audit Y for the PC path.
         from src.core.tax_resolver import resolve_tax
         _force = bool(data.get("force_live"))
-        result = resolve_tax(address, force_live=_force)
+        result = None
+        if len(address) >= 5:
+            result = resolve_tax(address, force_live=_force)
+        primary_ok = (
+            result and result.get("rate") is not None
+            and result.get("source") not in ("", "default")
+        )
+        if not primary_ok and fallback_hints:
+            for hint in fallback_hints:
+                if not hint or len(hint.strip()) < 3:
+                    continue
+                hr = resolve_tax(hint, force_live=_force)
+                if (hr and hr.get("rate") is not None
+                        and hr.get("source") not in ("", "default")):
+                    result = hr
+                    result["resolve_reason"] = (
+                        (result.get("resolve_reason") or "")
+                        + f" (route_fallback:{hint[:40]})"
+                    )
+                    break
+        if result is None:
+            # Make sure we always have a result object so the existing
+            # warning-on-fallback branch below still runs.
+            result = resolve_tax(
+                address or (fallback_hints[0] if fallback_hints else ""),
+                force_live=_force,
+            )
         if result and result.get("rate") is not None:
             rate_pct = round(result["rate"] * 100, 3)
             _source = result.get("source", "")
