@@ -2471,12 +2471,13 @@ def oracle_drift_preview():
 
     Optional `?days=N` (default 30). Pure read-only.
     """
-    from src.core.operator_kpi import get_drift_stats
+    from src.core.operator_kpi import get_drift_stats, get_shadow_stats
     try:
         days = max(1, int(request.args.get("days", 30)))
     except (TypeError, ValueError):
         days = 30
     stats = get_drift_stats(window_days=days)
+    shadow = get_shadow_stats(window_days=days)
     if not stats.get("ok"):
         return (f"<pre>drift preview error: {stats.get('error','?')}</pre>",
                 500, {"Content-Type": "text/html; charset=utf-8"})
@@ -2573,8 +2574,68 @@ def oracle_drift_preview():
   sent below oracle (more conservative). Capped-above-oracle is the
   highest-leverage tuning cohort.
 </div>
+{_render_shadow_panel(shadow, days)}
 </div></body></html>"""
     return preview_html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+def _render_shadow_panel(shadow: dict, days: int) -> str:
+    """PR-J: shadow-mode cap evaluator panel. Renders 'what would
+    happen if I flipped ORACLE_USE_SCPRS_ROLLUP on?' as data, not as
+    a hypothesis."""
+    if not shadow.get("ok"):
+        return ('<div class="meta" style="color:#f85149">'
+                f'shadow stats error: {shadow.get("error","?")}</div>')
+    n = shadow.get("line_count", 0)
+    if n == 0:
+        return ('<h2>Shadow-mode cap evaluator</h2>'
+                '<div class="meta" style="opacity:.65">'
+                'No shadow-eligible lines (need scprs_rollup data on '
+                'oracle_audit). Will populate as Mark-Sent emits rows '
+                'with rollup matches.</div>')
+    wc = shadow.get("would_cap_count", 0)
+    nc = shadow.get("no_cap_count", 0)
+    act = shadow.get("cap_active_count", 0)
+    avg_save = shadow.get("avg_savings_per_capped_line")
+    total_save = shadow.get("total_savings_if_capped", 0.0) or 0.0
+    drift = shadow.get("median_shadow_drift_pct")
+    drift_s = f"{drift:+.2f}%" if drift is not None else "—"
+    avg_s = f"${avg_save:.2f}" if avg_save is not None else "—"
+    pct_would = (100.0 * wc / n) if n else 0
+    return f"""
+<h2>Shadow-mode cap evaluator — last {days} days</h2>
+<div class="kpis">
+  <div class="kpi"><div class="label">Shadow-eligible lines</div>
+       <div class="val">{n}</div></div>
+  <div class="kpi"><div class="label">Would cap (% of lines)</div>
+       <div class="val">{wc} <span style="font-size:13px;
+            color:#8b949e">({pct_would:.0f}%)</span></div></div>
+  <div class="kpi"><div class="label">Median shadow drift</div>
+       <div class="val">{drift_s}</div></div>
+  <div class="kpi"><div class="label">Avg $ left per capped line</div>
+       <div class="val">{avg_s}</div></div>
+</div>
+<table style="margin-top:14px">
+  <thead><tr><th>Action</th><th>Lines</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td>would_cap</td><td>{wc}</td><td style="opacity:.75">
+        Cap was OFF and the operator sent ABOVE p75 — cap would
+        have lowered the price.</td></tr>
+    <tr><td>no_cap</td><td>{nc}</td><td style="opacity:.75">
+        Cap was OFF and the operator's price was already at-or-below
+        p75 — cap would have changed nothing.</td></tr>
+    <tr><td>cap_active</td><td>{act}</td><td style="opacity:.75">
+        Cap was ON during this Mark-Sent. The live rec either bound
+        to p75 or was already below it.</td></tr>
+  </tbody>
+</table>
+<div class="meta">
+  Cap formula = SCPRS rollup p75 (matched on MFG#/UNSPSC × agency ×
+  qty band). Total dollars left on the table over the window if cap
+  had been live: <strong>${total_save:,.2f}</strong>. Weigh this
+  against the WR-lift hypothesis when deciding whether to flip
+  <code>ORACLE_USE_SCPRS_ROLLUP</code>.
+</div>"""
 
 
 # ═══ Match Feedback / Rejection ═════════════════════════════════════════════
@@ -6078,6 +6139,20 @@ def _api_pc_send_quote_locked(pcid):
             )
         except Exception as _drift_e:
             log.debug("operator_drift logging suppressed: %s", _drift_e)
+
+        # PR-J (2026-05-13): shadow-mode cap evaluator. Counterfactual
+        # for the SCPRS p75 cap — runs on every Mark-Sent regardless of
+        # whether `ORACLE_USE_SCPRS_ROLLUP` is on. Feeds the digest's
+        # "would the cap help?" decision panel.
+        try:
+            from src.core.operator_kpi import log_operator_drift_shadow
+            log_operator_drift_shadow(
+                quote_id=pcid, quote_type="pc",
+                items=pc.get("items") or [],
+                agency_key=(pc.get("agency_key") or pc.get("agency") or ""),
+            )
+        except Exception as _shadow_e:
+            log.debug("shadow drift logging suppressed: %s", _shadow_e)
 
         return jsonify({"ok": True, "sent_to": to_email, "quote": qn})
     except Exception as e:

@@ -402,3 +402,235 @@ def get_drift_stats(window_days: int = 30,
         "capped_below_oracle": capped_below,
         "per_cap_source": per_source,
     }
+
+
+# ─── Shadow-mode cap evaluator (PR-J) ────────────────────────────────────────
+
+
+def _scprs_rollup_cap_enabled() -> bool:
+    """Mirror of pricing_oracle_v2 helper. Returns True when the SCPRS
+    rollup cap is currently ACTIVE in production. The shadow logger uses
+    this to choose between `would_cap` / `no_cap` (cap dormant) and
+    `cap_active` (cap is binding live)."""
+    import os
+    val = os.environ.get("ORACLE_USE_SCPRS_ROLLUP", "")
+    return val.lower() in ("1", "true", "yes", "on")
+
+
+def log_operator_drift_shadow(
+    quote_id: str,
+    quote_type: str,
+    items: list,
+    agency_key: str = "",
+) -> dict:
+    """For each item with `oracle_audit.scprs_rollup` data, compute the
+    counterfactual cap price (p75 of the SCPRS rollup) and log how the
+    sent_price compares.
+
+    Three outcomes per line:
+      - 'would_cap'   cap is currently OFF + sent_price > p75 → cap
+                      would have lowered the price.
+      - 'no_cap'      cap is currently OFF + sent_price <= p75 → cap
+                      would not have moved the line.
+      - 'cap_active'  cap is currently ON. Whether or not the
+                      recommendation actually used the cap, this row
+                      records that the live system had the cap binding
+                      available.
+
+    Lines without rollup data are skipped (shadow_action='no_data' is
+    reserved for a future "ran but had no rollup" surface). Same
+    best-effort discipline as `log_operator_drift`.
+
+    Returns {ok, rows_logged, skipped_no_rollup}.
+    """
+    if not quote_id or not items:
+        return {"ok": False, "error": "quote_id+items required",
+                "rows_logged": 0}
+
+    sent_at = datetime.now().isoformat()
+    cap_is_live = _scprs_rollup_cap_enabled()
+    rows: list[tuple] = []
+    skipped_no_rollup = 0
+
+    for idx, it in enumerate(items):
+        if not isinstance(it, dict):
+            continue
+        audit = it.get("oracle_audit") or {}
+        if not isinstance(audit, dict):
+            skipped_no_rollup += 1
+            continue
+        rollup = audit.get("scprs_rollup") or {}
+        if not isinstance(rollup, dict) or not rollup:
+            skipped_no_rollup += 1
+            continue
+        try:
+            p75 = rollup.get("p75")
+            p75_f = float(p75) if p75 is not None else None
+        except (TypeError, ValueError):
+            p75_f = None
+        if p75_f is None or p75_f <= 0:
+            skipped_no_rollup += 1
+            continue
+
+        sent = _item_sent_price(it)
+        if sent is None:
+            skipped_no_rollup += 1
+            continue
+        try:
+            rec = audit.get("rec_price")
+            rec_f = float(rec) if rec is not None else None
+        except (TypeError, ValueError):
+            rec_f = None
+
+        # Shadow-cap simulation: cap binds quote_price down to p75.
+        # Even when live cap is ON, the counterfactual price the cap
+        # WOULD set is the same p75 — this lets the digest compare
+        # operator_sent vs shadow_cap consistently across flag states.
+        shadow_cap = p75_f
+        if cap_is_live:
+            action = "cap_active"
+        elif sent > shadow_cap:
+            action = "would_cap"
+        else:
+            action = "no_cap"
+
+        # Drift between operator-sent and shadow cap price. Positive =
+        # operator sent ABOVE shadow cap (cap would have hurt margin).
+        # Negative = operator sent BELOW shadow cap (cap was leaving
+        # margin on the table that the operator already shaved).
+        try:
+            shadow_drift_pct = round(
+                ((sent - shadow_cap) / shadow_cap) * 100, 2
+            )
+        except (TypeError, ZeroDivisionError):
+            shadow_drift_pct = None
+
+        try:
+            count = int(rollup.get("count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+
+        rows.append((
+            str(quote_id), str(quote_type or "pc"), sent_at,
+            str(agency_key or ""), idx,
+            str(it.get("item_number") or ""),
+            str(it.get("mfg_number") or it.get("part_number") or ""),
+            sent, rec_f, shadow_cap, action, shadow_drift_pct,
+            p75_f, count,
+            str(rollup.get("match_key") or ""),
+            str(rollup.get("match_key_type") or ""),
+        ))
+
+    if not rows:
+        return {"ok": True, "rows_logged": 0,
+                "skipped_no_rollup": skipped_no_rollup}
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.executemany("""
+                INSERT INTO operator_drift_shadow
+                (quote_id, quote_type, sent_at, agency_key,
+                 line_idx, item_number, mfg_number,
+                 sent_price, rec_price, shadow_cap_price,
+                 shadow_action, shadow_drift_pct,
+                 rollup_p75, rollup_count,
+                 rollup_match_key, rollup_match_key_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, rows)
+        log.info(
+            "operator_drift_shadow: %s/%s logged %d/%d "
+            "(skipped: %d no rollup, cap_live=%s)",
+            quote_type, quote_id, len(rows), len(items),
+            skipped_no_rollup, cap_is_live,
+        )
+        return {"ok": True, "rows_logged": len(rows),
+                "skipped_no_rollup": skipped_no_rollup,
+                "cap_was_live": cap_is_live}
+    except Exception as e:
+        log.warning("log_operator_drift_shadow failed: %s", e)
+        return {"ok": False, "error": str(e), "rows_logged": 0}
+
+
+def get_shadow_stats(window_days: int = 30,
+                     agency_key: Optional[str] = None) -> dict:
+    """Aggregate shadow-mode stats for the digest preview.
+
+    Returns:
+        {
+          ok, window_days, line_count,
+          would_cap_count,        # cap OFF, would have moved this line
+          no_cap_count,           # cap OFF, would not have moved
+          cap_active_count,       # cap ON
+          median_shadow_drift_pct,
+          avg_savings_per_capped_line,  # in dollars
+          total_savings_if_capped,      # extrapolation: would_cap × (sent-p75)
+        }
+
+    `total_savings_if_capped` answers "how much margin would the cap
+    have COST us in the last 30d?" — but it's stating it as a positive
+    number because that's how the cap-decision conversation goes:
+    "we'd have left $X on the table." Mike weighs that against the
+    WR lift hypothesis.
+    """
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            sql = """
+                SELECT shadow_action, shadow_drift_pct,
+                       sent_price, shadow_cap_price
+                FROM operator_drift_shadow
+                WHERE sent_at >= datetime('now', ?)
+            """
+            params: list = [f"-{int(window_days)} days"]
+            if agency_key:
+                sql += " AND agency_key = ?"
+                params.append(agency_key)
+            rows = conn.execute(sql, params).fetchall()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    if not rows:
+        return {"ok": True, "window_days": window_days,
+                "line_count": 0,
+                "would_cap_count": 0, "no_cap_count": 0,
+                "cap_active_count": 0,
+                "median_shadow_drift_pct": None,
+                "avg_savings_per_capped_line": None,
+                "total_savings_if_capped": 0.0}
+
+    would_cap = [r for r in rows if r["shadow_action"] == "would_cap"]
+    no_cap = [r for r in rows if r["shadow_action"] == "no_cap"]
+    active = [r for r in rows if r["shadow_action"] == "cap_active"]
+
+    drifts = sorted([float(r["shadow_drift_pct"]) for r in rows
+                     if r["shadow_drift_pct"] is not None])
+    median_drift = drifts[len(drifts) // 2] if drifts else None
+
+    # Margin that would have moved off the quote into the customer's
+    # pocket if the cap had been live. One row = (sent - shadow_cap)
+    # × 1 unit; per-quote totals not computed here since qty isn't on
+    # the shadow row. Future iteration could carry qty for $ savings.
+    savings = []
+    for r in would_cap:
+        try:
+            delta = float(r["sent_price"]) - float(r["shadow_cap_price"])
+            if delta > 0:
+                savings.append(delta)
+        except (TypeError, ValueError):
+            continue
+    avg_saving = round(sum(savings) / len(savings), 2) if savings else None
+    total_saving = round(sum(savings), 2) if savings else 0.0
+
+    return {
+        "ok": True, "window_days": window_days,
+        "line_count": len(rows),
+        "would_cap_count": len(would_cap),
+        "no_cap_count": len(no_cap),
+        "cap_active_count": len(active),
+        "median_shadow_drift_pct": (
+            round(median_drift, 2) if median_drift is not None else None
+        ),
+        "avg_savings_per_capped_line": avg_saving,
+        "total_savings_if_capped": total_saving,
+    }
