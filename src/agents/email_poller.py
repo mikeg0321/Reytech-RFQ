@@ -1592,19 +1592,19 @@ def is_rfq_email(subject, body, attachments, sender_email=""):
     # setup / invoice inquiry. Tier 0 below fires on `.ca.gov`
     # procurement domain WITHOUT reading the body, which is how
     # rfq_b57f85f7 (CalVet AP team asking for an updated W-9) landed
-    # in the RFQ queue. Strong-RFQ-keyword bodies still flow through.
-    # PDF-attached RFQ shapes (Tier 2 / Tier 3) override this veto
-    # — a real 704 attached is conclusive even with an AP signature.
-    pdf_names_lower = [str(a).lower() for a in (attachments or [])]
-    _has_rfq_form_attached = any(
-        any(re.search(p, name) for p in RFQ_PDF_PATTERNS)
-        for name in pdf_names_lower
-    )
-    if not _has_rfq_form_attached:
-        if is_non_rfq_team_email(subject, body, sender_email=sender_email):
-            log.info("is_rfq_email: non-RFQ team veto (subject=%s, sender=%s)",
-                     subject[:60], sender_email)
-            return False
+    # in the RFQ queue.
+    #
+    # PR-AA strengthening 2026-05-13 (Mike: "always read the body even
+    # past Tier 2"): no PDF escape hatch — even an AP-team email with
+    # a coincidentally 704-shaped attachment filename gets vetoed when
+    # the signature + subject scream non-procurement. The opposite
+    # case (a real buyer who happens to mention "invoice" in passing)
+    # is already handled inside `is_non_rfq_team_email` itself by the
+    # RFQ-strong-keyword override.
+    if is_non_rfq_team_email(subject, body, sender_email=sender_email):
+        log.info("is_rfq_email: non-RFQ team veto (subject=%s, sender=%s)",
+                 subject[:60], sender_email)
+        return False
 
     # ── Tier 0: Known procurement agency sender domains ──
     _procurement_domains = [
