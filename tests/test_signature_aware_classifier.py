@@ -205,17 +205,42 @@ Credentialing Coordinator"""
     assert result is False
 
 
-def test_is_rfq_email_no_veto_when_704_pdf_attached():
-    """Strong RFQ form attached → can't be vetoed even with AP signature.
-    Real buyers occasionally have AP-titled cosignatories."""
+def test_is_rfq_email_body_wins_over_704_pdf_attachment():
+    """PR-AA strengthening 2026-05-13 — Mike: "always read body even
+    past Tier 2." An AP signature + non-RFQ subject MUST veto even
+    when a coincidentally 704-shaped filename is attached. The
+    opposite case (a real RFQ with AP cosignatory) flows through the
+    RFQ-strong-keyword override inside `is_non_rfq_team_email`."""
     from src.agents.email_poller import is_rfq_email
-    subject = "Quote needed"
-    body = """Please quote.
+    subject = "Updated W-9 for vendor file"
+    body = """Hi Reytech,
 
+We're updating our vendor file and need a current W-9 from you.
+
+Thanks,
 Sarah Smith
-Accounts Payable"""
+Accounts Payable Specialist
+California Department of Veterans Affairs"""
     result = is_rfq_email(subject, body,
                           attachments=["AMS_704B_25CB021.pdf"],
-                          sender_email="x@cchcs.ca.gov")
-    # Tier 2 (PDF filename match) fires before our veto would
+                          sender_email="sarah.smith@calvet.ca.gov")
+    assert result is False, \
+        "Body signature must veto even when an RFQ-shaped PDF filename is attached"
+
+
+def test_is_rfq_email_real_rfq_with_ap_cosignatory_still_passes():
+    """Real RFQ with AP cosignatory: RFQ-strong-keyword in body
+    overrides the AP signature inside is_non_rfq_team_email itself."""
+    from src.agents.email_poller import is_rfq_email
+    subject = "RFQ 25CB021 — Medical supplies needed"
+    body = """Please provide quote per attached 704.
+Reply to procurement@calvet — AP will process payment after award.
+
+Anna Wilson
+Senior Buyer
+CalVet Procurement
+cc: Sarah Smith, Accounts Payable"""
+    result = is_rfq_email(subject, body,
+                          attachments=["AMS_704B_25CB021.pdf"],
+                          sender_email="a@calvet.ca.gov")
     assert result is True

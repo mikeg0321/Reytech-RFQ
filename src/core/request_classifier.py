@@ -915,6 +915,51 @@ def _pick_most_specific_agency(matches: List[str]) -> str:
     return max(matches, key=lambda a: _AGENCY_SPECIFICITY.get(a, 0))
 
 
+# ── Placeholder-shaped sol# words (PR-AB, 2026-05-13) ──
+# Pre-fix, `_extract_solicitation` happily captured English words like
+# "PAYMENT" / "QUOTE" / "ATTACHED" because the labeled patterns accept
+# any [A-Z0-9] sequence — no digit required. Real-world example:
+# rfq_e02b7fa6 (Mohammad Chechi / CCHCS / Pleasant Valley) classified
+# with sol#="PAYMENT" because the body contained "Solicitation Number:
+# PAYMENT" or similar after PDF OCR. The downstream sol# synthesizer
+# in `ingest_pipeline._looks_like_sol_placeholder` already rejects all-
+# caps alphabetic strings, but it never gets the chance — the bad
+# value already won. Filter at the source instead so the labeled
+# patterns can fall through to the next regex (or to the synthesizer).
+_SOL_PLACEHOLDER_WORDS = frozenset({
+    "RFQ", "QUOTE", "REQUEST", "WORKSHEET", "GOOD", "BID", "VENDOR",
+    "PRICE", "CHECK", "FORM", "PAYMENT", "INVOICE", "ATTACHED",
+    "NUMBER", "ORDER", "AGENCY", "PURCHASE", "PROPOSAL", "QUOTATION",
+    "SOLICITATION", "REFERENCE", "REF", "SAMPLE", "DRAFT", "PENDING",
+    "OPEN", "CLOSED", "NEW", "BLANK", "EMPTY", "UNKNOWN", "TBD", "TBA",
+    "NONE", "NULL", "REPLY", "RE", "FW", "FWD", "DOCUMENT",
+})
+
+
+def _is_sol_placeholder_capture(value: str) -> bool:
+    """True when a regex-captured sol# looks like a placeholder word.
+
+    Mirror of `ingest_pipeline._looks_like_sol_placeholder` semantics
+    but inlined here to avoid a cross-module circular import. Real
+    sol#s almost always contain a digit (CCHCS = 8 digits, CalVet =
+    `25CB021`-style, etc.); a pure-alphabetic ALL-CAPS capture is
+    almost always the buyer's body text mis-parsed as a label value.
+    """
+    if not value:
+        return True
+    s = value.strip().upper()
+    if not s:
+        return True
+    if s in _SOL_PLACEHOLDER_WORDS:
+        return True
+    # Pure all-caps alphabetic word, no digits, no hyphen — matches
+    # "PAYMENT", "ATTACHED", etc. but not "25CB021" (has digits) or
+    # "RT-CALVET-260513-abc" (has hyphens + digits).
+    if s.isalpha() and len(s) <= 20:
+        return True
+    return False
+
+
 def _extract_solicitation(corpus: str, text_samples: List[str]) -> str:
     """Pull a solicitation number out of the corpus.
 
@@ -935,6 +980,11 @@ def _extract_solicitation(corpus: str, text_samples: List[str]) -> str:
     part numbers like Adam Equipment's `2010017786` and shipped them
     as the RFQ sol# when the labeled `25CB021` should have won. Fix:
     labeled patterns scan first, bare numeric is a last resort.
+
+    PR-AB 2026-05-13: every match is now filtered through
+    `_is_sol_placeholder_capture` so all-caps English words like
+    "PAYMENT" can't poison the result. On reject we use `finditer`
+    and continue scanning, then fall through to the next pattern.
     """
     all_text = corpus + " " + " ".join(text_samples)
 
@@ -958,17 +1008,23 @@ def _extract_solicitation(corpus: str, text_samples: List[str]) -> str:
         r"\b(?:quote\s+request|request\s+for\s+quot(?:e|ation)|RFQ\s+for|RFQ\s+number)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{4,15})\b",
         r"\b(?:rfq|quote)\s+([0-9]{2}[A-Z]{2}[0-9]{3,5})\b",  # DSH-style: 25CB021
     ):
-        m = re.search(pat, all_text, re.IGNORECASE)
-        if m:
-            return m.group(1)
+        for m in re.finditer(pat, all_text, re.IGNORECASE):
+            candidate = m.group(1)
+            if _is_sol_placeholder_capture(candidate):
+                log.debug("sol# extractor: reject placeholder-shaped %r from %r",
+                          candidate, pat)
+                continue
+            return candidate
 
     # ── Prefix patterns (medium specificity) ──
     m = re.search(r"\bPREQ(\d{6,10})\b", all_text, re.IGNORECASE)
     if m:
         return m.group(1)
-    m = re.search(r"\bRFQ[- ]([A-Z0-9-]{4,15})\b", all_text, re.IGNORECASE)
-    if m:
-        return m.group(1)
+    for m in re.finditer(r"\bRFQ[- ]([A-Z0-9-]{4,15})\b", all_text, re.IGNORECASE):
+        candidate = m.group(1)
+        if _is_sol_placeholder_capture(candidate):
+            continue
+        return candidate
 
     # ── 8-digit bare numeric (CCHCS heuristic — last resort) ──
     # NOTE: this catches CCHCS solicitation numbers (e.g. 10843276) but

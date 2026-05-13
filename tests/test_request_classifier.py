@@ -388,6 +388,80 @@ class TestExtractSolicitation:
             "SOLICITATION NUMBER: 10843276", [],
         ) == "10843276"
 
+    # PR-AB substrate 2026-05-13: placeholder-shaped captures
+    # rfq_e02b7fa6 forensic: the buyer-issued PDF body contained
+    # "Solicitation Number: PAYMENT" (or similar OCR'd label) which
+    # the prior extractor accepted because [A-Z0-9][A-Z0-9-]{2,19}
+    # has no digit requirement. Real sol#s have digits; pure-word
+    # captures (PAYMENT / QUOTE / ATTACHED / …) must reject and fall
+    # through so the synthesizer in ingest_pipeline can fire.
+    def test_rejects_placeholder_word_payment(self):
+        from src.core.request_classifier import _extract_solicitation
+        # "Solicitation Number: PAYMENT" — placeholder must reject
+        assert _extract_solicitation(
+            "Solicitation Number: PAYMENT", []
+        ) == ""
+
+    def test_rejects_placeholder_word_quote(self):
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "Solicitation #: QUOTE", []
+        ) == ""
+
+    def test_rejects_placeholder_word_attached(self):
+        from src.core.request_classifier import _extract_solicitation
+        # "RFQ Number: ATTACHED" — must reject
+        assert _extract_solicitation(
+            "RFQ Number: ATTACHED", []
+        ) == ""
+
+    def test_falls_through_to_next_pattern_when_first_match_is_placeholder(self):
+        """When pattern-1 captures a placeholder, the extractor must
+        keep scanning later patterns / bare-numeric. Real-world: a
+        body with `Solicitation Number: PAYMENT` further down + a
+        valid `25CB021` earlier — DSH pattern should win."""
+        from src.core.request_classifier import _extract_solicitation
+        corpus = "Please quote 25CB021. Solicitation Number: PAYMENT"
+        result = _extract_solicitation(corpus, [])
+        # Either the labeled placeholder is rejected and DSH pattern
+        # picks up `25CB021`, OR bare-8-digit fallback kicks in. Both
+        # are acceptable; PAYMENT is not.
+        assert result != "PAYMENT"
+        assert result != ""
+
+    def test_falls_through_to_bare_numeric_when_label_is_placeholder(self):
+        """`Solicitation Number: PAYMENT … 10843276` — bare 8-digit
+        fallback catches the CCHCS sol# after the label is rejected."""
+        from src.core.request_classifier import _extract_solicitation
+        corpus = "Solicitation Number: PAYMENT. PC# 10843276 attached."
+        assert _extract_solicitation(corpus, []) == "10843276"
+
+    def test_accepts_real_alphanumeric_solicitation(self):
+        """Make sure the placeholder filter doesn't eat real sol#s
+        that happen to have letters. `25CB021` (DSH) must pass."""
+        from src.core.request_classifier import _extract_solicitation
+        assert _extract_solicitation(
+            "Solicitation Number: 25CB021", []
+        ) == "25CB021"
+
+    def test_is_sol_placeholder_capture_predicate(self):
+        """Direct unit test of the placeholder predicate."""
+        from src.core.request_classifier import _is_sol_placeholder_capture
+        # placeholder words
+        assert _is_sol_placeholder_capture("PAYMENT") is True
+        assert _is_sol_placeholder_capture("QUOTE") is True
+        assert _is_sol_placeholder_capture("ATTACHED") is True
+        assert _is_sol_placeholder_capture("RFQ") is True
+        # any pure-alpha all-caps word
+        assert _is_sol_placeholder_capture("HELLO") is True
+        # real sol#s pass
+        assert _is_sol_placeholder_capture("25CB021") is False
+        assert _is_sol_placeholder_capture("10843276") is False
+        assert _is_sol_placeholder_capture("PREQ12345") is False
+        # empty rejects
+        assert _is_sol_placeholder_capture("") is True
+        assert _is_sol_placeholder_capture("   ") is True
+
 
 # ─── Email-only (no attachments) ────────────────────────────────────────
 
