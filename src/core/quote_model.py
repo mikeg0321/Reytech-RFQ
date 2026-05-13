@@ -550,15 +550,27 @@ class Quote(BaseModel):
         except Exception:
             pass
 
-        # Capture all unknown fields for lossless round-trip
+        # Capture all unknown fields for lossless round-trip.
+        # `known_keys` lists fields that are FULLY captured by the typed
+        # Quote model — they're consumed by the constructor above and
+        # restored in `to_legacy_dict()`. Fields NOT in this set fall
+        # into `extra` and round-trip verbatim.
+        #
+        # 🚨 2026-05-12 fix (Mike P0 rfq_8efe9fae): `tax_rate`,
+        # `tax_enabled`, `price_buffer`, `default_markup`, `award_method`
+        # were previously listed as "known" but the model NEVER captured
+        # them and `to_legacy_dict` NEVER restored them — so every
+        # adapter round-trip silently dropped them. Removed from
+        # `known_keys` so they ride through via `extra` until the model
+        # grows real typed fields for them.
         known_keys = {
             "id", "pc_number", "solicitation_number", "rfq_number", "institution",
             "agency_name", "agency", "ship_to", "delivery_location", "delivery_zip",
-            "status", "tax_enabled", "tax_rate", "delivery_option", "custom_notes",
-            "price_buffer", "default_markup", "parsed", "items", "line_items",
+            "status", "delivery_option", "custom_notes",
+            "parsed", "items", "line_items",
             "source_pdf", "source", "created_at", "header", "requestor_name",
             "requestor_email", "department", "phone", "notes", "due_date", "due_time",
-            "requestor", "templates", "output_files", "award_method",
+            "requestor", "templates", "output_files",
         }
         extra = {k: v for k, v in d.items() if k not in known_keys}
 
