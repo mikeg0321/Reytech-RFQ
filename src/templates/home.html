@@ -464,6 +464,32 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
    queue_priority.rank_pcs() so this section is empty when there's no
    ready work — falls back to invisibility (no empty-state noise).
 #}
+{# ── PR-Z: SCPRS cap-inactive warning banner ──
+   When the SCPRS rollup cap auto-disables (awards stale / empty) the
+   operator needs to know — silent regressions like the pre-PR-O
+   60-day awards freeze cost us weeks of unbounded pricing. Renders
+   only when `cap_state.enabled` is False AND reason isn't the
+   explicit env-off (which is intentional, not a regression).
+#}
+{% if cap_state and not cap_state.get('enabled', True) and cap_state.get('reason') != 'env_off' %}
+<div id="cap-inactive-banner" data-testid="cap-inactive-banner"
+     style="margin-bottom:14px;border-radius:8px;padding:10px 16px;
+            background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.4);
+            color:var(--yl);font-size:13px;display:flex;align-items:center;gap:10px">
+ <span style="font-size:18px">⚠️</span>
+ <div style="flex:1">
+  <strong>SCPRS rollup cap is INACTIVE</strong>
+  <span style="color:var(--mu);margin-left:6px">({{ cap_state.get('reason', 'unknown') }})</span>
+  <div style="margin-top:2px;color:var(--mu);font-size:12px">{{ cap_state.get('message', '') }}</div>
+ </div>
+ <a href="/admin/qa/heartbeat" style="font-size:11px;color:var(--ac);text-decoration:none;
+                                       background:rgba(79,140,255,.12);padding:4px 10px;
+                                       border-radius:6px;border:1px solid rgba(79,140,255,.3)">
+  Diagnose →
+ </a>
+</div>
+{% endif %}
+
 {% if top_priority_pcs and top_priority_pcs|length > 0 %}
 <div id="top-priority-panel" class="card-tight" data-testid="top-priority-panel" style="margin-bottom:14px">
  <div class="card-h" style="display:flex;justify-content:space-between;align-items:center">
