@@ -432,6 +432,29 @@ def create_app():
         except Exception as e:
             logging.getLogger("reytech").warning("Catalog junk-pn cleanup on boot: %s", e)
 
+        # Placeholder-ASIN backfill (Mike P0 2026-05-12 live drive of
+        # pc_5728f934). Twin of the junk-pn cleanup above: NULL out
+        # supplier_url / amazon_url rows whose URL contains a placeholder
+        # ASIN (B07XXXXXXX / B0ABCDEF12 / etc.). The write-time gate
+        # `sanitize_supplier_url` stops new pollution; this backfill
+        # clears what already polluted the catalog before the gate
+        # landed. Idempotent — re-runs are no-ops.
+        try:
+            from src.agents.product_catalog import cleanup_placeholder_asin_urls
+            cleanup_placeholder_asin_urls()
+        except Exception as e:
+            logging.getLogger("reytech").warning("Placeholder-ASIN cleanup on boot: %s", e)
+
+        # JSON-side twin: walks data/rfqs.json + data/price_checks.json and
+        # clears item_link on lines whose URL is a placeholder Amazon ASIN.
+        # Same idempotent backfill — covers the on-disk items separately
+        # from the catalog DB cleanup above.
+        try:
+            from src.agents.product_catalog import cleanup_placeholder_asin_in_json
+            cleanup_placeholder_asin_in_json()
+        except Exception as e:
+            logging.getLogger("reytech").warning("Placeholder-ASIN JSON cleanup on boot: %s", e)
+
         # Stale cs_drafts purge: remove untouched auto-drafts >30d old
         # from the email outbox. 132 stale drafts surfaced 2026-05-04;
         # operator never triaged them, original buyer email is past

@@ -176,6 +176,110 @@ def _normalize_amazon_url(url: str) -> str:
     return url
 
 
+def is_placeholder_asin(asin: str, mfg_number: str = "") -> bool:
+    """Return True if `asin` looks like a placeholder/test ASIN that
+    should NOT be persisted to catalog or item_link fields.
+
+    Surfaced live on pc_5728f934 (Mike P0 2026-05-12 live drive): items
+    4/5/6/9/10 had junk Amazon URLs persisted —
+        B07XXXXXXX, B08XXXXXXX, B07H3989EX, B07H123456, B0ABCDEF12 —
+    survivors of failed lookups that landed in item_link anyway. Once a
+    placeholder ASIN is in the catalog it pollutes the MFG#→ASIN join
+    forever; the gate has to run at write time.
+
+    Heuristics (high-precision; designed to never flag a real ASIN):
+      * 4+ identical consecutive characters    → "B07XXXXXXX", "B0000XXXXX"
+      * 4+ ascending sequential digits         → "B07H123456" (1234)
+      * 4+ ascending sequential letters        → "B0ABCDEF12" (ABCD)
+      * Optional MFG# context: if mfg_number   → "B07H3989EX" when
+        is provided and its normalized form    →   mfg="H-3989" (norm="H3989")
+        appears verbatim in the ASIN, it's a
+        templated/test URL with the MFG# embedded.
+
+    Returns True if `asin` is empty or shorter than 10 chars (the
+    minimum real ASIN length) — caller treats those as "nothing usable
+    here", same as a placeholder.
+
+    Real Amazon ASINs (B077JQYDTN, B084TJ9W8V, B00OZACDEC, B097QCNKJP)
+    are high-entropy random strings; none of the heuristics fire on
+    them. The test suite (`test_placeholder_asin_suppression.py`)
+    pins this with a corpus.
+    """
+    if not asin:
+        return True
+    s = str(asin).strip().upper()
+    if len(s) < 10:
+        return True
+    # 4+ identical consecutive characters (XXXX, 0000, AAAA, etc.)
+    if re.search(r'(.)\1{3,}', s):
+        return True
+    # 4+ ascending sequential digits or letters
+    for i in range(len(s) - 3):
+        seq = s[i:i + 4]
+        if seq.isdigit():
+            try:
+                if all(int(seq[j + 1]) == int(seq[j]) + 1
+                       for j in range(3)):
+                    return True
+            except ValueError:
+                pass
+        elif seq.isalpha():
+            if all(ord(seq[j + 1]) == ord(seq[j]) + 1
+                   for j in range(3)):
+                return True
+    # MFG#-embedded templated URL (context-aware)
+    if mfg_number:
+        mfg_norm = re.sub(r'[^A-Z0-9]', '', str(mfg_number).upper())
+        if mfg_norm and len(mfg_norm) >= 4 and mfg_norm in s:
+            return True
+    return False
+
+
+def is_placeholder_supplier_url(url: str, mfg_number: str = "") -> bool:
+    """Return True if `url` is a supplier URL that points to a
+    placeholder/test product, and therefore must not be persisted.
+
+    Currently scoped to Amazon URLs — extracts the ASIN and runs
+    `is_placeholder_asin` against it. The other suppliers we touch
+    today (Uline H-/S-, McMaster, Grainger, Vitality Medical, etc.)
+    don't carry the same templated-URL pollution pattern in their
+    public listings; if that changes, extend this helper rather than
+    spreading per-supplier regexes across write sites.
+    """
+    if not url:
+        return False
+    try:
+        asin = _extract_asin(url)
+    except Exception:
+        return False
+    if not asin:
+        return False
+    return is_placeholder_asin(asin, mfg_number=mfg_number)
+
+
+def sanitize_supplier_url(url: str, mfg_number: str = "") -> str:
+    """Single chokepoint for write-time URL gating. Returns the
+    original URL if it's a real supplier URL, or empty string if it's
+    a placeholder that must not be persisted.
+
+    Callers should use this anywhere a URL would be written to
+    `item['item_link']`, `product_suppliers.supplier_url`, or any
+    catalog write that records a supplier URL. Mike P0 2026-05-12:
+    five placeholder ASIN URLs were stamped onto pc_5728f934 line
+    items because the existing write paths trusted operator paste
+    without validation.
+    """
+    if not url:
+        return ""
+    if is_placeholder_supplier_url(url, mfg_number=mfg_number):
+        log.info(
+            "sanitize_supplier_url: refused placeholder URL %r (mfg=%r)",
+            url, mfg_number,
+        )
+        return ""
+    return url
+
+
 def _extract_grainger_sku(url: str) -> str:
     """Extract Grainger item number from URL."""
     # https://www.grainger.com/product/TITLE--XXXXXXXX

@@ -3584,6 +3584,16 @@ def update(rid):
         # Save item link and auto-detect supplier
         link_raw = request.form.get(f"link_{i}", "")
         link_val, _ = validate_url(link_raw)
+        # Placeholder-ASIN gate (Mike P0 2026-05-12 live drive): refuse to
+        # persist Amazon URLs whose ASIN is a placeholder like B07XXXXXXX
+        # or templated with the item's own MFG#. Symmetric to PC autosave.
+        if link_val:
+            try:
+                from src.agents.item_link_lookup import sanitize_supplier_url
+                _item_mfg = item.get("item_number") or item.get("mfg_number") or ""
+                link_val = sanitize_supplier_url(link_val, mfg_number=_item_mfg)
+            except Exception as _e:
+                log.debug("sanitize_supplier_url crashed: %s", _e)
         item["item_link"] = link_val
         if link_val:
             try:

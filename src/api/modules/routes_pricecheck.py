@@ -2175,7 +2175,22 @@ def _do_save_prices_locked(pcid):
                 elif field_type == "substitute":
                     items[idx]["is_substitute"] = bool(val)
                 elif field_type == "link":
-                    items[idx]["item_link"] = str(val).strip() if val else ""
+                    _raw_link = str(val).strip() if val else ""
+                    # Placeholder-ASIN gate (Mike P0 2026-05-12 live drive):
+                    # refuse to persist Amazon URLs whose ASIN is a placeholder
+                    # like B07XXXXXXX / B0ABCDEF12 / B07H123456. The pc_5728f934
+                    # incident showed five such URLs landing in item_link
+                    # because a failed lookup left a templated URL on the row.
+                    # Filter at write-time so the catalog stays clean.
+                    if _raw_link:
+                        try:
+                            from src.agents.item_link_lookup import sanitize_supplier_url
+                            _item_mfg = (items[idx].get("item_number")
+                                         or items[idx].get("mfg_number") or "")
+                            _raw_link = sanitize_supplier_url(_raw_link, mfg_number=_item_mfg)
+                        except Exception as _e:
+                            log.debug("sanitize_supplier_url crashed: %s", _e)
+                    items[idx]["item_link"] = _raw_link
                     # Auto-detect supplier from the URL when it's saved
                     if items[idx]["item_link"]:
                         try:
