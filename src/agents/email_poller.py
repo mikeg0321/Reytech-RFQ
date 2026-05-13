@@ -1424,6 +1424,123 @@ def classify_self_email(
     return True, True, False
 
 
+_NON_RFQ_ROLE_PATTERNS = [
+    # Accounts payable / accounting / billing — most common false positive
+    # source on procurement-domain emails per the rfq_b57f85f7 forensic
+    r"\baccounts\s+payable\b", r"\baccounting\s+(?:clerk|specialist|coordinator|manager|department)\b",
+    r"\bbilling\s+(?:clerk|specialist|coordinator|office|department)\b",
+    r"\bfinance\s+(?:clerk|specialist|coordinator|manager|department)\b",
+    r"\bap\s+(?:clerk|specialist|coordinator|department)\b",
+    # Credentialing / compliance — sends vendor-onboarding paperwork, not RFQs
+    r"\bcredentialing\b", r"\bcompliance\s+(?:officer|specialist|coordinator|manager)\b",
+    r"\bvendor\s+(?:relations|onboarding|management|services)\b",
+    # HR / payroll
+    r"\bhuman\s+resources\b", r"\bhr\s+(?:specialist|coordinator|manager|department)\b",
+    r"\bpayroll\s+(?:clerk|specialist|coordinator)\b",
+    # IT helpdesk / facilities — not procurement
+    r"\bit\s+(?:helpdesk|support|administrator)\b",
+    r"\bhelp\s*desk\b",
+    r"\bfacilities\s+(?:manager|coordinator)\b",
+]
+_NON_RFQ_ROLE_COMPILED = [re.compile(p, re.I) for p in _NON_RFQ_ROLE_PATTERNS]
+
+_NON_RFQ_SUBJECT_PATTERNS = [
+    # Tax-form / vendor-setup requests — never RFQs even from buyers
+    r"\bw[-\s]?9\b", r"\b1099\b", r"\btax\s+(?:id|form)\b",
+    r"\bvendor\s+(?:setup|onboarding|update|file)\b",
+    r"\bach\s+(?:setup|authorization|form)\b",
+    r"\beft\s+(?:setup|authorization)\b",
+    r"\bdirect\s+deposit\b",
+    # Invoice / payment / remittance — CS-class queries
+    r"\binvoice\s+(?:status|inquiry|question|payment)\b",
+    r"\bremit(?:tance)?\b",
+    r"\boutstanding\s+(?:balance|invoice)\b",
+    r"\bcredit\s+memo\b",
+]
+_NON_RFQ_SUBJECT_COMPILED = [re.compile(p, re.I) for p in _NON_RFQ_SUBJECT_PATTERNS]
+
+
+def extract_signature_block(body: str) -> str:
+    """Return the last ~5 non-empty lines of an email body, excluding
+    `> quoted reply` lines. PR-AA (2026-05-13).
+
+    The signature block carries the strongest team-identity signal
+    (e.g. "Accounts Payable Specialist") for the signature-aware
+    classifier. Stops at the first quoted-reply line so reply threads
+    don't pull stale signatures from the original sender.
+    """
+    if not body:
+        return ""
+    lines = []
+    for raw in str(body).splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith(">"):
+            break  # stop at quoted reply
+        if line.lower().startswith(("on ", "----- original", "from:")):
+            break  # stop at common reply boilerplate
+        lines.append(line)
+    return "\n".join(lines[-5:]) if len(lines) >= 5 else "\n".join(lines)
+
+
+def is_non_rfq_team_email(subject: str, body: str, sender_email: str = "") -> bool:
+    """Veto an RFQ classification when the email is clearly from a
+    non-procurement team (accounting / credentialing / HR / IT) or the
+    subject matches a vendor-setup / invoice / W-9 pattern.
+
+    PR-AA (2026-05-13): closes the rfq_b57f85f7 class — a CalVet
+    Accounts-Payable email got classified as RFQ because Tier 0 of
+    is_rfq_email fires on any `*.ca.gov` procurement domain without
+    reading the body or signature.
+
+    Returns True (veto RFQ) when:
+      - Subject matches a non-RFQ subject pattern (W-9, vendor setup,
+        invoice inquiry, etc.), OR
+      - Signature block contains a non-RFQ role/title (Accounts
+        Payable, Credentialing Coordinator, etc.)
+
+    Returns False (do not veto) when:
+      - The email also contains a strong RFQ keyword (real RFQs
+        occasionally CC accounting) — let the regular tiers decide
+      - No body / signature signal
+    """
+    subj = (subject or "").strip()
+    body_text = (body or "").strip()
+
+    # Subject-level veto comes first — "W-9 needed" is conclusive even
+    # without a signature
+    for pat in _NON_RFQ_SUBJECT_COMPILED:
+        if pat.search(subj):
+            log.info("is_non_rfq_team: subject veto (%s)", pat.pattern)
+            return True
+
+    if not body_text:
+        return False
+
+    # Don't veto when the body has an explicit RFQ-strong keyword. A
+    # real procurement email CC'ing accounting still needs to flow
+    # through the regular RFQ tiers.
+    body_l = body_text.lower()
+    _rfq_strong_keys = (
+        "request for quote", "rfq #", "rfq number", "rfq attached",
+        "ams 704", "ams 703", "form 704", "form 703",
+        "please quote", "please provide quote", "submit quote",
+        "bid request", "bid attached", "solicitation #",
+    )
+    if any(k in body_l for k in _rfq_strong_keys):
+        return False
+
+    # Signature-block role check
+    sig = extract_signature_block(body_text)
+    for pat in _NON_RFQ_ROLE_COMPILED:
+        if pat.search(sig):
+            log.info("is_non_rfq_team: signature role veto (%s)", pat.pattern)
+            return True
+
+    return False
+
+
 def is_rfq_email(subject, body, attachments, sender_email=""):
     """
     Determine if an email is an RFQ. Uses tiered detection with negative gates.
@@ -1432,6 +1549,7 @@ def is_rfq_email(subject, body, attachments, sender_email=""):
       - Recall emails
       - Price Check subject patterns
       - Newsletter / marketing body signals
+      - PR-AA: non-RFQ team email (accounting / credentialing / etc.)
 
     Positive tiers:
       0. Known procurement agency sender domain → definitely RFQ
@@ -1467,6 +1585,26 @@ def is_rfq_email(subject, body, attachments, sender_email=""):
                 log.debug("is_rfq_email: newsletter signals (%d hits) → not an RFQ: %s",
                           _newsletter_hits, subject[:50])
                 return False
+
+    # ── Negative Gate (PR-AA, 2026-05-13): non-RFQ team email ──
+    # Veto when the body/signature is clearly from accounting,
+    # credentialing, HR, billing, or the subject is a W-9 / vendor-
+    # setup / invoice inquiry. Tier 0 below fires on `.ca.gov`
+    # procurement domain WITHOUT reading the body, which is how
+    # rfq_b57f85f7 (CalVet AP team asking for an updated W-9) landed
+    # in the RFQ queue. Strong-RFQ-keyword bodies still flow through.
+    # PDF-attached RFQ shapes (Tier 2 / Tier 3) override this veto
+    # — a real 704 attached is conclusive even with an AP signature.
+    pdf_names_lower = [str(a).lower() for a in (attachments or [])]
+    _has_rfq_form_attached = any(
+        any(re.search(p, name) for p in RFQ_PDF_PATTERNS)
+        for name in pdf_names_lower
+    )
+    if not _has_rfq_form_attached:
+        if is_non_rfq_team_email(subject, body, sender_email=sender_email):
+            log.info("is_rfq_email: non-RFQ team veto (subject=%s, sender=%s)",
+                     subject[:60], sender_email)
+            return False
 
     # ── Tier 0: Known procurement agency sender domains ──
     _procurement_domains = [
