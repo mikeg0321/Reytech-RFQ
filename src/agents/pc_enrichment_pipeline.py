@@ -962,6 +962,13 @@ def _run_pipeline(pc_id: str, force: bool):
             desc = it.get("description", "")
             if not desc:
                 continue
+            # PR-H (2026-05-13): thread mfg_number= + unspsc= so the
+            # SCPRS rollup lookup (PR #947) fires from the enrichment path
+            # too. Without these kwargs, get_pricing's rollup probe stays
+            # blank and the cap binding (PR #948) never has data to act on.
+            _mfg = (it.get("mfg_number") or it.get("part_number")
+                    or it.get("item_number") or "").strip()
+            _unspsc = (it.get("unspsc") or "").strip()
             oracle = get_pricing(
                 description=desc,
                 quantity=it.get("quantity", it.get("qty", 1)),
@@ -969,6 +976,8 @@ def _run_pipeline(pc_id: str, force: bool):
                 item_number=it.get("item_number", ""),
                 qty_per_uom=it.get("qty_per_uom", 1),
                 upc=it.get("upc", ""),
+                mfg_number=_mfg,
+                unspsc=_unspsc,
             )
             if oracle.get("recommendation", {}).get("quote_price"):
                 it["oracle_price"] = oracle["recommendation"]["quote_price"]
@@ -978,6 +987,25 @@ def _run_pipeline(pc_id: str, force: bool):
                     it["pricing"]["recommended_price"] = oracle["recommendation"]["quote_price"]
                     it["pricing"]["price_source"] = f"oracle_{oracle['recommendation']['confidence']}"
                     counters["oracle_priced"] += 1
+
+            # PR-H: persist the oracle audit envelope so the measurement
+            # loop can later answer "which lines were capped, did they
+            # win?". `_build_oracle_audit` is the canonical builder used
+            # by the reprice adapter too (PR-G) — keeps both paths writing
+            # the same shape. Empty `caps_applied: []` + `scprs_rollup: None`
+            # is still informative — it proves the oracle considered the
+            # cap, just had no data to act on. Distinguishes "oracle ran,
+            # didn't cap" from "oracle never ran on this line."
+            try:
+                from src.core.pc_rfq_reprice_adapter import _build_oracle_audit
+                from datetime import datetime as _dt
+                it["oracle_audit"] = _build_oracle_audit(
+                    oracle,
+                    oracle.get("recommendation") or {},
+                    _dt.now().isoformat(timespec="seconds"),
+                )
+            except Exception as _au_e:
+                log.debug("oracle_audit attach skipped: %s", _au_e)
             # Auto-lock cost
             cost_val = it["pricing"].get("unit_cost") or it.get("supplier_cost")
             if cost_val:
