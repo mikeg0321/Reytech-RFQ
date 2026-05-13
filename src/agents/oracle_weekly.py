@@ -272,6 +272,27 @@ def build_weekly_report(week_end: datetime | None = None) -> dict:
     lines.append(f"  Last week win rate: {last_rate}")
     lines.append("")
 
+    # PR-S (2026-05-13): auto-recommendations section. Reads
+    # operator_drift_line + operator_drift_shadow per-agency for the
+    # past week, classifies each agency into one of 5 buckets (drift
+    # high/low, cap working, on track, insufficient data), and emits
+    # concrete markup-tuning suggestions. Fail-soft: any agent error
+    # logs and lists a single "auto-recommendations unavailable" line
+    # so the digest never breaks because of this new section.
+    try:
+        from src.agents.auto_recommendations import (
+            build_auto_recommendations, format_for_digest,
+        )
+        auto_rec = build_auto_recommendations(window_days=7)
+        lines.extend(format_for_digest(auto_rec))
+        lines.append("")
+    except Exception as _are:
+        log.warning("auto-recommendations section skipped: %s", _are)
+        lines.append("AUTO-RECOMMENDATIONS (PR-S)")
+        lines.append("  unavailable — agent error logged")
+        lines.append("")
+        auto_rec = None
+
     lines.append("— Reytech Oracle (run `/api/oracle/weekly-email` to refresh)")
 
     body = "\n".join(lines)
