@@ -753,6 +753,22 @@ def run_award_check() -> dict:
                 pc["closed_reason"] = f"Reytech won PO {award.get('po_number','')}"
                 results["won"] += 1
                 log.info("🏆 PC %s WON! PO %s", pc.get("pc_number", pcid), award.get("po_number"))
+
+                # PR-K1: resolve drift outcome on this PC's lines.
+                # Backfills operator_drift_line + operator_drift_shadow
+                # so the digest can answer "what's the WR among lines
+                # where operator drifted +20% above oracle?"
+                try:
+                    from src.core.operator_kpi import resolve_drift_outcome
+                    resolve_drift_outcome(
+                        quote_id=pcid,
+                        quote_number=(pc.get("quote_number")
+                                      or pc.get("reytech_quote_number") or ""),
+                        outcome="won",
+                        source="award_monitor",
+                    )
+                except Exception as _dr_e:
+                    log.debug("drift outcome resolve (won) suppressed: %s", _dr_e)
                 
                 # ── Quote Lifecycle Bridge: mark matching quote as won ──
                 try:
@@ -801,6 +817,20 @@ def run_award_check() -> dict:
                 except Exception as _e:
                     log.debug('suppressed in run_award_check: %s', _e)
                 log_competitor(pc, award, our_total)
+
+                # PR-K1: resolve drift outcome to 'lost'. Same idempotent
+                # discipline — only updates rows where outcome IS NULL.
+                try:
+                    from src.core.operator_kpi import resolve_drift_outcome
+                    resolve_drift_outcome(
+                        quote_id=pcid,
+                        quote_number=(pc.get("quote_number")
+                                      or pc.get("reytech_quote_number") or ""),
+                        outcome="lost",
+                        source="award_monitor",
+                    )
+                except Exception as _dr_e:
+                    log.debug("drift outcome resolve (lost) suppressed: %s", _dr_e)
                 
                 # ── Quote Lifecycle Bridge: close matching quote as lost ──
                 try:

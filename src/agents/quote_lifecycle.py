@@ -352,6 +352,19 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
             log.warning("BUILD-11 calibrate_from_outcome failed for %s: %s",
                         quote_number, _ce)
 
+        # PR-K1: backfill drift outcome on this quote's per-line rows.
+        # Reply-signal path knows quote_number but not pc.id — that's
+        # why operator_drift_line carries both join keys.
+        try:
+            from src.core.operator_kpi import resolve_drift_outcome
+            resolve_drift_outcome(
+                quote_number=quote_number,
+                outcome=_calibrate_outcome,
+                source=f"reply_{source or 'unknown'}",
+            )
+        except Exception as _dr_e:
+            log.debug("drift outcome resolve (reply-signal) suppressed: %s", _dr_e)
+
     return _result
 
 
