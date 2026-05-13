@@ -262,26 +262,96 @@ def _scprs_rollup_cap_enabled() -> bool:
          `SCPRS_CAP_FRESH_DAYS` days (proves the post-pull bridge is
          actually running)
     """
+    return scprs_rollup_cap_state()["enabled"]
+
+
+def scprs_rollup_cap_state() -> dict:
+    """Operator-readable explanation of the cap binding state.
+
+    PR-Z (2026-05-13): pre-PR-Z the cap auto-disabled silently when
+    scprs_awards went stale — exact failure mode that bit us in PR-O
+    (60-day freeze). This helper surfaces the why so /home can render
+    a one-row banner when the cap is off and the operator can act.
+
+    Returns:
+      {
+        enabled: bool,
+        reason: "env_on" | "env_off" | "fresh_data" | "stale_data"
+                | "no_data" | "unavailable",
+        message: str — operator-readable explanation
+        last_award_age_days: int | None,
+        fresh_days_threshold: int,
+      }
+    """
     import os as _os
     val = _os.environ.get("ORACLE_USE_SCPRS_ROLLUP", "").strip().lower()
     if val in ("1", "true", "yes", "on"):
-        return True
+        return {
+            "enabled": True,
+            "reason": "env_on",
+            "message": "SCPRS rollup cap forced ON via env",
+            "last_award_age_days": None,
+            "fresh_days_threshold": SCPRS_CAP_FRESH_DAYS,
+        }
     if val in ("0", "false", "no", "off"):
-        return False
+        return {
+            "enabled": False,
+            "reason": "env_off",
+            "message": "SCPRS rollup cap explicitly disabled via env",
+            "last_award_age_days": None,
+            "fresh_days_threshold": SCPRS_CAP_FRESH_DAYS,
+        }
     # Auto-detect: cap is live iff scprs_awards has fresh data.
     try:
-        from datetime import datetime as _dt, timedelta as _td
+        from datetime import datetime as _dt
         from src.core.db import get_db
-        cutoff = (_dt.now() - _td(days=SCPRS_CAP_FRESH_DAYS)).isoformat()
         with get_db() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM scprs_awards "
-                "WHERE created_at >= ?",
-                (cutoff,),
+                "SELECT MAX(created_at) AS latest, COUNT(*) AS n "
+                "FROM scprs_awards"
             ).fetchone()
-        return bool(row and row["n"] > 0)
-    except Exception:
-        return False
+        if not row or row["n"] == 0:
+            return {
+                "enabled": False,
+                "reason": "no_data",
+                "message": "scprs_awards table is empty — cap dormant until "
+                           "first SCPRS bridge run",
+                "last_award_age_days": None,
+                "fresh_days_threshold": SCPRS_CAP_FRESH_DAYS,
+            }
+        latest = row["latest"] or ""
+        age_days = None
+        if latest:
+            try:
+                lt = _dt.fromisoformat(str(latest).rstrip("Z"))
+                age_days = (_dt.now() - lt).days
+            except (TypeError, ValueError):
+                age_days = None
+        if age_days is None or age_days > SCPRS_CAP_FRESH_DAYS:
+            return {
+                "enabled": False,
+                "reason": "stale_data",
+                "message": (f"scprs_awards last fresh {age_days}d ago "
+                            f"(threshold {SCPRS_CAP_FRESH_DAYS}d) — bridge "
+                            f"may have stopped. Cap auto-disabled."),
+                "last_award_age_days": age_days,
+                "fresh_days_threshold": SCPRS_CAP_FRESH_DAYS,
+            }
+        return {
+            "enabled": True,
+            "reason": "fresh_data",
+            "message": f"SCPRS cap active — last bridge fire {age_days}d ago",
+            "last_award_age_days": age_days,
+            "fresh_days_threshold": SCPRS_CAP_FRESH_DAYS,
+        }
+    except Exception as e:
+        return {
+            "enabled": False,
+            "reason": "unavailable",
+            "message": f"Cap state check failed: {e}",
+            "last_award_age_days": None,
+            "fresh_days_threshold": SCPRS_CAP_FRESH_DAYS,
+        }
 
 
 def _apply_scprs_rollup_cap(result: dict) -> None:

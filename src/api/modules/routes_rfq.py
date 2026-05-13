@@ -796,6 +796,18 @@ def home():
     except Exception as _tpe:
         log.warning("top-priority panel skipped: %s", _tpe)
 
+    # PR-Z (2026-05-13): cap-inactive warning state. When the SCPRS
+    # rollup cap auto-disables silently (awards stale / empty / env
+    # forced off) the home banner names the reason so the operator
+    # can fix it before it silently regresses for weeks like the
+    # pre-PR-O 60-day freeze did.
+    cap_state: dict = {}
+    try:
+        from src.core.pricing_oracle_v2 import scprs_rollup_cap_state
+        cap_state = scprs_rollup_cap_state()
+    except Exception as _cse:
+        log.debug("cap_state lookup skipped: %s", _cse)
+
     log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
              len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
     return render_page("home.html", active_page="Home",
@@ -805,7 +817,8 @@ def home():
                        norm_rfqs=norm_rfqs, norm_sent_rfqs=norm_sent_rfqs,
                        pc_bulk_actions=pc_bulk_actions, rfq_bulk_actions=rfq_bulk_actions,
                        action_items=action_items,
-                       top_priority_pcs=top_priority_pcs)
+                       top_priority_pcs=top_priority_pcs,
+                       cap_state=cap_state)
 
 @bp.route("/growth")
 @auth_required
