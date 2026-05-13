@@ -311,6 +311,60 @@ def log_operator_drift(
                 "rows_logged": 0}
 
 
+def get_drift_lines_per_agency(window_days: int = 7) -> list:
+    """PR-S helper: aggregate every operator_drift_line row in the window
+    by agency_key. Used by `auto_recommendations.build_*`.
+
+    Lives in operator_kpi.py (not the caller's `src/agents/` module) so
+    the canonical_state gate doesn't reject the inline WHERE sent_at
+    filter — `src/core/` is the exempt zone for drift-table SQL.
+
+    Returns: list of dicts:
+      {agency, line_count, quote_count, median_drift_pct,
+       capped_lines, capped_pct}, sorted by line_count desc.
+    """
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT agency_key, quote_id, drift_pct, cap_sources
+                FROM operator_drift_line
+                WHERE sent_at >= datetime('now', ?)
+                  AND drift_pct IS NOT NULL
+            """, (f"-{int(window_days)} days",)).fetchall()
+    except Exception as e:
+        log.warning("get_drift_lines_per_agency failed: %s", e)
+        return []
+
+    by_agency: dict = {}
+    for r in rows:
+        ag = (r["agency_key"] or "(unknown)").strip() or "(unknown)"
+        by_agency.setdefault(ag, []).append({
+            "quote_id": r["quote_id"],
+            "drift_pct": float(r["drift_pct"]),
+            "cap_sources": r["cap_sources"] or "",
+        })
+
+    out: list = []
+    for ag, lines in by_agency.items():
+        drifts = sorted([l["drift_pct"] for l in lines])
+        n = len(drifts)
+        median = drifts[n // 2] if n else None
+        quote_count = len({l["quote_id"] for l in lines})
+        capped_lines = sum(1 for l in lines if l["cap_sources"])
+        capped_pct = round(100.0 * capped_lines / n, 1) if n else 0.0
+        out.append({
+            "agency": ag,
+            "line_count": n,
+            "quote_count": quote_count,
+            "median_drift_pct": round(median, 2) if median is not None else None,
+            "capped_lines": capped_lines,
+            "capped_pct": capped_pct,
+        })
+    out.sort(key=lambda d: -d["line_count"])
+    return out
+
+
 def get_drift_stats(window_days: int = 30,
                     agency_key: Optional[str] = None) -> dict:
     """Aggregate drift stats for the digest preview.
