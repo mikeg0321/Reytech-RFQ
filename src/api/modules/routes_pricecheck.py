@@ -1014,6 +1014,25 @@ def _pricecheck_detail_inner(pcid):
                 _parts.append(f'<span style="padding:1px 5px;border-radius:3px;background:rgba(139,148,158,.12);font-size:11px;color:{_taa_color}">{_coo}{" · " + _taa_label if _taa_label else ""}</span>')
             _intel_badges = f'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px">{"".join(_parts)}</div>'
 
+        # PR-L (2026-05-13): quote-time SCPRS rollup chip. Surfaces
+        # `oracle_audit.scprs_rollup` (persisted by PR-H + PR-G) on every
+        # priced row so the operator sees "p75 $X · drift +Y% · n=Z"
+        # BEFORE clicking Send. Closes the feedback loop from "send →
+        # /oracle/drift/preview later → adjust next quote" down to
+        # "see drift on this row → adjust this quote." Build helper
+        # returns ("", "") when the item has no rollup data — chip
+        # silently absent rather than rendering empty noise.
+        try:
+            from src.core.pricing_intel_chip import build_rollup_chip
+            _rollup_chip, _rollup_td_attrs = build_rollup_chip(
+                item, idx,
+                current_price=final_price if final_price else 0,
+            )
+        except Exception as _rc_e:
+            log.debug("rollup chip skipped for item %d: %s", idx, _rc_e)
+            _rollup_chip = ""
+            _rollup_td_attrs = ""
+
         _disc_attr = f' data-discount-cost="{discount_cost:.2f}"' if discount_cost > 0 else ''
         # data-no-bid mirrors the server-side `no_bid` field so JS
         # predicates (subtotal preview, recalc) agree with what the PDF
@@ -1038,7 +1057,7 @@ def _pricecheck_detail_inner(pcid):
          <td style="vertical-align:top;padding:6px 4px;overflow:hidden">{source_html}</td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in {'cost-needs-lookup' if (not cost_str and not no_bid) else ''}" placeholder="0.00" oninput="sanitizePrice(this)" onchange="(window.handleManualCostChange||function(){{recalcRow({idx},true);}})({idx})" onblur="fmtCurrency(this)" data-cost-source="{(item.get('pricing', dict()).get('cost_source') or '')}"></div>{("<div class='cost-needs-chip' style=\"margin-top:3px;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;background:#f8514922;color:#f85149;border:1px solid #f8514955;display:inline-block\" title=\"Cost not auto-filled — Amazon/SCPRS prices are reference only. Enter the supplier cost manually.\">⚠️ NEEDS COST</div>") if (not cost_str and not no_bid) else ""}</td>
          <td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow({idx},true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>
-         <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>
+         <td{_rollup_td_attrs}><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this);if(window.recalcRollupChip)recalcRollupChip({idx})" onchange="recalcPC();if(window.recalcRollupChip)recalcRollupChip({idx})" onblur="fmtCurrency(this);if(window.recalcRollupChip)recalcRollupChip({idx})"></div>{_rollup_chip}</td>
          <td class="ext" style="font-weight:600;font-size:14px">{ext}</td>
          <td class="profit" style="font-size:14px">{profit_str}</td>
         </tr>
