@@ -455,6 +455,19 @@ def create_app():
         except Exception as e:
             logging.getLogger("reytech").warning("Placeholder-ASIN JSON cleanup on boot: %s", e)
 
+        # SCPRS per-SKU rollup (Phase 1.5-A, 2026-05-13). Builds the
+        # `scprs_price_stats` table from scprs_po_lines once on boot so
+        # the oracle has a pre-computed prior available when wire-up
+        # ships in Phase 1.5-B. Idempotent — DELETE+INSERT in one txn.
+        # Gated by env var so we can disable during smoke if a bug
+        # surfaces in prod without redeploy.
+        if os.environ.get("SCPRS_ROLLUP_ON_BOOT", "1") != "0":
+            try:
+                from src.agents.scprs_price_stats import rebuild_scprs_price_stats
+                rebuild_scprs_price_stats()
+            except Exception as e:
+                logging.getLogger("reytech").warning("SCPRS rollup on boot: %s", e)
+
         # Stale cs_drafts purge: remove untouched auto-drafts >30d old
         # from the email outbox. 132 stale drafts surfaced 2026-05-04;
         # operator never triaged them, original buyer email is past
