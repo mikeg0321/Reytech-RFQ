@@ -46,13 +46,17 @@ def test_704_master_has_overflow_path():
     assert cap["rows_pg2"] == 8
 
 
-def test_calrecycle74_has_no_overflow():
-    """CalRecycle 74 silently dropped items 7-8 on Mike's 8-item quote.
-    Capacity must be exactly 6 with no overflow path until one is built."""
+def test_calrecycle74_overflow_now_registered():
+    """CalRecycle 74 had the overflow APPEND code shipped in
+    `reytech_filler_v4.py::fill_calrecycle_standalone` but the registry
+    was stale (`has_overflow=False`) until Mike P0 2026-05-12
+    rfq_8efe9fae blocked send on a 15-item CalVet RFQ. Registry now
+    matches the filler reality."""
     cap = FORM_CAPACITY["calrecycle74"]
-    assert cap["has_overflow"] is False
+    assert cap["has_overflow"] is True
     assert cap["rows_pg1"] == 6
     assert cap["rows_pg2"] == 0
+    assert cap["overflow_fn"] == "fill_calrecycle_standalone:append_overflow"
 
 
 # ─── check_overflow — happy paths ─────────────────────────────────────
@@ -88,22 +92,22 @@ def test_check_overflow_704_master_no_blocker_at_40():
 # ─── check_overflow — blocker paths ───────────────────────────────────
 
 
-def test_check_overflow_calrecycle_at_8_items_today_bug():
-    """The exact today-bug case: 8 items, 6 rows, no overflow → blocker.
-    Items 7-8 will be silently dropped without this check."""
+def test_check_overflow_calrecycle_at_8_items_passes_with_overflow():
+    """CalRecycle 74 has the append-overflow path implemented (verified
+    2026-05-12 Mike P0 rfq_8efe9fae). 8 items must pass — items 7-8
+    land on a second appended CalRecycle 74 line-item page."""
     result = check_overflow("calrecycle74", 8)
-    assert result["ok"] is False
-    assert result["severity"] == "blocker"
-    assert result["items_dropped"] == 2
-    assert "7-8" in result["message"]
-    assert "CALRECYCLE74" in result["message"]
+    assert result["ok"] is True
+    assert result["has_overflow"] is True
+    assert result["items_dropped"] == 0
 
 
-def test_check_overflow_calrecycle_at_37_items_mikes_max():
-    """Mike's worst-case (37 items) on CalRecycle drops 31."""
+def test_check_overflow_calrecycle_at_37_items_passes_with_overflow():
+    """Mike's worst-case (37 items) on CalRecycle now ships clean —
+    appended overflow pages cover items 7-37 across additional sheets."""
     result = check_overflow("calrecycle74", 37)
-    assert result["ok"] is False
-    assert result["items_dropped"] == 31
+    assert result["ok"] is True
+    assert result["items_dropped"] == 0
 
 
 def test_check_overflow_704b_at_16_items():
@@ -136,12 +140,14 @@ def test_check_overflow_zero_capacity_passes_unconditionally():
 
 
 def test_check_overflow_form_id_case_insensitive():
+    """All three case variants resolve to the same registry entry — the
+    has_overflow=True now means each returns ok=True at 8 items."""
     result_lower = check_overflow("calrecycle74", 8)
     result_upper = check_overflow("CALRECYCLE74", 8)
     result_mixed = check_overflow("CalRecycle74", 8)
-    assert result_lower["ok"] is False
-    assert result_upper["ok"] is False
-    assert result_mixed["ok"] is False
+    assert result_lower["ok"] is True
+    assert result_upper["ok"] is True
+    assert result_mixed["ok"] is True
 
 
 # ─── check_required_forms — aggregate ─────────────────────────────────
@@ -154,13 +160,13 @@ def test_check_required_forms_all_pass():
     assert result["blockers"] == []
 
 
-def test_check_required_forms_blocker_on_one():
-    """Required = ['704', 'calrecycle74'] with 8 items: 704 ok (overflow
-    path), CalRecycle blocker."""
-    result = check_required_forms(["704", "calrecycle74"], 8)
+def test_check_required_forms_704b_blocker_at_overflow():
+    """Required = ['704', '704b'] with 16 items: 704 ok (overflow path),
+    704b is the blocker — buyer template has no overflow path."""
+    result = check_required_forms(["704", "704b"], 16)
     assert result["ok"] is False
     assert len(result["blockers"]) == 1
-    assert result["blockers"][0]["form_id"] == "calrecycle74"
+    assert result["blockers"][0]["form_id"] == "704b"
 
 
 def test_check_required_forms_unknown_form_does_not_block():
@@ -175,19 +181,27 @@ def test_check_required_forms_unknown_form_does_not_block():
 @pytest.mark.parametrize("count", [1, 6, 7, 8, 11, 12, 15, 16, 19, 20, 25, 37, 40])
 def test_required_forms_at_realistic_counts(count):
     """Stress shape: walk every realistic item count Mike has hit (or
-    might) against the standard CCHCS required-forms set, asserting
-    every form's overflow status is the documented behavior."""
+    might) against the standard CCHCS required-forms set. With the
+    CalRecycle 74 overflow path now registered (Mike P0 2026-05-12
+    rfq_8efe9fae), all three of 704 / 703b / calrecycle74 cover every
+    realistic count cleanly. obs_1600 caps at 18 with no overflow."""
     required = ["704", "703b", "calrecycle74", "obs_1600"]
     result = check_required_forms(required, count)
-    if count <= 6:
+    if count <= 18:
         assert result["ok"] is True, (
             f"At {count} items, all required forms should pass — got "
             f"blockers: {[b['form_id'] for b in result['blockers']]}"
         )
-    if count > 6:
-        # CalRecycle 74 should always blocker past 6.
-        assert any(b["form_id"] == "calrecycle74" for b in result["blockers"]), (
-            f"At {count} items, calrecycle74 must be a blocker"
+    else:
+        # obs_1600 (no overflow, 18 rows) is the only blocker past 18.
+        # 704 + 703b + calrecycle74 all cover via overflow paths.
+        blocker_ids = {b["form_id"] for b in result["blockers"]}
+        assert blocker_ids == {"obs_1600"}, (
+            f"At {count} items, only obs_1600 should block — got {blocker_ids}"
+        )
+        assert "calrecycle74" not in blocker_ids, (
+            f"At {count} items, calrecycle74 must NOT block — overflow path "
+            f"appends additional CalRecycle pages."
         )
     if count > 18:
         # OBS 1600 cap is 18.

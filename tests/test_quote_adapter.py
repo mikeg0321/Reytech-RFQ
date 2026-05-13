@@ -124,6 +124,34 @@ class TestAdapterEnabled:
         result = adapt_rfq(rfq, "test-rfq-001")
         assert result["is_test"] is True
 
+    def test_tax_fields_preserved_on_round_trip(self, sample_rfq):
+        """🚨 Mike P0 2026-05-12 rfq_8efe9fae: the adapter's `known_keys`
+        filter previously listed `tax_rate`, `tax_enabled`, `price_buffer`,
+        `default_markup`, `award_method` as "known" while the model itself
+        didn't capture them. Round-trip silently dropped them, so the RFQ
+        detail page rendered `value="0"` for tax_rate after every save.
+
+        Mike's "this is always the issue" pattern. Pin every dropped field
+        so a future field added to `known_keys` without matching capture in
+        `to_legacy_dict` fails this test loud."""
+        from src.core.quote_adapter import adapt_rfq
+        rfq = dict(sample_rfq)
+        rfq["tax_rate"] = 8.35
+        rfq["tax_enabled"] = True
+        rfq["price_buffer"] = 5
+        rfq["default_markup"] = 35
+        rfq["award_method"] = "lowest_compliant"
+        result = adapt_rfq(rfq, "test-rfq-001")
+        assert result["tax_rate"] == 8.35, (
+            f"tax_rate dropped by adapter — got {result.get('tax_rate')!r}. "
+            "Either add to Quote model with capture+restore, or remove "
+            "from known_keys in from_legacy_dict so it rides via extra."
+        )
+        assert result["tax_enabled"] is True
+        assert result["price_buffer"] == 5
+        assert result["default_markup"] == 35
+        assert result["award_method"] == "lowest_compliant"
+
     def test_passthrough_does_not_override_real_model_value(self, sample_rfq):
         """If the Quote model DID populate a field (non-empty), the
         passthrough MUST NOT clobber it — passthrough only fills gaps."""
