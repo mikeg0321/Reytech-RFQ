@@ -2540,6 +2540,28 @@ def _scprs_autostart():
 
     threading.Thread(target=_auto_backfill, daemon=True, name="scprs-auto-backfill").start()
 
+    # PR-O (2026-05-13): one-shot post-boot rebuild of scprs_awards (+
+    # won_quotes_kb / vendor_intel / buyer_intel / competitors). Pre-fix
+    # the scheduler pulled fresh po_master/lines rows but never ran the
+    # normalization step, so the awards table sat frozen at 2026-03-14
+    # for 60 days while master/lines kept updating. The scheduler now
+    # rebuilds after every pull cycle; this boot-time call catches up
+    # prod immediately after deploy so we don't have to wait for the
+    # first scheduled pull (Mon 7am PT). Idempotent — INSERT OR IGNORE
+    # on po_number means re-running is a no-op when there's no fresh
+    # data. Deferred 60s to let init_db + migrations finish first.
+    def _boot_rebuild_awards():
+        import time as _t3
+        _t3.sleep(60)
+        try:
+            from src.agents.scprs_intelligence_engine import rebuild_intelligence_tables
+            result = rebuild_intelligence_tables(notify_fn=_notify_wrapper)
+            log.info("Boot rebuild of intelligence tables complete: %s", result)
+        except Exception as e:
+            log.error("Boot rebuild_intelligence_tables failed: %s", e, exc_info=True)
+    threading.Thread(target=_boot_rebuild_awards, daemon=True,
+                     name="scprs-boot-rebuild").start()
+
     try:
         from src.agents.scprs_export_watcher import start_watcher as _scprs_export_start
         _scprs_export_start()
