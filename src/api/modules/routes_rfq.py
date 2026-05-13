@@ -796,6 +796,33 @@ def home():
     except Exception as _tpe:
         log.warning("top-priority panel skipped: %s", _tpe)
 
+    # PR-W (2026-05-13): auto-recommendations summary surface on /home.
+    # The walkthrough audit found /admin/auto-recommendations had zero
+    # links from the operator's natural starting point — the diagnostic
+    # I shipped this morning (PR-S) was unreachable. Compute a 7-day
+    # summary here so /home renders an inline preview + deep-link.
+    # Fail-soft: empty dict if the agent crashes — the template only
+    # renders the panel when `auto_rec_summary` has actionable buckets.
+    auto_rec_summary: dict = {}
+    try:
+        from src.agents.auto_recommendations import build_auto_recommendations
+        _rep = build_auto_recommendations(window_days=7)
+        # Pick the top actionable bucket (drift_high > drift_low > cap_working)
+        _priority = {"drift_high": 0, "drift_low": 1, "cap_working": 2}
+        _actionable = sorted(
+            [r for r in _rep.get("recommendations", [])
+             if r.get("bucket") in _priority],
+            key=lambda r: (_priority[r["bucket"]], -r.get("line_count", 0)),
+        )
+        auto_rec_summary = {
+            "summary_line": _rep.get("summary_line", ""),
+            "total_agencies": _rep.get("total_agencies", 0),
+            "actionable_count": len(_actionable),
+            "top_bucket": _actionable[0] if _actionable else None,
+        }
+    except Exception as _are:
+        log.debug("auto-rec home summary skipped: %s", _are)
+
     log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
              len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
     return render_page("home.html", active_page="Home",
@@ -805,7 +832,8 @@ def home():
                        norm_rfqs=norm_rfqs, norm_sent_rfqs=norm_sent_rfqs,
                        pc_bulk_actions=pc_bulk_actions, rfq_bulk_actions=rfq_bulk_actions,
                        action_items=action_items,
-                       top_priority_pcs=top_priority_pcs)
+                       top_priority_pcs=top_priority_pcs,
+                       auto_rec_summary=auto_rec_summary)
 
 @bp.route("/growth")
 @auth_required

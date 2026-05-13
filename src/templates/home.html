@@ -464,6 +464,43 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
    queue_priority.rank_pcs() so this section is empty when there's no
    ready work — falls back to invisibility (no empty-state noise).
 #}
+{# ── PR-W: Auto-Recommendations summary ──
+   Surfaces the per-agency markup-tuning state from operator_drift_line
+   directly on /home so the diagnostic dashboard isn't orphaned at
+   /admin/auto-recommendations. Renders only when at least one
+   actionable bucket exists (drift_high / drift_low / cap_working) —
+   otherwise stays invisible to avoid noise.
+#}
+{% if auto_rec_summary and auto_rec_summary.get('actionable_count', 0) > 0 %}
+<div id="auto-rec-summary" data-testid="auto-rec-summary"
+     style="margin-bottom:14px;border-radius:8px;padding:12px 16px;
+            background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.3)">
+ <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px">
+  <div style="display:flex;align-items:center;gap:8px">
+   <strong style="font-size:14px">🧠 Auto-Recommendations</strong>
+   <span style="font-size:11px;color:var(--mu);background:rgba(167,139,250,.15);padding:2px 8px;border-radius:8px">PR-S</span>
+   <span style="font-size:11px;color:var(--mu)">{{ auto_rec_summary.summary_line }}</span>
+  </div>
+  <a href="/admin/auto-recommendations"
+     data-testid="auto-rec-deeplink"
+     style="font-size:12px;color:var(--ac);text-decoration:none;
+            background:rgba(79,140,255,.12);padding:5px 12px;
+            border-radius:6px;border:1px solid rgba(79,140,255,.3)">
+   View all →
+  </a>
+ </div>
+ {% set tb = auto_rec_summary.top_bucket %}
+ {% if tb %}
+ <div style="font-size:13px;color:var(--tx2);margin-top:6px">
+  <strong style="color:{% if tb.color == 'warn' %}var(--yl){% elif tb.color == 'info' %}#8b5cf6{% else %}var(--gn){% endif %}">{{ tb.agency }}</strong>:
+  {{ tb.headline }}
+  <span style="color:var(--mu);font-size:11px">[lines={{ tb.line_count }}, quotes={{ tb.quote_count }}]</span>
+ </div>
+ <div style="font-size:12px;color:var(--mu);margin-top:4px;line-height:1.4">{{ tb.suggestion }}</div>
+ {% endif %}
+</div>
+{% endif %}
+
 {% if top_priority_pcs and top_priority_pcs|length > 0 %}
 <div id="top-priority-panel" class="card-tight" data-testid="top-priority-panel" style="margin-bottom:14px">
  <div class="card-h" style="display:flex;justify-content:space-between;align-items:center">
