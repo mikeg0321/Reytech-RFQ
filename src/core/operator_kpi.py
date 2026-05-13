@@ -208,6 +208,7 @@ def log_operator_drift(
     quote_type: str,
     items: list,
     agency_key: str = "",
+    quote_number: str = "",
 ) -> dict:
     """Insert one row per priced line with an oracle_audit envelope into
     operator_drift_line. Lines without oracle_audit are skipped silently
@@ -278,6 +279,7 @@ def log_operator_drift(
             str(it.get("mfg_number") or it.get("part_number") or ""),
             sent, rec_f, pre_f, drift_pct,
             caps_json, sources, match_count,
+            str(quote_number or ""),
         ))
 
     if not rows:
@@ -293,8 +295,9 @@ def log_operator_drift(
                 (quote_id, quote_type, sent_at, agency_key,
                  line_idx, item_number, mfg_number,
                  sent_price, rec_price, rec_pre_cap_price, drift_pct,
-                 caps_applied_json, cap_sources, scprs_match_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 caps_applied_json, cap_sources, scprs_match_count,
+                 quote_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, rows)
         log.info(
             "operator_drift: %s/%s logged %d/%d lines "
@@ -525,6 +528,7 @@ def log_operator_drift_shadow(
     quote_type: str,
     items: list,
     agency_key: str = "",
+    quote_number: str = "",
 ) -> dict:
     """For each item with `oracle_audit.scprs_rollup` data, compute the
     counterfactual cap price (p75 of the SCPRS rollup) and log how the
@@ -622,6 +626,7 @@ def log_operator_drift_shadow(
             p75_f, count,
             str(rollup.get("match_key") or ""),
             str(rollup.get("match_key_type") or ""),
+            str(quote_number or ""),
         ))
 
     if not rows:
@@ -638,8 +643,9 @@ def log_operator_drift_shadow(
                  sent_price, rec_price, shadow_cap_price,
                  shadow_action, shadow_drift_pct,
                  rollup_p75, rollup_count,
-                 rollup_match_key, rollup_match_key_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rollup_match_key, rollup_match_key_type,
+                 quote_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, rows)
         log.info(
             "operator_drift_shadow: %s/%s logged %d/%d "
@@ -736,4 +742,151 @@ def get_shadow_stats(window_days: int = 30,
         ),
         "avg_savings_per_capped_line": avg_saving,
         "total_savings_if_capped": total_saving,
+    }
+
+
+# ─── Outcome resolution (PR-K1) ──────────────────────────────────────────────
+
+
+def resolve_drift_outcome(
+    quote_id: str = "",
+    quote_number: str = "",
+    outcome: str = "",
+    source: str = "",
+) -> dict:
+    """Backfill `outcome` on operator_drift_line + operator_drift_shadow
+    rows for the given quote.
+
+    Joins via `quote_id` (the PC/RFQ id) AND `quote_number` so award_monitor
+    (knows pc.id) and quote_lifecycle (knows quote_number) can both flush
+    outcomes. Only updates rows where outcome IS NULL — re-detected awards
+    must not overwrite an earlier resolution.
+
+    This is the JOIN that turns drift signal into WR signal. Without it the
+    digest can show drift distributions but can't answer "of lines with
+    drift > 20%, what's the WR?" — the actual decision-supporting query
+    for cap tuning.
+
+    Returns {ok, drift_rows_updated, shadow_rows_updated}.
+    """
+    if outcome not in ("won", "lost"):
+        return {"ok": False, "error": f"invalid outcome {outcome!r}"}
+    if not quote_id and not quote_number:
+        return {"ok": False, "error": "quote_id or quote_number required"}
+
+    now_iso = datetime.now().isoformat()
+    src = str(source or "unknown")
+
+    # Build a flexible WHERE so either join key resolves the row.
+    where_parts: list[str] = []
+    params: list = []
+    if quote_id:
+        where_parts.append("quote_id = ?")
+        params.append(str(quote_id))
+    if quote_number:
+        where_parts.append("quote_number = ?")
+        params.append(str(quote_number))
+    where_clause = "(" + " OR ".join(where_parts) + ")"
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            drift_cur = conn.execute(f"""
+                UPDATE operator_drift_line
+                   SET outcome = ?, outcome_at = ?, outcome_source = ?
+                 WHERE {where_clause}
+                   AND outcome IS NULL
+            """, [outcome, now_iso, src] + params)
+            drift_updated = drift_cur.rowcount or 0
+
+            shadow_cur = conn.execute(f"""
+                UPDATE operator_drift_shadow
+                   SET outcome = ?, outcome_at = ?, outcome_source = ?
+                 WHERE {where_clause}
+                   AND outcome IS NULL
+            """, [outcome, now_iso, src] + params)
+            shadow_updated = shadow_cur.rowcount or 0
+
+        log.info(
+            "drift_outcome_resolved: quote_id=%s quote_number=%s "
+            "outcome=%s drift_rows=%d shadow_rows=%d source=%s",
+            quote_id or "—", quote_number or "—", outcome,
+            drift_updated, shadow_updated, src,
+        )
+        return {
+            "ok": True,
+            "drift_rows_updated": drift_updated,
+            "shadow_rows_updated": shadow_updated,
+        }
+    except Exception as e:
+        log.warning("resolve_drift_outcome failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+def get_drift_wr_breakdown(
+    window_days: int = 30,
+    drift_threshold_pct: float = 20.0,
+) -> dict:
+    """The leverage query: of lines where drift > threshold, what's the
+    WR vs lines where drift <= threshold? Only rows with `outcome` set
+    (resolved by `resolve_drift_outcome`) count toward the WR math.
+
+    Returns:
+        {
+          ok, window_days, threshold,
+          resolved_lines, high_drift_lines, low_drift_lines,
+          high_drift_won, high_drift_lost, high_drift_wr,
+          low_drift_won, low_drift_lost, low_drift_wr,
+          wr_delta,   # high_wr - low_wr; negative = high drift hurts
+        }
+    """
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT drift_pct, outcome
+                  FROM operator_drift_line
+                 WHERE sent_at >= datetime('now', ?)
+                   AND drift_pct IS NOT NULL
+                   AND outcome IN ('won','lost')
+            """, [f"-{int(window_days)} days"]).fetchall()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    def _wr(won, lost):
+        n = won + lost
+        return round(100.0 * won / n, 1) if n else None
+
+    high_won = high_lost = low_won = low_lost = 0
+    for r in rows:
+        d = float(r["drift_pct"])
+        is_won = r["outcome"] == "won"
+        if d > drift_threshold_pct:
+            if is_won:
+                high_won += 1
+            else:
+                high_lost += 1
+        else:
+            if is_won:
+                low_won += 1
+            else:
+                low_lost += 1
+
+    high_wr = _wr(high_won, high_lost)
+    low_wr = _wr(low_won, low_lost)
+    wr_delta = (
+        round(high_wr - low_wr, 1)
+        if (high_wr is not None and low_wr is not None) else None
+    )
+    return {
+        "ok": True, "window_days": window_days,
+        "threshold": drift_threshold_pct,
+        "resolved_lines": len(rows),
+        "high_drift_lines": high_won + high_lost,
+        "low_drift_lines": low_won + low_lost,
+        "high_drift_won": high_won, "high_drift_lost": high_lost,
+        "high_drift_wr": high_wr,
+        "low_drift_won": low_won, "low_drift_lost": low_lost,
+        "low_drift_wr": low_wr,
+        "wr_delta": wr_delta,
     }

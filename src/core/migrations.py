@@ -1578,6 +1578,56 @@ MIGRATIONS = [
             ON operator_drift_shadow(agency_key);
     """),
 
+    (47, "drift_outcome_join_columns", """
+        -- 2026-05-13 (PR-K1): the JOIN from drift signal → WR signal.
+        -- operator_drift_line + operator_drift_shadow capture pricing
+        -- decisions at Mark-Sent; outcomes (won/lost) land later via
+        -- SCPRS award detection or reply analysis. Without these
+        -- columns, the digest can answer "what was the drift?" but
+        -- NOT "of lines with drift > 20%, what's the WR?" — which is
+        -- the actual leverage signal for cap tuning decisions.
+        --
+        -- Two join keys (`quote_id` and `quote_number`) because:
+        --   - award_monitor.run_award_check joins on pc.id == quote_id
+        --   - quote_lifecycle.process_reply_signal joins on
+        --     quotes.quote_number == quote_number
+        --   - Different paths surface different keys; we accept both
+        --     to maximize resolution rate.
+        --
+        -- `outcome` left NULL until award lands. Backfill is
+        -- one-shot per row — resolver only updates rows where
+        -- outcome IS NULL so a re-detected award doesn't overwrite
+        -- an earlier resolution.
+        ALTER TABLE operator_drift_line ADD COLUMN outcome TEXT DEFAULT NULL;
+        ALTER TABLE operator_drift_line ADD COLUMN outcome_at TEXT DEFAULT NULL;
+        ALTER TABLE operator_drift_line ADD COLUMN outcome_source TEXT DEFAULT '';
+        ALTER TABLE operator_drift_line ADD COLUMN quote_number TEXT DEFAULT '';
+
+        ALTER TABLE operator_drift_shadow ADD COLUMN outcome TEXT DEFAULT NULL;
+        ALTER TABLE operator_drift_shadow ADD COLUMN outcome_at TEXT DEFAULT NULL;
+        ALTER TABLE operator_drift_shadow ADD COLUMN outcome_source TEXT DEFAULT '';
+        ALTER TABLE operator_drift_shadow ADD COLUMN quote_number TEXT DEFAULT '';
+    """),
+
+    (48, "drift_outcome_indexes", """
+        -- Migration 47 added the columns; indexes go in a separate
+        -- migration because per CLAUDE.md memory
+        -- (feedback_schema_index_after_alter), indexes on
+        -- ALTER-added columns must NEVER live in SCHEMA and must
+        -- run AFTER the ADD COLUMN migration. Migration framework
+        -- already orders by version, so 48-after-47 is the canonical
+        -- way to keep index-on-missing-column from killing init_db
+        -- on a fresh DB.
+        CREATE INDEX IF NOT EXISTS idx_odl_outcome
+            ON operator_drift_line(outcome);
+        CREATE INDEX IF NOT EXISTS idx_odl_quote_number
+            ON operator_drift_line(quote_number);
+        CREATE INDEX IF NOT EXISTS idx_ods_outcome
+            ON operator_drift_shadow(outcome);
+        CREATE INDEX IF NOT EXISTS idx_ods_quote_number
+            ON operator_drift_shadow(quote_number);
+    """),
+
     (49, "qa_heartbeat", """
         -- 2026-05-13 (PR-Q): QA/QC heartbeat. Mike's directive after
         -- the prod forensics revealed scprs_awards table frozen at

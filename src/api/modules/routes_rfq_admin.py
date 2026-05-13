@@ -422,12 +422,17 @@ def _api_rfq_mark_sent_manually_locked(rid):
     # rows of (sent_price, rec_price, caps_applied) into the
     # operator_drift_line table. The shadow-mode cap evaluator (PR-J)
     # reads from this surface.
+    # PR-K1: capture quote_number too so award_monitor (knows pc.id)
+    # AND quote_lifecycle (knows quote_number) can both backfill the
+    # outcome later via resolve_drift_outcome.
+    _qn = (r.get("quote_number") or r.get("reytech_quote_number") or "")
     try:
         from src.core.operator_kpi import log_operator_drift
         log_operator_drift(
             quote_id=rid, quote_type="rfq",
             items=r.get("items") or r.get("line_items") or [],
             agency_key=(r.get("agency_key") or r.get("agency") or ""),
+            quote_number=_qn,
         )
     except Exception as _drift_e:
         log.debug("operator_drift logging suppressed: %s", _drift_e)
@@ -443,6 +448,7 @@ def _api_rfq_mark_sent_manually_locked(rid):
             quote_id=rid, quote_type="rfq",
             items=r.get("items") or r.get("line_items") or [],
             agency_key=(r.get("agency_key") or r.get("agency") or ""),
+            quote_number=_qn,
         )
     except Exception as _shadow_e:
         log.debug("shadow drift logging suppressed: %s", _shadow_e)
