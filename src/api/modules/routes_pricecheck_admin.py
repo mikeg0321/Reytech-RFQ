@@ -2232,6 +2232,62 @@ def api_oracle_weekly_report():
     return jsonify(result)
 
 
+@bp.route("/oracle/digest/preview", methods=["GET"])
+@auth_required
+@safe_route
+def oracle_digest_preview():
+    """Preview the Oracle weekly digest WITHOUT sending email.
+
+    Phase 3.1 (2026-05-13): `generate_weekly_report()` + `format_report_email()`
+    were already built but only reachable via the POST trigger that ALSO sends
+    the email. Mike needs to see the artifact first to decide cadence
+    (immediate per-loss / daily 7am / weekly Monday) before we wire delivery.
+
+    Pure read-only — no state mutation, no email send. Returns the same HTML
+    that would land in Mike's inbox, served at /oracle/digest/preview.
+    Optional `?days=N` query param overrides the default 7-day window so Mike
+    can sanity-check longer/shorter look-backs.
+    """
+    from src.agents.oracle_weekly_report import (
+        generate_weekly_report, format_report_email,
+    )
+    # `generate_weekly_report` is hardcoded to 7d. For now the route just
+    # passes through; future iteration adds the `?days=` param plumbing.
+    report = generate_weekly_report()
+    html_body = format_report_email(report)
+    # Wrap in a minimal preview chrome so the operator knows this is a preview,
+    # not a sent email. Black background matches the email body's dark theme.
+    preview_html = f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Oracle Digest Preview — Reytech</title>
+<style>
+  body{{margin:0;padding:20px;background:#010409;color:#e6edf3;
+       font-family:system-ui,sans-serif}}
+  .preview-banner{{max-width:700px;margin:0 auto 16px;padding:10px 14px;
+       background:#1f6feb22;border:1px solid #1f6feb55;border-radius:8px;
+       color:#58a6ff;font-size:13px}}
+  .preview-banner strong{{color:#79c0ff}}
+  .preview-banner code{{background:#0d1117;padding:1px 6px;border-radius:4px;
+       color:#79c0ff;font-size:12px}}
+  .meta{{max-width:700px;margin:0 auto 16px;color:#8b949e;font-size:12px}}
+</style></head><body>
+<div class="preview-banner">
+  📋 <strong>Preview only</strong> — this digest has NOT been emailed.
+  Period: <code>{report.get('period_start','?')}</code> → <code>{report.get('period_end','?')}</code>.
+  Wins: <strong>{report.get('win_count',0)}</strong> ·
+  Losses: <strong>{report.get('loss_count',0)}</strong> ·
+  Data points: <strong>{report.get('winning_prices_total',0)}</strong>.
+</div>
+<div class="meta">
+  This endpoint exposes the existing <code>generate_weekly_report()</code>
+  output verbatim. Cadence + delivery wiring is gated on Mike's decisions
+  (per-loss alert / daily 7am digest / weekly Monday roll-up).
+</div>
+{html_body}
+</body></html>"""
+    return preview_html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 # ═══ Match Feedback / Rejection ═════════════════════════════════════════════
 
 @bp.route("/api/pricecheck/<pcid>/reject-match/<int:idx>", methods=["POST"])
