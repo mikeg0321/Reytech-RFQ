@@ -44,6 +44,14 @@ AVAILABLE_FORMS = [
     {"id": "darfur_act", "name": "Darfur Act", "desc": "DGS PD 1"},
     {"id": "calrecycle74", "name": "CalRecycle 74", "desc": "Postconsumer Recycled Content"},
     {"id": "std1000", "name": "STD 1000", "desc": "GenAI Reporting / Disclosure"},
+    # AMS 708 — CCHCS/CDCR replacement for STD 1000. 2026-05-12: rfq_0ebe242f
+    # email contract explicitly: "New GENAI form (AMS 708) required in RFQ
+    # packages moving forward / STD 1000 can no longer be accepted". The
+    # standalone template isn't checked into the repo yet; until it lands
+    # the standalone filler logs absence and skips. The 708 fields inside
+    # the bid package PDF (when the buyer ships one with 708_* AcroForm
+    # fields) are unaffected.
+    {"id": "ams708", "name": "AMS 708", "desc": "Generative AI Use Disclosure (replaces STD 1000)"},
     {"id": "drug_free", "name": "Drug-Free STD 21", "desc": "Drug-Free Workplace"},
     {"id": "barstow_cuf", "name": "Barstow CUF", "desc": "Barstow facility CUF"},
     {"id": "obs_1600", "name": "OBS 1600", "desc": "Food Product Certification"},
@@ -64,7 +72,13 @@ FORM_TEXT_PATTERNS = {
     "cv012_cuf":    ["CV 012", "CV012", "COMMERCIALLY USEFUL FUNCTION", "CUF FORM", "CUF,"],
     "calrecycle74": ["CALRECYCLE", "RECYCLED-CONTENT", "RECYCLED CONTENT", "POSTCONSUMER", "074"],
     "bidder_decl":  ["BIDDER DECLARATION", "GSPD-05-105", "GSPD 05"],
-    "std1000":      ["STD 1000", "STD1000", "GENAI", "GEN AI DISCLOSURE", "GEN AI REPORTING"],
+    "std1000":      ["STD 1000", "STD1000"],
+    # AMS 708 patterns — buyer language is "AMS 708" / "GEN AI 708" /
+    # "Generative AI Use" / "GENAI form". When the swap-flag is on these
+    # take precedence over std1000 in package_classifier.required_forms.
+    "ams708":       ["AMS 708", "AMS-708", "AMS708", "GEN AI 708", "GENAI 708",
+                     "GENERATIVE AI USE", "GENERATIVE AI DISCLOSURE",
+                     "GENAI", "GEN AI DISCLOSURE", "GEN AI REPORTING"],
     "sellers_permit": ["SELLER'S PERMIT", "SELLERS PERMIT", "SELLER PERMIT"],
     "w9":           ["W-9", "W9", "TAX FORM"],
     "drug_free":    ["DRUG-FREE", "DRUG FREE WORKPLACE"],
@@ -160,7 +174,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "primary_response_form": "704b",
         "optional_forms": ["703c", "sellers_permit", "dvbe843", "std204", "calrecycle74",
                           "bidder_decl", "darfur_act", "obs_1600", "drug_free", "std1000",
-                          "cchcs_it_rfq"],
+                          "ams708", "cchcs_it_rfq"],
         "notes": "CCHCS / CDCR. Package: 703B (or 703C) + 704B + CCHCS Bid Package. DVBE 843 and seller's permit are inside the bid package. CCHCS also issues a separate IT Goods/Services RFQ (form_type=cchcs_it_rfq, Non-Cloud only — Reytech does not respond to Cloud variants).",
         "default_markup_pct": 25,
         "payment_terms": "Net 45",
@@ -309,6 +323,56 @@ def extract_required_forms_from_text(text):
         found.insert(0, "quote")
 
     return {"forms": found, "raw_matches": raw}
+
+
+# ── AMS 708 swap helper (2026-05-12) ────────────────────────────────────────
+#
+# rfq_0ebe242f email contract (CCWF Ashley, 2026-05-12) made explicit:
+#   "New GENAI form (AMS 708) required in RFQ packages moving forward"
+#   "STD 1000 can no longer be accepted"
+#
+# Until the AMS 708 standalone blank template is checked into the repo
+# and `fill_ams708_standalone` is implemented, the swap is gated behind
+# `AMS708_REPLACES_STD1000=1`. With the gate ON, any agency form list
+# that contains `std1000` becomes one that contains `ams708` instead
+# (with idempotency: a list already containing `ams708` is left alone).
+#
+# With the gate OFF (default), `swap_std1000_for_ams708` is a no-op and
+# the current behavior is preserved — so this PR is safe to merge before
+# the template lands. Operator flips the env var once the filler ships.
+import os as _ac_os
+
+
+def _ams708_swap_enabled() -> bool:
+    """True iff AMS708_REPLACES_STD1000 env var is `1` / `true` / `yes`."""
+    val = _ac_os.getenv("AMS708_REPLACES_STD1000", "0").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+def swap_std1000_for_ams708(forms):
+    """Return a copy of `forms` with `std1000` replaced by `ams708`.
+
+    Only runs when `AMS708_REPLACES_STD1000=1`. Idempotent — if `ams708`
+    is already in the list, no further mutation occurs. Preserves list
+    order so the rendered package keeps a deterministic form sequence.
+    """
+    if not isinstance(forms, list):
+        return forms
+    if not _ams708_swap_enabled():
+        return list(forms)
+    if "std1000" not in forms:
+        # Either already swapped, or std1000 was never in this agency's set.
+        return list(forms)
+    out = []
+    for f in forms:
+        if f == "std1000":
+            if "ams708" in forms or "ams708" in out:
+                # Drop the duplicate std1000 — ams708 already covers it.
+                continue
+            out.append("ams708")
+        else:
+            out.append(f)
+    return out
 
 
 def load_agency_configs():
