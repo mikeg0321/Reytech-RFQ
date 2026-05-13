@@ -104,12 +104,68 @@ def canonical_unit_price(item: dict) -> float:
 # poisoned catalog write-back.
 
 import logging as _pm_logging
+import os as _pm_os
 
 _pm_log = _pm_logging.getLogger("reytech.pricing_math")
 
 # Tolerance in markup percentage points for "stale". Sub-tolerance
 # differences are rounding noise from prior writes; we leave them alone.
 _MARKUP_DRIFT_TOLERANCE_PCT = 0.5
+
+
+# ── Markup sanity gate ────────────────────────────────────────────────────
+#
+# 2026-05-12 macro audit (project_url_paste_substrate_macro_2026_05_12):
+# Pre-Phase-1 PCs carry hallucinated markup_pct values (912%, 327%, 280%,
+# -4.6%) computed against Amazon-hallucinated $2.50 costs. When a URL paste
+# refreshes cost to the real $4 supplier price, `prefer="markup"` forward-
+# computes price = $4 × 10.12 = $40.48 → $40 on a $4 eraser ships to buyer.
+#
+# The fix: a markup-sanity gate. An out-of-range markup_pct is treated as
+# MISSING by the reconciler (so the price path falls back to reverse-derive
+# from cost+price if a sane price exists, or leave the row alone for the
+# operator). Bounds chosen to span all realistic Reytech bids:
+#   - Mike's typical bids land 8-60% (catalog) and rarely 80-150% (premium)
+#   - Loss-leader bids occasionally go slightly negative (-5% to 0%) but
+#     never below -10% in known history
+#   - >200% is always a hallucination from a pre-Phase-1 record or a
+#     mis-scraped cost
+#
+# Bounds are env-overridable so we can tune from telemetry without a deploy.
+
+
+def _markup_bounds() -> tuple[float, float]:
+    """Return (min, max) markup_pct considered sane.
+
+    Env knobs (default -10.0 / 200.0):
+      PRICING_MARKUP_MIN_PCT  — lower bound (negative loss-leader floor)
+      PRICING_MARKUP_MAX_PCT  — upper bound (above = hallucination)
+    """
+    try:
+        lo = float(_pm_os.getenv("PRICING_MARKUP_MIN_PCT", "-10"))
+    except (TypeError, ValueError):
+        lo = -10.0
+    try:
+        hi = float(_pm_os.getenv("PRICING_MARKUP_MAX_PCT", "200"))
+    except (TypeError, ValueError):
+        hi = 200.0
+    if lo > hi:
+        # Misconfigured — fall back to defaults rather than invert the gate.
+        return -10.0, 200.0
+    return lo, hi
+
+
+def _markup_is_sane(markup_pct: float | None) -> bool:
+    """True if a markup_pct lies within the configured sanity window.
+
+    `None` returns False (absent ≠ sane). A finite value inside
+    `_markup_bounds()` returns True; outside returns False and the
+    reconciler treats it as if it were absent.
+    """
+    if markup_pct is None:
+        return False
+    lo, hi = _markup_bounds()
+    return lo <= markup_pct <= hi
 
 
 def _read_cost(item: dict) -> float:
@@ -214,6 +270,21 @@ def reconcile_line_item(item: dict, prefer: str = "markup") -> dict:
 
     if cost <= 0:
         return item
+
+    # Markup-sanity gate (2026-05-12 macro audit). An out-of-range
+    # markup_pct is hallucination from a pre-Phase-1 record or scraping
+    # error; we treat it as MISSING so the reconciler falls back to
+    # reverse-derive from cost+price (if a sane price exists) instead
+    # of forward-computing absurd prices like $4 × 10.12 = $40.48.
+    # Log once per item so we can audit the gate's hit rate.
+    if markup is not None and not _markup_is_sane(markup):
+        lo, hi = _markup_bounds()
+        _pm_log.warning(
+            "reconcile markup-sanity: %.1f%% outside [%.1f%%, %.1f%%] — treating as MISSING "
+            "(cost=%.2f, price=%.2f)",
+            markup, lo, hi, cost, price,
+        )
+        markup = None
 
     if prefer == "price":
         # Price-wins semantic (PC `_do_save_prices` Heel Donut flow).
