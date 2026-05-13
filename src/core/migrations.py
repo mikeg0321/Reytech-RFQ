@@ -1383,6 +1383,56 @@ MIGRATIONS = [
           AND COALESCE(source, '') != 'order'
           AND COALESCE(po_number, '') NOT IN ('TEST', 'test');
     """),
+    (43, "scprs_price_stats", """
+        -- Phase 1.5-A (2026-05-13): per-SKU SCPRS price rollup.
+        -- Replaces ad-hoc per-pricing-call scans of scprs_po_lines
+        -- with a pre-computed (match_key_type, match_key, agency, year,
+        -- qty_band) → (count, mean, p50, p75, p90) table. Reads come from
+        -- pricing_oracle_v2 first when MFG# / UNSPSC is known; ad-hoc
+        -- search becomes fallback.
+        --
+        -- Mike's design answers 2026-05-11:
+        --   Q1 — match key order is MFG# → UNSPSC → desc tokens →
+        --        McKesson#. This rollup carries the FIRST TWO keys.
+        --        Description-token rollups stay ad-hoc per pricing call;
+        --        McKesson# rollups would be a separate table.
+        --   Q5 — all bids all-or-none; quote-shape posterior (n_lines
+        --        bucket) lives in a separate table later.
+        --
+        -- Schema:
+        --   match_key_type — "mfg" or "unspsc"
+        --   match_key      — normalized MFG# (uppercased, no spaces) or
+        --                    UNSPSC code (8 digits or family-3-digit)
+        --   agency         — normalized agency key (e.g. "cchcs", "calvet")
+        --                    or "*" for cross-agency rollup
+        --   year           — calendar year of the source PO line, or
+        --                    "*" for all-time
+        --   qty_band       — "1", "2-9", "10-49", "50-499", "500+", or "*"
+        --   count          — number of distinct lines aggregated
+        --   mean / p50 / p75 / p90 — unit-price statistics (per-EA)
+        --   updated_at     — last rebuild timestamp
+        --
+        -- Backfill writes rows; pricing_oracle_v2 reads them in a follow-up
+        -- PR. Safe to deploy alone since no consumer wires yet.
+        CREATE TABLE IF NOT EXISTS scprs_price_stats (
+            match_key_type TEXT NOT NULL CHECK(match_key_type IN ('mfg','unspsc')),
+            match_key      TEXT NOT NULL,
+            agency         TEXT NOT NULL,
+            year           TEXT NOT NULL,
+            qty_band       TEXT NOT NULL,
+            count          INTEGER NOT NULL DEFAULT 0,
+            mean           REAL,
+            p50            REAL,
+            p75            REAL,
+            p90            REAL,
+            updated_at     TEXT,
+            PRIMARY KEY (match_key_type, match_key, agency, year, qty_band)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sps_lookup
+            ON scprs_price_stats(match_key_type, match_key, agency);
+        CREATE INDEX IF NOT EXISTS idx_sps_key_only
+            ON scprs_price_stats(match_key_type, match_key);
+    """),
 ]
 
 
