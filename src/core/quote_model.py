@@ -169,6 +169,18 @@ class LineItem(BaseModel):
     scprs_price: Decimal = Decimal("0")
     catalog_cost: Decimal = Decimal("0")
 
+    # Catch-all for line-level unknowns (oracle_audit, scprs_match,
+    # match_feedback, future cap envelopes, etc.). Mirrors the
+    # top-level `Quote.extra` pattern. Without this, every
+    # `Quote.from_legacy_dict → to_legacy_dict` round-trip silently
+    # eats any field not in the typed schema — the exact tax_rate bug
+    # class (project_persistence_p0_class_2026_05_12) but at line
+    # level. With V2 adapter on in prod and the PR-G..PR-I oracle
+    # audit substrate riding on item.oracle_audit, this is load-
+    # bearing — drop it and the entire measurement loop nulls out on
+    # the first adapt_pc render that saves back.
+    extra: dict = Field(default_factory=dict)
+
     @computed_field
     @property
     def unit_price(self) -> Decimal:
@@ -483,12 +495,31 @@ class Quote(BaseModel):
             or d.get("parsed", {}).get("line_items")
             or []
         )
+        # Item-level known keys — anything outside this set falls into
+        # LineItem.extra and rides through the adapter verbatim. Mirrors
+        # the top-level `known_keys` discipline (line 566). Adding a new
+        # typed LineItem field? Add its source aliases here too.
+        _LINE_KNOWN_KEYS = {
+            "part_number", "mfg_number", "item_number", "line_number",
+            "description", "qty", "quantity",
+            "uom", "unit", "unit_of_issue", "pricing",
+            "unit_cost", "supplier_cost", "vendor_cost",
+            "markup_pct", "price_source", "confidence", "supplier",
+            "source_url", "url", "asin",
+            "no_bid", "amazon_price",
+            "scprs_last_price", "scprs_price", "catalog_cost",
+            # Computed-by-to_legacy_dict (don't preserve as extra or
+            # we'd hold a stale value across markup edits)
+            "unit_price", "price_per_unit", "extension", "upc",
+        }
         line_items = []
         for i, it in enumerate(raw_items):
             if isinstance(it, str):
                 continue  # Skip malformed
 
             pricing = it.get("pricing") or {}
+            line_extra = {k: v for k, v in it.items()
+                          if k not in _LINE_KNOWN_KEYS}
             line_items.append(LineItem(
                 line_no=i + 1,
                 item_no=it.get("part_number") or it.get("mfg_number") or it.get("item_number") or "",
@@ -517,6 +548,7 @@ class Quote(BaseModel):
                     or it.get("scprs_price") or 0
                 )),
                 catalog_cost=Decimal(str(pricing.get("catalog_cost") or it.get("catalog_cost") or 0)),
+                extra=line_extra,
             ))
 
         # Status mapping
@@ -597,7 +629,7 @@ class Quote(BaseModel):
         """
         items_out = []
         for it in self.line_items:
-            items_out.append({
+            row = {
                 "item_number": it.item_no or str(it.line_no),
                 "line_number": str(it.line_no),
                 "part_number": it.item_no,
@@ -639,7 +671,14 @@ class Quote(BaseModel):
                     "amazon_url": it.source_url if "amazon" in it.source_url else "",
                     "amazon_asin": it.asin,
                 },
-            })
+            }
+            # Restore line-level extras (oracle_audit, scprs_match, etc.)
+            # captured in from_legacy_dict. Typed fields win over extras
+            # if the legacy dict had both (defensive — shouldn't happen
+            # since the from_legacy_dict known-keys filter excludes them).
+            for k, v in (it.extra or {}).items():
+                row.setdefault(k, v)
+            items_out.append(row)
 
         d = {
             "id": self.doc_id,
