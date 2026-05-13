@@ -6312,6 +6312,59 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Daily cleanup setup: %s", _e)
 
+    # ── QA heartbeat (PR-Q, 2026-05-13) ──────────────────────────
+    # Runs the QA/QC check suite every 15 min and writes results to
+    # qa_heartbeat. Built after prod forensics revealed silent
+    # data degradation (scprs_awards frozen 60d + scheduler_heartbeats
+    # empty + 52% April dedup rate). Self-heartbeats so the watchdog
+    # can detect when the QA layer itself is dead.
+    try:
+        import threading as _thr_qa
+        def _qa_heartbeat_loop():
+            import time as _tq
+            try:
+                from src.core.scheduler import register_job, heartbeat as _hb
+                register_job("qa-heartbeat", interval_sec=900)  # 15 min
+            except Exception:
+                _hb = lambda *a, **kw: None  # noqa: E731
+            _tq.sleep(180)  # 3 min after boot to let DB settle
+            while True:
+                try:
+                    from src.core.qa_heartbeat import run_and_persist
+                    result = run_and_persist()
+                    fails = sum(
+                        1 for r in (result.get("results") or {}).values()
+                        if r.get("status") == "fail"
+                    )
+                    warns = sum(
+                        1 for r in (result.get("results") or {}).values()
+                        if r.get("status") == "warn"
+                    )
+                    try:
+                        _hb("qa-heartbeat", success=(fails == 0),
+                            metadata={"fail": fails, "warn": warns})
+                    except Exception:
+                        _hb("qa-heartbeat", success=(fails == 0))
+                    if fails or warns:
+                        log.info(
+                            "qa-heartbeat cycle=%s: %d fail, %d warn",
+                            result.get("cycle_id", "?"), fails, warns,
+                        )
+                except Exception as _qae:
+                    log.warning("QA heartbeat cycle failed: %s", _qae)
+                    try:
+                        _hb("qa-heartbeat", success=False,
+                            error=str(_qae)[:200])
+                    except Exception:
+                        pass
+                _tq.sleep(900)
+        _thr_qa.Thread(
+            target=_qa_heartbeat_loop, daemon=True, name="qa-heartbeat"
+        ).start()
+        log.info("QA heartbeat scheduler started (every 15 min)")
+    except Exception as _e:
+        log.warning("QA heartbeat setup: %s", _e)
+
     # ── Form Updater (1st + 15th of month, 3AM PST) ──────────
     # S-11 (audit 2026-05-07 v2 §S-11): emits heartbeat so the scheduler
     # watchdog can detect a silent crash.
