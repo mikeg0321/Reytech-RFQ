@@ -2928,26 +2928,93 @@ def _calrecycle_overlay_items(pdf_path, items):
 
 
 def _calrecycle_clean_desc(item):
-    """Clean description for CalRecycle overlay. More generous than form-field version."""
+    """Canonical description cleaner for CalRecycle 74 (246pt-wide cell, 6-7pt font).
+
+    Sourcing rule (Mike P0 2026-05-12, rfq_8efe9fae item 11/14/15):
+      Use the SAME `description` field the Quote PDF uses. Apply only minimal
+      conservative cleanup. The font auto-sizer in `_calrecycle_overlay_items`
+      handles fit at render time — over-aggressive stripping (greedy `.*` after
+      a 6-digit catalog number, eager split at first " - ") was destroying real
+      product nouns and leaving UOM noise behind.
+
+    Live failures we ARE fixing:
+      - item 11 in: `/BX20BX/CS 1118153 Safety Insulin Pen Needle Mc Kesson Prevent ...`
+                  out (old): `BX20BX/CS`   ← greedy `.*` after `1118153` wiped tail
+                  out (new): `Safety Insulin Pen Needle Mc Kesson Prevent ...`
+      - item 14 in: `Irrigation Solution - 0.9% Sodium Chloride 1000mL`
+                  out (old): `Irrigation Solution`   ← " - " left-split dropped 0.9%
+                  out (new): `Irrigation Solution - 0.9% Sodium Chloride 1000mL`
+      - item 15 in: `Chest Rub Vicks Vapo Rub 4.8% - 1.2% - 2.6% Strength Ointment ...`
+                  out (old): `Chest Rub Vicks Vapo Rub 4.8%`   ← first-dash split
+                  out (new): full string, truncated at word boundary at render time
+    """
     import re as _re
-    desc = item.get("description", "")
-    
-    # Strip after first " - " if left side is substantial
-    if " - " in desc:
-        left = desc.split(" - ")[0].strip()
-        if _re.match(r'^\d+\s+[A-Z]{2,4}$', left):
-            desc = desc.split(" - ", 1)[1].strip()
-        else:
-            desc = left
-    # Strip label:value patterns
-    desc = _re.sub(r'\s*\b(?:U?S?B?ISBN|SKU|Ref|Cat|MFG|NDC|UPC|GTIN|Item)\s*#?\s*:?\s*[\w\-]*',
-                    '', desc, flags=_re.IGNORECASE)
-    desc = _re.sub(r':\s*[A-Z]*\d[\w\-]{3,}.*', '', desc, flags=_re.IGNORECASE)
-    desc = _re.sub(r'\s*#?\d{6,}[\w\-]*.*', '', desc)
-    desc = _re.sub(r'\s*\([^)]*\)\s*$', '', desc)
+    desc = item.get("description", "") or ""
+    if not desc.strip():
+        return ""
+
+    # 1) Strip leading UOM/pack noise (`/BX20BX/CS `, `100EA/BX `, `BX `).
+    #    Same denylist shape as PR-1's `_looks_like_uom_token`.
+    #    `(?![A-Za-z])` after each UOM enforces a word boundary so that
+    #    `M`/`G`/`PR` don't false-match the start of words like `Mc Kesson`,
+    #    `Gauge`, `Prevent`.
+    _uom = (
+        r'(?:EA|BX|CS|PK|PKG|DZ|PR|BG|RL|GR|OZ|LB|ML|QT|GAL|FT|IN|MM|CM|M)'
+        r'(?![A-Za-z])'
+    )
+    desc = _re.sub(
+        rf'^[\s/]*(?:\d*\s*{_uom}'
+        rf'(?:\d+\s*{_uom})*'
+        rf'(?:[/\s]+\d*\s*{_uom})*'
+        r'[\s/]*)+',
+        '',
+        desc,
+        flags=_re.IGNORECASE,
+    )
+
+    # 2) Leading qty prefix: "10 EA - " (preserves whatever follows the dash).
+    desc = _re.sub(r'^\d+\s+[A-Z]{2,4}\s*[-–]\s*', '', desc, flags=_re.IGNORECASE)
+
+    # 3) Leading catalog # at start — strip just the number, keep the noun after it.
+    #    `1118153 Safety Insulin Pen ...` → `Safety Insulin Pen ...`
+    desc = _re.sub(r'^\s*#?\d{5,}[\w\-]*\s+', '', desc)
+
+    # 4) Trailing labels — loop until stable so chained tails like
+    #    "...Mc Kesson # 1118153Manufacturer # 16-N8MMPA" peel cleanly.
+    #    Anchored to end-of-string only — never strips mid-content nouns
+    #    (e.g. "Mc Kesson Prevent" survives because it has no trailing #/value).
+    # `c\s*Kesson` covers buyer descriptions where OCR (or the lookahead
+    # break in CalVet exports) ate the leading `M` of `Mc Kesson` —
+    # e.g. `... oz.c Kesson # 833168` (rfq_8efe9fae item 15).
+    _label = r'(?:Manufacturer|Mc\s*Kesson|c\s*Kesson|MFG|Mfr|OEM|Item|SKU|Ref|Cat|NDC|UPC|GTIN|ISBN)'
+    for _ in range(4):
+        prev = desc
+        # "...Manufacturer # 16-N8MMPA" → drop
+        desc = _re.sub(
+            rf'\s*{_label}\s*#?\s*:?\s*[A-Z0-9][\w\-./]*\s*$',
+            '',
+            desc,
+            flags=_re.IGNORECASE,
+        )
+        # Bare trailing catalog #: "...Sterile - 12345678" → "...Sterile"
+        desc = _re.sub(r'\s*[-–]?\s*#?\d{6,}[\w\-]*\s*$', '', desc)
+        # Dangling label with no value left: "...Mc Kesson #" → drop the label
+        desc = _re.sub(
+            rf'\s*{_label}\s*[#:]*\s*$',
+            '',
+            desc,
+            flags=_re.IGNORECASE,
+        )
+        # Trailing parenthesized pack info: "...Ointment (100EA/BX 20BX/CS)"
+        desc = _re.sub(r'\s*\([^)]*\)\s*$', '', desc)
+        if desc == prev:
+            break
+
+    # 6) Registration marks (Helvetica won't render most of these glyphs).
     for m in ["(R)", "(TM)", "®", "™"]:
         desc = desc.replace(m, "")
-    desc = _re.sub(r'^\d+\s+[A-Z]{2,3}\s*[-–]\s*', '', desc)
+
+    # 7) Collapse whitespace; trim trailing junk punctuation.
     desc = _re.sub(r'\s{2,}', ' ', desc).strip(" ,;-:/")
     return desc
 
@@ -3222,26 +3289,20 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     }
 
     # ── CalRecycle 74: populate each line item row ──
-    import re as _re_cr
+    # Delegate to the canonical `_calrecycle_clean_desc` cleaner (defined above)
+    # so the bid-package CalRecycle page and the standalone CalRecycle PDF agree
+    # on what counts as "the description". The overlay path renders via ReportLab
+    # with font auto-sizing; the form-field path here is filled by pypdf which
+    # auto-shrinks too, so a single canonical string serves both.
     def _cr_desc(item):
-        """Clean description for CalRecycle 74.
-        Field is 246pt wide. Font auto-sizer goes down to 6pt = ~66 chars max.
-        Strip part numbers, UPC suffixes, and trailing noise.
-        """
-        desc = item.get("description", "")
-        if " - " in desc:
-            desc = desc.split(" - ")[0].strip()
-        desc = desc.rstrip(" -")
-        for m in ["(R)", "(TM)", "®", "™"]:
-            desc = desc.replace(m, "")
-        desc = _re_cr.sub(r'\s*\([^)]*\)\s*$', '', desc)
-        desc = _re_cr.sub(r'^\d+\s+EA\s*[-–]\s*', '', desc)
-        desc = _re_cr.sub(r'\s*Model\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
-        desc = _re_cr.sub(r'\s*UPC\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
-        desc = desc.strip(" ,;-/")
-        # Cap at 80 chars — font auto-sizer will reduce to fit (9→8→7→6pt).
+        desc = _calrecycle_clean_desc(item)
+        # Form-field path caps at 80 chars (font auto-sizer goes 9→8→7→6pt).
         if len(desc) > 80:
-            desc = desc[:77] + "..."
+            cut = desc[:77].rfind(" ")
+            if cut > 40:
+                desc = desc[:cut] + "..."
+            else:
+                desc = desc[:77] + "..."
         return desc
 
     line_items = rfq_data.get("line_items", [])
