@@ -261,9 +261,25 @@ MAX_ROWS_PER_PAGE = 8
 #   1. SUBSTITUTED ITEM column ("Include manufacturer, part number, and/or reference number")
 #   2. Embedded in the DESCRIPTION field (e.g. "MFG#: ABC-123" or "Item #12345")
 #   3. Sometimes the ITEM field itself has a real part number (alphanumeric, not just digits)
+#
+# PR-1 (Mike P0 2026-05-12 live drive): the prior _PN_PATTERNS list missed
+# "Manufacturer #" and "Mc Kesson #" labels — which is what McKesson catalog
+# descriptions actually use. As a result the regex chain fell through to
+# positional patterns and grabbed UOM tokens like "BX20BX" or unit-count
+# tokens like "100EA" from "(100EA/BX 20BX/CS)" markers. Adding the missing
+# labels at the TOP of the list (labeled-priority) and a UOM denylist
+# below the candidate-extraction loop fixes both classes at once.
 
 _PN_PATTERNS = [
-    # Explicit labeled patterns
+    # ── Labeled patterns (HIGHEST PRIORITY) ──────────────────────────────
+    # These run first so a description with "Manufacturer # 16-N8MMPA"
+    # never falls through to positional regex that would pick up a
+    # UOM token earlier in the string.
+    re.compile(r'Manufacturer[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+    re.compile(r'Mc\s*Kesson[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+    re.compile(r'Mfr[\s.#:]+\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+    re.compile(r'OEM[\s.#:]+\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+    # Existing short-form labeled patterns (kept for backwards compat)
     re.compile(r'(?:MFG|Mfg)[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,25})', re.IGNORECASE),
     re.compile(r'(?:Part|P/N|PN)[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,25})', re.IGNORECASE),
     re.compile(r'(?:Item|Catalog|Cat)[\s.#:]+\s*([A-Z0-9][A-Z0-9\-\.\/]{3,25})', re.IGNORECASE),
@@ -303,6 +319,60 @@ _PN_SKIP = {
     'n/a', 'na', 'none', 'tbd', 'see', 'per', 'uom', 'row',
 }
 
+# UOM denylist for the positional-pattern fallback. Tokens like 100EA,
+# BX20BX, EA10BX are common in McKesson-style descriptions like
+# "(100EA/BX 20BX/CS)". Without this guard, _PN_PATTERNS' positional
+# regexes (lines below the labeled patterns) match these UOM-shaped
+# strings as candidate part numbers — that's how item 11 of
+# rfq_8efe9fae shipped with MFG# "100EA" in today's drive.
+_PN_UOM_UNITS = {
+    "EA", "BX", "CS", "PK", "PKG", "DZ", "PR", "BG", "RL", "GR",
+    "OZ", "LB", "ML", "QT", "GAL", "FT", "IN", "MM", "CM", "M",
+}
+
+
+def _looks_like_uom_token(s: str) -> bool:
+    """Return True if `s` is a UOM-shaped pack/unit token that must not
+    be persisted as a MFG#. Catches: BX, 100EA, BX20BX, 20BX/CS,
+    EA100, etc. Splits on digits/whitespace/dashes/slashes; if every
+    non-numeric component is a UOM unit, treat as UOM noise.
+    """
+    if not s:
+        return True
+    s_upper = s.upper().strip()
+    if s_upper in _PN_UOM_UNITS:
+        return True
+    # Split into letter-runs by digits/separators. If every letter-run
+    # is a UOM unit, the whole token is just pack/unit noise.
+    parts = [p for p in re.split(r'[\d\s\-/\.]+', s_upper) if p]
+    if parts and all(p in _PN_UOM_UNITS for p in parts):
+        return True
+    return False
+
+
+# Label words that may butt up against a MFG# value without whitespace
+# in catalog descriptions (e.g. "Mc Kesson # 161574Manufacturer # 4062").
+# When the labeled extractor's capture contains one of these prefixes,
+# truncate at that boundary so the value doesn't bleed into the next
+# label's text. The capture pattern uses [A-Z0-9\-\.\/]+ which eats
+# trailing letters greedily without these stops.
+_PN_LABEL_STOPS = re.compile(
+    r'(Manufacturer|Mfr|MFG|Mfg|OEM|McKesson|Mc\s*Kesson|Item\s*#|SKU|Model|Ref|Reference)',
+    re.IGNORECASE,
+)
+
+
+def _truncate_at_label_stop(candidate: str) -> str:
+    """If the candidate has a label-word like 'Manufacturer' or 'McKesson'
+    glued onto its tail, cut it off there. Returns the cleaned candidate.
+    """
+    if not candidate:
+        return candidate
+    m = _PN_LABEL_STOPS.search(candidate)
+    if m and m.start() > 0:
+        return candidate[:m.start()].rstrip('-./#:')
+    return candidate
+
 
 def _extract_part_number(text: str) -> str:
     """Extract a MFG/part/reference number from text. Returns best candidate or ''."""
@@ -313,7 +383,19 @@ def _extract_part_number(text: str) -> str:
         m = pat.search(text)
         if m:
             candidate = m.group(1).strip().rstrip('.')
+            # PR-1: descriptions with mashed labels like
+            # "Mc Kesson # 161574Manufacturer # 4062" capture
+            # "161574Manufacturer" through the next label-word.
+            # Truncate at the label boundary before validation.
+            candidate = _truncate_at_label_stop(candidate)
             if candidate.lower() in _PN_SKIP or len(candidate) < 3:
+                continue
+            # PR-1: reject UOM-shaped tokens like 100EA, BX20BX, 20BX/CS.
+            # These look like part numbers to the positional regex but
+            # are just pack/unit markers from descriptions like
+            # "(100EA/BX 20BX/CS)". Closes Mike's item-11 incident
+            # where the shipped quote had MFG# "100EA".
+            if _looks_like_uom_token(candidate):
                 continue
             has_letter = any(c.isalpha() for c in candidate)
             has_digit = any(c.isdigit() for c in candidate)
