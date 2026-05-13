@@ -456,6 +456,75 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  </div>
 </div>
 
+{# ── PR-T: Top to Send Now ──
+   Ranks active PCs by a composite score: priced+ready bonus, deadline
+   urgency, dollar value, agency winrate. Top 5 surface above the full
+   queue table as a "work this first" hint. Source data computed
+   server-side in routes_rfq.home(). Score 0 PCs are filtered out by
+   queue_priority.rank_pcs() so this section is empty when there's no
+   ready work — falls back to invisibility (no empty-state noise).
+#}
+{% if top_priority_pcs and top_priority_pcs|length > 0 %}
+<div id="top-priority-panel" class="card-tight" data-testid="top-priority-panel" style="margin-bottom:14px">
+ <div class="card-h" style="display:flex;justify-content:space-between;align-items:center">
+  <h3 style="display:flex;align-items:center;gap:8px">
+   <span>🎯 Top to Send Now</span>
+   <span style="font-size:11px;font-weight:400;color:var(--mu);background:rgba(63,185,80,.12);padding:2px 8px;border-radius:8px">PR-T</span>
+  </h3>
+  <span style="font-size:11px;color:var(--mu)">Ranked by priced-ready + deadline + value</span>
+ </div>
+ <div style="overflow-x:auto">
+ <table style="width:100%;border-collapse:collapse;font-size:13px">
+  <thead>
+   <tr style="background:rgba(79,140,255,.06);border-bottom:1px solid var(--bd)">
+    <th style="text-align:left;padding:6px 10px;font-weight:600">PC</th>
+    <th style="text-align:left;padding:6px 10px;font-weight:600">Agency</th>
+    <th style="text-align:right;padding:6px 10px;font-weight:600">Value</th>
+    <th style="text-align:center;padding:6px 10px;font-weight:600">Items</th>
+    <th style="text-align:center;padding:6px 10px;font-weight:600">Due</th>
+    <th style="text-align:center;padding:6px 10px;font-weight:600">Score</th>
+    <th style="text-align:left;padding:6px 10px;font-weight:600">Why</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for tp in top_priority_pcs %}
+   <tr data-testid="top-priority-row" data-pc-id="{{ tp.pc_id }}"
+       style="border-bottom:1px solid rgba(255,255,255,.04)">
+    <td style="padding:8px 10px"><a href="/pricecheck/{{ tp.pc_id }}" style="color:var(--ac);text-decoration:none">{{ tp.pc_number }}</a></td>
+    <td style="padding:8px 10px">{{ tp.agency or '—' }}</td>
+    <td style="padding:8px 10px;text-align:right">${{ '{:,.0f}'.format(tp.total_value or 0) }}</td>
+    <td style="padding:8px 10px;text-align:center">{{ tp.items_priced }}/{{ tp.items_total }}</td>
+    <td style="padding:8px 10px;text-align:center">
+     {% if tp.deadline_hours is not none and tp.deadline_hours < 0 %}
+      <span style="color:var(--rd);font-weight:600">OVERDUE</span>
+     {% elif tp.deadline_hours is not none and tp.deadline_hours <= 24 %}
+      <span style="color:var(--rd);font-weight:600">{{ tp.deadline_hours|round(0) }}h</span>
+     {% elif tp.deadline_hours is not none and tp.deadline_hours <= 72 %}
+      <span style="color:var(--yl)">{{ tp.deadline_hours|round(0) }}h</span>
+     {% elif tp.deadline_hours is not none %}
+      <span style="color:var(--mu)">{{ tp.deadline_hours|round(0) }}h</span>
+     {% else %}
+      <span style="color:var(--mu)">—</span>
+     {% endif %}
+    </td>
+    <td style="padding:8px 10px;text-align:center"><strong>{{ tp.score }}</strong></td>
+    <td style="padding:8px 10px;color:var(--mu);font-size:12px">
+     {% set parts = [] %}
+     {% if tp.breakdown.priced_ready > 0 %}{% set _ = parts.append('priced+ready') %}{% endif %}
+     {% if tp.breakdown.mark_sent_ready > 0 %}{% set _ = parts.append('cost+price set') %}{% endif %}
+     {% if tp.breakdown.deadline_urgency >= 30 %}{% set _ = parts.append('due <24h') %}{% elif tp.breakdown.deadline_urgency >= 20 %}{% set _ = parts.append('due <48h') %}{% elif tp.breakdown.deadline_urgency >= 10 %}{% set _ = parts.append('due <72h') %}{% endif %}
+     {% if tp.breakdown.dollar_value >= 30 %}{% set _ = parts.append('high $') %}{% endif %}
+     {% if tp.breakdown.agency_winrate > 0 %}{% set _ = parts.append('agency win signal') %}{% endif %}
+     {{ parts|join(', ') }}
+    </td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+</div>
+{% endif %}
+
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
 <style>
 /* Skeleton loader animation */

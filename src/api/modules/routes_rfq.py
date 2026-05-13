@@ -770,6 +770,32 @@ def home():
         {"action": "markup", "label": "+20% Markup", "css": "btn btn-sm", "style": "background:rgba(251,191,36,.15);color:var(--yl)"},
     ]
 
+    # PR-T (2026-05-13): top-priority PCs widget. Ranks active queue
+    # by a composite score (priced+ready bonus, deadline urgency, dollar
+    # value, agency winrate). Additive surface — old queue table stays
+    # in place; this is the "what to work first" hint above it. Fail-soft
+    # to empty list so the existing home renders if the ranker blows up.
+    top_priority_pcs: list = []
+    try:
+        from src.agents.queue_priority import rank_pcs
+        from src.core.operator_kpi import get_drift_lines_per_agency
+        # Build agency_winrates map from the 30d drift signal. Win = no
+        # drift logged with high positive value; for now we use a coarse
+        # proxy: agencies with healthy cap-pct + low drift get a positive
+        # win signal. Future: join to operator_drift_line.outcome (PR-K1).
+        _wr_map: dict = {}
+        try:
+            for r in get_drift_lines_per_agency(window_days=30):
+                # Simple proxy: low median_drift + decent volume = healthy
+                if (r.get("line_count", 0) >= 5
+                        and abs(r.get("median_drift_pct") or 0) < 15):
+                    _wr_map[(r.get("agency") or "").lower()] = 0.5
+        except Exception as _wre:
+            log.debug("agency_winrates lookup skipped: %s", _wre)
+        top_priority_pcs = rank_pcs(sorted_pcs, agency_winrates=_wr_map, limit=5)
+    except Exception as _tpe:
+        log.warning("top-priority panel skipped: %s", _tpe)
+
     log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
              len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
     return render_page("home.html", active_page="Home",
@@ -778,7 +804,8 @@ def home():
                        norm_pcs=norm_pcs, norm_sent_pcs=norm_sent_pcs,
                        norm_rfqs=norm_rfqs, norm_sent_rfqs=norm_sent_rfqs,
                        pc_bulk_actions=pc_bulk_actions, rfq_bulk_actions=rfq_bulk_actions,
-                       action_items=action_items)
+                       action_items=action_items,
+                       top_priority_pcs=top_priority_pcs)
 
 @bp.route("/growth")
 @auth_required
