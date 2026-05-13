@@ -3014,6 +3014,58 @@
       showMsg('🔗 URL moved to Item Link field, looking up…','ok');
     }
 
+    // PR-L (2026-05-13): recompute the SCPRS rollup chip on every price
+    // edit. Reads data-p75/data-p90/data-rcount from the price <td>,
+    // computes drift = (price − p75) / p75 × 100, flips the color
+    // band (green ≤ p75, yellow p75–p90, red > p90). Pure DOM update,
+    // no fetch — operator gets the new color before the keystroke ends.
+    function recalcRollupChip(idx) {
+      var chip = document.getElementById('rollup_chip_' + idx);
+      if (!chip) return;
+      var td = chip.closest('td');
+      if (!td) return;
+      var p75 = parseFloat(td.getAttribute('data-p75') || '0');
+      var p90 = parseFloat(td.getAttribute('data-p90') || '0');
+      var rcount = parseInt(td.getAttribute('data-rcount') || '0', 10);
+      if (!p75 || p75 <= 0) return;
+      var priceEl = document.querySelector('input[name="price_' + idx + '"]');
+      var price = priceEl
+        ? parseFloat((priceEl.value || '').replace(/[^0-9.]/g, ''))
+        : 0;
+      var driftEl = chip.querySelector('.drift-val');
+      var color, bg, band;
+      if (!price || price <= 0) {
+        color = '#8b949e';
+        bg = 'rgba(139,148,158,.12)';
+        band = 'no price yet';
+        if (driftEl) driftEl.textContent = '+0.0%';
+      } else {
+        var drift = ((price - p75) / p75) * 100;
+        var sign = drift >= 0 ? '+' : '';
+        if (driftEl) driftEl.textContent = sign + drift.toFixed(1) + '%';
+        if (price <= p75) {
+          color = '#3fb950';
+          bg = 'rgba(63,185,80,.12)';
+          band = 'at/below p75';
+        } else if (price <= p90) {
+          color = '#d29922';
+          bg = 'rgba(210,153,34,.12)';
+          band = 'above p75';
+        } else {
+          color = '#f85149';
+          bg = 'rgba(248,81,73,.12)';
+          band = 'above p90 — likely overpriced';
+        }
+      }
+      chip.style.color = color;
+      chip.style.background = bg;
+      chip.title = 'SCPRS p75=$' + p75.toFixed(2) +
+                   ' from ' + rcount + ' historic winners. ' +
+                   'Drift = (your price − p75) / p75. ' + band + '.';
+    }
+    // Expose for the inline price-input handlers (oninput/onchange/onblur)
+    window.recalcRollupChip = recalcRollupChip;
+
     function recalcPC() {
      if(recalcPC._running)return;
      recalcPC._running=true;
