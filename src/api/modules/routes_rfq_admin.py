@@ -387,6 +387,21 @@ def _api_rfq_mark_sent_manually_locked(rid):
     except Exception as _drift_e:
         log.debug("operator_drift logging suppressed: %s", _drift_e)
 
+    # PR-J (2026-05-13): shadow-mode cap evaluator. For every line
+    # with scprs_rollup data, log what the SCPRS p75 cap WOULD have
+    # done if enabled — even if the live recommendation didn't bind.
+    # Answers "should I flip ORACLE_USE_SCPRS_ROLLUP on?" with real
+    # data instead of a coin flip.
+    try:
+        from src.core.operator_kpi import log_operator_drift_shadow
+        log_operator_drift_shadow(
+            quote_id=rid, quote_type="rfq",
+            items=r.get("items") or r.get("line_items") or [],
+            agency_key=(r.get("agency_key") or r.get("agency") or ""),
+        )
+    except Exception as _shadow_e:
+        log.debug("shadow drift logging suppressed: %s", _shadow_e)
+
     # Fire on_sent hooks. Each wrapped so one failure cannot block the
     # mark-sent flip — the status write is the source of truth; hooks are
     # best-effort archive/log side-effects.

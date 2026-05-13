@@ -1527,6 +1527,56 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_odl_agency
             ON operator_drift_line(agency_key);
     """),
+
+    (46, "operator_drift_shadow", """
+        -- 2026-05-13 (PR-J): shadow-mode cap evaluator. The Generator-
+        -- Critic pattern — live get_pricing pipeline (Generator)
+        -- computes whatever quote_price the operator sends; this
+        -- shadow layer (Critic) computes what the SCPRS p75 cap WOULD
+        -- have done if it had been enabled, and logs the counterfactual.
+        --
+        -- Today (`ORACLE_USE_SCPRS_ROLLUP=0` in prod), every line gets a
+        -- shadow_action of 'would_cap' (cap not active but would have
+        -- moved this line) or 'no_cap' (cap not active and would not
+        -- have moved this line). When the flag flips ON, the column
+        -- shifts to 'cap_active' for capped lines so we can still
+        -- compare to non-capped competitors in the same window.
+        --
+        -- The leverage: at N=500 lines/mo, this table answers
+        --   "if we had turned the cap on 30d ago, how many lines would
+        --    have moved? Of those, did the operator's actual sent price
+        --    win or lose?"
+        -- — without anyone touching the live pricing recommendation.
+        -- That's Mike's "flip the flag yes/no" decision with real data,
+        -- not a coin flip.
+        CREATE TABLE IF NOT EXISTS operator_drift_shadow (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id              TEXT NOT NULL,
+            quote_type            TEXT NOT NULL,
+            sent_at               TEXT NOT NULL,
+            agency_key            TEXT DEFAULT '',
+            line_idx              INTEGER,
+            item_number           TEXT DEFAULT '',
+            mfg_number            TEXT DEFAULT '',
+            sent_price            REAL,
+            rec_price             REAL,
+            shadow_cap_price      REAL,
+            shadow_action         TEXT DEFAULT 'no_data',
+            shadow_drift_pct      REAL,
+            rollup_p75            REAL,
+            rollup_count          INTEGER DEFAULT 0,
+            rollup_match_key      TEXT DEFAULT '',
+            rollup_match_key_type TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_ods_quote
+            ON operator_drift_shadow(quote_id);
+        CREATE INDEX IF NOT EXISTS idx_ods_sent_at
+            ON operator_drift_shadow(sent_at);
+        CREATE INDEX IF NOT EXISTS idx_ods_shadow_action
+            ON operator_drift_shadow(shadow_action);
+        CREATE INDEX IF NOT EXISTS idx_ods_agency
+            ON operator_drift_shadow(agency_key);
+    """),
 ]
 
 
