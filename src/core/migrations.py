@@ -1433,6 +1433,53 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_sps_key_only
             ON scprs_price_stats(match_key_type, match_key);
     """),
+    (44, "competitor_intel_lines", """
+        -- 2026-05-13 (per project_pricing_oracle_scprs_prior_plan_2026_05_11):
+        -- award_monitor.py:274-281 JOINs scprs_po_lines for line-level data
+        -- but discards it — only the PO-level total lands in competitor_intel.
+        -- Result: a quote losing 10 items by different deltas shows as one
+        -- aggregate row instead of "we lost item 4 by 18%, item 7 by 2%,
+        -- item 9 we were actually cheaper but lost the bundle." That
+        -- per-line resolution is what makes the loss-digest actionable —
+        -- Mike can recalibrate the specific line markups that cost him
+        -- bundles, not just the entire bid.
+        --
+        -- This child table carries one row per SCPRS line under a loss.
+        -- The match between OUR PC item and the SCPRS line happens at
+        -- log time (in award_monitor.log_competitor) via a fuzzy match:
+        --   1. MFG# normalized + exact match (highest priority)
+        --   2. Description token-set overlap >= 0.5 (mid)
+        --   3. No match — record the SCPRS line anyway with our_item_idx
+        --      NULL and matched_by='none' so it surfaces as "competitor
+        --      won this line but we can't tell which of our items it
+        --      corresponded to" — still useful for spend visibility.
+        --
+        -- ON DELETE CASCADE so when a competitor_intel row is purged
+        -- (operator dismiss, retention sweep) the child rows go too.
+        CREATE TABLE IF NOT EXISTS competitor_intel_lines (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            competitor_intel_id   INTEGER NOT NULL REFERENCES competitor_intel(id)
+                                          ON DELETE CASCADE,
+            line_num              INTEGER,
+            scprs_description     TEXT,
+            scprs_unit_price      REAL,
+            scprs_quantity        REAL,
+            scprs_mfg             TEXT,
+            scprs_unspsc          TEXT,
+            our_item_idx          INTEGER,
+            our_unit_price        REAL,
+            our_mfg               TEXT,
+            price_delta_pct       REAL,
+            matched_by            TEXT DEFAULT 'none',
+            created_at            TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_cil_parent
+            ON competitor_intel_lines(competitor_intel_id);
+        CREATE INDEX IF NOT EXISTS idx_cil_mfg
+            ON competitor_intel_lines(scprs_mfg);
+        CREATE INDEX IF NOT EXISTS idx_cil_match_quality
+            ON competitor_intel_lines(matched_by);
+    """),
 ]
 
 

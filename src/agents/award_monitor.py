@@ -271,9 +271,15 @@ def check_pc_award(pc: dict) -> dict | None:
             # this anti-pattern across multiple files when "fixing" SQL
             # injection by rewriting f-strings into `+` concat but leaving the
             # `+` operators inside the surrounding triple-quote.
+            #
+            # 2026-05-13 (PR-C): pull line_num + unspsc too so log_competitor
+            # can persist per-line deltas to competitor_intel_lines. The JOIN
+            # already happens here — we just stopped throwing away the
+            # line-level resolution after picking a winner.
             rows = conn.execute(
                 "SELECT p.po_number, p.supplier, p.grand_total, p.start_date, "
-                "p.buyer_email, l.description, l.unit_price, l.quantity "
+                "p.buyer_email, p.id AS po_id, "
+                "l.line_num, l.description, l.unit_price, l.quantity, l.unspsc "
                 "FROM scprs_po_master p "
                 "JOIN scprs_po_lines l ON l.po_id = p.id "
                 "WHERE p.dept_code = ? AND p.start_date >= ? "
@@ -281,11 +287,13 @@ def check_pc_award(pc: dict) -> dict | None:
                 "ORDER BY p.start_date DESC LIMIT 10",
                 [dept_code, pc_created] + term_params
             ).fetchall()
-        
+
         if not rows:
             return None
-        
-        # Check if Reytech won or competitor won
+
+        # Check if Reytech won. Scan ALL rows — prior version only checked
+        # the FIRST row, so a PO joined across multiple lines could miss
+        # "Reytech is the supplier" and falsely log a loss.
         for row in rows:
             r = dict(row)
             supplier = (r.get("supplier") or "").lower()
@@ -297,19 +305,34 @@ def check_pc_award(pc: dict) -> dict | None:
                     "price": r.get("unit_price"),
                     "total": r.get("grand_total"),
                 }
-        
-        # Competitor won
-        winner = dict(rows[0])
+
+        # Competitor won. Group all lines under the winning PO (the
+        # first row's po_number, since rows are ordered start_date DESC)
+        # so log_competitor sees the full line-level breakdown.
+        winner_po = dict(rows[0])
+        winner_po_id = winner_po["po_id"]
+        winner_lines = [
+            {
+                "line_num": dict(r).get("line_num"),
+                "description": dict(r).get("description", ""),
+                "unit_price": dict(r).get("unit_price"),
+                "quantity": dict(r).get("quantity"),
+                "unspsc": dict(r).get("unspsc"),
+            }
+            for r in rows
+            if dict(r).get("po_id") == winner_po_id
+        ]
         return {
             "outcome": "lost",
-            "po_number": winner["po_number"],
-            "supplier": winner["supplier"],
-            "price": winner.get("unit_price"),
-            "total": winner.get("grand_total"),
-            "item_desc": winner.get("description", ""),
-            "buyer_email": winner.get("buyer_email", ""),
+            "po_number": winner_po["po_number"],
+            "supplier": winner_po["supplier"],
+            "price": winner_po.get("unit_price"),
+            "total": winner_po.get("grand_total"),
+            "item_desc": winner_po.get("description", ""),
+            "buyer_email": winner_po.get("buyer_email", ""),
+            "lines": winner_lines,
         }
-        
+
     except Exception as e:
         log.debug("SCPRS award check failed: %s", e)
         return None
@@ -318,20 +341,28 @@ def check_pc_award(pc: dict) -> dict | None:
 # ── Log Competitor Intel ─────────────────────────────────────────────────────
 
 def log_competitor(pc: dict, award: dict, our_quote_total: float = 0):
-    """Record a competitive loss in the competitor_intel table."""
+    """Record a competitive loss in the competitor_intel table.
+
+    2026-05-13 (PR-C): when `award` carries a `lines` list (populated by
+    `_check_scprs_award` from the SCPRS po_lines JOIN), this function
+    ALSO writes one row per SCPRS line into `competitor_intel_lines`.
+    Each line gets fuzzy-matched against `pc["items"]` (MFG# exact
+    first, then desc-token overlap) so the digest can show "we lost
+    item 4 by 18%, item 7 by 2%" instead of just "we lost the PO."
+    """
     try:
         now = datetime.now().isoformat()
-        
+
         their_price = award.get("total") or award.get("price") or 0
         delta = their_price - our_quote_total if our_quote_total else 0
         delta_pct = (delta / our_quote_total * 100) if our_quote_total else 0
-        
+
         items_summary = ", ".join(
             (it.get("description") or "")[:40] for it in pc.get("items", [])[:5]
         )
-        
+
         with get_db() as conn:
-            conn.execute("""
+            cursor = conn.execute("""
                 INSERT INTO competitor_intel
                 (found_at, pc_id, quote_number, our_price, competitor_name,
                  competitor_price, price_delta, price_delta_pct, po_number,
@@ -354,13 +385,170 @@ def log_competitor(pc: dict, award: dict, our_quote_total: float = 0):
                 "lost",
                 f"SCPRS PO {award.get('po_number','')} awarded to {award.get('supplier','')}",
             ))
-        
-        log.info("Competitor logged: %s won PO %s ($%.2f vs our $%.2f = %+.1f%%)",
+            parent_id = cursor.lastrowid
+
+            # Per-line breakdown — discarded prior to PR-C. The JOIN
+            # already runs in _check_scprs_award; we now keep the
+            # line-level resolution all the way through to storage.
+            lines = award.get("lines") or []
+            if lines and parent_id:
+                _persist_per_line_deltas(conn, parent_id, lines, pc, now)
+
+        log.info("Competitor logged: %s won PO %s ($%.2f vs our $%.2f = %+.1f%%, %d line(s))",
                  award.get("supplier"), award.get("po_number"),
-                 their_price, our_quote_total, delta_pct)
-        
+                 their_price, our_quote_total, delta_pct,
+                 len(award.get("lines") or []))
+
     except Exception as e:
         log.error("Failed to log competitor: %s", e)
+
+
+def _persist_per_line_deltas(conn, parent_id: int, scprs_lines: list,
+                             pc: dict, now: str) -> int:
+    """Write one row to competitor_intel_lines per SCPRS line.
+
+    Each SCPRS line is fuzzy-matched against `pc["items"]`:
+      1. MFG# normalized + exact match — `matched_by='mfg_exact'`
+      2. Description token-set overlap >= 0.5 — `matched_by='desc_tokens'`
+      3. None — line still recorded with our_item_idx=None,
+         `matched_by='none'` so spend visibility survives even when
+         we can't tell which of our items the competitor priced.
+
+    Returns count of rows inserted.
+    """
+    if not scprs_lines:
+        return 0
+    our_items = pc.get("items") or []
+
+    # Build a normalized MFG# → idx map for fast exact lookup
+    def _norm(s):
+        import re as _re
+        if not s:
+            return ""
+        return _re.sub(r'[\s.\-/]+', '', str(s)).upper()
+
+    mfg_to_idx = {}
+    for idx, it in enumerate(our_items):
+        for k in ("mfg_number", "part_number", "catalog_number"):
+            v = it.get(k)
+            if v:
+                key = _norm(v)
+                if key and key not in mfg_to_idx:
+                    mfg_to_idx[key] = idx
+
+    def _token_set(text):
+        if not text:
+            return set()
+        toks = set()
+        for w in str(text).lower().split():
+            w = "".join(c for c in w if c.isalnum())
+            if len(w) >= 3:
+                toks.add(w)
+        return toks
+
+    our_token_sets = [_token_set(it.get("description", "")) for it in our_items]
+    our_used_idxs: set[int] = set()
+
+    inserted = 0
+    for sline in scprs_lines:
+        scprs_desc = sline.get("description", "")
+        scprs_mfg_raw = ""
+        # Try to extract MFG# from the SCPRS line description (uses the
+        # same labeled-priority pattern as PR-1 #937 to stay consistent).
+        try:
+            from src.agents.scprs_price_stats import extract_mfg_from_scprs_line
+            scprs_mfg_raw = extract_mfg_from_scprs_line(scprs_desc)
+        except Exception:
+            scprs_mfg_raw = ""
+
+        our_idx = None
+        matched_by = "none"
+
+        # 1) MFG# exact match
+        if scprs_mfg_raw:
+            mfg_key = _norm(scprs_mfg_raw)
+            if mfg_key in mfg_to_idx and mfg_to_idx[mfg_key] not in our_used_idxs:
+                our_idx = mfg_to_idx[mfg_key]
+                matched_by = "mfg_exact"
+                our_used_idxs.add(our_idx)
+
+        # 2) Description-token overlap
+        if our_idx is None and scprs_desc:
+            scprs_toks = _token_set(scprs_desc)
+            best_score = 0.0
+            best_idx = None
+            for idx, our_toks in enumerate(our_token_sets):
+                if idx in our_used_idxs or not our_toks or not scprs_toks:
+                    continue
+                inter = len(scprs_toks & our_toks)
+                union = len(scprs_toks | our_toks)
+                score = inter / union if union else 0
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+            if best_idx is not None and best_score >= 0.5:
+                our_idx = best_idx
+                matched_by = "desc_tokens"
+                our_used_idxs.add(our_idx)
+
+        # Our unit price for the matched item (None if no match)
+        our_unit_price = None
+        our_mfg_normalized = None
+        if our_idx is not None:
+            our_item = our_items[our_idx]
+            try:
+                our_unit_price = float(
+                    our_item.get("unit_price")
+                    or (our_item.get("pricing") or {}).get("recommended_price")
+                    or 0
+                ) or None
+            except (TypeError, ValueError):
+                our_unit_price = None
+            for k in ("mfg_number", "part_number", "catalog_number"):
+                if our_item.get(k):
+                    our_mfg_normalized = _norm(our_item.get(k))
+                    break
+
+        # Line-level delta — competitor's per-EA price vs ours
+        try:
+            scprs_unit = float(sline.get("unit_price") or 0)
+        except (TypeError, ValueError):
+            scprs_unit = 0.0
+        line_delta_pct = None
+        if our_unit_price and our_unit_price > 0:
+            line_delta_pct = round(
+                (scprs_unit - our_unit_price) / our_unit_price * 100, 1
+            )
+
+        try:
+            conn.execute(
+                """INSERT INTO competitor_intel_lines
+                   (competitor_intel_id, line_num, scprs_description,
+                    scprs_unit_price, scprs_quantity, scprs_mfg, scprs_unspsc,
+                    our_item_idx, our_unit_price, our_mfg, price_delta_pct,
+                    matched_by, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    parent_id,
+                    sline.get("line_num"),
+                    scprs_desc[:500] if scprs_desc else None,
+                    scprs_unit,
+                    sline.get("quantity"),
+                    _norm(scprs_mfg_raw) if scprs_mfg_raw else None,
+                    sline.get("unspsc"),
+                    our_idx,
+                    our_unit_price,
+                    our_mfg_normalized,
+                    line_delta_pct,
+                    matched_by,
+                    now,
+                ),
+            )
+            inserted += 1
+        except Exception as e:
+            log.debug("per-line insert skipped: %s", e)
+
+    return inserted
 
 
 # ── Price Suggestions ────────────────────────────────────────────────────────
