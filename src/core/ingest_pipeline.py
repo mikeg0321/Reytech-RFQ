@@ -1450,6 +1450,74 @@ def _looks_like_sol_placeholder(value: str) -> bool:
 # ── Record creation ─────────────────────────────────────────────────────
 
 
+def _find_active_pc_by_number(
+    pc_number: str,
+    agency: str = "",
+    lookback_days: int = 90,
+) -> Optional[Dict[str, Any]]:
+    """Return an existing non-deleted PC with the same `pc_number` + `agency`.
+
+    PR-N (2026-05-13) — dedup-at-ingest. Mike: "I had to mark a lot
+    duplicate, because they kept showing in the queue, even after sent."
+    Re-polled emails with the same buyer pc_number were creating fresh PC
+    rows because dedup-by-email_uid only fires when the UID matches —
+    different forwards / re-sends / inbox cross-poll bypass it. This
+    helper closes the gap by matching on the canonical buyer pc_number.
+
+    Returns the existing PC dict (or None) when:
+      - `pc_number` is not a placeholder (AUTO_, RT-, WORKSHEET, etc.)
+      - a row exists in `price_checks` with the same pc_number AND same
+        agency (case-insensitive) within `lookback_days`
+      - that row is NOT itself already `duplicate` / `deleted` (don't
+        chain dedup to a dup of a dup)
+
+    Different agencies that happen to use the same numeric pc_number
+    (e.g. CCHCS #10844466 + CDCR #10844466 — confirmed in prod) are
+    kept separate because state agencies number their own quote
+    requests independently.
+    """
+    if _looks_like_sol_placeholder(pc_number):
+        return None
+    canonical = str(pc_number).strip()
+    if not canonical:
+        return None
+    canonical_agency = (agency or "").strip().lower()
+    try:
+        from datetime import timedelta as _td
+        from src.core.db import get_db
+    except Exception:
+        return None
+    cutoff = (datetime.now() - _td(days=lookback_days)).isoformat()
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, pc_number, agency, institution, status, "
+                "created_at, sent_at, closed_at "
+                "FROM price_checks "
+                "WHERE pc_number = ? AND created_at >= ? "
+                "ORDER BY created_at DESC",
+                (canonical, cutoff),
+            ).fetchall()
+    except Exception as e:
+        log.debug("dedup lookup skipped (%s): %s", canonical, e)
+        return None
+    # Status set we will NOT match against (already-classified noise).
+    # `duplicate` excluded so we don't chain. `deleted`/`archived`
+    # excluded because the operator already decided the row is gone.
+    _skip_existing = {"duplicate", "deleted", "archived"}
+    for r in rows:
+        existing_agency = (r["agency"] or r["institution"] or "").strip().lower()
+        # Match when agency is empty on either side (legacy rows missing
+        # the field) OR when both sides agree.
+        if canonical_agency and existing_agency and existing_agency != canonical_agency:
+            continue
+        existing_status = (r["status"] or "").strip().lower()
+        if existing_status in _skip_existing:
+            continue
+        return dict(r)
+    return None
+
+
 def _persist_all_attachments(
     record_id: str,
     record_type: str,
@@ -1791,6 +1859,60 @@ def _create_record(
             if classification.shape == "cchcs_packet"
             else ""
         )
+        # PR-N (2026-05-13) — dedup-at-ingest by pc_number. When the
+        # buyer's pc_number already exists on a non-terminated PC for
+        # this same agency, auto-mark the new row as duplicate so it
+        # doesn't pollute the operator queue. Audit row still gets
+        # written (we want the trail) — operator can find it via the
+        # /admin/funnel resolved-other breakdown. `closed_reason`
+        # explains why and points at the surviving PC id.
+        try:
+            from src.core.flags import get_flag
+            _dedup_on = bool(get_flag("ingest.dedup_by_pc_number_enabled", True))
+        except Exception:
+            _dedup_on = True
+        if _dedup_on:
+            existing = _find_active_pc_by_number(
+                record["pc_number"],
+                agency=record.get("agency", "") or record.get("institution", ""),
+            )
+            if existing:
+                existing_id = existing.get("id", "")
+                existing_status = (existing.get("status") or "parsed").strip().lower()
+                _dedup_reason = (
+                    f"auto-dedup: pc_number={record['pc_number']} already in "
+                    f"{existing_status} (pc {existing_id[:12]})"
+                )
+                record["status"] = "duplicate"
+                record["closed_reason"] = _dedup_reason
+                record["closed_at"] = now
+                record["dedup_of"] = existing_id
+                # Audit trail entry — mirrors the shape PR-M writes from
+                # status-change routes so the funnel breakdown can read it.
+                _hist = record.get("status_history") or []
+                _hist.append({
+                    "from": initial_status,
+                    "to": "duplicate",
+                    "at": now,
+                    "actor": "ingest_pipeline",
+                    "reason": _dedup_reason,
+                })
+                record["status_history"] = _hist
+                log.info(
+                    "ingest dedup-at-ingest: pc_number=%s collides with %s "
+                    "(status=%s) — new pc auto-marked duplicate",
+                    record["pc_number"], existing_id, existing_status,
+                )
+                try:
+                    from src.core.utilization import record_feature_use
+                    record_feature_use("ingest.pc_duplicate_skipped", context={
+                        "pc_number": record["pc_number"],
+                        "agency": record.get("agency", ""),
+                        "existing_pc_id": existing_id,
+                        "existing_status": existing_status,
+                    })
+                except Exception as _te:
+                    log.debug("dedup telemetry suppressed: %s", _te)
         from src.api.dashboard import _save_single_pc
         _save_single_pc(record["id"], record)
     else:  # rfq
