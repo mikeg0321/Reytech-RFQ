@@ -247,10 +247,42 @@ def is_asin_cache_recycled(asin: str) -> dict:
 
 # ─── MFG Info Extraction ────────────────────────────────────────────────────
 
+# UOM denylist mirrors `src.forms.price_check._PN_UOM_UNITS` (PR-1). Kept
+# inline to avoid a circular import between forms and agents. If either
+# list grows, sync both — the regression-test set covers both extractors.
+_MFG_UOM_UNITS = {
+    "EA", "BX", "CS", "PK", "PKG", "DZ", "PR", "BG", "RL", "GR",
+    "OZ", "LB", "ML", "QT", "GAL", "FT", "IN", "MM", "CM", "M",
+}
+
+
+def _looks_like_uom_token(s: str) -> bool:
+    """Return True if `s` looks like a UOM/pack token (100EA, BX20BX,
+    20BX/CS, etc.) and must not be persisted as a MFG#. Twin of the
+    helper in `src.forms.price_check`."""
+    if not s:
+        return True
+    s_upper = s.upper().strip()
+    if s_upper in _MFG_UOM_UNITS:
+        return True
+    parts = [p for p in re.split(r'[\d\s\-/\.]+', s_upper) if p]
+    if parts and all(p in _MFG_UOM_UNITS for p in parts):
+        return True
+    return False
+
+
 def _extract_mfg_info(title: str, asin: str = "") -> dict:
     """Extract manufacturer name and part/model number from product title.
 
     Returns: {"manufacturer": str, "mfg_number": str, "item_number": str}
+
+    PR-1 (Mike P0 2026-05-12 live drive): title text from McKesson product
+    pages commonly contains UOM tokens like "(100EA/BX 20BX/CS)" before any
+    real MFG#. The old positional regex `[A-Z]{1,5}\\d{2,}[A-Z0-9-]*` matched
+    "BX20BX" / "EA100BX" / etc. as candidate MFG#s, poisoning the row data.
+    Two changes:
+      1. Look for LABELED patterns ("Manufacturer #", "Mc Kesson #") first.
+      2. Reject UOM-shaped tokens before considering positional matches.
     """
     mfg = {"manufacturer": "", "mfg_number": "", "item_number": asin}
     if not title:
@@ -258,18 +290,53 @@ def _extract_mfg_info(title: str, asin: str = "") -> dict:
 
     parts = title.split(",")[0].split(" - ")[0].strip()
 
-    model_patterns = re.findall(
-        r'\b([A-Z]{1,5}[-]?\d{2,}[A-Z0-9-]*)\b'
-        r'|'
-        r'\b(\d{2,}[-][A-Z0-9]{2,}[-]?[A-Z0-9]*)\b'
-        r'|'
-        r'\b([A-Z]{2,}\d+[A-Z]+\d*)\b',
-        title
+    # ── Labeled-priority extraction (PR-1) ─────────────────────────────
+    # McKesson catalog descriptions consistently use "Manufacturer #" or
+    # "Mc Kesson #" — match these first so we never fall through to the
+    # positional regex below for items where the canonical MFG# is right
+    # there in the text.
+    labeled = [
+        re.compile(r'Manufacturer[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+        re.compile(r'Mc\s*Kesson[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+        re.compile(r'Mfr[\s.#:]+\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+        re.compile(r'OEM[\s.#:]+\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+        re.compile(r'(?:MFG|Mfg)[\s.#:]+\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})', re.IGNORECASE),
+    ]
+    # Label-word stops for the case where descriptions glue two labels
+    # together without whitespace (e.g. "Mc Kesson # 161574Manufacturer
+    # # 4062" — without a stop, the capture eats through to the next
+    # label and you get "161574Manufacturer" as the MFG#).
+    _label_stops_re = re.compile(
+        r'(Manufacturer|Mfr|MFG|Mfg|OEM|McKesson|Mc\s*Kesson|Item\s*#|SKU|Model|Ref|Reference)',
+        re.IGNORECASE,
     )
-    models = [m for groups in model_patterns for m in groups if m and len(m) >= 4]
+    for pat in labeled:
+        m = pat.search(title)
+        if m:
+            candidate = m.group(1).strip().rstrip('.')
+            stop = _label_stops_re.search(candidate)
+            if stop and stop.start() > 0:
+                candidate = candidate[:stop.start()].rstrip('-./#:')
+            if len(candidate) >= 3 and not _looks_like_uom_token(candidate):
+                mfg["mfg_number"] = candidate
+                break
 
-    if models:
-        mfg["mfg_number"] = models[0]
+    # Fall back to positional regex only if no labeled hit. Reject any
+    # candidate that looks like a UOM token (BX20BX, 100EA, etc.).
+    if not mfg["mfg_number"]:
+        model_patterns = re.findall(
+            r'\b([A-Z]{1,5}[-]?\d{2,}[A-Z0-9-]*)\b'
+            r'|'
+            r'\b(\d{2,}[-][A-Z0-9]{2,}[-]?[A-Z0-9]*)\b'
+            r'|'
+            r'\b([A-Z]{2,}\d+[A-Z]+\d*)\b',
+            title,
+        )
+        models = [m for groups in model_patterns for m in groups
+                  if m and len(m) >= 4 and not _looks_like_uom_token(m)]
+
+        if models:
+            mfg["mfg_number"] = models[0]
 
     brand_match = re.match(r'^([A-Za-z][A-Za-z\s&.]{1,25}?)(?:\s+[-–]|\s+[A-Z0-9]{2,}\d|\s*,)', title)
     if brand_match:
