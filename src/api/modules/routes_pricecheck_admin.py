@@ -2232,6 +2232,173 @@ def api_oracle_weekly_report():
     return jsonify(result)
 
 
+@bp.route("/oracle/price-stats/preview", methods=["GET"])
+@auth_required
+@safe_route
+def oracle_price_stats_preview():
+    """Preview the SCPRS per-SKU rollup. Phase 1.5-A2 (2026-05-13).
+
+    Phase 1.5-A shipped the rollup table + builder but no consumer reads
+    it yet. Mike needs to eyeball the data — what MFG#s have enough
+    samples, what the percentile spreads look like, whether the
+    cross-agency rollup is sensible — BEFORE Phase 1.5-B wires
+    `pricing_oracle_v2.get_pricing()` to read from it on every quote.
+
+    Pure read-only. No state mutation. Returns the top N highest-count
+    rollup rows so the operator sees the most-trusted priors first.
+
+    Optional query params:
+      ?key_type=mfg|unspsc — filter to one match-key type
+      ?agency=cchcs        — filter to one agency (or "*" for cross)
+      ?limit=N             — cap (default 100, max 500)
+    """
+    from src.core.db import get_db
+    key_type = (request.args.get("key_type") or "").strip().lower()
+    agency = (request.args.get("agency") or "").strip().lower()
+    try:
+        limit = max(1, min(500, int(request.args.get("limit") or "100")))
+    except (TypeError, ValueError):
+        limit = 100
+
+    where_clauses = ["1=1"]
+    params = []
+    if key_type in ("mfg", "unspsc"):
+        where_clauses.append("match_key_type = ?")
+        params.append(key_type)
+    if agency:
+        where_clauses.append("agency = ?")
+        params.append(agency)
+
+    rows = []
+    total_buckets = 0
+    last_rebuild = None
+    try:
+        with get_db() as conn:
+            try:
+                cnt = conn.execute(
+                    "SELECT COUNT(*) FROM scprs_price_stats"
+                ).fetchone()
+                total_buckets = cnt[0] if cnt else 0
+                upd = conn.execute(
+                    "SELECT MAX(updated_at) FROM scprs_price_stats"
+                ).fetchone()
+                last_rebuild = upd[0] if upd else None
+            except Exception:
+                # Table doesn't exist yet (migration #43 hasn't run)
+                pass
+            try:
+                where = " AND ".join(where_clauses)
+                sql = (
+                    "SELECT match_key_type, match_key, agency, year, qty_band, "
+                    "count, mean, p50, p75, p90, updated_at "
+                    f"FROM scprs_price_stats WHERE {where} "
+                    "ORDER BY count DESC, match_key_type, match_key "
+                    f"LIMIT {limit}"
+                )
+                rows = list(conn.execute(sql, params).fetchall())
+            except Exception as e:
+                log.warning("oracle_price_stats_preview query failed: %s", e)
+                rows = []
+    except Exception as e:
+        log.error("oracle_price_stats_preview db open failed: %s", e)
+
+    def _fmt_money(v):
+        try:
+            return f"${float(v):,.2f}" if v is not None else "—"
+        except Exception:
+            return "—"
+
+    body_rows = "".join(
+        f"<tr>"
+        f"<td>{r[0]}</td>"
+        f"<td><code>{r[1]}</code></td>"
+        f"<td>{r[2]}</td>"
+        f"<td>{r[3]}</td>"
+        f"<td>{r[4]}</td>"
+        f"<td style='text-align:right;font-weight:600'>{r[5]}</td>"
+        f"<td style='text-align:right'>{_fmt_money(r[6])}</td>"
+        f"<td style='text-align:right'>{_fmt_money(r[7])}</td>"
+        f"<td style='text-align:right'>{_fmt_money(r[8])}</td>"
+        f"<td style='text-align:right'>{_fmt_money(r[9])}</td>"
+        f"<td style='color:#8b949e;font-size:11px'>{(r[10] or '')[:16]}</td>"
+        f"</tr>"
+        for r in rows
+    )
+    if not body_rows:
+        body_rows = (
+            '<tr><td colspan="11" style="padding:24px;text-align:center;'
+            'color:#8b949e">No rollup rows match the filter. '
+            "If <strong>total buckets</strong> above is 0, the boot-time "
+            "backfill hasn't run yet — restart the app to trigger it "
+            "(or run the rebuild builder manually from a Python shell)."
+            "</td></tr>"
+        )
+
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<title>SCPRS Price-Stats Preview — Reytech</title>
+<style>
+  body{{margin:0;padding:20px;background:#010409;color:#e6edf3;
+       font-family:system-ui,sans-serif;font-size:13px}}
+  .container{{max-width:1200px;margin:0 auto}}
+  .banner{{padding:10px 14px;margin-bottom:16px;
+       background:#1f6feb22;border:1px solid #1f6feb55;border-radius:8px;
+       color:#58a6ff}}
+  .banner strong{{color:#79c0ff}}
+  .banner code{{background:#0d1117;padding:1px 6px;border-radius:4px;
+       color:#79c0ff;font-size:12px}}
+  .meta{{color:#8b949e;font-size:12px;margin-bottom:12px}}
+  table{{width:100%;border-collapse:collapse;font-size:12px}}
+  th{{text-align:left;padding:6px 8px;background:#161b22;
+       border-bottom:1px solid #30363d;color:#8b949e;font-weight:600}}
+  td{{padding:5px 8px;border-bottom:1px solid #21262d}}
+  code{{color:#79c0ff;background:#0d1117;padding:1px 4px;border-radius:3px;
+       font-size:11px}}
+  .filters a{{color:#58a6ff;text-decoration:none;
+       padding:3px 8px;margin-right:6px;border-radius:4px;
+       background:#21262d;font-size:12px}}
+  .filters a:hover{{background:#30363d}}
+</style></head><body>
+<div class="container">
+<div class="banner">
+  📊 <strong>SCPRS price-stats preview</strong> — Phase 1.5-A rollup.
+  No state changes. <code>{total_buckets}</code> total buckets in table.
+  Last rebuild: <code>{last_rebuild or 'never'}</code>.
+  Showing top <strong>{len(rows)}</strong> by sample count.
+</div>
+<div class="filters">
+  <strong style="color:#8b949e">Filters:</strong>
+  <a href="?">all</a>
+  <a href="?key_type=mfg">mfg only</a>
+  <a href="?key_type=unspsc">unspsc only</a>
+  <a href="?agency=cchcs">cchcs</a>
+  <a href="?agency=calvet">calvet</a>
+  <a href="?agency=*">cross-agency</a>
+  <a href="?limit=500">show 500</a>
+</div>
+<div class="meta">
+  Phase 1.5-B (queued) will have <code>pricing_oracle_v2.get_pricing()</code>
+  consult <code>lookup_price_stat()</code> against this rollup BEFORE
+  scanning <code>scprs_po_lines</code> ad-hoc. This preview exists so
+  the rollup data can be eyeballed first.
+</div>
+<table>
+<thead><tr>
+  <th>Key Type</th><th>Match Key</th><th>Agency</th><th>Year</th><th>Qty</th>
+  <th style="text-align:right">N</th>
+  <th style="text-align:right">Mean</th>
+  <th style="text-align:right">P50</th>
+  <th style="text-align:right">P75</th>
+  <th style="text-align:right">P90</th>
+  <th>Updated</th>
+</tr></thead>
+<tbody>{body_rows}</tbody>
+</table>
+</div>
+</body></html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 @bp.route("/oracle/digest/preview", methods=["GET"])
 @auth_required
 @safe_route
