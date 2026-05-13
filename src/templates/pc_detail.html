@@ -39,7 +39,10 @@
      #itemsTable thead th{position:sticky;top:0;background:#21262d;z-index:3;border-bottom:2px solid #30363d}
      #itemsTable tr[data-row]:hover td:nth-child(1){background:#1a2332}
      #itemsTable tr[data-row]:focus-within td:nth-child(1){background:var(--row-hl,#1a2332)}
-     .num-in.sm{width:52px;font-size:14px;padding:6px 6px}
+     /* PR-AF 2026-05-13: width bumped 52→68px so 3-digit percentages
+        (108.4%) and 6-digit dollar values render without truncation.
+        Bug 3 from PC #10846357 walkthrough. */
+     .num-in.sm{width:68px;font-size:14px;padding:6px 6px}
      /* Active row highlight — hover + focus-within */
      #itemsTable tr[data-row]:hover{background:#1a233280}
      #itemsTable tr[data-row]:focus-within{background:var(--row-hl,#1a2332);box-shadow:inset 3px 0 0 #58a6ff}
@@ -125,7 +128,7 @@
       table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
       td, th { white-space: nowrap; padding: 4px 6px !important; font-size: 12px !important; }
       .num-in { font-size: 13px !important; padding: 4px 6px !important; }
-      .num-in.sm { width: 50px !important; }
+      .num-in.sm { width: 64px !important; }  /* PR-AF: was 50px, bumped to fit 108.4% etc on narrow screens */
       input[name^="cost_"], input[name^="price_"] { width: 78px !important; }
       #pc-margin-summary { flex-wrap: wrap !important; font-size: 12px !important; gap: 6px !important; }
       .btn { padding: 6px 10px !important; font-size: 12px !important; }
@@ -864,7 +867,7 @@
        <input type="number" id="pc-custom-flat" step="0.01" min="0" placeholder="0.00" style="width:70px;background:transparent;border:none;color:#e6edf3;font-size:17px;font-weight:700;text-align:center;outline:none">
        <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:6px 12px;font-size:16px;cursor:pointer;font-weight:700" onclick="applyFlatMarkupPC()">+$</button>
       </div>
-      <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:50px;text-align:center;font-size:15px;font-weight:700;padding:6px;display:none">
+      <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:68px;text-align:center;font-size:15px;font-weight:700;padding:6px;display:none">
      </div>
      <!-- Row 2: Buffer + Delivery + Notes -->
      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
@@ -990,7 +993,7 @@
      {% endif %}
      <div class="pc-table-wrap" style="overflow-x:auto">
      <table id="itemsTable">
-      <thead><tr><th style="width:52px">#</th><th style="width:100px">MFG#</th><th style="width:58px">Qty</th><th style="width:48px">UOM</th><th style="width:240px">Description</th><th style="width:200px">Item Link</th><th style="width:220px">Sources</th><th style="width:100px">Unit Cost</th><th style="width:72px">Markup</th><th style="width:100px">Our Price</th><th style="width:80px">Extension</th><th style="width:75px">Profit</th></tr></thead>
+      <thead><tr><th style="width:52px">#</th><th style="width:100px">MFG#</th><th style="width:58px">Qty</th><th style="width:48px">UOM</th><th style="width:240px">Description</th><th style="width:200px">Item Link</th><th style="width:220px">Sources</th><th style="width:100px">Unit Cost</th><th style="width:90px">Markup</th><th style="width:100px">Our Price</th><th style="width:80px">Extension</th><th style="width:75px">Profit</th></tr></thead>
       <tbody>{{ items_html | default('') | safe }}</tbody>
      </table>
      </div>
@@ -2935,7 +2938,7 @@
       +'<td><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" aria-label="Supplier URL" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link" aria-label="Open supplier link in new tab">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td><span style="color:#484f58;font-size:14px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" aria-label="Supplier cost" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
-      +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="" placeholder="25" aria-label="Markup percent" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
+      +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="" placeholder="25" aria-label="Markup percent" class="num-in sm" style="width:68px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" aria-label="Bid price per unit" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
       +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
      var tbody=table.querySelector('tbody')||table;
