@@ -3284,8 +3284,33 @@ def _api_lookup_tax_rate_locked(rid):
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"})
     address = data.get("address") or r.get("delivery_location") or r.get("ship_to") or ""
-    if not address or len(address.strip()) < 5:
-        return jsonify({"ok": False, "error": "No delivery address to look up"})
+    address = (address or "").strip()
+    # Phase 1.1 (Mike 2026-05-12 live drive): CalVet RFQ ingest sometimes
+    # captures just "CA" in delivery_location when Vision can't extract a
+    # full street/city/zip. The route used to bail with a generic
+    # `No delivery address to look up` and the UI showed `❌ failed` —
+    # operator had to manually paste the full Fresno address. When the
+    # primary address is too short to resolve a zip, fall back to the
+    # buyer agency / buyer email so the facility_registry can still match
+    # (e.g. agency="CalVet" + buyer_email="@calvet.ca.gov" + buyer city
+    # mention in other fields). This recovers the auto-tax-lookup for
+    # bad-ingest CalVet/CCHCS records without operator intervention.
+    fallback_hints = []
+    if len(address) < 5:
+        # No usable primary — collect every other location signal on
+        # the record. The facility resolver tries each as a candidate.
+        for key in ("agency", "buyer_name", "buyer_email",
+                    "institution", "ship_to_name", "ship_to_address"):
+            v = r.get(key)
+            if isinstance(v, list):
+                fallback_hints.extend(str(x) for x in v if x)
+            elif v:
+                fallback_hints.append(str(v))
+        if not fallback_hints:
+            return jsonify({
+                "ok": False,
+                "error": "Delivery address too short — paste a full street + city + zip",
+            })
     try:
         # Bundle-1 PR-1e (closes audit Y end-to-end): route now calls
         # the SAME unified `resolve_tax()` that the quote generator
@@ -3298,7 +3323,41 @@ def _api_lookup_tax_rate_locked(rid):
         # PDF=7.75% divergence on RFQ 9ad8a0ac.
         from src.core.tax_resolver import resolve_tax
         _force = bool(data.get("force_live"))
-        res = resolve_tax(address, force_live=_force)
+        # Try the primary address first if it's long enough.
+        res = None
+        if len(address) >= 5:
+            res = resolve_tax(address, force_live=_force)
+        # If primary didn't yield a real (non-default) rate AND we have
+        # fallback hints, walk them — first hint that resolves through
+        # facility_registry wins. This lets a CalVet RFQ with
+        # delivery="CA" still pick up the Fresno facility rate via the
+        # buyer_email or ship_to_name signals.
+        primary_ok = (
+            res and res.get("ok")
+            and res.get("rate") is not None
+            and res.get("source") not in ("", "default")
+        )
+        if not primary_ok and fallback_hints:
+            for hint in fallback_hints:
+                if not hint or len(hint.strip()) < 3:
+                    continue
+                hint_res = resolve_tax(hint, force_live=_force)
+                if (hint_res and hint_res.get("ok")
+                        and hint_res.get("rate") is not None
+                        and hint_res.get("source") not in ("", "default")):
+                    res = hint_res
+                    # Annotate the resolve_reason so audit trail shows
+                    # the route fell back to a buyer-side signal.
+                    res["resolve_reason"] = (
+                        (res.get("resolve_reason") or "")
+                        + f" (route_fallback:{hint[:40]})"
+                    )
+                    break
+        # If neither path got a validated rate, keep whatever resolve_tax
+        # returned last so the operator still sees a fallback (CA base
+        # 7.25%) instead of `❌ failed` for a record we can't auto-resolve.
+        if res is None:
+            res = resolve_tax(address or (fallback_hints[0] if fallback_hints else ""), force_live=_force)
         if res and res.get("ok") and res.get("rate") is not None:
             rate_pct = round(res["rate"] * 100, 3)
             # ── P0 2026-05-11: re-load INSIDE the lock just before the

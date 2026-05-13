@@ -4168,7 +4168,12 @@
           recalcPC();
           triggerPcAutosave();
         } else {
-          if (valEl) valEl.innerHTML = '<span style="color:#f85149">\u274C ' + (d.error || 'Failed') + '</span>';
+          // Phase 1.1 (Mike 2026-05-12): show actual error text so the
+          // operator knows the corrective action (most common: "Delivery
+          // address too short \u2014 paste full street/city/zip").
+          var _errText = d.error || 'Failed';
+          var _short = _errText.length > 60 ? _errText.slice(0,57) + '...' : _errText;
+          if (valEl) valEl.innerHTML = '<span style="color:#f85149" title="' + _errText + '">\u274C ' + _short + '</span>';
         }
       }).catch(function() {
         if (valEl) valEl.innerHTML = '<span style="color:#f85149">Network error</span>';
