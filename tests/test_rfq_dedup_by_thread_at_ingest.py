@@ -24,9 +24,9 @@ import pytest
 
 
 def _temp_db_with_rfqs_schema(tmp_path: Path) -> Path:
-    """Build a minimal SQLite file matching the rfqs columns the
-    helper reads. Hermetic — no dependency on init_db (which would
-    bring up half the app)."""
+    """Build a minimal SQLite file matching the columns the dedup
+    helpers read from `rfqs` AND `price_checks`. Hermetic — no
+    dependency on init_db."""
     db_path = tmp_path / "test.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute("""
@@ -43,9 +43,35 @@ def _temp_db_with_rfqs_schema(tmp_path: Path) -> Path:
             email_thread_id TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE price_checks (
+            id TEXT PRIMARY KEY,
+            pc_number TEXT,
+            agency TEXT,
+            institution TEXT,
+            status TEXT,
+            created_at TEXT,
+            sent_at TEXT,
+            closed_at TEXT,
+            email_thread_id TEXT
+        )
+    """)
     conn.commit()
     conn.close()
     return db_path
+
+
+def _insert_pc(db_path: Path, **fields):
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    cols = ", ".join(fields.keys())
+    placeholders = ", ".join("?" * len(fields))
+    conn.execute(
+        f"INSERT INTO price_checks ({cols}) VALUES ({placeholders})",
+        tuple(fields.values()),
+    )
+    conn.commit()
+    conn.close()
 
 
 def _insert_rfq(db_path: Path, **fields):
@@ -199,6 +225,38 @@ def test_agency_mismatch_excludes_match(isolated_db):
     )
     from src.core.ingest_pipeline import _find_active_rfq_by_thread
     assert _find_active_rfq_by_thread("thread_shared", agency="cchcs") is None
+
+
+def test_pc_side_thread_dedup_finds_active_match(isolated_db):
+    """PC-side parity: `_find_active_record_by_thread("pc", ...)`
+    catches buyer-reply ghosts on RT-synthesized pc_numbers — exactly
+    the live class Mike hit on Mohammad@CDCR 2026-05-13 (two pc rows
+    with RT-CCHCS-260513-* sol#s spawned from the e02b7fa6 thread)."""
+    from src.core.ingest_pipeline import _find_active_record_by_thread
+    _insert_pc(
+        isolated_db,
+        id="pc_canonical",
+        pc_number="10846357",
+        agency="cchcs",
+        institution="CCHCS",
+        status="sent",
+        created_at=datetime.now().isoformat(),
+        email_thread_id="thread_mohammad",
+    )
+    hit = _find_active_record_by_thread("pc", "thread_mohammad", agency="cchcs")
+    assert hit is not None
+    assert hit["id"] == "pc_canonical"
+    assert hit["status"] == "sent"
+
+
+def test_record_type_must_be_pc_or_rfq(isolated_db):
+    """Defensive: the consolidated helper accepts only "pc" or "rfq"
+    as record_type. Any other value (typo, future record type that
+    doesn't share the schema) returns None safely."""
+    from src.core.ingest_pipeline import _find_active_record_by_thread
+    assert _find_active_record_by_thread("quote", "thread_x") is None
+    assert _find_active_record_by_thread("", "thread_x") is None
+    assert _find_active_record_by_thread("orders", "thread_x") is None
 
 
 def test_empty_agency_on_either_side_still_matches(isolated_db):
