@@ -202,6 +202,59 @@ def test_heal_skips_terminal_records(auth_client, temp_data_dir, monkeypatch):
     assert pc["tax_rate"] == 0
 
 
+def test_heal_rfq_mutations_persist_across_alias_sync(auth_client, temp_data_dir, monkeypatch):
+    """PR-AL hotfix regression. Pre-fix, RFQ heal mutations were lost
+    because `_save_single_rfq`'s alias-sync (data_layer.py:315-319)
+    overwrote the mutated `items` list with a clean copy of the
+    unmutated `line_items` list. After fix: both keys are pinned to
+    the same mutated list before save, so the alias-sync becomes
+    a no-op shallow copy.
+
+    Simulates the exact failure mode Mike hit on rfq_4a723a40:
+    3 consecutive real-runs all reported 22 items enriched, but a
+    detail-page walk showed 0 🔮 Oracle badges. The 22 items_enriched
+    count was real (`_stamped=True` inside the heal loop) but the
+    save's alias-sync clobbered the mutations.
+    """
+    _patch_enrichment(monkeypatch)
+    rid = "rfq_alias_clobber_test"
+    # Seed with the EXACT shape json deserialization produces:
+    # items + line_items as TWO SEPARATE lists (same content) — the
+    # shape that triggered the pre-fix clobber.
+    items_a = [{"description": "widget A", "qty": 1, "uom": "EA"}]
+    items_b = [{"description": "widget A", "qty": 1, "uom": "EA"}]
+    rfq = {
+        "id": rid, "rfq_number": "TEST-ALIAS", "status": "parsed",
+        "agency": "cchcs", "institution": "CSP-SAC",
+        "ship_to": "100 Prison Rd, Coalinga, CA 93210",
+        "tax_rate": 8.975,  # already resolved so heal only does items
+        "items": items_a,
+        "line_items": items_b,  # SEPARATE list with same content
+    }
+    from src.api.dashboard import _save_single_rfq, load_rfqs
+    _save_single_rfq(rid, rfq)
+    # First heal run — should enrich the 1 item
+    r1 = auth_client.post("/api/admin/heal-ingest-enrichment",
+                            json={"dry_run": False}).get_json()
+    assert r1["items_enriched"] >= 1
+    # Re-load from disk (NOT the in-memory rfq dict we seeded)
+    loaded = load_rfqs().get(rid, {})
+    line_items = loaded.get("line_items") or loaded.get("items") or []
+    assert len(line_items) == 1
+    # CRITICAL: the mutation must persist across the load → mutate →
+    # save → reload cycle. Pre-fix this was None/empty because the
+    # alias-sync clobbered it.
+    assert line_items[0].get("auto_priced_at_ingest") is True
+    assert line_items[0].get("catalog_cost") == 9.99
+    assert line_items[0].get("supplier") == "TestSupplier"
+    # Second run should report 0 items enriched (true idempotency
+    # now that mutations persist)
+    r2 = auth_client.post("/api/admin/heal-ingest-enrichment",
+                            json={"dry_run": False}).get_json()
+    # rid no longer appears in summary because nothing to enrich
+    assert rid not in r2.get("summary", {}) or r2["summary"][rid].get("items_enriched", 0) == 0
+
+
 def test_heal_is_idempotent(auth_client, temp_data_dir, monkeypatch):
     """Running heal twice → second run reports zero changes; disk
     state matches first run output."""

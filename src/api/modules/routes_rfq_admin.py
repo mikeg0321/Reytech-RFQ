@@ -4393,6 +4393,27 @@ def api_heal_ingest_enrichment():
                         _it["auto_priced_at_ingest"] = True
                         _it["auto_price_at"] = _now
                     items_enriched += 1
+        # PR-AL hotfix (2026-05-14): force alias-parity BEFORE save.
+        # data_layer._save_single_rfq:315-319 runs `r["items"] =
+        # list(r["line_items"])` (and vice versa) on every save to
+        # keep the SQL `items` column in lockstep with the data_json
+        # blob. Pre-fix, on a record where r["items"] and
+        # r["line_items"] came back from json deserialization as
+        # SEPARATE lists with same content (typical of round-tripped
+        # records), our heal mutated `_items` (whichever the `or`
+        # picked) but the save-time alias-sync then OVERWROTE r["items"]
+        # with the unmutated r["line_items"]. Result: 22 items reported
+        # enriched per run but ZERO persisted across runs (Mike's
+        # diagnostic — 3 identical heal responses in a row + no 🔮
+        # badges visible on rfq_4a723a40). The fix: explicitly pin
+        # both keys to the SAME mutated list so the alias-sync
+        # becomes a list(_items) shallow-copy of THE mutated list
+        # rather than the unmutated peer.
+        if not dry_run and items_enriched > 0 and isinstance(_items, list):
+            if "items" in r:
+                r["items"] = _items
+            if "line_items" in r:
+                r["line_items"] = _items
         return (tax_resolved, items_enriched)
 
     summary = {}
