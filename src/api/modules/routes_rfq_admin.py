@@ -4315,19 +4315,56 @@ def api_heal_ingest_enrichment():
         _now = _dt2.now().isoformat()
 
     def _heal_record(rid, r):
-        """Returns (tax_resolved_bool, items_enriched_count)."""
+        """Returns (tax_resolved_bool, items_enriched_count, ship_to_filled_bool)."""
         tax_resolved = False
         items_enriched = 0
+        ship_to_filled = False
 
         # Skip terminal records.
         _status = (r.get("status") or "").strip().lower()
         if _status in TERMINAL:
-            return (False, 0)
+            return (False, 0, False)
+
+        # ── PR-AM (2026-05-14): canonical ship_to fallback ──
+        # When the existing ship_to is missing or too short to parse
+        # (the 4 ⚠ DEFAULT records Mike saw on /home all had
+        # ship_to="CA" — 2 chars, tax_for_address skips), fall back
+        # to facility_registry.resolve(institution) → canonical
+        # address. Same logic PR-AI uses in _create_record at
+        # ingest. Skips if no institution OR registry can't resolve
+        # (agency codes like "cchcs"/"calvet" are agencies, not
+        # facilities — those records genuinely need operator-typed
+        # ship_to before tax can resolve).
+        _ship_to = (r.get("ship_to") or "").strip()
+        if not _ship_to or len(_ship_to) <= 3:
+            try:
+                from src.core.facility_registry import resolve as _resolve_facility
+                _raw_inst = (
+                    r.get("institution", "")
+                    or r.get("agency", "")
+                    or ""
+                ).strip()
+                if _raw_inst:
+                    _fac = _resolve_facility(_raw_inst)
+                    if _fac:
+                        _canonical_ship_to = f"{_fac.address_line1}, {_fac.address_line2}"
+                        if _canonical_ship_to.strip(", ") and len(_canonical_ship_to) > 3:
+                            if not dry_run:
+                                r["ship_to"] = _canonical_ship_to
+                                # Pin canonical institution code too —
+                                # converts free-form "CSP-Sacramento" /
+                                # variants to the registry's stable code.
+                                r["institution"] = _fac.code
+                            _ship_to = _canonical_ship_to
+                            ship_to_filled = True
+                            log.info("heal: ship_to filled from facility_registry for %s: %s → %r",
+                                     rid, _raw_inst, _canonical_ship_to[:60])
+            except Exception as _fe:
+                log.debug("heal: facility-registry fallback %s failed: %s", rid, _fe)
 
         # ── Auto-tax (PR-AI logic) ──
         _cur_rate = float(r.get("tax_rate") or 0)
         if _cur_rate <= 0:
-            _ship_to = (r.get("ship_to") or "").strip()
             if _ship_to and len(_ship_to) > 3:
                 try:
                     _tax = tax_for_address(_ship_to) or {}
@@ -4414,21 +4451,25 @@ def api_heal_ingest_enrichment():
                 r["items"] = _items
             if "line_items" in r:
                 r["line_items"] = _items
-        return (tax_resolved, items_enriched)
+        return (tax_resolved, items_enriched, ship_to_filled)
 
     summary = {}
     total_tax = 0
     total_items = 0
+    total_ship_to = 0
 
     # PCs
     pcs = _load_price_checks() or {}
     for pcid, pc in list(pcs.items()):
-        tax_r, items_e = _heal_record(pcid, pc)
-        if tax_r or items_e:
+        tax_r, items_e, ship_f = _heal_record(pcid, pc)
+        if tax_r or items_e or ship_f:
             summary[pcid] = {"type": "pc", "tax_resolved": tax_r,
-                             "items_enriched": items_e}
+                             "items_enriched": items_e,
+                             "ship_to_filled": ship_f}
             if tax_r:
                 total_tax += 1
+            if ship_f:
+                total_ship_to += 1
             total_items += items_e
             if not dry_run:
                 _save_single_pc(pcid, pc)
@@ -4436,12 +4477,15 @@ def api_heal_ingest_enrichment():
     # RFQs
     rfqs = load_rfqs() or {}
     for rid, r in list(rfqs.items()):
-        tax_r, items_e = _heal_record(rid, r)
-        if tax_r or items_e:
+        tax_r, items_e, ship_f = _heal_record(rid, r)
+        if tax_r or items_e or ship_f:
             summary[rid] = {"type": "rfq", "tax_resolved": tax_r,
-                            "items_enriched": items_e}
+                            "items_enriched": items_e,
+                            "ship_to_filled": ship_f}
             if tax_r:
                 total_tax += 1
+            if ship_f:
+                total_ship_to += 1
             total_items += items_e
             if not dry_run:
                 _save_single_rfq(rid, r)
@@ -4454,6 +4498,7 @@ def api_heal_ingest_enrichment():
         "ok": True,
         "dry_run": dry_run,
         "records_processed": len(summary),
+        "ship_to_filled": total_ship_to,
         "tax_resolved": total_tax,
         "items_enriched": total_items,
         "summary": summary,

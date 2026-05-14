@@ -255,6 +255,54 @@ def test_heal_rfq_mutations_persist_across_alias_sync(auth_client, temp_data_dir
     assert rid not in r2.get("summary", {}) or r2["summary"][rid].get("items_enriched", 0) == 0
 
 
+def test_heal_v2_fills_ship_to_from_facility_registry(auth_client, temp_data_dir, monkeypatch):
+    """PR-AM (2026-05-14): when a record's ship_to is empty/short
+    (the operator-typed-only-'CA' pattern Mike hit on 4 prod queue
+    records), heal must fall back to facility_registry.resolve(
+    institution) → canonical ship_to → tax_for_address. Same logic
+    PR-AI uses at fresh-ingest in _create_record."""
+    _patch_enrichment(monkeypatch)
+
+    class _FakeFac:
+        code = "CSP-SAC"
+        address_line1 = "100 Prison Road"
+        address_line2 = "Represa, CA 95671"
+
+    monkeypatch.setattr(
+        "src.core.facility_registry.resolve",
+        lambda inst: _FakeFac() if (inst or "").strip().upper().startswith("CSP") else None,
+    )
+    _seed_pc("pc_heal_facreg", ship_to="CA",  # 2 chars — too short
+             institution="CSP-SAC")
+    resp = auth_client.post("/api/admin/heal-ingest-enrichment",
+                              json={"dry_run": False})
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["ship_to_filled"] >= 1
+    assert body["tax_resolved"] >= 1
+    pc = _load_pc("pc_heal_facreg")
+    assert pc["ship_to"] == "100 Prison Road, Represa, CA 95671"
+    assert pc["institution"] == "CSP-SAC"
+    # Now tax resolved on the canonical address
+    assert pc["tax_rate"] == 8.975
+    assert pc["tax_source"] == "cdtfa_api"
+
+
+def test_heal_v2_skips_ship_to_when_facility_unresolvable(auth_client, temp_data_dir, monkeypatch):
+    """Records with agency-only institution codes (cchcs / calvet) —
+    facility_registry returns None. Heal leaves ship_to empty so the
+    operator can type it manually; the existing ⚠ DEFAULT warning
+    surfaces correctly."""
+    _patch_enrichment(monkeypatch)
+    monkeypatch.setattr("src.core.facility_registry.resolve", lambda inst: None)
+    _seed_pc("pc_heal_facreg_miss", ship_to="CA", institution="cchcs")
+    auth_client.post("/api/admin/heal-ingest-enrichment",
+                       json={"dry_run": False})
+    pc = _load_pc("pc_heal_facreg_miss")
+    assert pc["ship_to"] == "CA"  # untouched
+    assert pc.get("tax_rate") in (0, None)
+
+
 def test_heal_is_idempotent(auth_client, temp_data_dir, monkeypatch):
     """Running heal twice → second run reports zero changes; disk
     state matches first run output."""
