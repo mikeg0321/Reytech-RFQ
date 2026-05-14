@@ -281,26 +281,79 @@ def rfq_update_status(rid):
 
 
 def _save_manual_attachment(rid: str, file_storage) -> dict:
-    """Persist an uploaded attachment into `uploads/manual_sent/` and return
-    `{filename, path, size}`. Returns {} on no-file or save failure."""
+    """Persist an uploaded attachment to BOTH `uploads/manual_sent/`
+    (legacy filesystem path; metadata pointer for backwards compat)
+    AND the `rfq_files` BLOB store (durable across redeploys, ships to
+    Google Drive via the existing backup hook). Returns
+    `{filename, path, size, rfq_files_id}`; empty dict on save failure.
+
+    PR mr-wolf #4d — Mike's directive 2026-05-13 EOD: "we have google
+    drive as a backup DB, should the app be saving attachments? we
+    only need to save for a year, storage getting cheaper, might be
+    good to capture everything for agentic use". Storage cost is
+    negligible (~1-2 GB/year at current bid volume); the data
+    becomes substrate for future agentic workflows (replay-bid,
+    audit-corpus, alternate-prior selection in mirror-fill).
+
+    Saves are independent — filesystem failure doesn't block BLOB
+    write, BLOB failure doesn't block filesystem write. The function
+    returns whichever succeeded so the caller's metadata reflects
+    reality.
+    """
     if not file_storage or not getattr(file_storage, "filename", ""):
         return {}
     fname = os.path.basename(file_storage.filename)
     # Strip path traversal; keep spaces and extensions.
     fname = re.sub(r"[\\\\/]", "_", fname)[:200] or "attachment.pdf"
+    out: dict = {"filename": fname}
+
+    # Read the bytes ONCE — `file_storage.save()` consumes the stream,
+    # and we need the bytes for both the filesystem AND BLOB write.
+    try:
+        file_storage.stream.seek(0)
+        blob = file_storage.stream.read()
+    except Exception as _re:
+        log.error("manual-sent: file_storage read failed for %s: %s", rid, _re)
+        return {}
+    if not blob:
+        return {}
+
+    # Filesystem write (legacy path; some operator tooling still reads
+    # from `uploads/manual_sent/`). Failure here is recoverable —
+    # the BLOB write below is the durable copy.
     dest_dir = os.path.join(UPLOAD_DIR, "manual_sent", rid)
     try:
         os.makedirs(dest_dir, exist_ok=True)
         dest = os.path.join(dest_dir, fname)
-        file_storage.save(dest)
-        return {
-            "filename": fname,
-            "path": dest,
-            "size": os.path.getsize(dest),
-        }
+        with open(dest, "wb") as _f:
+            _f.write(blob)
+        out["path"] = dest
+        out["size"] = len(blob)
     except OSError as e:
-        log.error("manual-sent attachment save failed for %s: %s", rid, e)
-        return {}
+        log.warning("manual-sent FS save degraded for %s: %s", rid, e)
+
+    # BLOB write — the durable copy. Goes to `rfq_files` with
+    # category='sent_artifact'. The nightly Drive backup picks up
+    # rfq_files BLOBs automatically, so this also lands the file on
+    # Mike's Google Drive without an additional integration.
+    try:
+        from src.api.dashboard import save_rfq_file
+        rfq_files_id = save_rfq_file(
+            rid, fname, "manual_sent_attachment", blob,
+            category="sent_artifact", uploaded_by="user",
+        )
+        out["rfq_files_id"] = rfq_files_id
+        # If FS write failed above, fall back to a synthetic path so
+        # legacy readers don't crash on `attachment["path"]` access.
+        out.setdefault("path", f"rfq_files://{rfq_files_id}")
+        out.setdefault("size", len(blob))
+    except Exception as _be:
+        log.warning("manual-sent BLOB save degraded for %s: %s", rid, _be)
+        # If BOTH writes failed we have nothing to return.
+        if "path" not in out:
+            return {}
+
+    return out
 
 
 @bp.route("/api/rfq/<rid>/mark-sent-manually", methods=["POST"])
@@ -481,15 +534,81 @@ def _api_rfq_mark_sent_manually_locked(rid):
     # find these priors and mirror-fill automatically. Fire-and-forget
     # — capture failures NEVER block the mark-sent flip.
     try:
-        from src.forms.prior_submissions import capture_from_rfq_generated_files
+        from src.forms.prior_submissions import (
+            capture_from_rfq_generated_files,
+            capture as _ps_capture,
+            _form_id_from_filename as _ps_form_id_from_filename,
+        )
+        from src.forms.form_registry import all_form_ids as _ps_all_form_ids
         _captured = capture_from_rfq_generated_files(
             rid,
             agency_key=(r.get("agency_key") or r.get("agency") or ""),
             source_quote_number=r.get("reytech_quote_number", ""),
         )
+
+        # PR mr-wolf #4d — ALSO capture the operator-uploaded
+        # attachment (what was ACTUALLY emailed) as a BLESSED prior.
+        # This is strictly more canonical than the auto-generated
+        # PDFs from rfq_files (which might have been hand-edited
+        # before send). The `_save_manual_attachment` upgrade earlier
+        # in this PR persisted the file to rfq_files with
+        # category='sent_artifact'; we read it back from the same
+        # blob and stamp it into prior_submissions with blessed=True
+        # so `latest_for` ranks it over any auto-generated peer.
+        try:
+            _manual_attachment = attachment if isinstance(attachment, dict) else {}
+            _manual_path = _manual_attachment.get("path") or ""
+            _manual_filename = _manual_attachment.get("filename") or ""
+            _known_forms = {f.lower(): f for f in _ps_all_form_ids()}
+            _manual_form_id = _ps_form_id_from_filename(_manual_filename, _known_forms)
+            # Resolve bytes — prefer the BLOB store (durable), fall back
+            # to filesystem path if BLOB write failed in _save_manual_attachment.
+            _manual_bytes = None
+            _manual_rfq_files_id = _manual_attachment.get("rfq_files_id")
+            if _manual_rfq_files_id:
+                try:
+                    from src.core.db import get_db as _ps_get_db
+                    with _ps_get_db() as _conn:
+                        _row = _conn.execute(
+                            "SELECT data FROM rfq_files WHERE id = ?",
+                            (_manual_rfq_files_id,),
+                        ).fetchone()
+                        if _row and _row["data"]:
+                            _manual_bytes = bytes(_row["data"])
+                except Exception as _ge:
+                    log.debug("prior_submissions: BLOB read for manual attachment failed: %s", _ge)
+            if _manual_bytes is None and _manual_path and os.path.exists(_manual_path):
+                with open(_manual_path, "rb") as _mf:
+                    _manual_bytes = _mf.read()
+
+            if _manual_bytes and _manual_form_id:
+                _blessed_id = _ps_capture(
+                    _manual_form_id, _manual_bytes,
+                    agency_key=(r.get("agency_key") or r.get("agency") or ""),
+                    source_rfq_id=rid,
+                    source_quote_number=r.get("reytech_quote_number", ""),
+                    filename=_manual_filename,
+                    blessed=True,
+                )
+                if _blessed_id:
+                    _captured += 1
+                    log.info(
+                        "prior_submissions BLESSED capture: rfq=%s form=%s "
+                        "filename=%s (operator-uploaded — supersedes auto-generated peer)",
+                        rid, _manual_form_id, _manual_filename,
+                    )
+            elif _manual_bytes and not _manual_form_id:
+                log.debug(
+                    "prior_submissions: manual attachment filename=%r "
+                    "did not match a known form_id — skipping blessed capture",
+                    _manual_filename,
+                )
+        except Exception as _bc_e:
+            log.debug("prior_submissions blessed-attachment capture suppressed: %s", _bc_e)
+
         if _captured:
             log.info(
-                "prior_submissions auto-capture: rfq=%s captured %d generated form(s)",
+                "prior_submissions auto-capture: rfq=%s captured %d form(s) total",
                 rid, _captured,
             )
     except Exception as _cap_e:
