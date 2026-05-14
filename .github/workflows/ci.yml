@@ -178,13 +178,18 @@ jobs:
           "
 
   # ─────────────────────────────────────────────────────────────────
-  # Fast test slice — runs on every PR. ~3 min.
+  # Fast test slice — runs on every PR. ~3 min historically; 2026-05-14
+  # bumped to 10min ceiling after PRs #998-#1000 consistently hit the
+  # 6-min hard kill (pip install slowness on Ubuntu mirrors compounded
+  # with growing test count). Local: 286 tests in ~61s; pip install
+  # ~2-3min on CI; checkout+setup ~30s. Real budget: ~4-5min. 10min
+  # is the safety net, not the goal.
   # Critical subset only: classifier + ingest + golden path +
   # package completeness. These catch the top regression classes.
   # ─────────────────────────────────────────────────────────────────
   tests-fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 10
     needs: gate-decision
     if: needs.gate-decision.outputs.run_fast == 'true' && needs.gate-decision.outputs.run_full != 'true'
     steps:
