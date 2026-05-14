@@ -1106,7 +1106,17 @@ def _pricecheck_detail_inner(pcid):
     # Pre-compute next quote number preview
     next_quote_preview = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
     
-    profit_summary_json = _json.dumps(pc.get("profit_summary"), default=str).replace("</", "<\\/") if pc.get("profit_summary") else "null"
+    # PR mr-wolf #3: profit summary is now a FRESH computed view, not a
+    # cached snapshot. Was `pc.get("profit_summary")` — went stale on
+    # every cost edit between saves and forced the operator to refresh
+    # the page to see correct margin. Now reads through the canonical
+    # `profit_summary_of` (which uses `cost_from_contract` for cost
+    # priority), so a GET on the PC detail page reflects current items
+    # regardless of when the cache was last written.
+    from src.core.pricing_math import profit_summary_of as _profit_summary_of
+    _pc_items_for_summary = pc.get("items") or pc.get("parsed_items") or []
+    _fresh_summary = _profit_summary_of(_pc_items_for_summary)
+    profit_summary_json = _json.dumps(_fresh_summary, default=str).replace("</", "<\\/") if _fresh_summary.get("total_items") else "null"
     # Build pipeline status tracker — simplified to 3 steps
     _status = pc.get('status', 'new')
     _display_map = {
@@ -2298,75 +2308,23 @@ def _do_save_prices_locked(pcid):
                  it.get("unit_price") or it.get("pricing", {}).get("recommended_price"),
                  (it.get("item_link") or "")[:40])
 
-    # Compute PC-level profit summary — always kept current
-    total_revenue = 0
-    total_cost = 0
-    total_profit = 0
-    total_landed_cost = 0
-    costed_items = 0
-    # Discount-scenario aggregates: when an item has a sale price < MSRP, the
-    # MSRP is the conservative cost basis but the discount profit shows what
-    # we'd actually clear if the discount holds at PO time. Mike's directive
-    # 2026-04-19: surface both numbers so we don't accidentally bid against
-    # an MSRP and lose the discount upside.
-    total_discount_cost = 0
-    total_discount_profit = 0
-    discount_items = 0
-    for it in items:
-        if it.get("no_bid"):
-            continue
-        up = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
-        vc = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
-        qty = it.get("qty", 1) or 1
-        total_revenue += up * qty
-        if vc:
-            total_cost += vc * qty
-            total_profit += (up - vc) * qty
-            costed_items += 1
-            # Landed cost for true margin
-            _sup = it.get("item_supplier", "")
-            if _sup:
-                try:
-                    from src.core.db import calc_landed_cost
-                    _lc = calc_landed_cost(vc, qty, _sup)
-                    total_landed_cost += _lc["landed_cost"] * qty
-                except Exception:
-                    total_landed_cost += vc * qty
-            else:
-                total_landed_cost += vc * qty
-        # Discount scenario — only items where lookup_prices() recorded a
-        # distinct sale_price. Falls back to MSRP cost if no discount.
-        _pricing = it.get("pricing", {}) or {}
-        _sale = _pricing.get("amazon_sale_price")
-        _list = _pricing.get("amazon_list_price")
-        if up and _sale and _list and _sale < _list:
-            total_discount_cost += _sale * qty
-            total_discount_profit += (up - _sale) * qty
-            discount_items += 1
-        elif up and vc:
-            total_discount_cost += vc * qty
-            total_discount_profit += (up - vc) * qty
-    true_profit = total_revenue - total_landed_cost
-    _summary = {
-        "total_revenue":    round(total_revenue, 2),
-        "total_cost":       round(total_cost, 2),
-        "gross_profit":     round(total_profit, 2),
-        "margin_pct":       round(total_profit / total_revenue * 100, 1) if total_revenue else 0,
-        "total_landed_cost": round(total_landed_cost, 2),
-        "true_profit":      round(true_profit, 2),
-        "true_margin_pct":  round(true_profit / total_revenue * 100, 1) if total_revenue else 0,
-        "costed_items":     costed_items,
-        "total_items":      len([i for i in items if not i.get("no_bid")]),
-        "fully_costed":     costed_items == len([i for i in items if not i.get("no_bid")]),
-    }
-    if discount_items > 0:
-        _summary["discount_items"] = discount_items
-        _summary["discount_total_cost"] = round(total_discount_cost, 2)
-        _summary["discount_gross_profit"] = round(total_discount_profit, 2)
-        _summary["discount_margin_pct"] = (
-            round(total_discount_profit / total_revenue * 100, 1) if total_revenue else 0
-        )
-        _summary["discount_profit_note"] = "if discount holds for profit calculation"
+    # PC-level profit summary — computed via the canonical reader.
+    # PR mr-wolf #3 (Pattern 2 closure): was 70+ lines of inline math
+    # with a local `vendor_cost or pricing.unit_cost` chain that
+    # ignored supplier_cost (operator-typed RFQ cost). Now routes
+    # through `profit_summary_of` which uses `cost_from_contract`
+    # priority. The cache write stays for historical analytics on
+    # won-bid records (the routes_analytics.py SQL query reads
+    # `json_extract(data_json, '$.profit_summary.margin_pct')`), but
+    # operational readers have all migrated to compute fresh — the
+    # cache is no longer a source of operational truth, just a
+    # historical snapshot at save time.
+    from src.core.pricing_math import profit_summary_of as _profit_summary_of
+    try:
+        from src.core.db import calc_landed_cost as _calc_landed_cost
+        _summary = _profit_summary_of(items, landed_cost_fn=_calc_landed_cost)
+    except Exception:
+        _summary = _profit_summary_of(items)
     pc["profit_summary"] = _summary
 
     # Sync all aliases atomically. This is the exact path the 2026-05-05
@@ -2571,7 +2529,13 @@ def _do_save_prices_locked(pcid):
     pc["last_save_seq"] = (pc.get("last_save_seq") or 0) + 1
     _save_single_pc(pcid, pc)
 
-    summary = pc.get("profit_summary", {})
+    # PR mr-wolf #3: fresh summary from items, not the cached field.
+    # This is the save-prices response — the client immediately renders
+    # this into the profit panel. The cache write above is kept for the
+    # historical analytics SQL query, but the operational response goes
+    # through the canonical computed view.
+    from src.core.pricing_math import profit_summary_of as _profit_summary_of_save
+    summary = _profit_summary_of_save(pc.get("items") or [])
     resp = {
         "ok": True,
         "profit_summary": summary,
