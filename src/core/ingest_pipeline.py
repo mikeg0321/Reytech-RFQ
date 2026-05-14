@@ -2276,6 +2276,46 @@ def _create_record(
     except Exception as _ape:
         log.debug("attachment persistence skipped: %s", _ape)
 
+    # ── PR-AO (2026-05-14): attachment-deadline upgrade at ingest ────
+    # When the save above stamped `due_date_source = "default"` because
+    # neither header nor email subject nor email body carried a parsable
+    # deadline, scan the buyer's attached PDF(s) for one before we leave
+    # ingest. Many CalVet / CCHCS RFP cover pages state the deadline in
+    # the PDF text ("Due By: 5/13/26") that the parser ignored — the
+    # buyer just writes "see attached" in the body.
+    #
+    # Uses pdfplumber + the same regex extractor as body/subject, so the
+    # detection surface is consistent across all three sources. New
+    # source value is "attachment" and the audit field `due_date_attachment`
+    # pins which file yielded the hit. No-op when source is anything other
+    # than "default" (header/subject/email/attachment wins stay put).
+    try:
+        if (record.get("due_date_source") or "").lower() == "default":
+            _pdf_paths = [
+                p for p in (all_paths or ([primary_path] if primary_path else []))
+                if p and p.lower().endswith(".pdf")
+            ]
+            if _pdf_paths:
+                from src.core.deadline_defaults import apply_attachment_if_default
+                _upgrade = apply_attachment_if_default(record, _pdf_paths)
+                if _upgrade == "attachment":
+                    log.info(
+                        "auto-deadline at ingest: upgraded %s default → "
+                        "attachment (%s) from %s",
+                        record["id"],
+                        record.get("due_date"),
+                        record.get("due_date_attachment"),
+                    )
+                    # Re-save with the upgraded deadline.
+                    if record_type == "pc":
+                        from src.api.dashboard import _save_single_pc
+                        _save_single_pc(record["id"], record)
+                    else:
+                        from src.api.dashboard import _save_single_rfq
+                        _save_single_rfq(record["id"], record)
+    except Exception as _ade:
+        log.debug("attachment-deadline upgrade skipped: %s", _ade)
+
     # Fire-and-forget: refresh web MSRP for any catalog-matched items
     # whose price is stale. Scoped to just THIS record's items — no full-
     # catalog sweep, no scheduled cron. By the time the operator opens

@@ -4535,3 +4535,171 @@ def api_heal_ingest_enrichment():
         "items_enriched": total_items,
         "summary": summary,
     })
+
+
+@bp.route("/api/admin/heal-due-dates", methods=["POST"])
+@auth_required
+@safe_route
+def api_heal_due_dates():
+    """PR-AO retroactive backfill — upgrade `due_date_source == "default"`
+    records by scanning their stored buyer-attachment PDFs for a parsable
+    deadline.
+
+    For every active (non-terminal) PC and RFQ whose due_date_source is
+    `default`, this:
+      1. Lists rfq_files for category="buyer_attachment" (PR-A persistence)
+      2. Writes each PDF BLOB to a temp file
+      3. Runs `extract_deadline_from_pdf` (pdfplumber text + regex)
+      4. On first hit: stamps due_date, due_time, due_date_source=
+         "attachment", due_date_attachment=filename + saves
+
+    Body: {"dry_run": true} (default true) returns what WOULD upgrade
+    without mutating. {"dry_run": false} actually writes.
+
+    Safety: idempotent — re-running on an already-upgraded record is a
+    no-op because `apply_attachment_if_default` short-circuits when
+    source != "default". Records whose attachments don't yield a
+    deadline are left untouched (anchor never drifts).
+
+    Returns: {records_upgraded, records_scanned, dry_run, summary[rid → {date, attachment}]}
+    """
+    body = request.get_json(silent=True) or {}
+    dry_run = bool(body.get("dry_run", True))
+
+    TERMINAL = {"sent", "won", "lost", "expired", "no_response",
+                "dismissed", "archived", "duplicate"}
+
+    from src.api.dashboard import (
+        _load_price_checks, _save_single_pc,
+        load_rfqs, _save_single_rfq,
+        list_rfq_files,
+    )
+    from src.core.attachment_deadline import extract_deadline_from_pdf
+
+    import tempfile
+    import os as _os
+
+    def _scan_one(rid: str, r: dict) -> dict:
+        """Returns {'upgraded': bool, 'date': str|None, 'attachment': str|None}."""
+        _status = (r.get("status") or "").strip().lower()
+        if _status in TERMINAL:
+            return {"upgraded": False, "date": None, "attachment": None}
+        if (r.get("due_date_source") or "").lower() != "default":
+            return {"upgraded": False, "date": None, "attachment": None}
+
+        # PR-A buyer attachments live in rfq_files under
+        # category="buyer_attachment". The legacy category="source"
+        # is also valid for older records.
+        files = list_rfq_files(rid, category="buyer_attachment") or []
+        if not files:
+            files = list_rfq_files(rid, category="source") or []
+        if not files:
+            return {"upgraded": False, "date": None, "attachment": None}
+
+        # Iterate files; first PDF that yields a deadline wins.
+        for f in files:
+            fname = f.get("filename") or ""
+            if not fname.lower().endswith(".pdf"):
+                continue
+            file_id = f.get("id")
+            if not file_id:
+                continue
+            # Pull BLOB
+            try:
+                from src.core.db import get_db
+                with get_db() as conn:
+                    row = conn.execute(
+                        "SELECT data FROM rfq_files WHERE id = ?", (file_id,)
+                    ).fetchone()
+            except Exception as _de:
+                log.debug("heal-due-dates: BLOB read %s/%s failed: %s",
+                          rid, file_id, _de)
+                continue
+            if not row or not row["data"]:
+                continue
+            # Write to temp file for pdfplumber
+            try:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".pdf", delete=False
+                ) as tf:
+                    tf.write(row["data"])
+                    tmp_path = tf.name
+            except Exception as _we:
+                log.debug("heal-due-dates: tempfile %s failed: %s", rid, _we)
+                continue
+            try:
+                date_iso, time_str = extract_deadline_from_pdf(tmp_path)
+            except Exception as _ee:
+                log.debug("heal-due-dates: extract %s failed: %s", rid, _ee)
+                date_iso, time_str = None, None
+            finally:
+                try:
+                    _os.unlink(tmp_path)
+                except Exception:
+                    pass
+            if date_iso:
+                if not dry_run:
+                    r["due_date"] = date_iso
+                    if time_str:
+                        r["due_time"] = time_str
+                    r["due_date_source"] = "attachment"
+                    r["due_date_attachment"] = fname
+                return {"upgraded": True, "date": date_iso, "attachment": fname}
+
+        return {"upgraded": False, "date": None, "attachment": None}
+
+    summary = {}
+    scanned = 0
+    upgraded_count = 0
+
+    # PCs
+    pcs = _load_price_checks() or {}
+    for pcid, pc in list(pcs.items()):
+        _status = (pc.get("status") or "").strip().lower()
+        if _status in TERMINAL:
+            continue
+        if (pc.get("due_date_source") or "").lower() != "default":
+            continue
+        scanned += 1
+        res = _scan_one(pcid, pc)
+        if res["upgraded"]:
+            summary[pcid] = {
+                "type": "pc",
+                "date": res["date"],
+                "attachment": res["attachment"],
+            }
+            upgraded_count += 1
+            if not dry_run:
+                _save_single_pc(pcid, pc)
+
+    # RFQs
+    rfqs = load_rfqs() or {}
+    for rid, r in list(rfqs.items()):
+        _status = (r.get("status") or "").strip().lower()
+        if _status in TERMINAL:
+            continue
+        if (r.get("due_date_source") or "").lower() != "default":
+            continue
+        scanned += 1
+        res = _scan_one(rid, r)
+        if res["upgraded"]:
+            summary[rid] = {
+                "type": "rfq",
+                "date": res["date"],
+                "attachment": res["attachment"],
+            }
+            upgraded_count += 1
+            if not dry_run:
+                _save_single_rfq(rid, r)
+
+    log.info(
+        "heal-due-dates: dry_run=%s scanned=%d upgraded=%d",
+        dry_run, scanned, upgraded_count,
+    )
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "records_scanned": scanned,
+        "records_upgraded": upgraded_count,
+        "summary": summary,
+    })

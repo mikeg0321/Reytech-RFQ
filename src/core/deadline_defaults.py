@@ -199,6 +199,60 @@ def apply_default_if_missing(doc: dict, email_body: str | None = None) -> str | 
     return source
 
 
+def apply_attachment_if_default(
+    doc: dict,
+    pdf_paths,
+) -> str | None:
+    """PR-AO: upgrade `default` to `attachment` when a PDF carries the deadline.
+
+    Runs AFTER `apply_default_if_missing` has decided the source is
+    `default`. Scans each PDF in `pdf_paths` via pdfplumber + the same
+    regex extractor used on email body/subject; the first hit wins.
+
+    When a deadline is found:
+      - Overwrites doc["due_date"] / doc["due_time"]
+      - Stamps doc["due_date_source"] = "attachment"
+      - Stamps doc["due_date_attachment"] = matched filename (audit)
+      - Returns "attachment"
+    When no PDF yields a deadline:
+      - Leaves the record untouched (default anchor stays)
+      - Returns None
+
+    Idempotent: if the current source is anything OTHER than `default`
+    (header/subject/email/attachment), this is a no-op — we never
+    DOWNGRADE a higher-trust source, and we never re-scan a record
+    whose attachment we already extracted from.
+
+    `pdf_paths` is an iterable of absolute filesystem paths. Caller
+    is responsible for resolving paths off the `rfq_files` table OR
+    the in-process `_source_attachment` paths at ingest time.
+    """
+    if not isinstance(doc, dict):
+        return None
+    cur_source = (doc.get("due_date_source") or "").lower()
+    if cur_source != "default":
+        return None
+    try:
+        from src.core.attachment_deadline import extract_deadline_from_paths
+    except Exception as e:
+        log.debug("attachment_deadline import failed: %s", e)
+        return None
+    try:
+        date_iso, time_str, fname = extract_deadline_from_paths(pdf_paths)
+    except Exception as e:
+        log.debug("attachment-deadline extract failed: %s", e)
+        return None
+    if not date_iso:
+        return None
+    doc["due_date"] = date_iso
+    if time_str:
+        doc["due_time"] = time_str
+    doc["due_date_source"] = "attachment"
+    if fname:
+        doc["due_date_attachment"] = fname
+    return "attachment"
+
+
 def re_resolve_default(doc: dict) -> str | None:
     """Re-run deadline resolution on a record currently stamped `default`.
 
