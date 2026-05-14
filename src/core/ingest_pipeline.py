@@ -1859,6 +1859,82 @@ def _create_record(
         except Exception as _tax_e:
             log.debug("auto-tax at ingest suppressed: %s", _tax_e)
 
+    # ── PR-AJ (2026-05-14): auto-price reference fields at ingest ───
+    # Mike's funnel: pre-fix every ingested item landed with empty
+    # catalog_cost / supplier / source_url / asin / confidence, forcing
+    # the operator to engage with each row (Oracle lookup, URL paste,
+    # supplier scrape) before they could even SEE the cost basis. This
+    # hook calls `recommend_for_item()` (the canonical flat-shape
+    # Oracle adapter at src/core/pricing_oracle_v2.py:550) per item
+    # and stamps the REFERENCE fields. Unit_cost is left UNSET — that
+    # is the operator's explicit decision per Mike's standing rule
+    # ("operator-typed cost is sacred"; see PR-AC URL-paste protection
+    # + the 3x sanity guard in Quote.set_price). The operator confirms
+    # in one click instead of typing cost basis from scratch.
+    #
+    # Surfaces an `auto_priced_at_ingest` flag + `auto_price_at`
+    # timestamp on each enriched item so the operator UI can show a
+    # subtle badge ("Oracle suggested cost") and the audit trail
+    # carries provenance. Reads via legacy item dict keys to stay
+    # in lock-step with how downstream consumers (renderer, save
+    # path, autosave) already consume items.
+    #
+    # Defensive: per-item failure is logged and skipped — that item
+    # lands with empty reference fields (existing operator path).
+    # Total enrichment failure (Oracle import error) is also logged
+    # and the whole hook becomes a no-op. Ingest NEVER blocks on
+    # auto-pricing.
+    if items:
+        try:
+            from src.core.pricing_oracle_v2 import recommend_for_item
+            _auto_priced_count = 0
+            for _it in items:
+                if not isinstance(_it, dict):
+                    continue
+                _desc = (_it.get("description") or "").strip()
+                if not _desc:
+                    continue
+                # Skip items that already carry operator-confirmed
+                # cost — don't clobber prior pricing on re-ingest.
+                if _it.get("unit_cost") or _it.get("supplier_cost"):
+                    continue
+                try:
+                    _rec = recommend_for_item(
+                        description=_desc,
+                        part_number=str(_it.get("part_number") or _it.get("item_number") or ""),
+                        qty=float(_it.get("quantity") or _it.get("qty") or 1) or 1,
+                        upc=str(_it.get("upc") or ""),
+                    )
+                except Exception as _ie:
+                    log.debug("auto-price per-item failed for %r: %s", _desc[:40], _ie)
+                    continue
+                if not _rec:
+                    continue
+                _stamped = False
+                # Reference fields — only fill blanks, never overwrite.
+                if not _it.get("catalog_cost") and _rec.get("catalog_cost"):
+                    _it["catalog_cost"] = _rec["catalog_cost"]; _stamped = True
+                if not _it.get("supplier") and _rec.get("supplier"):
+                    _it["supplier"] = _rec["supplier"]; _stamped = True
+                if not _it.get("source_url") and _rec.get("source_url"):
+                    _it["source_url"] = _rec["source_url"]; _stamped = True
+                if not _it.get("asin") and _rec.get("asin"):
+                    _it["asin"] = _rec["asin"]; _stamped = True
+                if _it.get("confidence") in (None, 0, 0.0) and _rec.get("confidence") is not None:
+                    _it["confidence"] = float(_rec["confidence"]); _stamped = True
+                if _stamped:
+                    _it["auto_priced_at_ingest"] = True
+                    _it["auto_price_at"] = now
+                    _auto_priced_count += 1
+            if _auto_priced_count:
+                log.info(
+                    "auto-price at ingest: enriched %d/%d items with Oracle "
+                    "reference fields (record type=%s)",
+                    _auto_priced_count, len(items), record_type,
+                )
+        except Exception as _ape:
+            log.debug("auto-price at ingest suppressed (Oracle unavailable?): %s", _ape)
+
     # received_at = email arrival time when poller passed it through,
     # else ingest time. Stored as RFC822 string when from Gmail; downstream
     # readers already coerce both shapes.
