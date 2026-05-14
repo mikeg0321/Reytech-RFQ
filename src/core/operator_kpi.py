@@ -203,6 +203,67 @@ def _item_sent_price(item: dict) -> Optional[float]:
     return None
 
 
+def _synthesize_oracle_audit(item: dict, snapshot_at: str) -> Optional[dict]:
+    """PR-AR — build a minimal oracle_audit from existing item fields when
+    the canonical envelope is absent.
+
+    PR-AQ confirmed 0/235 sent items in prod carry `oracle_audit`. The
+    canonical writer (`_build_oracle_audit` in pc_rfq_reprice_adapter)
+    only fires inside `pc_enrichment_pipeline._run_pipeline` and
+    `oracle_pricer_for_line` — neither of which runs on the operator's
+    actual quote-pricing path (autosave / URL-paste / manual cost).
+
+    But the Oracle DID suggest a price somewhere along the way, and
+    that suggestion gets persisted under a handful of legacy fields:
+      - item["pricing"]["recommended_price"]
+      - item["pricing"]["oracle_price"]
+      - item["oracle_price"]
+
+    When any of those is set, synthesize:
+      {
+        rec_price: <oracle-suggested>,
+        rec_pre_cap_price: None,    # cap state wasn't captured
+        caps_applied: [],
+        scprs_rollup: None,
+        oracle_version: "synthesized_at_log",
+        snapshot_at: <log-time, not pricing-time>,
+      }
+
+    Returns None when no Oracle-suggested price is found. Drift logger
+    falls through to `skipped_no_audit` in that case (unchanged
+    behavior — we don't fabricate drift on a line the operator
+    never let Oracle touch).
+    """
+    if not isinstance(item, dict):
+        return None
+    pricing = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
+    rec_price = None
+    for source in (
+        pricing.get("recommended_price"),
+        pricing.get("oracle_price"),
+        item.get("oracle_price"),
+    ):
+        if source is None:
+            continue
+        try:
+            v = float(source)
+            if v > 0:
+                rec_price = v
+                break
+        except (TypeError, ValueError):
+            continue
+    if rec_price is None:
+        return None
+    return {
+        "rec_price": rec_price,
+        "rec_pre_cap_price": None,
+        "caps_applied": [],
+        "scprs_rollup": None,
+        "oracle_version": "synthesized_at_log",
+        "snapshot_at": snapshot_at,
+    }
+
+
 def log_operator_drift(
     quote_id: str,
     quote_type: str,
@@ -234,13 +295,21 @@ def log_operator_drift(
     rows: list[tuple] = []
     skipped_no_audit = 0
     skipped_no_price = 0
+    synthesized_count = 0
     for idx, it in enumerate(items):
         if not isinstance(it, dict):
             continue
         audit = it.get("oracle_audit") or {}
         if not isinstance(audit, dict) or not audit:
-            skipped_no_audit += 1
-            continue
+            # PR-AR — try to synthesize the audit envelope from existing
+            # Oracle-suggested price fields. If the operator never let
+            # Oracle touch this line, fall through to skipped_no_audit
+            # (unchanged behavior — no fabricated drift).
+            audit = _synthesize_oracle_audit(it, sent_at) or {}
+            if not audit:
+                skipped_no_audit += 1
+                continue
+            synthesized_count += 1
         sent = _item_sent_price(it)
         if sent is None:
             skipped_no_price += 1
@@ -285,7 +354,8 @@ def log_operator_drift(
     if not rows:
         return {"ok": True, "rows_logged": 0,
                 "skipped_no_audit": skipped_no_audit,
-                "skipped_no_price": skipped_no_price}
+                "skipped_no_price": skipped_no_price,
+                "synthesized_audits": synthesized_count}
 
     try:
         from src.core.db import get_db
@@ -301,13 +371,15 @@ def log_operator_drift(
             """, rows)
         log.info(
             "operator_drift: %s/%s logged %d/%d lines "
-            "(skipped: %d no audit, %d no price)",
+            "(skipped: %d no audit, %d no price, "
+            "synthesized: %d)",
             quote_type, quote_id, len(rows), len(items),
-            skipped_no_audit, skipped_no_price,
+            skipped_no_audit, skipped_no_price, synthesized_count,
         )
         return {"ok": True, "rows_logged": len(rows),
                 "skipped_no_audit": skipped_no_audit,
-                "skipped_no_price": skipped_no_price}
+                "skipped_no_price": skipped_no_price,
+                "synthesized_audits": synthesized_count}
     except Exception as e:
         log.warning("operator_kpi log_operator_drift failed: %s", e)
         return {"ok": False, "error": str(e),

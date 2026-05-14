@@ -4579,6 +4579,143 @@ def api_operator_drift_stats():
     return jsonify(result)
 
 
+@bp.route("/api/admin/heal-drift-backfill", methods=["POST"])
+@auth_required
+@safe_route
+def api_heal_drift_backfill():
+    """PR-AR — retroactive drift logging for already-sent records.
+
+    PR-AQ confirmed 0/235 items in 35 sent records carry oracle_audit.
+    PR-AR's synthesizer makes log_operator_drift produce rows from the
+    Oracle-suggested prices already on each item, but those past
+    Mark-Sent events fired before the synthesizer existed — so prod
+    operator_drift_line is still empty.
+
+    This route walks every active PC/RFQ with status="sent" and fires
+    `log_operator_drift` (which now includes the synthesizer) for each.
+    Already-logged rows from earlier passes are NOT deduped — the
+    drift table allows multiple rows per (quote_id, line_idx) and the
+    aggregator reads windowed snapshots. If you re-run this route, it
+    will insert another set of rows; in practice this should run
+    exactly once.
+
+    Body: {"dry_run": true} (default true) reports what WOULD log
+    without inserting. {"dry_run": false} actually writes.
+
+    Returns: {records_scanned, records_logged, rows_inserted,
+              synthesized_audits_total, dry_run,
+              summary[rid → {rows, synthesized}]}
+    """
+    body = request.get_json(silent=True) or {}
+    dry_run = bool(body.get("dry_run", True))
+
+    TERMINAL_NON_SENT = {"won", "lost", "expired", "no_response",
+                         "dismissed", "archived", "duplicate"}
+
+    from src.api.dashboard import _load_price_checks, load_rfqs
+    from src.core.operator_kpi import log_operator_drift
+
+    summary = {}
+    rows_inserted_total = 0
+    synthesized_total = 0
+    records_scanned = 0
+    records_logged = 0
+
+    def _process(rid: str, r: dict, kind: str):
+        nonlocal rows_inserted_total, synthesized_total
+        nonlocal records_scanned, records_logged
+        if not isinstance(r, dict):
+            return
+        if (r.get("status") or "").strip().lower() != "sent":
+            return
+        records_scanned += 1
+        items = r.get("items") or r.get("line_items") or []
+        if not items:
+            return
+        agency_key = (
+            r.get("agency_key") or r.get("agency")
+            or r.get("institution") or ""
+        )
+        if dry_run:
+            # Simulate by walking the items with the synthesizer to
+            # count what WOULD log — without inserting.
+            from src.core.operator_kpi import _synthesize_oracle_audit
+            from datetime import datetime as _dt
+            now_iso = _dt.now().isoformat()
+            simulated = 0
+            synth = 0
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                audit = it.get("oracle_audit") or {}
+                if not (isinstance(audit, dict) and audit):
+                    audit = _synthesize_oracle_audit(it, now_iso) or {}
+                    if audit:
+                        synth += 1
+                    else:
+                        continue
+                # Has audit → check price gate too
+                for key in ("unit_price", "bid_price", "price_per_unit"):
+                    v = it.get(key)
+                    try:
+                        if v is not None and float(v) > 0:
+                            simulated += 1
+                            break
+                    except (TypeError, ValueError):
+                        continue
+            if simulated > 0:
+                records_logged += 1
+                rows_inserted_total += simulated
+                synthesized_total += synth
+                summary[rid] = {
+                    "type": kind, "rows": simulated, "synthesized": synth,
+                }
+            return
+        # Real run: fire log_operator_drift.
+        qn = (r.get("quote_number") or r.get("reytech_quote_number") or "")
+        try:
+            result = log_operator_drift(
+                quote_id=rid, quote_type=kind,
+                items=items, agency_key=agency_key,
+                quote_number=qn,
+            )
+        except Exception as e:
+            log.debug("heal-drift-backfill %s: %s", rid, e)
+            return
+        rows = int(result.get("rows_logged") or 0)
+        synth = int(result.get("synthesized_audits") or 0)
+        if rows > 0:
+            records_logged += 1
+            rows_inserted_total += rows
+            synthesized_total += synth
+            summary[rid] = {
+                "type": kind, "rows": rows, "synthesized": synth,
+            }
+
+    pcs = _load_price_checks() or {}
+    for pcid, pc in list(pcs.items()):
+        _process(pcid, pc, "pc")
+    rfqs = load_rfqs() or {}
+    for rid, r in list(rfqs.items()):
+        _process(rid, r, "rfq")
+
+    log.info(
+        "heal-drift-backfill: dry_run=%s scanned=%d logged=%d "
+        "rows=%d synthesized=%d",
+        dry_run, records_scanned, records_logged,
+        rows_inserted_total, synthesized_total,
+    )
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "records_scanned": records_scanned,
+        "records_logged": records_logged,
+        "rows_inserted": rows_inserted_total,
+        "synthesized_audits_total": synthesized_total,
+        "summary": summary,
+    })
+
+
 @bp.route("/api/admin/operator-drift-audit-coverage", methods=["GET"])
 @auth_required
 @safe_route
