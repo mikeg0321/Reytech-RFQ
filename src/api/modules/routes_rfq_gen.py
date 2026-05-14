@@ -3147,13 +3147,25 @@ def generate_rfq_package(rid):
             _sh_clean.rmtree(_old_dir)
         except Exception as _e:
             log.debug('suppressed in _form_sort_key: %s', _e)
-    # Clean old DB files not in new output
+    # Clean old DB files not in new output. The protect list must include
+    # BOTH the per-form filenames (`output_files`) AND the merged
+    # `package_filename` written at line ~2691 into `final_output_files`.
+    # Prior to this fix, the cleanup used only `output_files` — so the
+    # merged `RFQ_Package_*_ReytechInc.pdf` was saved at line 2916 and
+    # immediately deleted here on every generate run, because the merged
+    # filename was never in `output_files`. Mohammad@CDCR ship 2026-05-13
+    # missed deadline because of this — buyer needed the merged package
+    # and the operator never saw it in `/api/rfq/<id>/files`.
     try:
         from src.core.db import get_db as _gdb_clean
+        _protect = list(output_files) + list(final_output_files)
+        # De-dupe while preserving order.
+        _seen = set()
+        _protect = [f for f in _protect if not (f in _seen or _seen.add(f))]
         with _gdb_clean() as _conn_clean:
-            if output_files:
-                _ph = ",".join("?" for _ in output_files)
-                _conn_clean.execute(f"DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated' AND filename NOT IN ({_ph})", [rid] + list(output_files))
+            if _protect:
+                _ph = ",".join("?" for _ in _protect)
+                _conn_clean.execute(f"DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated' AND filename NOT IN ({_ph})", [rid] + _protect)
             else:
                 _conn_clean.execute("DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated'", (rid,))
     except Exception as _e:
