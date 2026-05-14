@@ -1296,16 +1296,22 @@ def _is_cchcs_it_rfq(pdf_path):
 def _classify_703b_slot_template(pdf_path):
     """Classify the template sitting in the 703B slot.
 
-    Returns one of: "cchcs_it_rfq", "703b", "703c", "unknown".
+    Returns one of: "cchcs_it_rfq", "703a", "703b", "703c", "unknown".
 
     Signals (Mike 2026-04-23):
       1. AcroForm field names (strongest when fields survive)
       2. Page-1 header text ("Request For Quotation / IT Goods and Services")
       3. Filename pattern
-    Any single signal is enough for LPA detection. 703B/703C still require
-    field-name match because their distinguishing text is too generic.
-    Unknown templates surface for manual profile registration — never
-    blind-fill (Q7 directive, audit M root cause).
+    Any single signal is enough for LPA detection. 703A/703B/703C still
+    require field-name match because their distinguishing text is too
+    generic. Unknown templates surface for manual profile registration —
+    never blind-fill (Q7 directive, audit M root cause).
+
+    PR mr-wolf #4 adds the "703a" branch — when a buyer sends a 703A
+    SB-DVBE Option variant, the classifier surfaces it as such so the
+    dispatcher routes to `fill_703a` (mirror-fill from prior 703B)
+    instead of coincidentally falling through to `fill_703b`. Closes
+    Pattern 7 (classifier marker imbalance) for the 703A case.
     """
     try:
         _reader = PdfReader(pdf_path)
@@ -1321,7 +1327,11 @@ def _classify_703b_slot_template(pdf_path):
     if not _fields:
         return "unknown"
 
-    # 703C markers — see form_classifier.get_field_prefix / detect_field_prefix.
+    # 703A / 703C / 703B markers — explicit prefix presence wins over
+    # heuristics. Order matters: 703A is the rarest and most specific,
+    # so check it first; 703B's heuristic fallback comes last.
+    if any(n.startswith("703A_") for n in _fields):
+        return "703a"
     try:
         from src.forms.form_classifier import detect_field_prefix
         if detect_field_prefix(_fields, "703c"):
@@ -1335,6 +1345,123 @@ def _classify_703b_slot_template(pdf_path):
     if _fields & {"Business Name", "Contact Person", "Check Box2", "Signature 2"}:
         return "703b"
     return "unknown"
+
+
+def fill_703a(input_path, rfq_data, config, output_path):
+    """Fill an AMS 703A SB-DVBE Option form via mirror-fill from a
+    prior 703B submission.
+
+    PR mr-wolf #4. Closes the 703A code-fill gap (Pattern 4): when a
+    buyer sends a 703A instead of the more common 703B, the dispatcher
+    previously fell through to `fill_703b` and relied on coincidental
+    field-name overlap. That worked by luck for most fields but missed
+    the buyer-specific overrides (sol#, dates, bid expiration). Mike's
+    2026-05-13 PVSP CalRecycle bid required hand-running
+    `scripts/fill_703a_from_prior.py` to ship — this function makes
+    that path automatic.
+
+    Mechanics:
+      1. Find the most-recent 703B submission stored in
+         `data/prior_submissions/703b/`. Filesystem-based today;
+         DB-backed `prior_submissions` table arrives in PR #4b.
+      2. Call `mirror_fill_from_prior_pdf` with prefix translation
+         `703B_` → `703A_`. Reytech's static fields (company info,
+         SB/DVBE cert numbers, payment terms, signature blocks) come
+         from the prior; suffixes match across both forms.
+      3. Apply per-bid overrides — sol#, due date, today's signature
+         date, 30-day bid expiration — from `rfq_data`. Overrides win
+         over buyer-pre-filled values where the operator's intent is
+         explicit (signature date), and respect buyer-typed values
+         elsewhere (`preserve_buyer_filled=True`).
+      4. Write the result to `output_path`. Falls back to copying the
+         buyer's input unchanged when no prior 703B exists, with a
+         warning logged so operations sees the gap.
+    """
+    import os as _os
+    import shutil as _shutil
+    from datetime import datetime as _datetime, timedelta as _timedelta
+    from src.forms.mirror_fill import mirror_fill_from_prior_pdf
+    from src.forms.form_registry import (
+        field_prefix as _field_prefix,
+        mirror_fallback_form as _mirror_fallback_form,
+    )
+    from src.core.paths import DATA_DIR
+
+    company = config.get("company", {})
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    # Locate a prior good submission of the fallback form. Newest by
+    # mtime — the most recent prior is most likely to carry the
+    # currently-correct Reytech metadata (e.g., updated SB/DVBE cert
+    # numbers, current address).
+    fallback = _mirror_fallback_form("703a")
+    if not fallback:
+        log.warning("fill_703a: form_registry has no mirror_fallback for 703a; copying input unchanged")
+        _shutil.copyfile(input_path, output_path)
+        return
+
+    priors_dir = _os.path.join(DATA_DIR, "prior_submissions", fallback)
+    prior_pdf = None
+    if _os.path.isdir(priors_dir):
+        candidates = [
+            _os.path.join(priors_dir, f)
+            for f in _os.listdir(priors_dir)
+            if f.lower().endswith(".pdf")
+        ]
+        if candidates:
+            candidates.sort(key=lambda p: _os.path.getmtime(p), reverse=True)
+            prior_pdf = candidates[0]
+
+    if prior_pdf is None:
+        log.warning(
+            "fill_703a: no prior %s submission in %s — copying buyer's "
+            "input unchanged. Stash a prior good 703B PDF there to "
+            "activate mirror-fill on the next 703A.",
+            fallback, priors_dir,
+        )
+        _shutil.copyfile(input_path, output_path)
+        return
+
+    source_prefix = _field_prefix(fallback) or "703B_"
+    target_prefix = _field_prefix("703a") or "703A_"
+
+    # Buyer-specific overrides — operator intent wins regardless of
+    # what the prior carried.
+    try:
+        _expiration = (_datetime.strptime(sign_date, "%m/%d/%Y")
+                       + _timedelta(days=30)).strftime("%m/%d/%Y")
+    except Exception:
+        _expiration = ""
+
+    overrides: dict = {}
+    if sol and f"{target_prefix}Solicitation Number" not in overrides:
+        overrides[f"{target_prefix}Solicitation Number"] = sol
+    if _expiration:
+        overrides[f"{target_prefix}BidExpirationDate"] = _expiration
+    # Common date-field name variants — set each present on target.
+    for suffix in ("Date", "Date Signed", "Signed Date", "Bid Date"):
+        overrides[f"{target_prefix}{suffix}"] = sign_date
+
+    try:
+        filled = mirror_fill_from_prior_pdf(
+            input_path, prior_pdf,
+            source_prefix=source_prefix,
+            target_prefix=target_prefix,
+            overrides=overrides,
+            preserve_buyer_filled=True,
+        )
+    except Exception as _e:
+        log.warning("fill_703a: mirror_fill_from_prior_pdf failed (%s); copying input unchanged", _e)
+        _shutil.copyfile(input_path, output_path)
+        return
+
+    with open(output_path, "wb") as f:
+        f.write(filled)
+    print(
+        f"  ✓ 703A filled via mirror_fill from {_os.path.basename(prior_pdf)} "
+        f"({sol}, {len(overrides)} overrides applied)"
+    )
 
 
 def fill_obs1600_fields(rfq_data, config, food_items=None):

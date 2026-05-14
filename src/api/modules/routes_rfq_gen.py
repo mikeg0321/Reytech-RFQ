@@ -2013,6 +2013,7 @@ def generate_rfq_package(rid):
                 try:
                     from src.forms.reytech_filler_v4 import (
                         _classify_703b_slot_template,
+                        fill_703a as _fn_703a,
                         fill_703b as _fn_703b,
                         fill_703c as _fn_703c,
                         fill_cchcs_it_rfq as _fn_lpa,
@@ -2023,6 +2024,13 @@ def generate_rfq_package(rid):
                         _fill_fn = _fn_lpa
                         _label = "CCHCS_IT_RFQ"
                         t.step(f"{_703_label} template recognized as LPA IT RFQ")
+                    elif _shape == "703a":
+                        # PR mr-wolf #4 — 703A SB-DVBE Option mirror-fill
+                        # from prior 703B submission. Closes the
+                        # 2026-05-13 PVSP hand-run gap.
+                        _fill_fn = _fn_703a
+                        _label = "703A"
+                        t.step(f"{_703_label} template recognized as 703A — mirror-fill from prior 703B")
                     elif _shape == "703c":
                         _fill_fn = _fn_703c
                     elif _shape == "703b":
@@ -2032,7 +2040,7 @@ def generate_rfq_package(rid):
                         _fill_fn = None
                         errors.append(
                             f"{_703_label}: unrecognized template "
-                            "(not 703B/703C/LPA IT RFQ). Register a form "
+                            "(not 703A/703B/703C/LPA IT RFQ). Register a form "
                             "profile before filling. Operator can hand-fill "
                             "and submit manually, or a new profile YAML can "
                             "be added under src/forms/profiles/."
@@ -2041,8 +2049,8 @@ def generate_rfq_package(rid):
                                "refusing blind-fill. Hand-fill via Acrobat.")
                     if _fill_fn is not None:
                         _fill_fn(tmpl[_703_key], r, CONFIG,
-                                 f"{out_dir}/{sol}_{_703_label}_Reytech.pdf")
-                        output_files.append(f"{sol}_{_703_label}_Reytech.pdf")
+                                 f"{out_dir}/{sol}_{_label}_Reytech.pdf")
+                        output_files.append(f"{sol}_{_label}_Reytech.pdf")
                         t.step(f"{_703_label} filled ({_label})")
                 except Exception as e:
                     errors.append(f"{_703_label}: {e}")
