@@ -2800,13 +2800,16 @@ def oracle_drift_preview():
 
     Optional `?days=N` (default 30). Pure read-only.
     """
-    from src.core.operator_kpi import get_drift_stats, get_shadow_stats
+    from src.core.operator_kpi import (
+        get_drift_stats, get_shadow_stats, get_drift_wr_breakdown,
+    )
     try:
         days = max(1, int(request.args.get("days", 30)))
     except (TypeError, ValueError):
         days = 30
     stats = get_drift_stats(window_days=days)
     shadow = get_shadow_stats(window_days=days)
+    wr = get_drift_wr_breakdown(window_days=days)
     if not stats.get("ok"):
         return (f"<pre>drift preview error: {stats.get('error','?')}</pre>",
                 500, {"Content-Type": "text/html; charset=utf-8"})
@@ -2904,8 +2907,63 @@ def oracle_drift_preview():
   highest-leverage tuning cohort.
 </div>
 {_render_shadow_panel(shadow, days)}
+{_render_wr_panel(wr, days)}
 </div></body></html>"""
     return preview_html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+def _render_wr_panel(wr: dict, days: int) -> str:
+    """PR-K1: drift→WR breakdown. The actual leverage signal —
+    'does pricing above oracle hurt our win rate?'"""
+    if not wr.get("ok"):
+        return ('<div class="meta" style="color:#f85149">'
+                f'WR breakdown error: {wr.get("error","?")}</div>')
+    if wr.get("resolved_lines", 0) == 0:
+        return ('<h2>Drift → WR breakdown</h2>'
+                '<div class="meta" style="opacity:.65">'
+                'No resolved lines yet (need won/lost outcomes from '
+                'award_monitor or quote_lifecycle). Will populate as '
+                'awards land on previously-sent quotes.</div>')
+
+    thr = wr.get("threshold", 20.0)
+    high_n = wr.get("high_drift_lines", 0)
+    low_n = wr.get("low_drift_lines", 0)
+    high_won = wr.get("high_drift_won", 0)
+    high_lost = wr.get("high_drift_lost", 0)
+    low_won = wr.get("low_drift_won", 0)
+    low_lost = wr.get("low_drift_lost", 0)
+    high_wr = wr.get("high_drift_wr")
+    low_wr = wr.get("low_drift_wr")
+    delta = wr.get("wr_delta")
+    high_s = f"{high_wr:.1f}%" if high_wr is not None else "—"
+    low_s = f"{low_wr:.1f}%" if low_wr is not None else "—"
+    delta_s = f"{delta:+.1f}pp" if delta is not None else "—"
+    # Color the delta: green if positive (high drift helps), red if neg.
+    delta_color = "#3fb950"  # green default
+    if delta is not None and delta < 0:
+        delta_color = "#f85149"  # red — pricing above oracle hurts
+    return f"""
+<h2>Drift → WR breakdown — last {days} days</h2>
+<div class="kpis">
+  <div class="kpi"><div class="label">Resolved lines</div>
+       <div class="val">{wr.get("resolved_lines", 0)}</div></div>
+  <div class="kpi"><div class="label">High-drift WR (&gt;{thr:.0f}%)</div>
+       <div class="val">{high_s}
+       <span style="font-size:13px;color:#8b949e">({high_won}/{high_won+high_lost})</span></div></div>
+  <div class="kpi"><div class="label">Low-drift WR (&le;{thr:.0f}%)</div>
+       <div class="val">{low_s}
+       <span style="font-size:13px;color:#8b949e">({low_won}/{low_won+low_lost})</span></div></div>
+  <div class="kpi"><div class="label">WR delta</div>
+       <div class="val" style="color:{delta_color}">{delta_s}</div></div>
+</div>
+<div class="meta">
+  This is the leverage signal: a negative WR delta means lines where
+  the operator priced significantly above oracle's recommendation lost
+  more often. Positive delta means above-oracle pricing is winning
+  (cap would HURT). N must be at least 30 in each cohort before this
+  signal is statistically meaningful — until then, treat as
+  directional only.
+</div>"""
 
 
 def _render_shadow_panel(shadow: dict, days: int) -> str:
@@ -6459,12 +6517,18 @@ def _api_pc_send_quote_locked(pcid):
         # per Mark-Sent into operator_drift_line, which gives the digest
         # a high-volume signal for cap-tuning decisions. Sibling call to
         # log_quote_sent above — same best-effort discipline.
+        # PR-K1: capture quote_number too so outcome resolution can
+        # join from either the PC-id side (award_monitor) or the
+        # quote-number side (quote_lifecycle reply analyzer).
+        _qn = (pc.get("quote_number")
+               or pc.get("reytech_quote_number") or "")
         try:
             from src.core.operator_kpi import log_operator_drift
             log_operator_drift(
                 quote_id=pcid, quote_type="pc",
                 items=pc.get("items") or [],
                 agency_key=(pc.get("agency_key") or pc.get("agency") or ""),
+                quote_number=_qn,
             )
         except Exception as _drift_e:
             log.debug("operator_drift logging suppressed: %s", _drift_e)
@@ -6479,6 +6543,7 @@ def _api_pc_send_quote_locked(pcid):
                 quote_id=pcid, quote_type="pc",
                 items=pc.get("items") or [],
                 agency_key=(pc.get("agency_key") or pc.get("agency") or ""),
+                quote_number=_qn,
             )
         except Exception as _shadow_e:
             log.debug("shadow drift logging suppressed: %s", _shadow_e)
