@@ -4537,6 +4537,48 @@ def api_heal_ingest_enrichment():
     })
 
 
+@bp.route("/api/admin/operator-drift-stats", methods=["GET"])
+@auth_required
+@safe_route
+def api_operator_drift_stats():
+    """PR-AP diagnostic — `operator_drift_line` table state at a glance.
+
+    The motivating signal: /admin/auto-recommendations (PR-S) renders
+    "No operator_drift_line rows in last 7d — was Mark-Sent used?"
+    even though three Mark-Sent variants (PC mark-sent, PC mark-sent-
+    manually, RFQ mark-sent-manually) all wire drift logging. The
+    empty state could mean:
+
+      A. Mark-Sent isn't being clicked → operator-funnel gap, fix
+         with a UI nudge.
+      B. Drift logging fires but silently fails (lookup_failed, audit
+         missing, etc.) → fix the logging path.
+      C. Rows exist but the 7d read-window query is buggy → fix the
+         aggregation.
+
+    Without prod-state visibility, the fix is a coin flip. This
+    endpoint reads the table directly and reports:
+      - total rows
+      - rows in the last 7 / 30 / 90 day windows
+      - most recent N sent_at timestamps + agency_key + quote_id
+      - per-quote_type counts (pc vs rfq)
+      - distinct agency_keys present
+      - distribution of drift_pct (median + p25/p75)
+
+    GET only — read-only. Audit lives on the /admin/auto-recommendations
+    page anyway; this is the structured backend it exposes.
+
+    Returns: {ok, total, by_window[7d,30d,90d], by_quote_type,
+              recent[ {quote_id,quote_type,sent_at,agency_key} ],
+              agencies, drift_pct_stats}
+    """
+    from src.core.operator_kpi import get_drift_diagnostic
+    result = get_drift_diagnostic()
+    if not result.get("ok"):
+        return jsonify(result), 500
+    return jsonify(result)
+
+
 @bp.route("/api/admin/heal-due-dates", methods=["POST"])
 @auth_required
 @safe_route
