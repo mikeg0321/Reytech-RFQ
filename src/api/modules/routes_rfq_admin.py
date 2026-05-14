@@ -474,6 +474,27 @@ def _api_rfq_mark_sent_manually_locked(rid):
     except Exception as _e:
         log.debug("_log_rfq_activity(sent_manually) suppressed: %s", _e)
 
+    # PR mr-wolf #4b — auto-capture every generated form in this RFQ
+    # into the prior_submissions table. Mark Sent is the operator-
+    # blessed "this packet is canonical" signal; the next 703A/703C/
+    # AMS 708 inbound that hits `fill_703a` / `fill_703c` / etc. will
+    # find these priors and mirror-fill automatically. Fire-and-forget
+    # — capture failures NEVER block the mark-sent flip.
+    try:
+        from src.forms.prior_submissions import capture_from_rfq_generated_files
+        _captured = capture_from_rfq_generated_files(
+            rid,
+            agency_key=(r.get("agency_key") or r.get("agency") or ""),
+            source_quote_number=r.get("reytech_quote_number", ""),
+        )
+        if _captured:
+            log.info(
+                "prior_submissions auto-capture: rfq=%s captured %d generated form(s)",
+                rid, _captured,
+            )
+    except Exception as _cap_e:
+        log.debug("prior_submissions auto-capture suppressed: %s", _cap_e)
+
     log.info("RFQ %s marked SENT manually: sent_to=%s attachment=%s prior=%s",
              rid, sent_to, bool(attachment), old_status)
     return jsonify({

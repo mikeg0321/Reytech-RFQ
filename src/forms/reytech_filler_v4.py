@@ -1361,9 +1361,13 @@ def fill_703a(input_path, rfq_data, config, output_path):
     that path automatic.
 
     Mechanics:
-      1. Find the most-recent 703B submission stored in
-         `data/prior_submissions/703b/`. Filesystem-based today;
-         DB-backed `prior_submissions` table arrives in PR #4b.
+      1. Query `prior_submissions.latest_for(<fallback>, agency_key=...)`
+         for the canonical prior PDF. PR #4b auto-captures every
+         Reytech-generated form into this table on Mark Sent → sent
+         transitions, so the table populates without operator action.
+         Falls back to `data/prior_submissions/<fallback>/` filesystem
+         when the DB returns None (covers operators who hand-placed
+         PDFs before auto-capture went live in PR #4b).
       2. Call `mirror_fill_from_prior_pdf` with prefix translation
          `703B_` → `703A_`. Reytech's static fields (company info,
          SB/DVBE cert numbers, payment terms, signature blocks) come
@@ -1377,7 +1381,6 @@ def fill_703a(input_path, rfq_data, config, output_path):
          buyer's input unchanged when no prior 703B exists, with a
          warning logged so operations sees the gap.
     """
-    import os as _os
     import shutil as _shutil
     from datetime import datetime as _datetime, timedelta as _timedelta
     from src.forms.mirror_fill import mirror_fill_from_prior_pdf
@@ -1385,40 +1388,43 @@ def fill_703a(input_path, rfq_data, config, output_path):
         field_prefix as _field_prefix,
         mirror_fallback_form as _mirror_fallback_form,
     )
-    from src.core.paths import DATA_DIR
 
     company = config.get("company", {})
     sol = _sol_display(rfq_data.get("solicitation_number", ""))
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
-    # Locate a prior good submission of the fallback form. Newest by
-    # mtime — the most recent prior is most likely to carry the
-    # currently-correct Reytech metadata (e.g., updated SB/DVBE cert
-    # numbers, current address).
+    # Locate a prior good submission of the fallback form. PR #4b:
+    # DB-backed prior_submissions table is primary; filesystem fallback
+    # for legacy hand-placed PDFs lives INSIDE `latest_for`.
     fallback = _mirror_fallback_form("703a")
     if not fallback:
         log.warning("fill_703a: form_registry has no mirror_fallback for 703a; copying input unchanged")
         _shutil.copyfile(input_path, output_path)
         return
 
-    priors_dir = _os.path.join(DATA_DIR, "prior_submissions", fallback)
-    prior_pdf = None
-    if _os.path.isdir(priors_dir):
-        candidates = [
-            _os.path.join(priors_dir, f)
-            for f in _os.listdir(priors_dir)
-            if f.lower().endswith(".pdf")
-        ]
-        if candidates:
-            candidates.sort(key=lambda p: _os.path.getmtime(p), reverse=True)
-            prior_pdf = candidates[0]
+    # Agency hint for the prior lookup — prefer same-agency priors
+    # (CCHCS 703B for a CCHCS 703A) over any-agency fallback. The
+    # registry's mirror_fallback ("703a" → "703b") doesn't constrain
+    # agency; this filter adds the right narrowing.
+    _agency_hint = (rfq_data.get("agency") or rfq_data.get("agency_key") or "").strip().lower()
+    try:
+        from src.forms.prior_submissions import latest_for as _prior_latest_for
+        prior_pdf_bytes = _prior_latest_for(fallback, agency_key=_agency_hint or None)
+    except Exception as _le:
+        log.warning("fill_703a: prior_submissions.latest_for failed (%s); attempting FS fallback", _le)
+        prior_pdf_bytes = None
+    # Keep `prior_pdf` as a label for the log message below — could be
+    # "DB prior_submissions" or a filesystem path. `latest_for` returns
+    # bytes for both DB and FS hits, so the underlying source is opaque
+    # to callers; we just log "DB or FS" generically.
+    prior_pdf = "prior_submissions (DB or FS fallback)" if prior_pdf_bytes else None
 
-    if prior_pdf is None:
+    if prior_pdf_bytes is None:
         log.warning(
-            "fill_703a: no prior %s submission in %s — copying buyer's "
-            "input unchanged. Stash a prior good 703B PDF there to "
-            "activate mirror-fill on the next 703A.",
-            fallback, priors_dir,
+            "fill_703a: no prior %s submission found via DB or FS — copying "
+            "buyer's input unchanged. Next %s that ships via Mark Sent gets "
+            "auto-captured, activating mirror-fill on the subsequent 703A.",
+            fallback, fallback,
         )
         _shutil.copyfile(input_path, output_path)
         return
@@ -1445,7 +1451,7 @@ def fill_703a(input_path, rfq_data, config, output_path):
 
     try:
         filled = mirror_fill_from_prior_pdf(
-            input_path, prior_pdf,
+            input_path, prior_pdf_bytes,
             source_prefix=source_prefix,
             target_prefix=target_prefix,
             overrides=overrides,
@@ -1459,7 +1465,7 @@ def fill_703a(input_path, rfq_data, config, output_path):
     with open(output_path, "wb") as f:
         f.write(filled)
     print(
-        f"  ✓ 703A filled via mirror_fill from {_os.path.basename(prior_pdf)} "
+        f"  ✓ 703A filled via mirror_fill from prior {fallback} submission "
         f"({sol}, {len(overrides)} overrides applied)"
     )
 
