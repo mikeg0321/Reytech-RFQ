@@ -586,7 +586,14 @@ def _verify_totals(pc: dict, items: list) -> dict:
         calc_subtotal += price * qty
 
     calc_subtotal = round(calc_subtotal, 2)
-    stored = pc.get("profit_summary") or {}
+    # PR mr-wolf #3: replace the stale cached snapshot with the fresh
+    # computed view. This check now verifies that the QA local price
+    # reader (`_sell_price`) agrees with the canonical pricing
+    # (`canonical_unit_price` via `profit_summary_of`). Drift between
+    # them surfaces as the same "incorrect total" issue the cache-
+    # staleness check used to fire on.
+    from src.core.pricing_math import profit_summary_of as _profit_summary_of_qa
+    stored = _profit_summary_of_qa(items)
     displayed_total = float(stored.get("total_revenue") or stored.get("total_bid") or 0)
 
     return {

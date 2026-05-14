@@ -2033,8 +2033,12 @@ def api_quote_from_price_check():
 
     next_qn = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
 
-    # Pull profit summary from the saved PC record
-    profit = pc.get("profit_summary", {})
+    # PR mr-wolf #3: compute fresh, don't trust the cached snapshot.
+    # The CRM page is rendered after a quote_number flip — the cache
+    # may pre-date the latest price edit. Fresh compute via the
+    # canonical reader is always current.
+    from src.core.pricing_math import profit_summary_of as _profit_summary_of_crm
+    profit = _profit_summary_of_crm(pc.get("items") or [])
 
     return jsonify({
         "ok": True,

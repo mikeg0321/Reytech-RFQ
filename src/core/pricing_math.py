@@ -491,6 +491,146 @@ def billable_items(items) -> list:
     return [it for it in items if isinstance(it, dict) and is_billable(it)]
 
 
+def profit_summary_of(items, *, landed_cost_fn=None) -> dict:
+    """Compute the PC-level profit envelope from items, fresh.
+
+    This is the substrate replacement for the `pc["profit_summary"]`
+    cached snapshot (PR mr-wolf #3, Pattern 2). The cached field went
+    stale on every cost edit and forced every renderer to either trust
+    the cache (and ship stale numbers) or recompute locally (drifting
+    from the cache). This function is the canonical computed view —
+    every consumer that needs revenue / cost / margin reads this; no
+    one reads `pc.get("profit_summary")` operationally.
+
+    Shape (matches `routes_pricecheck.py`'s historical `_summary` dict
+    exactly so consumers don't have to restructure):
+
+      total_revenue       — Σ price × qty across billable items
+      total_cost          — Σ cost × qty for items with cost > 0
+      gross_profit        — total_revenue − total_cost
+      margin_pct          — gross_profit / total_revenue × 100, rounded to 1
+      total_landed_cost   — Σ landed_cost × qty if `landed_cost_fn` provided,
+                            else falls back to total_cost (no shipping adder)
+      true_profit         — total_revenue − total_landed_cost
+      true_margin_pct     — true_profit / total_revenue × 100, rounded to 1
+      costed_items        — count of billable items with cost > 0
+      total_items         — count of billable (non-no_bid) items
+      fully_costed        — bool: costed_items == total_items
+      discount_items      — present iff any item has amazon_sale_price < list
+      discount_total_cost / discount_gross_profit / discount_margin_pct /
+      discount_profit_note — same conditional shape as the writer
+
+    Money fields are float dollars rounded to 2 decimals. Counts are int.
+    Costs read through `cost_from_contract` (PR #2 canonical reader).
+    Prices read through `canonical_unit_price` with `price_per_unit`
+    fallback for quote-side dicts. no_bid items contribute zero.
+
+    `landed_cost_fn`: optional callable `(cost, qty, supplier) -> {"landed_cost": float}`
+    matching the `src.core.db.calc_landed_cost` signature. Injected so this
+    function stays pure for tests; the route layer wires the prod helper.
+    """
+    if not items:
+        items_list = []
+    elif isinstance(items, list):
+        items_list = items
+    else:
+        items_list = list(items)
+
+    total_revenue = 0.0
+    total_cost = 0.0
+    total_profit = 0.0
+    total_landed_cost = 0.0
+    costed_items = 0
+    total_items = 0
+    # Discount-scenario aggregates: when an item has a sale price below
+    # the list price, the MSRP is the conservative cost basis but the
+    # discount profit shows what we'd actually clear at PO time. Mike's
+    # 2026-04-19 directive: surface both numbers.
+    total_discount_cost = 0.0
+    total_discount_profit = 0.0
+    discount_items = 0
+
+    for it in items_list:
+        if not isinstance(it, dict) or not is_billable(it):
+            continue
+        total_items += 1
+
+        # Price via the canonical reader (PR-1d Quote PDF subtotal lock-in).
+        price = canonical_unit_price(it)
+        if price <= 0:
+            price = _coerce_float(it.get("price_per_unit")) or 0.0
+        qty = _coerce_float(it.get("qty"))
+        if qty is None or qty == 0:
+            qty = _coerce_float(it.get("quantity"))
+        if qty is None:
+            qty = 0.0
+
+        # Cost via cost_from_contract (PR #2 canonical reader). Prior
+        # writer used a local `vendor_cost or pricing.unit_cost` chain
+        # that ignored supplier_cost — operator-typed RFQ costs were
+        # invisible to the cached summary even after PR #975.
+        cost = cost_from_contract(it)
+
+        if price > 0 and qty > 0:
+            total_revenue += price * qty
+
+        if cost > 0 and qty > 0:
+            total_cost += cost * qty
+            total_profit += (price - cost) * qty
+            costed_items += 1
+            # Landed cost: ask the injected helper if present, else
+            # fall back to plain cost (route layer adds shipping when
+            # the helper is wired).
+            supplier = it.get("item_supplier") or ""
+            if landed_cost_fn and supplier:
+                try:
+                    lc = landed_cost_fn(cost, int(qty), supplier)
+                    total_landed_cost += float(lc["landed_cost"]) * qty
+                except Exception:
+                    total_landed_cost += cost * qty
+            else:
+                total_landed_cost += cost * qty
+
+        # Discount scenario — only items where lookup_prices() recorded
+        # a distinct sale_price below list. Falls back to MSRP cost.
+        p = it.get("pricing") if isinstance(it.get("pricing"), dict) else {}
+        sale = _coerce_float(p.get("amazon_sale_price"))
+        list_p = _coerce_float(p.get("amazon_list_price"))
+        if price > 0 and sale and list_p and sale < list_p:
+            total_discount_cost += sale * qty
+            total_discount_profit += (price - sale) * qty
+            discount_items += 1
+        elif price > 0 and cost > 0:
+            total_discount_cost += cost * qty
+            total_discount_profit += (price - cost) * qty
+
+    true_profit = total_revenue - total_landed_cost
+    summary = {
+        "total_revenue":     round(total_revenue, 2),
+        "total_cost":        round(total_cost, 2),
+        "gross_profit":      round(total_profit, 2),
+        "margin_pct":        round(total_profit / total_revenue * 100, 1) if total_revenue else 0,
+        "total_landed_cost": round(total_landed_cost, 2),
+        "true_profit":       round(true_profit, 2),
+        "true_margin_pct":   round(true_profit / total_revenue * 100, 1) if total_revenue else 0,
+        "costed_items":      costed_items,
+        "total_items":       total_items,
+        "fully_costed":      costed_items == total_items and total_items > 0,
+    }
+    if discount_items > 0:
+        summary["discount_items"] = discount_items
+        summary["discount_total_cost"] = round(total_discount_cost, 2)
+        summary["discount_gross_profit"] = round(total_discount_profit, 2)
+        summary["discount_margin_pct"] = (
+            round(total_discount_profit / total_revenue * 100, 1)
+            if total_revenue else 0
+        )
+        summary["discount_profit_note"] = (
+            "if discount holds for profit calculation"
+        )
+    return summary
+
+
 def assert_subtotal_invariant(
     items,
     printed_subtotal: float,
