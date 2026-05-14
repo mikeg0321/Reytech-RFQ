@@ -167,3 +167,109 @@ def test_existing_cap_enabled_helper_still_works(temp_data_dir, monkeypatch):
     assert _scprs_rollup_cap_enabled() is True
     monkeypatch.setenv("ORACLE_USE_SCPRS_ROLLUP", "off")
     assert _scprs_rollup_cap_enabled() is False
+
+
+# ── PR-AG (2026-05-14): tz-aware created_at + None-defensive message ──
+#
+# Mike's 2026-05-13 /home screenshot showed "scprs_awards last fresh
+# Noned ago" — the literal string `None` was being f-string'd into the
+# message because age_days couldn't be computed. Root cause: the harvest
+# script (`scripts/run_scprs_harvest.py:335`) writes `created_at` as
+# `datetime.now(timezone.utc).isoformat()` (yielding e.g.
+# `"2026-03-14T15:30:00+00:00"` — TIMEZONE-AWARE). The freshness probe
+# did `(datetime.now() - datetime.fromisoformat(latest)).days` — naive
+# minus aware → TypeError caught silently → age_days=None → "Noned ago".
+#
+# Pre-fix unit tests passed because _seed_award above uses naive
+# `datetime.now().isoformat()` (no `+00:00`). The bug only manifested
+# against real prod data the harvest script writes. These tests pin
+# the tz-aware path.
+
+
+def _seed_award_tz_aware(db_path, age_days):
+    """Match the actual harvest script's timestamp format: aware UTC ISO
+    (`...+00:00`). The pre-PR-AG bug only fired against this format."""
+    from datetime import datetime as _dt, timezone as _tz, timedelta
+    created = (_dt.now(_tz.utc) - timedelta(days=age_days)).isoformat()
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO scprs_awards "
+            "(id, po_number, agency, vendor_name, award_date, "
+            "fiscal_year, total_value, item_count, source, tenant_id, "
+            "created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (f"tz-{age_days}", f"PO-TZ-{age_days}", "cchcs", "V",
+             "01/01/2026", "FY26", 100, 1, "test", "reytech", created),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_cap_state_handles_tz_aware_created_at_fresh(temp_data_dir, monkeypatch):
+    """PR-AG regression: aware UTC ISO timestamp must not crash the
+    diff. Fresh data → enabled=True, age_days is an int."""
+    monkeypatch.delenv("ORACLE_USE_SCPRS_ROLLUP", raising=False)
+    from src.core.migrations import run_migrations
+    run_migrations()
+    db_path = os.path.join(temp_data_dir, "reytech.db")
+    _seed_award_tz_aware(db_path, age_days=2)
+    from src.core.pricing_oracle_v2 import scprs_rollup_cap_state
+    s = scprs_rollup_cap_state()
+    assert s["enabled"] is True
+    assert s["reason"] == "fresh_data"
+    assert isinstance(s["last_award_age_days"], int)
+    assert 0 <= s["last_award_age_days"] <= 3
+
+
+def test_cap_state_handles_tz_aware_created_at_stale(temp_data_dir, monkeypatch):
+    """PR-AG regression: aware UTC stale data → age_days is a real int
+    (not None) and the message does NOT contain 'None'."""
+    monkeypatch.delenv("ORACLE_USE_SCPRS_ROLLUP", raising=False)
+    from src.core.migrations import run_migrations
+    run_migrations()
+    db_path = os.path.join(temp_data_dir, "reytech.db")
+    _seed_award_tz_aware(db_path, age_days=60)
+    from src.core.pricing_oracle_v2 import scprs_rollup_cap_state
+    s = scprs_rollup_cap_state()
+    assert s["enabled"] is False
+    assert s["reason"] == "stale_data"
+    assert isinstance(s["last_award_age_days"], int)
+    assert s["last_award_age_days"] >= 60
+    # The bug-of-record: pre-fix message contained the literal string "None"
+    assert "None" not in s["message"]
+    assert "Noned" not in s["message"]
+
+
+def test_cap_state_handles_unparseable_timestamp_without_noned(temp_data_dir,
+                                                                 monkeypatch):
+    """Pathological: a row with a non-ISO created_at. We still want a
+    sane operator-facing message, never the literal 'Noned ago'."""
+    monkeypatch.delenv("ORACLE_USE_SCPRS_ROLLUP", raising=False)
+    from src.core.migrations import run_migrations
+    run_migrations()
+    db_path = os.path.join(temp_data_dir, "reytech.db")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO scprs_awards "
+            "(id, po_number, agency, vendor_name, award_date, "
+            "fiscal_year, total_value, item_count, source, tenant_id, "
+            "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ("bad-1", "PO-BAD-1", "cchcs", "V", "01/01/2026", "FY26",
+             100, 1, "test", "reytech", "not-an-iso-timestamp"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    from src.core.pricing_oracle_v2 import scprs_rollup_cap_state
+    s = scprs_rollup_cap_state()
+    assert s["enabled"] is False
+    assert s["reason"] == "stale_data"
+    assert s["last_award_age_days"] is None
+    # Operator-facing message must NOT contain the literal "None"
+    assert "None" not in s["message"]
+    assert "Noned" not in s["message"]
+    # And must give a hint about what went wrong
+    assert "timestamp" in s["message"].lower() or "schema" in s["message"].lower()
