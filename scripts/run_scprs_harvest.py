@@ -346,8 +346,17 @@ def build_scprs_awards(conn, dry_run=False):
         except Exception:
             pass
 
+        # PR-AG (2026-05-14): INSERT OR REPLACE so `created_at` bumps on
+        # every bridge fire, not just first-seen. Pre-fix used OR IGNORE
+        # → dup POs kept their first-seen timestamp → `MAX(created_at)`
+        # froze at the day the bridge first normalized data → cap
+        # freshness probe in pricing_oracle_v2 read "60d ago" even
+        # though the bridge had been running daily. With OR REPLACE,
+        # `MAX(created_at)` reflects the latest bridge run, which is the
+        # actual signal the cap-freshness check needs. id is the
+        # `po_number` (UNIQUE), so DELETE+INSERT is referentially safe.
         conn.execute("""
-            INSERT OR IGNORE INTO scprs_awards
+            INSERT OR REPLACE INTO scprs_awards
             (id, po_number, agency, agency_code, vendor_name, vendor_code,
              award_date, fiscal_year, total_value, item_count, tenant_id, created_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,'reytech',?)

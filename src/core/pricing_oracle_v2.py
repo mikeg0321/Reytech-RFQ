@@ -303,7 +303,7 @@ def scprs_rollup_cap_state() -> dict:
         }
     # Auto-detect: cap is live iff scprs_awards has fresh data.
     try:
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, timezone as _tz
         from src.core.db import get_db
         with get_db() as conn:
             row = conn.execute(
@@ -322,18 +322,37 @@ def scprs_rollup_cap_state() -> dict:
         latest = row["latest"] or ""
         age_days = None
         if latest:
+            # PR-AG (2026-05-14): stored timestamps are timezone-aware UTC
+            # (run_scprs_harvest writes `datetime.now(timezone.utc).isoformat()`
+            # — yields `2026-03-14T15:30:00+00:00`). Pre-fix `_dt.now()` was
+            # naive → subtracting aware from naive raised TypeError, caught
+            # below, age_days stayed None → banner rendered literal
+            # "Noned ago" (Mike's 2026-05-13 /home screenshot). Normalize
+            # both sides to aware UTC so the math actually runs.
             try:
-                lt = _dt.fromisoformat(str(latest).rstrip("Z"))
-                age_days = (_dt.now() - lt).days
+                _s = str(latest).rstrip("Z")
+                lt = _dt.fromisoformat(_s)
+                if lt.tzinfo is None:
+                    lt = lt.replace(tzinfo=_tz.utc)
+                age_days = (_dt.now(_tz.utc) - lt).days
             except (TypeError, ValueError):
                 age_days = None
         if age_days is None or age_days > SCPRS_CAP_FRESH_DAYS:
+            # PR-AG: defensive message when age_days couldn't be computed —
+            # avoid the "Noned ago" cosmetic. The underlying state (cap
+            # disabled, reason=stale_data) is correct regardless.
+            if age_days is None:
+                _msg = ("scprs_awards has rows but no parseable "
+                        "created_at timestamps — bridge schema may have "
+                        "drifted. Cap auto-disabled.")
+            else:
+                _msg = (f"scprs_awards last fresh {age_days}d ago "
+                        f"(threshold {SCPRS_CAP_FRESH_DAYS}d) — bridge "
+                        f"may have stopped. Cap auto-disabled.")
             return {
                 "enabled": False,
                 "reason": "stale_data",
-                "message": (f"scprs_awards last fresh {age_days}d ago "
-                            f"(threshold {SCPRS_CAP_FRESH_DAYS}d) — bridge "
-                            f"may have stopped. Cap auto-disabled."),
+                "message": _msg,
                 "last_award_age_days": age_days,
                 "fresh_days_threshold": SCPRS_CAP_FRESH_DAYS,
             }
