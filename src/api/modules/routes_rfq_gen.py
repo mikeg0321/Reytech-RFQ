@@ -65,6 +65,102 @@ def extract_contract_forms(requirements_json):
         return set()
 
 
+def _attempt_mirror_fallback(form_id: str, input_path: str, rfq_data: dict,
+                              output_path: str, original_exc: Exception) -> bool:
+    """When a code-fill (`fill_703c`, future `fill_X` variants) crashes,
+    attempt to recover by mirror-filling from a prior submission of the
+    form's registered `mirror_fallback`.
+
+    Returns True iff the mirror-fall-back succeeded and wrote
+    `output_path`; False otherwise (caller should re-raise the original
+    code-fill exception). Never raises on its own — failures inside
+    this helper degrade to False so the dispatcher can surface the
+    real bug.
+
+    PR mr-wolf #4c. Closes the 703C resilience TODO noted in PR #4b's
+    commit body. Today this fires for 703c → 703b only (only form
+    with BOTH code_filler AND mirror_fallback registered); future
+    forms opt in by setting `mirror_fallback` on their FormDefinition.
+    """
+    try:
+        from src.forms.form_registry import (
+            mirror_fallback_form, field_prefix,
+        )
+        from src.forms.prior_submissions import latest_for
+        from src.forms.mirror_fill import mirror_fill_from_prior_pdf
+    except Exception as _ie:
+        log.debug("mirror-fallback: import failed (%s); no recovery", _ie)
+        return False
+
+    fallback = mirror_fallback_form(form_id)
+    if not fallback:
+        log.debug(
+            "mirror-fallback: form_id=%r has no registered mirror_fallback "
+            "— surfacing original code-fill exception",
+            form_id,
+        )
+        return False
+
+    agency_hint = (
+        rfq_data.get("agency") or rfq_data.get("agency_key") or ""
+    ).strip().lower()
+
+    try:
+        prior_bytes = latest_for(fallback, agency_key=agency_hint or None)
+    except Exception as _le:
+        log.debug("mirror-fallback latest_for(%s) failed: %s", fallback, _le)
+        return False
+
+    if not prior_bytes:
+        log.warning(
+            "mirror-fallback: %s code-fill crashed (%s) but no %s prior "
+            "exists in prior_submissions — cannot recover. Mark Sent on a "
+            "future %s will populate priors and unblock the recovery path.",
+            form_id, original_exc, fallback, fallback,
+        )
+        return False
+
+    source_prefix = field_prefix(fallback)
+    target_prefix = field_prefix(form_id)
+    if not source_prefix or not target_prefix:
+        log.warning(
+            "mirror-fallback: missing prefix mapping (source=%r target=%r) "
+            "— cannot recover",
+            source_prefix, target_prefix,
+        )
+        return False
+
+    try:
+        filled = mirror_fill_from_prior_pdf(
+            input_path, prior_bytes,
+            source_prefix=source_prefix,
+            target_prefix=target_prefix,
+            preserve_buyer_filled=True,
+        )
+    except Exception as _me:
+        log.warning(
+            "mirror-fallback: mirror_fill_from_prior_pdf failed "
+            "(form=%s, source=%s, fallback=%s): %s",
+            form_id, source_prefix, fallback, _me,
+        )
+        return False
+
+    try:
+        with open(output_path, "wb") as _f:
+            _f.write(filled)
+    except Exception as _we:
+        log.warning("mirror-fallback: write to %s failed: %s", output_path, _we)
+        return False
+
+    log.warning(
+        "mirror-fallback ACTIVATED: %s code-fill crashed (%s) — recovered "
+        "via mirror_fill from prior %s submission. Bid ships; investigate "
+        "the underlying code-fill bug post-bid.",
+        form_id, original_exc, fallback,
+    )
+    return True
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Screenshot URL Parser — parse screenshot → dedup → scrape → enrich
 # ═══════════════════════════════════════════════════════════════════════
@@ -2048,8 +2144,31 @@ def generate_rfq_package(rid):
                         t.warn(f"{_703_label} template unrecognized — "
                                "refusing blind-fill. Hand-fill via Acrobat.")
                     if _fill_fn is not None:
-                        _fill_fn(tmpl[_703_key], r, CONFIG,
-                                 f"{out_dir}/{sol}_{_label}_Reytech.pdf")
+                        _out_path = f"{out_dir}/{sol}_{_label}_Reytech.pdf"
+                        try:
+                            _fill_fn(tmpl[_703_key], r, CONFIG, _out_path)
+                        except Exception as _fe:
+                            # PR mr-wolf #4b follow-up: code-fill crash
+                            # → try mirror-fall-back from a prior of
+                            # the registered fallback form. Only fires
+                            # when (a) the form_registry records a
+                            # mirror_fallback (703c→703b today; ams708
+                            # / 703b have None registered), AND (b) a
+                            # prior exists in the prior_submissions
+                            # store. Loud-logs so the underlying code-
+                            # fill bug surfaces for post-bid fix, but
+                            # the bid still ships.
+                            _recovered = _attempt_mirror_fallback(
+                                _shape, tmpl[_703_key], r,
+                                _out_path, _fe,
+                            )
+                            if not _recovered:
+                                raise
+                            t.warn(
+                                f"{_703_label} code-fill crashed — "
+                                f"recovered via mirror-fall-back",
+                                error=str(_fe),
+                            )
                         output_files.append(f"{sol}_{_label}_Reytech.pdf")
                         t.step(f"{_703_label} filled ({_label})")
                 except Exception as e:
