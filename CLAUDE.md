@@ -1,5 +1,24 @@
 # CLAUDE.md — Reytech RFQ Project Rules
 
+## Prime Directive (READ BEFORE ANY QUOTE-GEN EDIT)
+
+The canonical source of truth for any Quote PDF / Package PDF / form
+fill is `src/core/quote_contract.py` :: `QuoteContract`. It is FROZEN.
+Renderers receive a contract and read from its frozen fields. Renderers
+do NOT call `tax_resolver` / `agency_config` / `facility_registry`
+directly — that's how the 7 recurring fix patterns started.
+
+If your PR adds a new `rfq_data.get(...)` read inside a renderer module
+(`src/forms/`, `src/api/modules/routes_rfq_gen.py`), it MUST be wired
+through QuoteContract first. The architecture-contract test will fail
+your PR if you take a shortcut. Do not add to the allowlist without
+explicit approval from Mike.
+
+History: this rule was added 2026-04-24 (commit @PR#501). It was not
+durably enforced. Mike's "I've been saying the same thing for 3 months"
+is a direct quote about the consequence. Finish the migration. Do not
+add new consumers outside the contract.
+
 ## Multi-Window Development Protocol (MANDATORY)
 
 Multiple Claude Code sessions run in parallel. Follow this protocol to avoid conflicts.

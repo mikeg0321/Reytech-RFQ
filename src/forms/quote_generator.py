@@ -889,6 +889,7 @@ def generate_quote(
     notes: str = None,
     revision: int = None,
     editable: bool = False,
+    contract=None,
 ) -> dict:
     """
     Generate a professional Reytech quote PDF.
@@ -1551,7 +1552,35 @@ def generate_quote(
     # the correct number.
     from src.core.pricing_math import subtotal_of as _sub_of_q
     subtotal = _sub_of_q(items)
-    tax     = round(subtotal * rate, 2) if include_tax else 0.0
+
+    # ── Tax: prefer the QuoteContract when the wrapper supplied one ──
+    # The contract is the canonical source — it knows about
+    # shipping_option (RFQ e02b7fa6 PVSP 2026-05-13 incident: included
+    # shipping → no tax line, but the pre-contract math stamped $322).
+    # Falls back to the legacy `subtotal × rate` only for direct callers
+    # (tests, AcroForm preview) that haven't been migrated. When the
+    # contract zeros tax for "shipping_option=included", the row still
+    # renders as "TAX  $0.00" so the agency sees an explicit number
+    # rather than a missing line.
+    _tax_from_contract = False
+    if contract is not None:
+        try:
+            tax = contract.tax_cents / 100.0
+            # Rate label follows the contract; an "included" contract
+            # surfaces "TAX  $0.00" without a percent to signal the
+            # bundled treatment.
+            if contract.shipping_option == "included":
+                _tax_label = "TAX"
+            else:
+                _label_rate = contract.tax_rate or rate
+                _tax_label = f"TAX ({_label_rate*100:.2f}%)"
+            _tax_from_contract = True
+        except Exception as _ce:
+            log.debug("contract tax read failed, falling back: %s", _ce)
+    if not _tax_from_contract:
+        tax = round(subtotal * rate, 2) if include_tax else 0.0
+        _tax_label = f"TAX ({rate*100:.2f}%)" if include_tax else "TAX"
+
     total   = round(subtotal + tax + shipping, 2)
 
     # Totals are right-aligned under UNIT PRICE + TOTAL PRICE columns
@@ -1561,8 +1590,6 @@ def generate_quote(
     val_x  = 514
     val_w  = 80
     tot_h  = 19
-
-    _tax_label = f"TAX ({rate*100:.2f}%)" if include_tax else "TAX"
     totals_data = [
         ("SUBTOTAL",  f"${subtotal:,.2f}",  False),
         (_tax_label,  f"${tax:,.2f}",        False),
@@ -2026,6 +2053,18 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
     if "notes" not in kwargs and pc.get("quote_notes"):
         kwargs["notes"] = pc["quote_notes"]
 
+    # QuoteContract spine (PR mr-wolf substrate-pivot 2026-05-13). See
+    # generate_quote_from_rfq for the contract rationale — same wire.
+    # PC dict carries `delivery_option` instead of `shipping_option`;
+    # `assemble_from_rfq` already reads both, so passing `pc` directly
+    # is correct.
+    if "contract" not in kwargs:
+        try:
+            from src.core.quote_contract import assemble_from_pc as _assemble_pc
+            kwargs["contract"] = _assemble_pc(pc)
+        except Exception as _ae:
+            log.debug("QuoteContract assembly skipped (pc): %s", _ae)
+
     return generate_quote(data, output_path, **kwargs)
 
 
@@ -2301,6 +2340,21 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         kwargs["notes"] = rfq["quote_notes"]
     if "revision" not in kwargs and rfq.get("quote_revision"):
         kwargs["revision"] = rfq["quote_revision"]
+
+    # QuoteContract spine (PR mr-wolf substrate-pivot 2026-05-13). The
+    # contract IS the canonical source for the tax line — once assembled
+    # from the rfq dict, generate_quote prefers `contract.tax_cents` over
+    # the legacy `subtotal × rate`. The only behavioral delta TODAY is
+    # the shipping_option=included → $0 tax fix (RFQ e02b7fa6 PVSP); the
+    # non-included branch returns the same value as the legacy math
+    # modulo int-cent rounding. Failure to assemble (e.g., bad rfq
+    # shape) silently falls back to the legacy kwargs path.
+    if "contract" not in kwargs:
+        try:
+            from src.core.quote_contract import assemble_from_rfq as _assemble
+            kwargs["contract"] = _assemble(rfq)
+        except Exception as _ae:
+            log.debug("QuoteContract assembly skipped (rfq): %s", _ae)
 
     return generate_quote(data, output_path, **kwargs)
 
