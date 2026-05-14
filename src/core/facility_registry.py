@@ -478,6 +478,16 @@ _SEED: Tuple[FacilityRecord, ...] = (
     # canonical registry. Cross-source consistency test
     # (test_institution_resolver_canonical_consistency.py) catches any
     # future divergence between the two sources.
+    # PR-AT (2026-05-14): added bare "atascadero" alias. Atascadero
+    # is a small CA city with no other state facility (only the State
+    # Hospital). Buyer PDFs often write "DEPT. OF STATE HOSPITALS -
+    # ATASCADERO" or just "Atascadero" — neither matched the previous
+    # ("atascadero state hospital", "ash") alias set. Substring match
+    # on `\b atascadero \b` is unambiguous: no other facility in the
+    # registry has Atascadero in its address. The bare city token is
+    # safe in a way that "coalinga" / "norwalk" are NOT (those collide
+    # with PVSP / other facilities — see those entries for the no-bare
+    # rule).
     FacilityRecord(
         code="DSH-Atascadero",
         canonical_name="DSH - Atascadero State Hospital",
@@ -485,7 +495,7 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line2="Atascadero, CA 93422",
         zip="93422", parent_agency="DSH",
         parent_agency_full="California Department of State Hospitals",
-        aliases=("atascadero state hospital", "ash"),
+        aliases=("atascadero state hospital", "ash", "atascadero"),
     ),
     FacilityRecord(
         code="DSH-Coalinga",
@@ -525,6 +535,45 @@ _SEED: Tuple[FacilityRecord, ...] = (
         zip="92369", parent_agency="DSH",
         parent_agency_full="California Department of State Hospitals",
         aliases=("patton state hospital", "psh", "patton"),
+    ),
+    # PR-AT (2026-05-14): DSH-HQ agency-level fallback. The 5
+    # specific DSH facilities above cover every case where the buyer's
+    # RFQ names a specific hospital. But many DSH RFQs (like
+    # corneliu.butuza@dsh.ca.gov's 25CB021 test record) carry only
+    # agency-level identification — `agency="DSH"` or `"DSH — STATE
+    # HOSPITALS"` with no facility text. Pre-PR-AT, `resolve()`
+    # returned None for those, leaving ship_to="CA" (2 chars) and
+    # blocking PR-AI auto-tax at ingest. Now the agency-only text
+    # routes here with the Sacramento HQ address — operator sees a
+    # real ship_to + a non-zero tax rate, and can override to the
+    # actual facility on the detail page.
+    #
+    # ALIAS SAFETY: every alias here is an agency-only phrase. None
+    # of them substring-match a specific facility's text ("Atascadero
+    # State Hospital", "Patton SH", etc.) — those resolve to their
+    # specific FacilityRecord above. The HQ entry intentionally does
+    # NOT carry the broad "state hospitals" substring as an alias
+    # because that would also match "PATTON STATE HOSPITAL" and
+    # collide with the specific facilities.
+    FacilityRecord(
+        code="DSH-HQ",
+        canonical_name="DSH - Headquarters (facility unspecified)",
+        address_line1="1600 9th Street",
+        address_line2="Sacramento, CA 95814",
+        zip="95814", parent_agency="DSH",
+        parent_agency_full="California Department of State Hospitals",
+        aliases=(
+            "dsh",
+            "dsh hq",
+            "dsh headquarters",
+            "dsh — state hospitals",     # em-dash variant from auto-classifier
+            "dsh - state hospitals",     # hyphen variant
+            "department of state hospitals",
+            "dept of state hospitals",
+            "ca dept of state hospitals",
+            "ca department of state hospitals",
+            "state hospitals headquarters",
+        ),
     ),
 )
 
