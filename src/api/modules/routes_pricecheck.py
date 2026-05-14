@@ -995,6 +995,17 @@ def _pricecheck_detail_inner(pcid):
             ("📦", "UPC captured", bool(item.get("upc") or p.get("upc"))),
             ("🆔", "ASIN captured", bool(asin or item.get("asin"))),
             ("🏷️", "MFG# present", bool((item.get("mfg_number") or "").strip())),
+            # PR-AK (2026-05-14): operator-surface signal for items the
+            # ingest-time Oracle enrichment (PR-AJ #991) populated cost-
+            # basis reference fields on. Lets the operator see at a
+            # glance "this row came in with Oracle-suggested catalog_cost
+            # / supplier — confirm or override" vs. "this row needs
+            # manual lookup." Distinguished from the regular 🔗/📦 chips
+            # because those measure presence-of-data after operator
+            # work; this one specifically signals "Oracle did this for
+            # you at ingest."
+            ("🔮", "Oracle pre-priced at ingest — review cost & confirm",
+                bool(item.get("auto_priced_at_ingest"))),
         ]
         _cat_chips = "".join(
             f'<span style="padding:1px 5px;border-radius:3px;background:rgba(63,185,80,.10);'

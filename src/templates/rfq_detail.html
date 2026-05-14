@@ -601,6 +601,15 @@
      {% if i.get('cost_source') %}
      <span style="font-size:10px;padding:1px 4px;border-radius:3px;{% if i.cost_source == 'Supplier Quote' %}background:rgba(63,185,80,.15);color:#3fb950{% elif i.cost_source == 'SCPRS' %}background:rgba(79,140,255,.15);color:#58a6ff{% elif i.cost_source == 'Amazon' %}background:rgba(251,191,36,.15);color:#d29922{% elif i.cost_source == 'Catalog' %}background:rgba(167,139,250,.15);color:#a78bfa{% else %}background:rgba(139,148,158,.1);color:#8b949e{% endif %}" title="Cost from {{i.cost_source}}{% if i.get('cost_supplier_name') %} ({{i.cost_supplier_name}}){% endif %}">{{ i.cost_source }}{% if i.get('cost_supplier_name') %} · {{ i.cost_supplier_name[:20] }}{% endif %}</span>
      {% endif %}
+     {# PR-AK (2026-05-14): Oracle pre-priced badge — companion to the PC #}
+     {# detail badge in routes_pricecheck.py:_cat_chip_specs. Surfaces when #}
+     {# PR-AJ #991 enriched this item's cost-basis reference fields at #}
+     {# ingest time, so the operator can see at a glance "this row came in #}
+     {# with Oracle data — confirm or override" vs. "this row needs #}
+     {# manual lookup." Distinguished from cost_source because that's the #}
+     {# operator's confirmed origin, while this is the ingest-time #}
+     {# suggestion. #}
+     {% if i.get('auto_priced_at_ingest') %}<span data-testid="oracle-pre-priced-badge" style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,.18);color:#a78bfa;border:1px solid rgba(167,139,250,.30)" title="Oracle pre-priced this item at ingest — review cost & confirm">🔮 Oracle</span>{% endif %}
      <input type="hidden" name="scprs_{{loop.index0}}" value="{{i.scprs_last_price or ''}}">
     </div>
    </td>
