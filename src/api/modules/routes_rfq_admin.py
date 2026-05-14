@@ -4261,3 +4261,179 @@ def api_rfq_win_warnings(rid):
         "warnings": warnings,
         "counts": counts,
     })
+
+
+# ── PR-AL (2026-05-14): backfill — retroactively apply PR-AI + PR-AJ
+# enrichment to existing non-terminal PCs and RFQs ──────────────────
+
+
+@bp.route("/api/admin/heal-ingest-enrichment", methods=["POST"])
+@auth_required
+@safe_route
+def api_heal_ingest_enrichment():
+    """One-shot backfill that applies the same auto-tax + auto-price
+    enrichment logic from `_create_record` (PR-AI #990 + PR-AJ #991)
+    to every existing non-terminal PC and RFQ. Heals the operator
+    queue's ⚠ DEFAULT records WITHOUT waiting for the next inbound.
+
+    Body: `{"dry_run": true}` (default false) returns what WOULD be
+    enriched without mutating. Pass `{"dry_run": false}` to actually
+    write.
+
+    Safety: the underlying enrichment is idempotent by design —
+      - PR-AI tax-resolve only stamps when current tax_rate is zero.
+      - PR-AJ Oracle reference fields only fill BLANK fields, never
+        overwrite. Items with unit_cost OR supplier_cost set are
+        skipped entirely.
+    Re-running this endpoint multiple times converges to the same
+    state; no risk of clobbering operator-typed cost/markup edits.
+
+    Returns: {records_processed, tax_resolved, items_enriched,
+              dry_run, summary[rid → counts]}
+    """
+    body = request.get_json(silent=True) or {}
+    dry_run = bool(body.get("dry_run", True))  # default safe: dry-run
+
+    # Terminal statuses we skip — those records are done and shouldn't
+    # see enrichment writes (operator already shipped or dismissed).
+    TERMINAL = {"sent", "won", "lost", "expired", "no_response",
+                "dismissed", "archived", "duplicate"}
+
+    from src.api.dashboard import (
+        _load_price_checks, _save_single_pc,
+        load_rfqs, _save_single_rfq,
+    )
+    from src.core.quote_contract import tax_for_address
+    try:
+        from src.core.pricing_oracle_v2 import recommend_for_item as _rec
+    except Exception:
+        _rec = None
+
+    _now = datetime.now().isoformat() if 'datetime' in dir() else ""
+    if not _now:
+        from datetime import datetime as _dt2
+        _now = _dt2.now().isoformat()
+
+    def _heal_record(rid, r):
+        """Returns (tax_resolved_bool, items_enriched_count)."""
+        tax_resolved = False
+        items_enriched = 0
+
+        # Skip terminal records.
+        _status = (r.get("status") or "").strip().lower()
+        if _status in TERMINAL:
+            return (False, 0)
+
+        # ── Auto-tax (PR-AI logic) ──
+        _cur_rate = float(r.get("tax_rate") or 0)
+        if _cur_rate <= 0:
+            _ship_to = (r.get("ship_to") or "").strip()
+            if _ship_to and len(_ship_to) > 3:
+                try:
+                    _tax = tax_for_address(_ship_to) or {}
+                    _rate = float(_tax.get("rate") or 0.0)
+                    if _rate > 0:
+                        if not dry_run:
+                            r["tax_rate"] = round(_rate * 100, 3)
+                            r["tax_source"] = str(_tax.get("source") or "")
+                            r["tax_jurisdiction"] = str(_tax.get("jurisdiction") or "")
+                            r["tax_validated"] = bool(_tax.get("validated", False))
+                        tax_resolved = True
+                except Exception as _te:
+                    log.debug("heal: tax-resolve %s failed: %s", rid, _te)
+
+        # ── Auto-price (PR-AJ logic) ──
+        # Items key differs: PC=items, RFQ=line_items. Both possible.
+        _items = r.get("items") or r.get("line_items") or []
+        if _rec is not None and isinstance(_items, list):
+            for _it in _items:
+                if not isinstance(_it, dict):
+                    continue
+                _desc = (_it.get("description") or "").strip()
+                if not _desc:
+                    continue
+                # Skip operator-confirmed cost (sacred per PR-AC).
+                if _it.get("unit_cost") or _it.get("supplier_cost"):
+                    continue
+                try:
+                    _r = _rec(
+                        description=_desc,
+                        part_number=str(_it.get("part_number") or _it.get("item_number") or _it.get("mfg_number") or ""),
+                        qty=float(_it.get("quantity") or _it.get("qty") or 1) or 1,
+                        upc=str(_it.get("upc") or ""),
+                    )
+                except Exception as _ie:
+                    log.debug("heal: per-item rec %s/%r failed: %s", rid, _desc[:40], _ie)
+                    continue
+                if not _r:
+                    continue
+                _stamped = False
+                if not _it.get("catalog_cost") and _r.get("catalog_cost"):
+                    if not dry_run:
+                        _it["catalog_cost"] = _r["catalog_cost"]
+                    _stamped = True
+                if not _it.get("supplier") and _r.get("supplier"):
+                    if not dry_run:
+                        _it["supplier"] = _r["supplier"]
+                    _stamped = True
+                if not _it.get("source_url") and _r.get("source_url"):
+                    if not dry_run:
+                        _it["source_url"] = _r["source_url"]
+                    _stamped = True
+                if not _it.get("asin") and _r.get("asin"):
+                    if not dry_run:
+                        _it["asin"] = _r["asin"]
+                    _stamped = True
+                if _it.get("confidence") in (None, 0, 0.0) and _r.get("confidence") is not None:
+                    if not dry_run:
+                        _it["confidence"] = float(_r["confidence"])
+                    _stamped = True
+                if _stamped:
+                    if not dry_run:
+                        _it["auto_priced_at_ingest"] = True
+                        _it["auto_price_at"] = _now
+                    items_enriched += 1
+        return (tax_resolved, items_enriched)
+
+    summary = {}
+    total_tax = 0
+    total_items = 0
+
+    # PCs
+    pcs = _load_price_checks() or {}
+    for pcid, pc in list(pcs.items()):
+        tax_r, items_e = _heal_record(pcid, pc)
+        if tax_r or items_e:
+            summary[pcid] = {"type": "pc", "tax_resolved": tax_r,
+                             "items_enriched": items_e}
+            if tax_r:
+                total_tax += 1
+            total_items += items_e
+            if not dry_run:
+                _save_single_pc(pcid, pc)
+
+    # RFQs
+    rfqs = load_rfqs() or {}
+    for rid, r in list(rfqs.items()):
+        tax_r, items_e = _heal_record(rid, r)
+        if tax_r or items_e:
+            summary[rid] = {"type": "rfq", "tax_resolved": tax_r,
+                            "items_enriched": items_e}
+            if tax_r:
+                total_tax += 1
+            total_items += items_e
+            if not dry_run:
+                _save_single_rfq(rid, r)
+
+    log.info(
+        "heal-ingest-enrichment: dry_run=%s records=%d tax=%d items=%d",
+        dry_run, len(summary), total_tax, total_items,
+    )
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "records_processed": len(summary),
+        "tax_resolved": total_tax,
+        "items_enriched": total_items,
+        "summary": summary,
+    })
