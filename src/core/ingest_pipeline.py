@@ -1518,6 +1518,64 @@ def _find_active_pc_by_number(
     return None
 
 
+def _find_active_rfq_by_thread(
+    thread_id: str,
+    agency: str = "",
+    lookback_days: int = 90,
+) -> Optional[Dict[str, Any]]:
+    """Return an existing non-deleted RFQ with the same `email_thread_id`.
+
+    Hotfix 2026-05-13 — Mike: "i just manually sent the quote we sent
+    earlier, and the queue populated back with ghost data". Buyer-reply
+    emails (Mohammad@CDCR on RFQ e02b7fa6 after Mark Sent) arrived as
+    NEW Gmail messages inside the SAME thread, and the ingest pipeline's
+    RFQ branch had no dedup gate (PR-N #959 added dedup for PCs only by
+    pc_number — but RT-synthesized RFQ sol#s are unique per ingest, so
+    dedup-by-rfq_number can't catch the buyer-reply-spawns-RFQ class).
+    This helper dedups by Gmail thread_id, which is stable across every
+    reply in a conversation.
+
+    Mirrors `_find_active_pc_by_number`'s semantics — same skip set,
+    same lookback window, same case-insensitive agency match. Empty
+    thread_id (non-Gmail ingest, legacy poller) returns None so behavior
+    falls back to no-dedup, matching the PC-side empty-pc_number path.
+    """
+    if not thread_id or not str(thread_id).strip():
+        return None
+    canonical_thread = str(thread_id).strip()
+    canonical_agency = (agency or "").strip().lower()
+    try:
+        from datetime import timedelta as _td
+        from src.core.db import get_db
+    except Exception:
+        return None
+    cutoff = (datetime.now() - _td(days=lookback_days)).isoformat()
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, rfq_number, solicitation_number, agency, "
+                "institution, status, created_at, sent_at, closed_at, "
+                "email_thread_id "
+                "FROM rfqs "
+                "WHERE email_thread_id = ? AND created_at >= ? "
+                "ORDER BY created_at DESC",
+                (canonical_thread, cutoff),
+            ).fetchall()
+    except Exception as e:
+        log.debug("rfq dedup lookup skipped (%s): %s", canonical_thread[:24], e)
+        return None
+    _skip_existing = {"duplicate", "deleted", "archived"}
+    for r in rows:
+        existing_agency = (r["agency"] or r["institution"] or "").strip().lower()
+        if canonical_agency and existing_agency and existing_agency != canonical_agency:
+            continue
+        existing_status = (r["status"] or "").strip().lower()
+        if existing_status in _skip_existing:
+            continue
+        return dict(r)
+    return None
+
+
 def _persist_all_attachments(
     record_id: str,
     record_type: str,
@@ -1946,6 +2004,62 @@ def _create_record(
                     )
         except Exception as _e:
             log.warning("ingest create: template registration failed: %s", _e)
+
+        # RFQ-side dedup-at-ingest by email_thread_id (hotfix 2026-05-13).
+        # Mike: "i just manually sent the quote we sent earlier, and the
+        # queue populated back with ghost data". Mohammad's buyer-reply
+        # arrived in the same Gmail thread as the original RFQ; the RFQ
+        # branch had no dedup (PR-N #959 only handled PCs by pc_number),
+        # so the reply's attachments spawned fresh RFQs with unique
+        # RT-CCHCS-260513-* synthesized sol#s. Mirror the PC-side gate
+        # using thread_id (the stable key across replies).
+        try:
+            from src.core.flags import get_flag
+            _rfq_dedup_on = bool(get_flag(
+                "ingest.dedup_rfq_by_thread_enabled", True,
+            ))
+        except Exception:
+            _rfq_dedup_on = True
+        if _rfq_dedup_on and gmail_thread_id:
+            existing_rfq = _find_active_rfq_by_thread(
+                gmail_thread_id,
+                agency=record.get("agency", "") or record.get("institution", ""),
+            )
+            if existing_rfq:
+                existing_id = existing_rfq.get("id", "")
+                existing_status = (existing_rfq.get("status") or "parsed").strip().lower()
+                _dedup_reason = (
+                    f"auto-dedup: gmail_thread_id matches active rfq {existing_id[:12]} "
+                    f"(status={existing_status}) — buyer reply in existing thread"
+                )
+                record["status"] = "duplicate"
+                record["closed_reason"] = _dedup_reason
+                record["closed_at"] = now
+                record["dedup_of"] = existing_id
+                _hist = record.get("status_history") or []
+                _hist.append({
+                    "from": initial_status,
+                    "to": "duplicate",
+                    "at": now,
+                    "actor": "ingest_pipeline",
+                    "reason": _dedup_reason,
+                })
+                record["status_history"] = _hist
+                log.info(
+                    "ingest dedup-at-ingest [rfq]: thread_id=%s collides with %s "
+                    "(status=%s) — new rfq auto-marked duplicate",
+                    str(gmail_thread_id)[:24], existing_id, existing_status,
+                )
+                try:
+                    from src.core.utilization import record_feature_use
+                    record_feature_use("ingest.rfq_duplicate_skipped", context={
+                        "thread_id": str(gmail_thread_id)[:24],
+                        "agency": record.get("agency", ""),
+                        "existing_rfq_id": existing_id,
+                        "existing_status": existing_status,
+                    })
+                except Exception as _te:
+                    log.debug("rfq dedup telemetry suppressed: %s", _te)
 
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(record["id"], record)
