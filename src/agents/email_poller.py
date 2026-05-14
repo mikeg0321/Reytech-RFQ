@@ -1834,12 +1834,65 @@ class EmailPoller:
                 log.error("Gmail API service not connected — cannot poll")
                 return results
             since_date = (datetime.now() - timedelta(days=30)).strftime("%Y/%m/%d")
-            query = (f"in:inbox after:{since_date} "
-                     f"-from:noreply -from:no-reply -from:mailer-daemon "
-                     f"-from:notifications@ -from:newsletter@ -from:marketing@")
+            # ── PR-AU (2026-05-14): two-query union to catch archived
+            # buyer RFQs ──
+            # PREQ 10847262 surfaced this gap: a CDCR RFQ from
+            # Mohammad Chechi (@cdcr.ca.gov) was archived by a Gmail
+            # filter, so the existing `in:inbox`-only query never
+            # iterated its UID — record never created.
+            #
+            # Sister email PREQ 10846357 from same sender same day was
+            # in inbox and got processed. The poll only sees what's
+            # `in:inbox`.
+            #
+            # Fix: run TWO Gmail queries and union the UID list:
+            #   1. Existing: `in:inbox after:30d -noreply...`
+            #      (all-shape inbox catch-all — preserves prior behavior)
+            #   2. NEW:      `has:attachment from:.ca.gov after:30d
+            #                 -noreply... -in:trash -in:spam`
+            #      (archived buyer emails with attachments — covers
+            #      anything a Gmail filter routed away from inbox)
+            #
+            # The downstream classifier + dedup gates already filter
+            # noise; broadening the SCAN doesn't broaden what becomes
+            # a record. Two queries is more defensive than one OR-paren
+            # query (Gmail's API tolerates parens but a single failing
+            # query takes the whole poll silent).
+            noise_filter = (
+                "-from:noreply -from:no-reply -from:mailer-daemon "
+                "-from:notifications@ -from:newsletter@ -from:marketing@"
+            )
+            inbox_query = f"in:inbox after:{since_date} {noise_filter}"
+            archived_query = (
+                f"has:attachment from:.ca.gov after:{since_date} "
+                f"-in:trash -in:spam {noise_filter}"
+            )
             try:
                 from src.core.gmail_api import list_message_ids
-                all_ids = list_message_ids(self._gmail_service, query, max_results=500)
+                inbox_ids = list_message_ids(
+                    self._gmail_service, inbox_query, max_results=500
+                )
+                try:
+                    archived_ids = list_message_ids(
+                        self._gmail_service, archived_query, max_results=500
+                    )
+                except Exception as _ae:
+                    log.warning(
+                        "PR-AU archived-query failed (falling back to inbox only): %s",
+                        _ae,
+                    )
+                    archived_ids = []
+                # Union — preserve order: inbox first (oldest-existing
+                # behavior), then archived UIDs that weren't already in
+                # inbox. _processed dedup will skip anything we've seen.
+                seen = set(inbox_ids)
+                added_from_archived = [m for m in archived_ids if m not in seen]
+                all_ids = list(inbox_ids) + added_from_archived
+                if added_from_archived:
+                    log.info(
+                        "PR-AU: %d additional UIDs found in archived buyer mail",
+                        len(added_from_archived),
+                    )
             except Exception as _ge:
                 log.error("Gmail API list_message_ids failed: %s", _ge)
                 return results
