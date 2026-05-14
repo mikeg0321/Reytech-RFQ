@@ -1578,8 +1578,20 @@ MIGRATIONS = [
             ON operator_drift_shadow(agency_key);
     """),
 
-    (47, "drift_outcome_join_columns", """
-        -- 2026-05-13 (PR-K1): the JOIN from drift signal → WR signal.
+    (50, "drift_outcome_join_columns", """
+        -- 2026-05-13 (PR-K1) — RENUMBERED 2026-05-14 (PR-K1 hotfix #989).
+        -- Was version 47 originally; the PR-AG v49 migration landed in
+        -- prod ~30 min BEFORE PR-K1 #988 finished deploying, so when
+        -- this migration finally ran, schema_migrations.MAX(version)
+        -- was already 49 and the runner's `if version <= current:
+        -- continue` gate silently SKIPPED v47 and v48. The `outcome`
+        -- column was never added → /oracle/drift/preview threw
+        -- "WR breakdown error: no such column: outcome" in prod.
+        -- Renumbering 47→50 + 48→51 forces both migrations to run on
+        -- the next deploy. Fresh DBs are unaffected (they start from
+        -- current=0 and run all entries in declared list order).
+        --
+        -- The JOIN from drift signal → WR signal.
         -- operator_drift_line + operator_drift_shadow capture pricing
         -- decisions at Mark-Sent; outcomes (won/lost) land later via
         -- SCPRS award detection or reply analysis. Without these
@@ -1609,15 +1621,15 @@ MIGRATIONS = [
         ALTER TABLE operator_drift_shadow ADD COLUMN quote_number TEXT DEFAULT '';
     """),
 
-    (48, "drift_outcome_indexes", """
-        -- Migration 47 added the columns; indexes go in a separate
-        -- migration because per CLAUDE.md memory
-        -- (feedback_schema_index_after_alter), indexes on
-        -- ALTER-added columns must NEVER live in SCHEMA and must
-        -- run AFTER the ADD COLUMN migration. Migration framework
-        -- already orders by version, so 48-after-47 is the canonical
-        -- way to keep index-on-missing-column from killing init_db
-        -- on a fresh DB.
+    (51, "drift_outcome_indexes", """
+        -- 2026-05-13 (PR-K1) — RENUMBERED 2026-05-14 from v48 → v51,
+        -- companion to the v47 → v50 renumber above. Migration v50
+        -- adds the columns; indexes go in a separate migration per
+        -- feedback_schema_index_after_alter — indexes on ALTER-added
+        -- columns must NEVER live in SCHEMA and must run AFTER the
+        -- ADD COLUMN migration. Migration framework orders by version,
+        -- so 51-after-50 keeps index-on-missing-column from killing
+        -- init_db on a fresh DB.
         CREATE INDEX IF NOT EXISTS idx_odl_outcome
             ON operator_drift_line(outcome);
         CREATE INDEX IF NOT EXISTS idx_odl_quote_number
