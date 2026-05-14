@@ -26,12 +26,67 @@ from typing import Any
 
 
 def _coerce_float(v: Any) -> float | None:
-    if v is None:
+    """Coerce to float, returning None on failure. Strips `$` and `,`
+    on string inputs so Excel-import / CSV-import / form-paste values
+    like `"$10.00"` or `"1,250.50"` survive. Bools coerce to 0/1 by
+    Python's int conversion — explicitly reject so a True-ish flag
+    elsewhere on the item dict can't masquerade as $1.00."""
+    if v is None or isinstance(v, bool):
         return None
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        # Strip leading currency, thousands separators. We intentionally
+        # do NOT strip whitespace inside the number — `"1 250"` stays
+        # ambiguous and fails the float() call below.
+        if s.startswith("$"):
+            s = s[1:]
+        s = s.replace(",", "")
+        try:
+            return float(s)
+        except (TypeError, ValueError):
+            return None
     try:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def cost_from_contract(item: dict) -> float:
+    """Return the canonical cost for a line item — the SINGLE source of
+    truth that every renderer / route / agent must use to read cost.
+
+    Priority (operator-typed wins over scrape, mat-on-PVSP 2026-05-13):
+      1. `item["supplier_cost"]`        — RFQ side, set by `validate_rfq_item`
+      2. `item["vendor_cost"]`          — PC side, set by `_do_save_prices`
+      3. `item["pricing"]["unit_cost"]` — URL-paste / catalog scrape
+      4. `item["cost"]`                 — legacy flat alias
+      5. `item["pricing"]["cost"]`      — legacy nested alias
+      → 0.0 if none of the above coerce to a positive number.
+
+    Returns float dollars (NOT cents). Pair with `_write_cost` so any
+    write mirrors to all aliases and any read goes through this one
+    function — closes the alias-priority drift bug class (PR #975 + #932
+    + #952 were all symptoms of duplicated alias chains across renderers).
+
+    PR mr-wolf #2 promotes the previously-private `_read_cost` to a
+    public name so the architecture-contract ratchet can gate against
+    direct alias reads in renderer / route / agent files. `_read_cost`
+    remains as a deprecated thin alias for backwards compat; new code
+    must call `cost_from_contract`.
+
+    Never raises. Always returns a float.
+    """
+    if not isinstance(item, dict):
+        return 0.0
+    p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
+    raw = (_coerce_float(item.get("supplier_cost"))
+           or _coerce_float(item.get("vendor_cost"))
+           or _coerce_float(p.get("unit_cost"))
+           or _coerce_float(item.get("cost"))
+           or _coerce_float(p.get("cost")))
+    return float(raw or 0)
 
 
 def canonical_unit_price(item: dict) -> float:
@@ -50,23 +105,13 @@ def canonical_unit_price(item: dict) -> float:
         return 0.0
     p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
 
-    # Read cost + markup from the priority order the UI uses at
-    # routes_pricecheck.py:489: `unit_cost = p.get('unit_cost') or
-    # item.get('vendor_cost')`. Use `or`-chaining (not `is None`) so an
-    # explicit zero in `vendor_cost` falls through to the non-zero
-    # `pricing.unit_cost`. This also covers the RFQ alias `supplier_cost`
-    # set by routes_rfq_gen.py:671 on RFQ save. Hotfix 2026-04-23 after
-    # pc_f7ba7a6b (Cortech) returned stale $558.48 in email body while UI
-    # rendered the correct $567.79 — the flat `vendor_cost` was 0/missing
-    # on that record's persisted item dict so the `is None` guard fell
-    # through to the stale `unit_price` fallback instead of reading
-    # `pricing.unit_cost` where the real $465.40 lived.
-    # Operator-typed wins over scrape — symmetric with `_read_cost`.
-    # See `_read_cost` docstring for the mat-on-PVSP incident context.
-    cost = (_coerce_float(item.get("supplier_cost"))
-            or _coerce_float(item.get("vendor_cost"))
-            or _coerce_float(p.get("unit_cost"))
-            or _coerce_float(item.get("cost")))
+    # Cost via the single canonical reader. PR #2 (mr-wolf substrate
+    # pivot): previously this function inlined its own alias-priority
+    # chain that duplicated `_read_cost`'s logic. The old PR #321
+    # (Cortech mattress, pc_f7ba7a6b) plus PR #975 (mat-on-PVSP) both
+    # patched the chain in TWO places. Now there's exactly one chain in
+    # `cost_from_contract`; any future priority change touches one site.
+    cost = cost_from_contract(item)
     # 2026-05-11: prior `or`-chain treated markup_pct=0.0 as missing
     # (Python falsy: `0.0 or X` evaluates to X). For a give-away or
     # cost-pass-through item with explicit markup=0, the function fell
@@ -171,24 +216,14 @@ def _markup_is_sane(markup_pct: float | None) -> bool:
 
 
 def _read_cost(item: dict) -> float:
-    """Pull cost from any alias. Operator-typed wins over scrape.
-
-    `supplier_cost` is what `validate_rfq_item` writes when the operator
-    types a value in the RFQ cost cell. `pricing.unit_cost` is the
-    URL-paste / catalog scrape. The operator has hands-on cart visibility
-    that beats a fuzzy catalog match — so when both exist, the typed value
-    wins. Closes the bug class where premium SKUs whose initial scrape
-    matched the wrong variant ($59.99 mat instead of $448 Waterhog Elite)
-    were impossible to manually correct because every save round-trip
-    reverted the typed cost back to the stale catalog reference.
+    """Deprecated alias for `cost_from_contract`. PR mr-wolf #2 promoted
+    this to a public name; this thin alias stays for internal callers
+    inside `pricing_math` until they migrate. New code (especially in
+    `src/forms/`, `src/api/modules/routes_*`, `src/agents/*`) MUST call
+    `cost_from_contract` directly — the architecture-contract ratchet
+    test gates against bare alias-chain reads outside this module.
     """
-    p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
-    raw = (_coerce_float(item.get("supplier_cost"))
-           or _coerce_float(item.get("vendor_cost"))
-           or _coerce_float(p.get("unit_cost"))
-           or _coerce_float(item.get("cost"))
-           or _coerce_float(p.get("cost")))
-    return float(raw or 0)
+    return cost_from_contract(item)
 
 
 def _read_price(item: dict) -> float:
@@ -510,12 +545,11 @@ def is_unit_price_stale(item: dict, tolerance: float = 0.005) -> bool:
         stored = _coerce_float(p.get("recommended_price"))
     if stored is None or stored <= 0:
         return False  # nothing persisted to compare against
-    # Operator-typed wins over scrape — symmetric with `_read_cost`.
-    # See `_read_cost` docstring for the mat-on-PVSP incident context.
-    cost = (_coerce_float(item.get("supplier_cost"))
-            or _coerce_float(item.get("vendor_cost"))
-            or _coerce_float(p.get("unit_cost"))
-            or _coerce_float(item.get("cost")))
+    # Cost via the canonical reader (PR mr-wolf #2 dedupe). Previously
+    # this third site duplicated the alias chain alongside
+    # `cost_from_contract` and `canonical_unit_price` — three places to
+    # patch on every priority shift. Now one site.
+    cost = cost_from_contract(item) or None
     markup = _coerce_float(item.get("markup_pct"))
     if markup is None:
         markup = _coerce_float(p.get("markup_pct"))

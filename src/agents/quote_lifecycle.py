@@ -259,7 +259,11 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
                     _items = json.loads(_items_raw) if isinstance(_items_raw, str) else _items_raw
                     for _it in (_items or []):
                         _desc = _it.get("description", "")
-                        _cost = _it.get("cost") or _it.get("supplier_cost") or _it.get("unit_cost")
+                        # PR mr-wolf #2: cost via the canonical reader.
+                        # confirm_item_mapping wants `None` (not 0.0) when
+                        # cost is unknown, so coerce explicitly.
+                        from src.core.pricing_math import cost_from_contract as _cfc_qlc
+                        _cost = _cfc_qlc(_it) or None
                         if _desc:
                             confirm_item_mapping(
                                 original_description=_desc, canonical_description=_desc,

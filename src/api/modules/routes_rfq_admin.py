@@ -3716,10 +3716,13 @@ def _build_bookkeeper_data(r, rid):
                       or item.get("price_per_unit")
                       or (item.get("pricing", {}) or {}).get("recommended_price")
                       or 0)
-        cost = (item.get("vendor_cost")
-                or item.get("supplier_cost")
-                or (item.get("pricing", {}) or {}).get("unit_cost")
-                or 0)
+        # PR mr-wolf #2: cost via the canonical reader. Was a local
+        # `vendor_cost → supplier_cost → pricing.unit_cost` chain with
+        # the WRONG priority (vendor_cost from scrape won over
+        # operator-typed supplier_cost). Migration flips priority to
+        # match the rest of the stack — operator-typed wins.
+        from src.core.pricing_math import cost_from_contract as _cfc_admin
+        cost = _cfc_admin(item)
         qty = item.get("qty", 1) or 1
         uom = (item.get("uom") or "EA").upper()
 

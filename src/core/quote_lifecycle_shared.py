@@ -239,8 +239,11 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
                 continue
             price = (it.get("unit_price") or it.get("price_per_unit")
                      or (it.get("pricing") or {}).get("recommended_price") or 0)
-            cost = (it.get("vendor_cost") or it.get("cost")
-                    or (it.get("pricing") or {}).get("unit_cost") or 0)
+            # PR mr-wolf #2: cost via the canonical reader. The previous
+            # chain (vendor_cost → cost → pricing.unit_cost) had the
+            # wrong priority — operator-typed supplier_cost was invisible.
+            from src.core.pricing_math import cost_from_contract as _cfc_qls
+            cost = _cfc_qls(it)
             if not price or not it.get("description"):
                 continue
             line_items.append({

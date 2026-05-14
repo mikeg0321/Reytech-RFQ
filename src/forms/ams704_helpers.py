@@ -81,8 +81,15 @@ class LineItem:
         price = (raw.get("price_per_unit") or raw.get("bid_price")
                  or raw.get("unit_price") or raw.get("sell_price")
                  or raw.get("final_price") or 0)
-        cost = (raw.get("supplier_cost") or raw.get("cost")
-                or raw.get("unit_cost") or 0)
+        # PR mr-wolf #2: cost via the canonical reader so the LineItem
+        # constructor and the rest of the stack share priority. The
+        # form-only `unit_cost` alias maps to `pricing.unit_cost` in the
+        # canonical chain.
+        try:
+            from src.core.pricing_math import cost_from_contract as _cfc_li
+            cost = _cfc_li(raw if isinstance(raw, dict) else {})
+        except Exception:
+            cost = 0
         qpu = raw.get("qty_per_uom", 1)
         try:
             qpu = int(float(qpu)) if qpu else 1
@@ -366,16 +373,16 @@ def normalize_line_item(item: dict) -> dict:
     except (ValueError, TypeError):
         n["price_per_unit"] = 0
 
-    # Supplier cost: 3 aliases
-    cost = (
-        item.get("supplier_cost")
-        or item.get("cost")
-        or item.get("unit_cost")
-        or 0
-    )
+    # Supplier cost via the canonical reader (PR mr-wolf #2). Was a
+    # local 3-alias chain (supplier_cost → cost → unit_cost); now
+    # routes through `cost_from_contract` so this normalizer and the
+    # rest of the pricing stack agree on priority. `unit_cost` was a
+    # form-only alias; the canonical chain prefers `pricing.unit_cost`
+    # which covers the same case.
     try:
-        n["supplier_cost"] = float(str(cost).replace("$", "").replace(",", ""))
-    except (ValueError, TypeError):
+        from src.core.pricing_math import cost_from_contract as _cost_from_contract
+        n["supplier_cost"] = float(_cost_from_contract(item))
+    except Exception:
         n["supplier_cost"] = 0
 
     # Part number: 4 aliases
