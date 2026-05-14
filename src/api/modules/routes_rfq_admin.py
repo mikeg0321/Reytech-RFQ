@@ -4579,6 +4579,30 @@ def api_operator_drift_stats():
     return jsonify(result)
 
 
+@bp.route("/api/admin/operator-drift-audit-coverage", methods=["GET"])
+@auth_required
+@safe_route
+def api_operator_drift_audit_coverage():
+    """PR-AQ — explain WHY operator_drift_line is empty.
+
+    PR-AP showed 0 rows table-wide. /admin/funnel shows sent PCs in the
+    30-day window. Drift logging fires on every Mark-Sent but produces
+    zero rows. `log_operator_drift` skips lines lacking oracle_audit OR
+    lacking a positive unit_price/bid_price/price_per_unit.
+
+    This endpoint walks every active PC/RFQ with status="sent" and
+    reports per-record + aggregate coverage so the substrate fix
+    targets the right gate.
+
+    GET only — read-only.
+    """
+    from src.core.operator_kpi import get_drift_audit_coverage
+    result = get_drift_audit_coverage()
+    if not result.get("ok"):
+        return jsonify(result), 500
+    return jsonify(result)
+
+
 @bp.route("/api/admin/heal-due-dates", methods=["POST"])
 @auth_required
 @safe_route
