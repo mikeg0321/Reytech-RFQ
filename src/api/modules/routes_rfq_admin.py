@@ -4362,19 +4362,40 @@ def api_heal_ingest_enrichment():
             except Exception as _fe:
                 log.debug("heal: facility-registry fallback %s failed: %s", rid, _fe)
 
-        # ── Auto-tax (PR-AI logic) ──
+        # ── Auto-tax (PR-AI logic + PR-AN re-resolve fallback) ──
+        # PR-AN (2026-05-14): trigger tax-resolve not only when rate is
+        # zero, but ALSO when the stored tax_source is in the fallback
+        # set. The 4 ⚠ DEFAULT records on Mike's /home queue have
+        # tax_rate set to the CA statewide default (7.25 / fallback
+        # rendered during initial detail-page load) with
+        # tax_source="default" — pre-v3 heal correctly skipped them
+        # ("tax_rate already > 0") but the visible ⚠ DEFAULT badge
+        # never cleared. Now: a non-empty CDTFA-grade ship_to + a
+        # current tax_source in the fallback set → re-resolve. Only
+        # OVERWRITE the stored values when the new resolution returns
+        # validated=True (we never DOWNGRADE a confirmed result to a
+        # weaker fallback). tax_source values considered "fallback":
+        # default, fallback_table, fallback, "". An operator-typed
+        # "manual_operator" / "cdtfa_api" tax_source is left alone.
         _cur_rate = float(r.get("tax_rate") or 0)
-        if _cur_rate <= 0:
+        _cur_source = (r.get("tax_source") or "").strip().lower()
+        FALLBACK_SOURCES = {"", "default", "fallback_table", "fallback", "ca default"}
+        _needs_reresolve = (_cur_rate <= 0) or (_cur_source in FALLBACK_SOURCES)
+        if _needs_reresolve:
             if _ship_to and len(_ship_to) > 3:
                 try:
                     _tax = tax_for_address(_ship_to) or {}
                     _rate = float(_tax.get("rate") or 0.0)
-                    if _rate > 0:
+                    _validated = bool(_tax.get("validated", False))
+                    # Only upgrade — if the new result isn't validated,
+                    # leave the existing fallback in place (don't make
+                    # the operator surface noisier than it already is).
+                    if _rate > 0 and _validated:
                         if not dry_run:
                             r["tax_rate"] = round(_rate * 100, 3)
                             r["tax_source"] = str(_tax.get("source") or "")
                             r["tax_jurisdiction"] = str(_tax.get("jurisdiction") or "")
-                            r["tax_validated"] = bool(_tax.get("validated", False))
+                            r["tax_validated"] = True
                         tax_resolved = True
                 except Exception as _te:
                     log.debug("heal: tax-resolve %s failed: %s", rid, _te)
@@ -4391,6 +4412,17 @@ def api_heal_ingest_enrichment():
                     continue
                 # Skip operator-confirmed cost (sacred per PR-AC).
                 if _it.get("unit_cost") or _it.get("supplier_cost"):
+                    continue
+                # PR-AN short-circuit: skip items already Oracle-touched.
+                # Oracle returns non-deterministic sparse data per call —
+                # pre-fix the counter incremented on every run as each
+                # call filled different blank fields (Mike's diagnostic:
+                # 22 items_enriched on 3 consecutive calls even though
+                # all 22 already had auto_priced_at_ingest=True visible
+                # on the detail page). Now: one heal pass per item;
+                # subsequent runs converge to 0 unless a NEW item lands
+                # without the flag (re-ingest or operator-pasted row).
+                if _it.get("auto_priced_at_ingest"):
                     continue
                 try:
                     _r = _rec(

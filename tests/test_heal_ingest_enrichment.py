@@ -303,6 +303,81 @@ def test_heal_v2_skips_ship_to_when_facility_unresolvable(auth_client, temp_data
     assert pc.get("tax_rate") in (0, None)
 
 
+def test_heal_v3_reresolves_when_tax_source_is_fallback(auth_client, temp_data_dir, monkeypatch):
+    """PR-AN: records with tax_rate>0 but tax_source in the fallback
+    set (the CA Default 7.25% rendered during initial detail load)
+    must be re-resolved when ship_to becomes parseable. Pre-v3 heal
+    skipped these because tax_rate>0; the visible ⚠ DEFAULT badge
+    never cleared."""
+    _patch_enrichment(monkeypatch, tax_rate=0.08975)
+    _seed_pc("pc_heal_fallback_source",
+             tax_rate=7.25,            # already set to CA Default
+             tax_source="default",     # fallback marker
+             tax_validated=False,
+             ship_to="100 Prison Rd, Coalinga, CA 93210")
+    resp = auth_client.post("/api/admin/heal-ingest-enrichment",
+                              json={"dry_run": False})
+    body = resp.get_json()
+    assert body["tax_resolved"] >= 1
+    pc = _load_pc("pc_heal_fallback_source")
+    # Upgraded from fallback to validated CDTFA result
+    assert pc["tax_rate"] == 8.975
+    assert pc["tax_source"] == "cdtfa_api"
+    assert pc["tax_validated"] is True
+
+
+def test_heal_v3_never_downgrades_validated_to_fallback(auth_client, temp_data_dir, monkeypatch):
+    """If tax_source is already a validated source (cdtfa_api, etc.),
+    heal must NOT re-resolve and risk OVERWRITING with a weaker
+    fallback. Operator's validated tax stays put."""
+    # Patch tax_for_address to return an UNVALIDATED fallback —
+    # heal should ignore it rather than downgrading the operator's value.
+    monkeypatch.setattr(
+        "src.core.quote_contract.tax_for_address",
+        lambda addr: {"rate": 0.0725, "rate_bps": 725,
+                       "jurisdiction": "", "source": "default",
+                       "validated": False, "facility_code": ""},
+    )
+    monkeypatch.setattr(
+        "src.core.pricing_oracle_v2.recommend_for_item",
+        lambda **kw: None,
+    )
+    _seed_pc("pc_heal_no_downgrade",
+             tax_rate=8.975,
+             tax_source="cdtfa_api",   # already validated
+             tax_validated=True,
+             ship_to="100 Prison Rd, Coalinga, CA 93210")
+    auth_client.post("/api/admin/heal-ingest-enrichment",
+                       json={"dry_run": False})
+    pc = _load_pc("pc_heal_no_downgrade")
+    # Untouched — validated tax sails through
+    assert pc["tax_rate"] == 8.975
+    assert pc["tax_source"] == "cdtfa_api"
+    assert pc["tax_validated"] is True
+
+
+def test_heal_v3_short_circuits_already_auto_priced_items(auth_client, temp_data_dir, monkeypatch):
+    """PR-AN: items with auto_priced_at_ingest=True from a prior heal
+    pass must be skipped entirely on subsequent runs. Pre-fix the
+    counter incremented on every call because Oracle's sparse data
+    kept filling DIFFERENT previously-blank fields per call (Mike's
+    diagnostic: 22 items_enriched on 3 calls in a row, all already
+    flagged). Now: counter converges to 0 on re-run."""
+    _patch_enrichment(monkeypatch)
+    _seed_pc("pc_heal_short_circuit",
+             items=[{
+                 "description": "test widget",
+                 "quantity": 1, "uom": "EA",
+                 "auto_priced_at_ingest": True,  # already touched
+                 "catalog_cost": 9.99,           # partial Oracle data
+             }],
+             tax_rate=8.975, tax_source="cdtfa_api", tax_validated=True)
+    body = auth_client.post("/api/admin/heal-ingest-enrichment",
+                              json={"dry_run": False}).get_json()
+    # No items enriched — short-circuit kicked in
+    assert "pc_heal_short_circuit" not in body.get("summary", {})
+
+
 def test_heal_is_idempotent(auth_client, temp_data_dir, monkeypatch):
     """Running heal twice → second run reports zero changes; disk
     state matches first run output."""
