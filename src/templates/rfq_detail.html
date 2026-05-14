@@ -2744,7 +2744,20 @@ function recalc(){
  const _kpiTaxInput=document.getElementById('tax-rate');
  const rfqTaxRate=_kpiTaxInput?(parseFloat(_kpiTaxInput.value)||0):(parseFloat({{ (r.get('tax_rate', 0) or 0)|tojson }})||0);
  const rfqTaxEnabled={{ 'true' if r.get('tax_enabled', True) else 'false' }};
- const kpiTaxAmount=rfqTaxEnabled?(tb*rfqTaxRate/100):0;
+ // PR-AD substrate fix (2026-05-14, Mr. Wolf): canonical tax-applies rule
+ // per QuoteContract (PR #977 — shipping_option='included' → tax_cents=0).
+ // The Revenue KPI strip below (subt/taxt/tot) and the margin-summary-bar
+ // further down (ms-grand-total) must agree on whether tax applies. The
+ // deferred PR-AD bug was: KPI strip gated on rfqTaxEnabled (correct);
+ // margin-bar applied tax unconditionally (wrong). Result: Mike saw
+ // Total $3177.55 on top of the page and Total $2915.85 at the bottom
+ // for rfq_e02b7fa6. Compute applyTax + taxAmt ONCE here so every
+ // downstream UI cell + autosave reads the same authority.
+ const _shipSel=document.getElementById('shipping-option');
+ const rfqShippingIncluded=!!(_shipSel && _shipSel.value==='included');
+ const rfqApplyTax=rfqTaxEnabled && !rfqShippingIncluded;
+ const rfqTaxAmount=rfqApplyTax?(tb*rfqTaxRate/100):0;
+ const kpiTaxAmount=rfqTaxAmount;  // legacy alias; authoritative value lives in rfqTaxAmount
  const kpiTotalWithTax=tb+kpiTaxAmount;
  if(kpiSubEl)kpiSubEl.textContent=`$${tb.toFixed(2)}`;
  if(kpiTaxEl)kpiTaxEl.textContent=`$${kpiTaxAmount.toFixed(2)}`;
@@ -2784,10 +2797,13 @@ function recalc(){
    document.getElementById('ms-true-margin').style.color=trueMargin>=20?'#3fb950':trueMargin>=10?'#d29922':'#f85149';
    landedKpi.style.display='';
   } else if(landedKpi){landedKpi.style.display='none';}
-  // Tax + Shipping calculation
+  // Tax + Shipping calculation — PR-AD substrate fix: read the canonical
+  // taxAmt computed above (gates on rfqTaxEnabled + shipping_option per
+  // QuoteContract). Local taxRate kept only for the ms-tax display label
+  // and the (taxRate>0||shipAmt>0) visibility gate on ms-grand-total.
   var taxRateEl=document.getElementById('tax-rate');
   var taxRate=taxRateEl?parseFloat(taxRateEl.value)||0:0;
-  var taxAmt=tb*(taxRate/100);
+  var taxAmt=rfqTaxAmount;
   var shipSel=document.getElementById('shipping-option');
   var shipInp=document.getElementById('shipping-amount');
   if(shipSel&&shipInp){shipInp.style.display=shipSel.value==='custom'?'inline':'none';}
