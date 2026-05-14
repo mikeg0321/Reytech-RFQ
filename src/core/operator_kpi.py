@@ -357,6 +357,97 @@ def fire_drift_logs_on_send(quote_id: str, quote_type: str, pc_or_rfq: dict) -> 
     return result
 
 
+def get_drift_diagnostic() -> dict:
+    """PR-AP — operator_drift_line table state for the admin diagnostic.
+
+    Returns counts (total + 7/30/90-day windows), per-quote_type
+    breakdown, 10 most recent rows, distinct agency_keys, and drift_pct
+    distribution (min/p25/median/p75/max).
+
+    Lives here (src/core/) rather than the route module so the
+    canonical_state gate doesn't reject the inline `datetime('now',?)`
+    window filters — `src/core/` is the documented exempt zone for
+    drift-table SQL (per the get_drift_lines_per_agency pattern).
+    """
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) AS c FROM operator_drift_line"
+            ).fetchone()["c"]
+
+            by_window: dict = {}
+            for label, days in [("7d", 7), ("30d", 30), ("90d", 90)]:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS c FROM operator_drift_line "
+                    "WHERE sent_at >= datetime('now', ?)",
+                    (f"-{days} days",),
+                ).fetchone()
+                by_window[label] = row["c"]
+
+            by_quote_type: dict = {}
+            for row in conn.execute(
+                "SELECT quote_type, COUNT(*) AS c FROM operator_drift_line "
+                "GROUP BY quote_type"
+            ).fetchall():
+                by_quote_type[row["quote_type"] or "(null)"] = row["c"]
+
+            recent: list = []
+            for row in conn.execute(
+                "SELECT quote_id, quote_type, sent_at, agency_key, "
+                "drift_pct, cap_sources "
+                "FROM operator_drift_line "
+                "ORDER BY sent_at DESC LIMIT 10"
+            ).fetchall():
+                recent.append({
+                    "quote_id": row["quote_id"],
+                    "quote_type": row["quote_type"],
+                    "sent_at": row["sent_at"],
+                    "agency_key": row["agency_key"],
+                    "drift_pct": row["drift_pct"],
+                    "cap_sources": row["cap_sources"],
+                })
+
+            agencies = [
+                r["agency_key"] for r in conn.execute(
+                    "SELECT DISTINCT agency_key FROM operator_drift_line "
+                    "WHERE agency_key IS NOT NULL AND agency_key != '' "
+                    "ORDER BY agency_key"
+                ).fetchall()
+            ]
+
+            drift_rows = [
+                r["drift_pct"] for r in conn.execute(
+                    "SELECT drift_pct FROM operator_drift_line "
+                    "WHERE drift_pct IS NOT NULL "
+                    "ORDER BY drift_pct"
+                ).fetchall()
+            ]
+            stats: Optional[dict] = None
+            if drift_rows:
+                n = len(drift_rows)
+                stats = {
+                    "n": n,
+                    "min": round(drift_rows[0], 2),
+                    "p25": round(drift_rows[n // 4], 2),
+                    "median": round(drift_rows[n // 2], 2),
+                    "p75": round(drift_rows[(3 * n) // 4], 2),
+                    "max": round(drift_rows[-1], 2),
+                }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    return {
+        "ok": True,
+        "total": total,
+        "by_window": by_window,
+        "by_quote_type": by_quote_type,
+        "recent": recent,
+        "agencies": agencies,
+        "drift_pct_stats": stats,
+    }
+
+
 def get_drift_lines_per_agency(window_days: int = 7) -> list:
     """PR-S helper: aggregate every operator_drift_line row in the window
     by agency_key. Used by `auto_recommendations.build_*`.
