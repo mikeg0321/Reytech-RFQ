@@ -168,6 +168,18 @@ class QuoteContract:
     tax_jurisdiction: str = ""
     tax_source: str = ""  # "facility_registry" | "cdtfa_api" | "fallback"
     tax_validated: bool = False
+    # Shipping treatment — drives whether the Quote PDF charges sales tax
+    # to the agency. Operator-set on the RFQ detail page (Ship pill):
+    #   "included" — shipping bundled INTO the vendor unit price. Reseller
+    #                eats sales tax inside the markup; tax_cents → 0.
+    #   "fob_dest" — vendor ships FOB Destination as a separate line item;
+    #                agency pays sales tax on the subtotal.
+    #   "custom"   — operator entered a shipping_amount; agency pays tax
+    #                on the subtotal (shipping line itself untaxed).
+    #   ""         — pre-PR-AD records before this field was persisted;
+    #                renderers treat empty as "separate" so they don't
+    #                silently zero historical quotes.
+    shipping_option: str = ""
 
     # Provenance
     source_pc_id: str = ""
@@ -183,6 +195,13 @@ class QuoteContract:
 
     @property
     def tax_cents(self) -> int:
+        # When shipping is bundled INTO the vendor unit price
+        # ("included"), tax to the agency = $0 — the reseller absorbs
+        # the sales tax inside its markup. This is Mike's 3-month rule
+        # (RFQ e02b7fa6 PVSP 2026-05-13 was the canonical drift case:
+        # Quote PDF stamped $322 tax against a $0 canonical).
+        if self.shipping_option == "included":
+            return 0
         # Integer math: subtotal × bps ÷ 10000, rounded half-to-even.
         # Matches standard CA sales-tax rounding convention.
         return round(self.subtotal_cents * self.tax_rate_bps / 10000)
@@ -231,6 +250,7 @@ def _empty_contract(ship_to_raw: str = "", source_pc_id: str = "",
         tax_jurisdiction="",
         tax_source="",
         tax_validated=False,
+        shipping_option="",
         source_pc_id=source_pc_id,
         source_rfq_id=source_rfq_id,
         assembled_at=datetime.now(timezone.utc).isoformat(),
@@ -623,6 +643,17 @@ def assemble_from_rfq(rfq: dict) -> QuoteContract:
         agency_code = ""
         agency_full = ""
 
+    # `shipping_option` is operator-set on the RFQ detail page Ship pill
+    # (rfq_detail.html#shipping-option). PCs store the same intent under
+    # `delivery_option`; pc → rfq promote (dashboard.py:1517) copies it
+    # forward. Empty string is the historic default — renderers treat
+    # absent as "separate" so existing quotes don't silently zero.
+    _ship_opt = str(
+        rfq.get("shipping_option")
+        or rfq.get("delivery_option")
+        or ""
+    ).strip().lower()
+
     return QuoteContract(
         facility=facility,
         agency_code=agency_code,
@@ -635,6 +666,7 @@ def assemble_from_rfq(rfq: dict) -> QuoteContract:
         tax_jurisdiction=tax_jur,
         tax_source=tax_src,
         tax_validated=tax_validated,
+        shipping_option=_ship_opt,
         source_pc_id=str(rfq.get("source_pc_id") or rfq.get("pc_id") or ""),
         source_rfq_id=str(rfq.get("id") or rfq.get("rfq_id") or ""),
         assembled_at=datetime.now(timezone.utc).isoformat(),
