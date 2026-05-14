@@ -1820,6 +1820,45 @@ def _create_record(
     )
     resolved_ship_to = _hdr_ship_to if len(_hdr_ship_to) > 3 else canonical_ship_to
 
+    # ── PR-AI (2026-05-14): tax resolution at ingest ────────────────
+    # Mike's 3-month spec: every RFQ produces ONE structured contract
+    # (due_date, buyer, ship_to, tax_rate, agency, sol#, items) ready
+    # before the operator touches the page. Pre-fix every ingested
+    # record landed without `tax_rate` set, surfacing as the ⚠ DEFAULT
+    # jurisdiction warning on every queue row + a manual Verify Tax
+    # click per detail-page load. tax_for_address() routes through
+    # the canonical tax_resolver facade per the QuoteContract Prime
+    # Directive (CLAUDE.md). Stored format = PERCENT (e.g. 8.975) to
+    # match the existing autosave conventions in
+    # routes_pricecheck.py:2996 + routes_rfq.py:3410.
+    #
+    # Defensive: any tax-resolve failure must NEVER block ingest. Fall
+    # back to unset fields so the existing operator path (Verify Tax
+    # click) still works.
+    _ingest_tax_rate_pct = 0
+    _ingest_tax_source = ""
+    _ingest_tax_jurisdiction = ""
+    _ingest_tax_validated = False
+    if resolved_ship_to and len(str(resolved_ship_to).strip()) > 3:
+        try:
+            from src.core.quote_contract import tax_for_address
+            _tax = tax_for_address(resolved_ship_to) or {}
+            _rate = float(_tax.get("rate") or 0.0)
+            if _rate > 0:
+                _ingest_tax_rate_pct = round(_rate * 100, 3)
+                _ingest_tax_source = str(_tax.get("source") or "")
+                _ingest_tax_jurisdiction = str(_tax.get("jurisdiction") or "")
+                _ingest_tax_validated = bool(_tax.get("validated", False))
+                log.info(
+                    "auto-tax at ingest: ship_to=%r → rate=%.3f%% "
+                    "jurisdiction=%s source=%s validated=%s",
+                    resolved_ship_to[:60], _ingest_tax_rate_pct,
+                    _ingest_tax_jurisdiction, _ingest_tax_source,
+                    _ingest_tax_validated,
+                )
+        except Exception as _tax_e:
+            log.debug("auto-tax at ingest suppressed: %s", _tax_e)
+
     # received_at = email arrival time when poller passed it through,
     # else ingest time. Stored as RFC822 string when from Gmail; downstream
     # readers already coerce both shapes.
@@ -1914,6 +1953,14 @@ def _create_record(
         # decrypted PDF via the manual-upload route.
         "needs_manual_pull": bool(needs_manual_pull),
         "proofpoint_portal_url": proofpoint_portal_url or "",
+        # PR-AI (2026-05-14): tax resolution at ingest (see block above
+        # where these are populated). Stored as PERCENT to match the
+        # autosave path. Zero/empty signals "not resolved at ingest" —
+        # the existing detail-page Verify Tax button can re-resolve.
+        "tax_rate": _ingest_tax_rate_pct,
+        "tax_source": _ingest_tax_source,
+        "tax_jurisdiction": _ingest_tax_jurisdiction,
+        "tax_validated": _ingest_tax_validated,
     }
 
     # Surface #17 (2026-05-04): when the buyer's PRICE CHECK / Solicitation #
