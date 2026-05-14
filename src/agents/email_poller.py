@@ -2877,9 +2877,74 @@ class EmailPoller:
                         except Exception as _dle:
                             log.debug("Drive link detection: %s", _dle)
 
+                    # ── PR-AS (2026-05-14): Proofpoint SecureMessage auto-pull ──
+                    # When the email is RFQ-shaped but the Gmail-level
+                    # attachment list is empty, check the body for a
+                    # Proofpoint secure-reader URL and dispatch to the
+                    # auto-pull module. The DSH-style stub email from
+                    # `securemail.dsh.ca.gov` carries a SecureMessage HTML
+                    # link, not an actual PDF; pre-fix the Gmail-API poller
+                    # branch dropped it with "RFQ email but no PDFs saved"
+                    # even though `proofpoint_pull.pull_via_url` existed.
+                    # Memory's "PR-A auto-pull WORKING end-to-end" applied
+                    # to the SecureMessage handler in the ingest pipeline,
+                    # NOT to the poller-side detection — this closes that
+                    # gap by firing the same module when the poller sees
+                    # zero attachments.
+                    if not attachments:
+                        try:
+                            from src.agents import proofpoint_pull
+                            portal_url = proofpoint_pull.extract_portal_url(
+                                body or ""
+                            )
+                            if portal_url and proofpoint_pull.is_available():
+                                log.info(
+                                    "Proofpoint SecureMessage detected — "
+                                    "firing auto-pull: %s",
+                                    portal_url[:80],
+                                )
+                                pulled_paths = proofpoint_pull.pull_via_url(
+                                    portal_url, download_dir=rfq_dir,
+                                )
+                                if pulled_paths:
+                                    for p in pulled_paths:
+                                        try:
+                                            fname = os.path.basename(p)
+                                            ftype = self._identify_form(fname)
+                                            attachments.append({
+                                                "path": p,
+                                                "filename": fname,
+                                                "type": ftype,
+                                            })
+                                        except Exception as _ape:
+                                            log.debug(
+                                                "proofpoint attachment shape: %s",
+                                                _ape,
+                                            )
+                                    log.info(
+                                        "Proofpoint auto-pull: %d "
+                                        "attachment(s) saved for %s",
+                                        len(pulled_paths), subject[:50],
+                                    )
+                                else:
+                                    log.warning(
+                                        "Proofpoint auto-pull returned 0 "
+                                        "attachments for %s — operator "
+                                        "needs manual pull",
+                                        subject[:50],
+                                    )
+                            elif portal_url:
+                                log.info(
+                                    "Proofpoint URL detected but auto-pull "
+                                    "unavailable (scraper/creds/flag): %s",
+                                    portal_url[:80],
+                                )
+                        except Exception as _ppe:
+                            log.error("Proofpoint auto-pull failed: %s", _ppe)
+
                     if attachments:
                         sol_num = extract_solicitation_number(
-                            subject, body, 
+                            subject, body,
                             [a["filename"] for a in attachments]
                         )
                         
