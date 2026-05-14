@@ -2661,7 +2661,14 @@ def _enrich_catalog_from_pc(pc):
         desc = (item.get("description") or "").strip()
         mfg = str(item.get("mfg_number") or "").strip()
         up = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
-        cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        # PR mr-wolf #2: cost via the canonical reader. Was a local
+        # `vendor_cost or pricing.unit_cost` chain that ignored
+        # `supplier_cost` (the operator-typed RFQ alias). When a PC
+        # carries a typed supplier_cost AND a stale vendor_cost from a
+        # prior scrape, the old chain shipped the stale scrape into the
+        # catalog row update — overwriting the operator's correction.
+        from src.core.pricing_math import cost_from_contract as _cfc_catalog_update
+        cost = _cfc_catalog_update(item)
         scprs = item.get("pricing", {}).get("scprs_price") or item.get("scprs_last_price") or 0
         amazon = item.get("pricing", {}).get("amazon_price") or item.get("amazon_price") or 0
         qty = item.get("qty", 1) or 1
@@ -4123,8 +4130,12 @@ def _pricecheck_convert_to_quote_locked(pcid):
     line_items = []
     for idx, item in enumerate(items):
         pricing = item.get("pricing", {})
-        # First-class fields take precedence over oracle suggestions
-        vendor_cost = item.get("vendor_cost") or pricing.get("unit_cost") or pricing.get("amazon_price") or 0
+        # First-class fields take precedence over oracle suggestions.
+        # PR mr-wolf #2: cost via the canonical reader so PC→RFQ promote
+        # carries operator-typed supplier_cost across the boundary
+        # instead of the prior `vendor_cost`-first chain dropping it.
+        from src.core.pricing_math import cost_from_contract as _cfc_pc_promote
+        vendor_cost = _cfc_pc_promote(item) or pricing.get("amazon_price") or 0
         unit_price  = item.get("unit_price")  or pricing.get("recommended_price") or 0
         markup_pct  = item.get("markup_pct")  or pricing.get("markup_pct", 25)
         qty         = item.get("qty", 1) or 1

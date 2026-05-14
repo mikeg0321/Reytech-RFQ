@@ -1999,6 +1999,14 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
             _uom_label = _UOM_LABELS.get(_uom_raw, _uom_raw.lower())
             desc = f"{desc}\nPack: {_qpu}/{_uom_label}"
 
+        # Cost stamping for the Quote PDF profit-tracking field. PR
+        # mr-wolf #2: route through the canonical reader so the
+        # cost-priority drift bug class can't re-grow here. Old chain
+        # (vendor_cost → pricing.unit_cost → pricing.amazon_price) was
+        # missing supplier_cost — making operator-typed RFQ costs
+        # invisible to the saved quote's profit metadata.
+        from src.core.pricing_math import cost_from_contract as _q_cost_from_contract
+        _stamped_cost = _q_cost_from_contract(item) or pricing.get("amazon_price") or 0
         data["line_items"].append({
             "line_number": item.get("item_number", ""),
             "part_number": part_num,
@@ -2007,7 +2015,7 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
             "description": desc,
             "unit_price": up,
             # Profit tracking — first-class fields take precedence over pricing dict
-            "vendor_cost": item.get("vendor_cost") or pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
+            "vendor_cost": _stamped_cost,
             "markup_pct":  item.get("markup_pct")  or pricing.get("markup_pct") or 25,
         })
 
