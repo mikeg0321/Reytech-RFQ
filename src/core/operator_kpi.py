@@ -357,6 +357,128 @@ def fire_drift_logs_on_send(quote_id: str, quote_type: str, pc_or_rfq: dict) -> 
     return result
 
 
+def get_drift_audit_coverage() -> dict:
+    """PR-AQ — explain WHY operator_drift_line is empty.
+
+    PR-AP diagnostic showed 0 rows table-wide. /admin/funnel shows
+    sent PCs in the window. So drift logging fires on every Mark-Sent
+    but produces zero rows.
+
+    `log_operator_drift` skips lines for two reasons:
+      - `skipped_no_audit`: item has no `oracle_audit` dict (or empty)
+      - `skipped_no_price`: item has no positive
+        unit_price/bid_price/price_per_unit
+
+    This function walks every active PC and RFQ with status="sent" and
+    reports per-record + aggregate:
+      - items_total
+      - items_with_audit (non-empty oracle_audit)
+      - items_with_sent_price (positive unit_price/bid_price/price_per_unit)
+      - items_would_log (both gates clear)
+
+    The substrate fix path depends on which gate is killing the rows:
+      - audit empty everywhere → oracle_audit is never being WRITTEN at
+        the pricing/recommend step. Fix the writer.
+      - price empty everywhere → Mark-Sent fires before the operator
+        sets the final price. Fix the gate or capture timing.
+      - both partial → mixed; fix both.
+    """
+    try:
+        from src.api.dashboard import _load_price_checks, load_rfqs
+    except Exception as e:
+        return {"ok": False, "error": f"data layer unavailable: {e}"}
+
+    def _walk(records: dict, kind: str) -> dict:
+        items_total = 0
+        items_with_audit = 0
+        items_with_price = 0
+        items_would_log = 0
+        sent_count = 0
+        per_record: list = []
+        for rid, r in list(records.items() if records else []):
+            if not isinstance(r, dict):
+                continue
+            if (r.get("status") or "").strip().lower() != "sent":
+                continue
+            sent_count += 1
+            r_items = r.get("items") or r.get("line_items") or []
+            r_total = 0
+            r_audit = 0
+            r_price = 0
+            r_both = 0
+            for it in r_items:
+                if not isinstance(it, dict):
+                    continue
+                r_total += 1
+                audit = it.get("oracle_audit") or {}
+                has_audit = isinstance(audit, dict) and bool(audit)
+                sent_price = _item_sent_price(it)
+                has_price = sent_price is not None
+                if has_audit:
+                    r_audit += 1
+                if has_price:
+                    r_price += 1
+                if has_audit and has_price:
+                    r_both += 1
+            items_total += r_total
+            items_with_audit += r_audit
+            items_with_price += r_price
+            items_would_log += r_both
+            per_record.append({
+                "id": rid,
+                "type": kind,
+                "items_total": r_total,
+                "items_with_audit": r_audit,
+                "items_with_price": r_price,
+                "items_would_log": r_both,
+                "sent_at": r.get("sent_at"),
+                "agency_key": (r.get("agency_key")
+                               or r.get("agency")
+                               or r.get("institution") or ""),
+            })
+        return {
+            "kind": kind,
+            "sent_count": sent_count,
+            "items_total": items_total,
+            "items_with_audit": items_with_audit,
+            "items_with_price": items_with_price,
+            "items_would_log": items_would_log,
+            "per_record": per_record[:20],  # cap for response size
+        }
+
+    try:
+        pc_summary = _walk(_load_price_checks() or {}, "pc")
+        rfq_summary = _walk(load_rfqs() or {}, "rfq")
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    total_items = pc_summary["items_total"] + rfq_summary["items_total"]
+    total_audit = pc_summary["items_with_audit"] + rfq_summary["items_with_audit"]
+    total_price = pc_summary["items_with_price"] + rfq_summary["items_with_price"]
+    total_both = pc_summary["items_would_log"] + rfq_summary["items_would_log"]
+
+    return {
+        "ok": True,
+        "pc": pc_summary,
+        "rfq": rfq_summary,
+        "aggregate": {
+            "sent_records": pc_summary["sent_count"] + rfq_summary["sent_count"],
+            "items_total": total_items,
+            "items_with_audit": total_audit,
+            "items_with_price": total_price,
+            "items_would_log": total_both,
+            "audit_coverage_pct": (
+                round(100.0 * total_audit / total_items, 1)
+                if total_items else None
+            ),
+            "price_coverage_pct": (
+                round(100.0 * total_price / total_items, 1)
+                if total_items else None
+            ),
+        },
+    }
+
+
 def get_drift_diagnostic() -> dict:
     """PR-AP — operator_drift_line table state for the admin diagnostic.
 
