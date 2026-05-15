@@ -886,7 +886,23 @@ def verify_704b_computations(pdf_path: str, rfq_data: dict) -> dict:
             row_key = f"Row{n}" if suffix == "" else f"Row{n}{suffix}"
             qty_str = _get(f"QTYRow{n}{suffix}") or _get(f"QTY{row_key}")
             price_str = _get(f"PRICE PER UNITRow{n}{suffix}") or _get(f"PRICE PER UNIT{row_key}")
-            ext_str = _get(f"EXTENSIONRow{n}{suffix}") or _get(f"EXTENSION{row_key}")
+            # PR-AV-AC2: some buyer-supplied CCHCS 704B variants (the
+            # 'pc_704_pdf_fillable' shape — pre-filled multi-column
+            # templates with 9 cols per row) name the line-total field
+            # `SUBTOTALRow{n}` instead of `EXTENSIONRow{n}`. The
+            # canonical Reytech blank uses EXTENSION; this fallback
+            # keeps the math-verification check honest on either
+            # variant. Without this, a clean filled 704B (verified
+            # 2026-05-15 on rfq_9e63456e: 7 SUBTOTALRowN totals
+            # summing to $29,279.35 — matching `fill_154`) gets a
+            # false "sum of extensions = $0.00" mismatch because
+            # EXTENSIONRow{n} doesn't exist in the template.
+            ext_str = (
+                _get(f"EXTENSIONRow{n}{suffix}")
+                or _get(f"EXTENSION{row_key}")
+                or _get(f"SUBTOTALRow{n}{suffix}")
+                or _get(f"SUBTOTAL{row_key}")
+            )
 
             qty = _parse_currency(qty_str)
             price = _parse_currency(price_str)
