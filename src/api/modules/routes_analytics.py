@@ -2544,6 +2544,7 @@ def rfq_retry_auto_price(rid):
 
         found = 0
         errors = []
+        warnings: list[str] = []
 
         # 1. SCPRS
         try:
@@ -2554,6 +2555,40 @@ def rfq_retry_auto_price(rid):
             found += scprs
         except Exception as e:
             errors.append(f"scprs: {e}")
+
+        # ── PR-AV6 (AV-10): identical-row pricing guard ──
+        # On rfq_9e63456e the SCPRS lookup returned $12,406.11 as
+        # `scprs_last_price` on EVERY item — clearly a line-total
+        # being stamped as per-unit. Clear the suspicious values so
+        # step 3 (recommended_price = cost * 1.25) can't amplify
+        # them. Catalog (step 2) + operator-typed costs are
+        # untouched.
+        try:
+            from src.core.pricing_math import revert_uniform_suspicious_pricing
+            _guard = revert_uniform_suspicious_pricing(items, "scprs_last_price")
+            if _guard.get("suspicious"):
+                _msg = (
+                    f"AV-10 guard: {_guard['count']} items had identical "
+                    f"scprs_last_price=${_guard['common_value']} — likely "
+                    f"SCPRS line-total misuse. Values cleared so downstream "
+                    f"price-compute can't amplify. Operator should review "
+                    f"costs manually."
+                )
+                log.warning("rfq=%s retry-auto-price %s", rid, _msg)
+                warnings.append(_msg)
+            # Also guard amazon_price (the secondary cost source step 3
+            # reads). Less common but same failure shape.
+            _guard_amz = revert_uniform_suspicious_pricing(items, "amazon_price")
+            if _guard_amz.get("suspicious"):
+                _msg2 = (
+                    f"AV-10 guard: {_guard_amz['count']} items had "
+                    f"identical amazon_price=${_guard_amz['common_value']} "
+                    f"— cleared (scraper or fallback misuse)."
+                )
+                log.warning("rfq=%s retry-auto-price %s", rid, _msg2)
+                warnings.append(_msg2)
+        except Exception as _ge:
+            log.debug("AV-10 guard suppressed: %s", _ge)
 
         # 2. Catalog
         try:
@@ -2580,6 +2615,25 @@ def rfq_retry_auto_price(rid):
         except Exception as e:
             errors.append(f"pricing: {e}")
 
+        # AV-10 final-stage guard: if the per-item compute somehow
+        # still produced identical recommended_price across 3+ rows
+        # (e.g., catalog match returned the same price for every
+        # different MFG#), clear those too. Belt-and-suspenders.
+        try:
+            from src.core.pricing_math import revert_uniform_suspicious_pricing as _rusp
+            _post = _rusp(items, "recommended_price")
+            if _post.get("suspicious"):
+                _msg3 = (
+                    f"AV-10 guard (post-compute): {_post['count']} items "
+                    f"had identical recommended_price="
+                    f"${_post['common_value']} — cleared."
+                )
+                log.warning("rfq=%s retry-auto-price %s", rid, _msg3)
+                warnings.append(_msg3)
+                found = max(0, found - _post['count'])
+        except Exception as _ge:
+            log.debug("AV-10 post-compute guard suppressed: %s", _ge)
+
         # Save
         try:
             _save_single_rfq(rid, r)
@@ -2591,6 +2645,7 @@ def rfq_retry_auto_price(rid):
         "items": len(items),
         "priced": found,
         "errors": errors,
+        "warnings": warnings,
         "message": f"Priced {found}/{len(items)} RFQ items" + (f" (errors: {errors})" if errors else ""),
     })
 

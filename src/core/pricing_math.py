@@ -697,3 +697,127 @@ def is_unit_price_stale(item: dict, tolerance: float = 0.005) -> bool:
         return False
     derived = round(cost * (1 + markup / 100.0), 2)
     return abs(derived - stored) > tolerance
+
+
+# ── PR-AV6 (AV-10, 2026-05-14): identical-row pricing guard ────────
+#
+# On rfq_9e63456e (PREQ 10847262) the retry-auto-price stamped
+# `scprs_last_price = $12,406.11` across ALL 7 items — wildly
+# different products with wildly different qtys (30 / 50 / 50 / 25 /
+# 15 / 1000 / 6). That's a SCPRS misuse: the lookup returned the
+# line TOTAL for each product (or a SCPRS rollup that wasn't divided
+# by qty), and the same value got persisted as the per-unit cost on
+# every row. Downstream `recommended_price = cost * 1.25` then
+# amplified it across the whole quote.
+#
+# Sanity guard: when a batch of items has all-identical values in a
+# pricing-shaped field (scprs_last_price, amazon_price,
+# recommended_price), it's almost always a misuse — real products
+# don't price identically across 7 different MFG#s + qtys. The
+# guard flags the batch and (optionally) reverts the values so the
+# downstream math doesn't propagate the bug.
+
+# Match within this absolute dollar tolerance — floating-point
+# noise from re-saves shouldn't trigger false positives, but real
+# product-pricing diversity will easily exceed 1 cent.
+_IDENTICAL_TOLERANCE = 0.011
+
+# Minimum number of items required before the guard fires. A 1-item
+# batch can't have "all identical"; a 2-item batch is borderline
+# (two products might legitimately price the same, esp. for
+# duplicate SKUs at different sizes). 3+ is when the pattern
+# becomes a strong-enough signal to refuse the batch.
+_MIN_ITEMS_FOR_GUARD = 3
+
+
+def detect_uniform_suspicious_pricing(
+    items: list,
+    field: str,
+    *,
+    tolerance: float = _IDENTICAL_TOLERANCE,
+    min_items: int = _MIN_ITEMS_FOR_GUARD,
+) -> dict:
+    """Detect a SCPRS/Oracle misuse where N items got stamped with
+    the same per-unit price.
+
+    Args:
+        items: list of item dicts
+        field: pricing-shaped field to inspect (e.g.
+            "scprs_last_price", "amazon_price", "recommended_price")
+        tolerance: absolute dollar tolerance for "identical"
+        min_items: don't fire on 1-2 item batches
+
+    Returns:
+        {
+            "suspicious": bool,
+            "common_value": float or None,  # the repeated value
+            "count": int,                   # how many items share it
+            "indices": list[int],           # which item positions
+        }
+
+    Never raises. Items with missing/zero values in `field` are
+    ignored (only valued items count toward the cluster).
+    """
+    indices: list[int] = []
+    values: list[float] = []
+    for i, it in enumerate(items or []):
+        if not isinstance(it, dict):
+            continue
+        v = _coerce_float(it.get(field))
+        if v is None or v <= 0:
+            continue
+        indices.append(i)
+        values.append(v)
+
+    if len(values) < min_items:
+        return {
+            "suspicious": False, "common_value": None,
+            "count": 0, "indices": [],
+        }
+
+    # All values within tolerance of the first?
+    anchor = values[0]
+    matches = [(i, v) for i, v in zip(indices, values)
+               if abs(v - anchor) <= tolerance]
+    # Need EVERY non-zero entry to match (not just a sub-cluster)
+    if len(matches) != len(values):
+        return {
+            "suspicious": False, "common_value": None,
+            "count": 0, "indices": [],
+        }
+
+    return {
+        "suspicious": True,
+        "common_value": round(anchor, 4),
+        "count": len(matches),
+        "indices": [i for i, _ in matches],
+    }
+
+
+def revert_uniform_suspicious_pricing(
+    items: list,
+    field: str,
+    *,
+    tolerance: float = _IDENTICAL_TOLERANCE,
+    min_items: int = _MIN_ITEMS_FOR_GUARD,
+) -> dict:
+    """Run the detector. If `suspicious` fires, set every matching
+    item's `field` to None so the downstream price-compute step
+    cannot amplify the bogus value into a quoted price.
+
+    Returns the detector result (so callers can log + report).
+    Items with operator-typed values in other cost fields
+    (unit_cost / supplier_cost / catalog_cost) are untouched —
+    only the suspicious shared field is cleared.
+    """
+    result = detect_uniform_suspicious_pricing(
+        items, field, tolerance=tolerance, min_items=min_items,
+    )
+    if not result["suspicious"]:
+        return result
+    for i in result["indices"]:
+        try:
+            items[i][field] = None
+        except (KeyError, IndexError, TypeError):
+            pass
+    return result
