@@ -2771,6 +2771,12 @@ class EmailPoller:
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
                             "original_sender": _pc_orig_sender if _pc_was_fwd else (sender_email_raw or self._extract_email(sender)),
+                            # PR-AV14: surface the forward flag through ingest so
+                            # routes_pricecheck / dashboard can pass was_forwarded
+                            # to process_buyer_request — keeps the forwarder
+                            # thread off email_thread_id (reply binds to a fresh
+                            # outbound thread to the original buyer).
+                            "was_forwarded": bool(_pc_was_fwd),
                             "date": msg.get("Date"),
                             "solicitation_hint": extract_solicitation_number(subject, body, pdf_names),
                             "attachments": pc_attachments,
@@ -3018,6 +3024,11 @@ class EmailPoller:
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
                             "original_sender": _rfq_orig_sender if _rfq_was_fwd else (sender_email_raw or self._extract_email(sender)),
+                            # PR-AV14: see pc_email_info above for rationale —
+                            # propagate the forward flag so process_buyer_request
+                            # can keep the forwarder's thread_id off the
+                            # canonical email_thread_id field.
+                            "was_forwarded": bool(_rfq_was_fwd),
                             "date": msg["Date"],
                             "solicitation_hint": sol_num,
                             "attachments": attachments,
