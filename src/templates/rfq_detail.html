@@ -837,6 +837,17 @@
   {% if r.status in ('generated', 'ready', 'ready_to_send') %}
   <button type="button" onclick="openMarkSentModal()" class="btn" data-testid="rfq-mark-sent-primary" style="font-size:15px;padding:12px 24px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)" aria-label="Mark as sent manually — use when you emailed this outside the app" title="Mark this RFQ as sent manually (e.g. when you emailed the package outside the app)">📨 Mark Sent Manually</button>
   {% endif %}
+  {# PR-AV-AC13: Reopen button hoisted into the primary action bar so it sits #}
+  {# alongside Finalize / Generate / Send. Previously buried in the           #}
+  {# deliverables panel + status pill area — operator couldn't find it from   #}
+  {# the lock banner that said "Reopen (below)". Mike 2026-05-15: "i cant     #}
+  {# click the reopen below, it should be on the flow, that i can reopen      #}
+  {# back to draft".                                                          #}
+  {% if r.status in ('sent', 'generated', 'ready_to_send', 'won', 'lost') %}
+  <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
+   <button type="submit" class="btn" data-testid="rfq-reopen-primary" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.4);font-size:14px;padding:12px 20px;font-weight:600" onclick="return confirm('Reopen this RFQ for editing? Status moves back to generated and line items unlock.')" aria-label="Reopen RFQ for editing" title="Move status back to generated and unlock line items so you can edit pricing / qtys / add buyer-rebid changes">🔓 Reopen</button>
+  </form>
+  {% endif %}
   <button type="button" id="rfq-food-cert-btn" class="btn" style="display:none;background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (auto-shown when food items detected)" aria-label="Generate food certification form">🌾 Food Cert</button>
   {# ── More ▾ dropdown — audit items R (relabel Manual 704B), S (demote #}
   {#    Refresh Prices), T (kill Simple Submit + Fill All Forms redundancy). #}
@@ -4804,7 +4815,7 @@ setTimeout(function(){
  <span style="font-size:18px">🔒</span>
  <span style="flex:1"><b>Sent record — line items locked.</b>
   Pricing, costs, markups, and quantities are read-only to prevent accidental edits.
-  Click <b>Reopen</b> (below) to move this back to <i>generated</i> and unlock.</span>
+  Click <b>🔓 Reopen</b> in the action bar above to move this back to <i>generated</i> and unlock.</span>
 </div>
 <script>
 (function lockSentRfqFields() {
