@@ -47,11 +47,38 @@ NON_BLOCKING_FORMS: Set[str] = {
 }
 
 
+# AV-11 (2026-05-14): form-pair substitution. When a required form is
+# missing but a documented substitute IS generated, treat the
+# requirement as satisfied.
+#
+# Use case that drove this: CCHCS agency_config lists `required_forms`
+# = ["703b", "704b", "bidpkg", "quote"]. The buyer sometimes ships a
+# 703C ("Fair and Reasonable / Exempt — Price Request") instead of
+# 703B. The package generator at routes_rfq_gen.py:2092 already
+# selects 703C when the buyer uploaded it (the filename is
+# `<sol>_703C_Reytech.pdf`). Without substitution, this gate marks
+# "703b" missing → blocks send.
+#
+# Symmetric: an agency that ever demands 703C is satisfied by a 703B.
+# Both forms occupy the same "buyer-line-item-pricing" slot in
+# AMS-style packages.
+#
+# Conservative scope: only ADD known pairs Mike has explicitly
+# accepted. Don't generalize to "any optional form satisfies any
+# required form" — that would silently hide real gaps.
+ACCEPTS_SUBSTITUTE: Dict[str, Set[str]] = {
+    "703b": {"703c"},   # 703C is the "fair-and-reasonable" variant
+    "703c": {"703b"},   # symmetric — an agency demanding 703C is
+                        # satisfied by a 703B fill
+}
+
+
 def check_package_completeness(
     required_forms: Iterable[str],
     generated_form_ids: Iterable[str],
     qa_form_results: Dict[str, Dict[str, Any]] | None = None,
     non_blocking_forms: Set[str] = None,
+    accepts_substitute: Dict[str, Set[str]] = None,
 ) -> Dict[str, Any]:
     """Return a completeness report.
 
@@ -85,19 +112,50 @@ def check_package_completeness(
     generated = set(generated_form_ids or [])
     qa_results = qa_form_results or {}
     non_blocking = non_blocking_forms if non_blocking_forms is not None else NON_BLOCKING_FORMS
+    sub_map = accepts_substitute if accepts_substitute is not None else ACCEPTS_SUBSTITUTE
 
-    # Missing: in required, not in generated, not in non_blocking
+    # AV-11: a required form is satisfied if it OR any documented
+    # substitute is in generated. Build per-form satisfier set.
+    def _satisfied(form_id: str) -> bool:
+        if form_id in generated:
+            return True
+        for sub in (sub_map.get(form_id) or ()):
+            if sub in generated:
+                return True
+        return False
+
+    # Track which substitutes filled which slots — surfaces on the
+    # response so callers (UI banner, QA log) can show "703B satisfied
+    # by 703C buyer attachment" instead of an opaque green check.
+    substituted: Dict[str, str] = {}
+    for f in required:
+        if f in generated or f in non_blocking:
+            continue
+        for sub in (sub_map.get(f) or ()):
+            if sub in generated:
+                substituted[f] = sub
+                break
+
+    # Missing: in required, NOT satisfied (directly or via substitute),
+    # and not in non_blocking.
     missing = sorted(
         f for f in required
-        if f not in generated and f not in non_blocking
+        if not _satisfied(f) and f not in non_blocking
     )
 
-    # Failed: in required and in generated but QA says failed
-    failed = sorted(
-        f for f in required
-        if f in generated
-        and qa_results.get(f, {}).get("passed", True) is False
-    )
+    # Failed: in required and EITHER itself or its substitute is in
+    # generated but the QA result for whichever is generated says
+    # failed.
+    failed: List[str] = []
+    for f in required:
+        candidates = {f} | set(sub_map.get(f) or ())
+        present = [c for c in candidates if c in generated]
+        if not present:
+            continue
+        if all(qa_results.get(c, {}).get("passed", True) is False
+               for c in present):
+            failed.append(f)
+    failed = sorted(failed)
 
     reasons: List[str] = []
     if missing:
@@ -116,10 +174,12 @@ def check_package_completeness(
         "failed_required": failed,
         "missing_count": len(missing),
         "failed_count": len(failed),
+        "substituted": substituted,
     }
 
 
 __all__ = [
     "check_package_completeness",
     "NON_BLOCKING_FORMS",
+    "ACCEPTS_SUBSTITUTE",
 ]
