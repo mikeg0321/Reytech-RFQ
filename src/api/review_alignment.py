@@ -164,11 +164,41 @@ def _build_forms_checklist(manifest, agency_cfg, output_dir, bidpkg_internal):
     rows = []
     seen = set()
 
+    # PR-AV-AC9: bidirectional substitution map for required forms
+    # that have an interchangeable variant. PR-AV3 substrate at form-
+    # generation time fills 703C when the buyer sends 703C even
+    # though the agency_config says required_forms=["703b"] (CCHCS).
+    # The manifest then carries a 703C review row, not 703B — so a
+    # naive "did we generate 703b?" check at this layer reports the
+    # 703B as missing even when the equivalent form (703C) IS in
+    # the package. Surfaced on rfq_9e63456e 5/15 as one of the 3
+    # critical "blocking send" issues: "Missing required forms: AMS
+    # 703B" — despite 703C being attached.
+    # When this map says A_substitutes_B, finding either A or B in
+    # the manifest satisfies the requirement.
+    _FORM_SUBSTITUTES = {
+        "703b": "703c",
+        "703c": "703b",
+    }
+
     # Order: required forms first (in agency order), then anything generated
     # but not required (rare — operator added a one-off).
     for form_id in required:
         if form_id in bidpkg_internal:
             continue  # internal — not a standalone deliverable
+        # PR-AV-AC9: if the required form is missing from the manifest
+        # but its substitute IS present (e.g., agency wants 703B and
+        # buyer sent 703C), render the substitute's row in this slot.
+        # This keeps the agency-required ordering intact (703 slot
+        # appears first) while honoring the AV3 substrate substitution.
+        sub_id = _FORM_SUBSTITUTES.get(form_id)
+        if (sub_id and form_id not in review_by_id
+                and sub_id in review_by_id):
+            rows.append(_forms_row(sub_id, review_by_id, field_audit,
+                                   output_dir, required=True))
+            seen.add(form_id)
+            seen.add(sub_id)
+            continue
         rows.append(_forms_row(form_id, review_by_id, field_audit,
                                output_dir, required=True))
         seen.add(form_id)
