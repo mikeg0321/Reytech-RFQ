@@ -100,6 +100,38 @@ def parse_attachments_for_requirements(attachments: list,
         # Confidence reflects deterministic-only source
         merged.confidence = 0.55
 
+    # PR-AV1 (2026-05-14): pull AcroForm field values. These are
+    # AUTHORITATIVE — the buyer typed them into the form. They override
+    # regex matches sourced from static template text (which only sees
+    # the LABEL "Due Date:" never the buyer-typed value below it).
+    try:
+        from src.agents.form_field_extractor import extract_from_attachments
+        ff = extract_from_attachments(attachments)
+        if ff and ff.has_values:
+            # Form-field scalars overwrite (not fill-if-empty) the
+            # regex-derived ones. The buyer's literal form entry beats
+            # any subject-line heuristic match.
+            if ff.solicitation_number:
+                merged.solicitation_number = ff.solicitation_number
+            if ff.due_date:
+                merged.due_date = ff.due_date
+            if ff.due_time:
+                merged.due_time = ff.due_time
+            if ff.ship_to:
+                merged.delivery_location = ff.ship_to
+            if ff.buyer_name and not merged.buyer_name:
+                merged.buyer_name = ff.buyer_name
+            if ff.buyer_email and not merged.buyer_email:
+                merged.buyer_email = ff.buyer_email
+            if merged.extraction_method in ("none", "", "attachment_regex"):
+                merged.extraction_method = (
+                    "attachment_form_field" if merged.extraction_method != "attachment_regex"
+                    else "attachment_regex+form_field"
+                )
+            merged.confidence = max(merged.confidence, 0.75)
+    except Exception as _e:
+        log.debug("form_field_extractor wrap failed: %s", _e)
+
     return merged
 
 
