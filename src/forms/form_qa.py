@@ -262,6 +262,33 @@ def _detect_prefix(field_names: set, possible_prefixes: list) -> str:
     return ""
 
 
+def _normalize_solicitation(value: str) -> str:
+    """Normalize a solicitation number for comparison.
+
+    PR-AV-AC3: AV-1's `form_field_extractor` strips known agency
+    prefixes ("PREQ ", "PREQ-") at ingest so the canonical sol#
+    persisted on the RFQ record is just the digits. The requirements
+    extractor (Phase 2 email-as-contract) reads the buyer's email
+    body verbatim and sees the prefix. Without a normalize step here,
+    `validate_against_requirements` flagged a deliberate prefix-strip
+    as a critical mismatch (rfq_9e63456e, 5/15: "Email says
+    solicitation PREQ 10847262 but RFQ is set to 10847262").
+
+    Normalization rules (intentionally narrow — only patterns we've
+    actually seen in production):
+      - Strip leading "PREQ " or "PREQ-" (case-insensitive)
+      - Strip surrounding whitespace + control chars
+      - Preserve the rest as-is (don't downcase — sol# is opaque)
+    """
+    if not value:
+        return ""
+    s = value.strip()
+    # Match `PREQ ` or `PREQ-` (case-insensitive) at the start
+    if len(s) >= 5 and s[:4].upper() == "PREQ" and s[4] in (" ", "-"):
+        s = s[5:].strip()
+    return s
+
+
 def _resolve_expected(source: str, rfq_data: dict, config: dict) -> Optional[str]:
     """Resolve an expected value from its source descriptor."""
     if source.startswith("static:"):
@@ -788,8 +815,16 @@ def validate_against_requirements(
             )
 
     # ── Solicitation number match ───────────────────────────────────
-    req_sol = (reqs.get("solicitation_number") or "").strip()
-    rfq_sol = (rfq_data.get("solicitation_number") or "").strip()
+    # PR-AV-AC3: AV-1 strips known agency prefixes ("PREQ ", "PREQ-",
+    # solnum-style) from the canonical sol# at ingest, but the
+    # requirements-extractor still sees the raw "PREQ 10847262" from
+    # the buyer email. Direct string compare flagged a mismatch even
+    # when AV-1 had done the intended normalization — surfaced 5/15
+    # on rfq_9e63456e as the "1 buyer-email requirement" QA error.
+    # Normalize both sides before compare so a deliberate prefix-strip
+    # doesn't read as a mismatch.
+    req_sol = _normalize_solicitation((reqs.get("solicitation_number") or "").strip())
+    rfq_sol = _normalize_solicitation((rfq_data.get("solicitation_number") or "").strip())
     if req_sol and rfq_sol and req_sol != rfq_sol:
         _add_gap(
             "solicitation_mismatch",
