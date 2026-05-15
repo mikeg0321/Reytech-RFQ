@@ -1848,12 +1848,39 @@ def _create_record(
     except Exception as _e:
         log.debug("facility_registry resolve skipped: %s", _e)
 
+    # PR-AV4 (AV-4): pull the ship-to value from the buyer's AcroForm
+    # field block BEFORE falling back to body-regex header values. The
+    # form-field extractor (used by attachment_contract_parser since
+    # PR-AV1) already reads the buyer-typed delivery address from the
+    # PDF's interactive form fields — that value is canonical (the
+    # buyer literally typed it into the form). Pre-fix, ingest only
+    # checked header.ship_to / delivery_address — both of which come
+    # from text-extraction heuristics that miss form-field values
+    # entirely (pdfplumber.extract_text never sees AcroForm values).
+    # Result: every CCHCS / DSH RFQ landed with ship_to="CA" or
+    # canonical-fallback rather than the buyer's actual delivery
+    # address; operator retyped it on every record.
+    _ff_ship_to = ""
+    if all_paths:
+        try:
+            from src.agents.form_field_extractor import extract_from_attachments
+            _ff_atts = [{"filename": os.path.basename(p), "file_path": p}
+                        for p in all_paths if p]
+            _ff = extract_from_attachments(_ff_atts)
+            _ff_ship_to = (_ff.ship_to or "").strip() if _ff else ""
+        except Exception as _ffe:
+            log.debug("AV-4 form-field ship_to read failed (non-fatal): %s", _ffe)
+            _ff_ship_to = ""
+
     # Buyer's explicit ship_to in the parsed PDF/email overrides the canonical
     # registry only when it's substantive (>3 chars, not just "CA"). A
-    # blank/whitespace/2-char header value is treated as absent.
+    # blank/whitespace/2-char header value is treated as absent. Form-field
+    # value wins when present (most authoritative — buyer's literal entry).
     _hdr_ship_to = (
-        (header.get("ship_to") or "").strip()
+        _ff_ship_to
+        or (header.get("ship_to") or "").strip()
         or (header.get("delivery_address") or "").strip()
+        or (header.get("delivery_location") or "").strip()
     )
     resolved_ship_to = _hdr_ship_to if len(_hdr_ship_to) > 3 else canonical_ship_to
 
