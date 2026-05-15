@@ -461,6 +461,31 @@ def verify_filled_form(pdf_path: str, form_id: str, rfq_data: dict, config: dict
 
         detail = {"name": field_name, "expected": expected or "(non-empty)", "actual": actual_value[:50]}
 
+        # PR-AV-AC11: distinguish "field absent from this PDF entirely"
+        # from "field present but /V empty". Bid-package PDFs are
+        # buyer-supplied composites — different buyers ship different
+        # template variants. The CCHCS Under-100k variant on prod
+        # 5/15 had NO AMS 708 page; the registry's `bidpkg`
+        # required_fields still listed 708_Text1 / 708_Text3 /
+        # 708_Text16 because they appear in OTHER CCHCS buyer
+        # variants. Flagging those as "Missing:" (critical) when
+        # the form section doesn't exist in the template at all is
+        # a false-positive — Reytech can't fill a field that isn't
+        # in the source PDF, and the agency_config.required_forms
+        # for this buyer doesn't list 708 anyway.
+        # `actual_field is None` ↔ field absent from the PDF widget
+        # set entirely. Demote that to a "not_applicable" detail row
+        # that the rollup categorizer can surface as info (or skip)
+        # but does NOT add to critical issues / pass=False.
+        if actual_field is None:
+            detail["status"] = "N/A"
+            detail["reason"] = (
+                "field absent from this template variant — "
+                "not applicable"
+            )
+            result["field_details"].append(detail)
+            continue
+
         if not actual_value:
             detail["status"] = "FAIL"
             result["passed"] = False
@@ -477,7 +502,10 @@ def verify_filled_form(pdf_path: str, form_id: str, rfq_data: dict, config: dict
     for field_template, expected_val in registry.get("checkbox_fields", {}).items():
         field_name = field_template.replace("{p}", prefix)
         actual_field = fields.get(field_name)
-        actual_value = str(actual_field.get("/V", "")).strip() if actual_field else ""
+        # PR-AV-AC11: same absent-vs-empty distinction for checkboxes.
+        if actual_field is None:
+            continue
+        actual_value = str(actual_field.get("/V", "")).strip()
         if actual_value != expected_val:
             result["warnings"].append(f"Checkbox not set: {field_name} = '{actual_value}' (expected '{expected_val}')")
 
@@ -485,7 +513,14 @@ def verify_filled_form(pdf_path: str, form_id: str, rfq_data: dict, config: dict
     for date_template in registry.get("date_fields", []):
         date_field = date_template.replace("{p}", prefix)
         actual_field = fields.get(date_field)
-        actual_value = str(actual_field.get("/V", "")).strip() if actual_field else ""
+        # PR-AV-AC11: same absent-vs-empty distinction for dates.
+        # The OLD behavior on rfq_9e63456e's bidpkg added a second
+        # "Missing date: 708_Text16" issue on top of the already-
+        # reported "Missing: 708_Text16" — same root cause, doubled
+        # the critical-issue count, doubled the operator's anxiety.
+        if actual_field is None:
+            continue
+        actual_value = str(actual_field.get("/V", "")).strip()
         if not actual_value:
             result["issues"].append(f"Missing date: {date_field}")
             result["passed"] = False
