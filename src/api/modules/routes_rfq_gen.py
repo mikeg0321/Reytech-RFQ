@@ -1781,10 +1781,34 @@ def generate_rfq_package(rid):
     
     output_files = []
     errors = []
-    
+
+    # ── PR-AV-AC6: pre-try defaults so the outer except below doesn't
+    # leave _include / _req_forms / _opt_forms / _user_forms / tmpl /
+    # _agency_key / _agency_cfg unbound. The L2605 "703C master fallback"
+    # block (and any future read after the outer except) used to crash
+    # with UnboundLocalError when the outer try aborted before the inner
+    # def _include() at L1946 ran. 5/15 rfq_9e63456e was blocked on this
+    # — the user-facing failure was a 500 with NO surfaced root cause
+    # because errors.append() ate the original exception silently.
+    # CLAUDE.md: "Never Reference Variables Across try/except Boundaries
+    # — if a variable is set inside a `try:` block, the `except:` block
+    # MUST also set it." Safe defaults documented inline; inner setup
+    # at L1946 overrides them on the happy path.
+    tmpl = r.get("templates", {}) or {}
+    _req_forms: "set[str]" = set()
+    _opt_forms: "set[str]" = set()
+    _user_forms = r.get("package_forms", {}) or {}
+    _agency_key = ""
+    _agency_cfg: dict = {}
+    def _include(form_id):
+        # Default policy when the inner setup never ran: only include
+        # what the user explicitly checked on the package_forms UI.
+        # Agency requirements are unknown at this scope, so we cannot
+        # auto-include anything — better to skip than to crash.
+        return bool(_user_forms.get(form_id))
+
     # ── Step 2: Fill State Forms (703B, 704B, Bid Package) ──
     try:
-        tmpl = r.get("templates", {})
         
         # ── DB Fallback: if template files don't exist on disk (post-redeploy),
         # reconstruct them from rfq_files DB table ──
@@ -2598,6 +2622,17 @@ def generate_rfq_package(rid):
                     log.debug('suppressed in _include: %s', _e)
 
     except Exception as e:
+        # PR-AV-AC6: log the actual exception with stack trace BEFORE
+        # appending to errors. The prior behavior buried the original
+        # cause in `errors` (only surfaced in the operator-facing
+        # flash message on redirect) — which meant a downstream
+        # NameError, UnboundLocalError, etc. inside this giant try
+        # had no diagnostic trail in Railway logs. Use exc_info=True
+        # so the traceback is captured.
+        log.exception(
+            "generate_rfq_package %s: State forms try block failed: %s",
+            rid, e,
+        )
         errors.append(f"State forms: {e}")
         t.warn("State forms exception", error=str(e))
 
