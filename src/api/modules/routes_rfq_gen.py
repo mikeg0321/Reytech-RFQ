@@ -1730,6 +1730,41 @@ def generate_rfq_package(rid):
         if link_val:
             item["item_link"] = link_val
 
+    # ── PR-AV-AC8: hard gate — every line item must have a positive
+    # unit price BEFORE we generate the package. Mike 5/15: "we should
+    # never get to this step without a line item being filled". The
+    # downstream review-page banner DOES flag unpriced items, but the
+    # operator already paid for the 80-second package gen by then —
+    # cheaper UX to refuse the regen and send them back to fix prices.
+    # Runs AFTER the form-submitted price overrides above so an
+    # operator-typed price in the same POST is honored. Allows admin
+    # override via ?force=1 for the rare diagnostic-only regen.
+    if request.args.get("force") != "1":
+        _unpriced_rows = []
+        for _idx, _item in enumerate(r.get("line_items", []), start=1):
+            try:
+                _price = float(
+                    _item.get("price_per_unit") or _item.get("unit_price") or 0
+                )
+            except (TypeError, ValueError):
+                _price = 0
+            if _price <= 0:
+                _unpriced_rows.append(_idx)
+        if _unpriced_rows:
+            _rows_msg = ", ".join(str(n) for n in _unpriced_rows)
+            t.fail(
+                f"Refused generate: {len(_unpriced_rows)} unpriced item(s)",
+                rows=_rows_msg,
+            )
+            flash(
+                f"Cannot generate package: row(s) {_rows_msg} have no "
+                f"unit price. Fix pricing on the RFQ page first, then "
+                f"click Generate Package again. "
+                f"(Override only for diagnostics: append ?force=1.)",
+                "error",
+            )
+            return redirect(f"/rfq/{rid}")
+
     # ── Orchestrator observer (flag-gated, default off) ──
     # Runs the platform pipeline in parallel with the legacy filler chain
     # so we can diff stage_history against the trace in soak. Wrapper is

@@ -3749,6 +3749,25 @@ def _bidpkg_page_skip_reason(page, replaced_by_standalone=frozenset()):
     _bidder_decl_replaced = "bidder_decl" in replaced_by_standalone
     _darfur_replaced = "darfur_act" in replaced_by_standalone
 
+    # ── PR-AV-AC8: ALWAYS-KEEP guard for AMS 708 GenAI pages ──────────
+    # CCHCS / DGS Under-100k bid packages REQUIRE the GenAI Disclosure
+    # form (AMS 708). On 5/15 rfq_9e63456e the trim was dropping the
+    # page that contains 708_Text1 / 708_Text3 / 708_Text16 because
+    # other field names on the SAME page matched the OBS-1600 rule
+    # below ("obs 1600" substring), or text-content rules false-fired.
+    # Result: the 708 page disappeared from the output bidpkg and
+    # form_qa correctly flagged 708_Text1/3/16 as Missing — but the
+    # fill_bid_package code DID write values for those fields, so
+    # the only real bug was over-aggressive trimming.
+    # This guard runs FIRST and unconditionally KEEPS any page whose
+    # field-name set contains a 708_-prefixed widget — overriding
+    # every skip rule below. AMS 708 is small (1-2 pages of actual
+    # form + 2 pages of definitions); the definitions pages don't
+    # have 708_-prefixed fields and stay subject to the GenAI-defs
+    # text-content skip rule, so this guard is precisely scoped.
+    if any(f.startswith("708_") for f in field_names):
+        return None  # KEEP — never trim a 708 form page
+
     # ── Hard skip by field-name fingerprint ───────────────────────────
     # OBS 1600 food entry form (fields named OBS 1600 *)
     if any("obs 1600" in f.lower() for f in field_names):
