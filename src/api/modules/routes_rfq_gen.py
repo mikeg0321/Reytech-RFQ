@@ -1930,6 +1930,37 @@ def generate_rfq_package(rid):
                 _k for _k, _v in (tmpl or {}).items()
                 if _v and os.path.exists(str(_v))
             ]
+            # PR-AV-AC12: also surface buyer-attachment 703B/703C/704B
+            # rows from the rfq_files ledger BEFORE the shape filter
+            # runs. The AV-4 promote step (~L2052) copies these blobs
+            # to tmpl, but it executes AFTER this filter call — so for
+            # a buyer who attached a 703C alongside a pre-filled 704
+            # (shape=pc_704_pdf_fillable), the filter was dropping
+            # 703b/703c because at filter-time neither slot existed in
+            # tmpl yet. Surfaced on rfq_9e63456e 5/15: buyer sent
+            # `AMS 703C - RFQ - F_R - 03-25.pdf`, classifier shape
+            # narrowed required_forms to ['704b','quote','sellers_permit'],
+            # the 703 fill block never ran, review-page banner read
+            # "Missing required forms: AMS 703B". A 703 form is
+            # contractually required for CCHCS bids — Mike couldn't
+            # ship without it.
+            try:
+                _av_703_attached = False
+                _av_704_attached = False
+                for _f in list_rfq_files(rid, category="buyer_attachment") or []:
+                    _fn = (_f.get("filename") or "").upper()
+                    if "703B" in _fn or "703C" in _fn or "FAIR_AND_REASONABLE" in _fn:
+                        _av_703_attached = True
+                    if "704B" in _fn or "QUOTE_WORKSHEET" in _fn:
+                        _av_704_attached = True
+                if _av_703_attached and "703b" not in _uploaded_tmpls and "703c" not in _uploaded_tmpls:
+                    _uploaded_tmpls.append("703c")  # 703c implies 703b — filter handles
+                    t.step("PR-AV-AC12: pre-filter surfaced buyer 703 attachment")
+                if _av_704_attached and "704b" not in _uploaded_tmpls:
+                    _uploaded_tmpls.append("704b")
+                    t.step("PR-AV-AC12: pre-filter surfaced buyer 704 attachment")
+            except Exception as _ac12_e:
+                log.debug("PR-AV-AC12 buyer-attachment surface failed: %s", _ac12_e)
             _req_forms_filtered = filter_required_forms_by_shape(
                 _req_forms_raw, _rfq_shape, uploaded_templates=_uploaded_tmpls,
             )
