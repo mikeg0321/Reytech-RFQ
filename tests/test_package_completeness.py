@@ -260,4 +260,126 @@ class TestNonBlockingOverride:
         # These are agency-REQUIRED on CalVet, must NOT be non-blocking:
         assert "std205" not in NON_BLOCKING_FORMS
         assert "std1000" not in NON_BLOCKING_FORMS
+
+
+# ─── AV-11: 703B/703C form-pair substitution ───────────────────────────
+
+
+class TestFormSubstitution:
+    """When CCHCS requires 703B but the buyer attached 703C (and the
+    package generator filled it as `<sol>_703C_Reytech.pdf`), the
+    completeness gate must treat the requirement as satisfied. Same
+    for the symmetric case."""
+
+    def test_703c_satisfies_required_703b(self):
+        """rfq_9e63456e / PREQ 10847262 lived case: agency demands 703B,
+        buyer attached 703C, package generated 703C. Pre-AV3 this said
+        'missing required forms: 703b' and blocked the send."""
+        from src.forms.package_completeness import check_package_completeness
+        r = check_package_completeness(
+            required_forms={"703b", "704b", "bidpkg", "quote"},
+            generated_form_ids={"703c", "704b", "bidpkg", "quote"},
+        )
+        assert r["complete"] is True, r["reasons"]
+        assert r["missing_required"] == []
+        assert r["substituted"] == {"703b": "703c"}
+
+    def test_703b_satisfies_required_703c_symmetric(self):
+        """Agency that demands 703C (hypothetical or future revision)
+        is satisfied by a 703B fill."""
+        from src.forms.package_completeness import check_package_completeness
+        r = check_package_completeness(
+            required_forms={"703c", "quote"},
+            generated_form_ids={"703b", "quote"},
+        )
+        assert r["complete"] is True
+        assert r["substituted"] == {"703c": "703b"}
+
+    def test_direct_match_takes_precedence_over_substitute(self):
+        """When BOTH the required form AND its substitute are
+        generated, the substituted map is empty (no substitution
+        needed)."""
+        from src.forms.package_completeness import check_package_completeness
+        r = check_package_completeness(
+            required_forms={"703b", "quote"},
+            generated_form_ids={"703b", "703c", "quote"},
+        )
+        assert r["complete"] is True
+        assert r["substituted"] == {}
+
+    def test_no_substitute_still_blocks(self):
+        """A required form with NO documented substitute pair (like
+        std204) must still block when missing."""
+        from src.forms.package_completeness import check_package_completeness
+        r = check_package_completeness(
+            required_forms={"std204", "quote"},
+            generated_form_ids={"quote"},
+        )
+        assert r["complete"] is False
+        assert "std204" in r["missing_required"]
+        assert r["substituted"] == {}
+
+    def test_unrelated_substitute_does_not_satisfy(self):
+        """An unrelated form being generated must not satisfy any
+        unrelated requirement — substitution is keyed by the explicit
+        ACCEPTS_SUBSTITUTE map only."""
+        from src.forms.package_completeness import check_package_completeness
+        r = check_package_completeness(
+            required_forms={"std204", "quote"},
+            generated_form_ids={"703c", "quote"},   # 703c is not a std204 sub
+        )
+        assert r["complete"] is False
+        assert "std204" in r["missing_required"]
+
+    def test_substituted_form_failed_qa_blocks(self):
+        """If the substitute (703C) was generated but failed QA, the
+        703B requirement is NOT satisfied — surface as failed_required
+        keyed under the required form_id (not the substitute)."""
+        from src.forms.package_completeness import check_package_completeness
+        r = check_package_completeness(
+            required_forms={"703b", "quote"},
+            generated_form_ids={"703c", "quote"},
+            qa_form_results={
+                "703c": {"passed": False},
+                "quote": {"passed": True},
+            },
+        )
+        assert r["complete"] is False
+        assert "703b" in r["failed_required"]
+
+    def test_substituted_form_qa_passing_completes(self):
+        """703C generated + QA passed → 703B requirement satisfied,
+        package complete."""
+        from src.forms.package_completeness import check_package_completeness
+        r = check_package_completeness(
+            required_forms={"703b", "quote"},
+            generated_form_ids={"703c", "quote"},
+            qa_form_results={
+                "703c": {"passed": True},
+                "quote": {"passed": True},
+            },
+        )
+        assert r["complete"] is True
+        assert r["substituted"] == {"703b": "703c"}
+
+    def test_accepts_substitute_global_exposed(self):
+        """The ACCEPTS_SUBSTITUTE map is part of the public contract —
+        future agency-config edits should be able to extend or override
+        it. Pin the default 703B↔703C pair."""
+        from src.forms.package_completeness import ACCEPTS_SUBSTITUTE
+        assert "703c" in ACCEPTS_SUBSTITUTE.get("703b", set())
+        assert "703b" in ACCEPTS_SUBSTITUTE.get("703c", set())
+
+    def test_caller_can_override_substitute_map(self):
+        """A caller can pass a custom accepts_substitute (mirrors the
+        existing non_blocking_forms override pattern)."""
+        from src.forms.package_completeness import check_package_completeness
+        # Force-disable substitution
+        r = check_package_completeness(
+            required_forms={"703b", "quote"},
+            generated_form_ids={"703c", "quote"},
+            accepts_substitute={},
+        )
+        assert r["complete"] is False
+        assert "703b" in r["missing_required"]
         assert "drug_free" not in NON_BLOCKING_FORMS
