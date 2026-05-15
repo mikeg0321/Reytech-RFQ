@@ -29,11 +29,20 @@ GMAIL_OAUTH_REFRESH_TOKEN_2 = os.environ.get("GMAIL_OAUTH_REFRESH_TOKEN_2", "")
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
+    # PR-AV5 (AV-15, 2026-05-14): gmail.compose is REQUIRED for
+    # users.drafts.create. gmail.send alone authorizes outbound
+    # message-send but NOT draft creation; Google returns
+    # `403 Insufficient Permission` on /drafts when only .send is
+    # granted. Adding compose lets the create-draft route succeed so
+    # the operator can review a staged email in Gmail before hitting
+    # Send manually (Mike's preferred flow — auto-send is disabled).
+    "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 # Existing refresh tokens granted only readonly will keep working for reads.
 # Sending requires re-running scripts/gmail_oauth_setup.py so the user grants
-# the gmail.send scope; send_message() will return a 403 from Google until then.
+# the gmail.send + gmail.compose scopes; send_message() / save_draft() return
+# 403 from Google until the token is re-issued with the new scope set.
 
 # Cached service instances per email address
 _service_cache: Dict[str, object] = {}
@@ -549,6 +558,23 @@ def save_draft(
             userId="me", body=body
         ).execute()
     except Exception as e:
+        # PR-AV5 (AV-15): surface the most common cause (missing
+        # gmail.compose scope) as an actionable RuntimeError so the
+        # operator sees what to do instead of an opaque 500.
+        _err = str(e)
+        if "Insufficient Permission" in _err or "403" in _err:
+            log.error(
+                "Gmail API save_draft 403 — refresh token lacks "
+                "gmail.compose scope. Re-run "
+                "scripts/gmail_oauth_setup.py and update the "
+                "GMAIL_OAUTH_REFRESH_TOKEN env var on Railway."
+            )
+            raise RuntimeError(
+                "Gmail OAuth scope insufficient for draft creation. "
+                "Re-run scripts/gmail_oauth_setup.py to grant the "
+                "gmail.compose scope and update the refresh token. "
+                f"(Underlying error: {_err})"
+            ) from e
         log.error("Gmail API save_draft failed: %s", e, exc_info=True)
         raise
 
