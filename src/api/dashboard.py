@@ -2225,6 +2225,13 @@ def process_rfq_email(rfq_email):
                 # at fetch time.
                 gmail_thread_id=rfq_email.get("gmail_thread_id", ""),
                 gmail_message_id=rfq_email.get("gmail_message_id", ""),
+                # PR-AV14: forward-aware ingest. When the poller flagged
+                # this email as a forward (Mike forwarded a buyer email
+                # to sales@), process_buyer_request keeps the forwarder's
+                # thread off the canonical email_thread_id field so the
+                # quote-reply draft creates a fresh outbound thread to
+                # the buyer instead of binding to Mike's forward.
+                was_forwarded=bool(rfq_email.get("was_forwarded", False)),
             )
             if _v2_result.ok and _v2_result.record_id:
                 log.info(

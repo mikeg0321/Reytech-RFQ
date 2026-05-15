@@ -105,6 +105,7 @@ def process_buyer_request(
     email_received_at: str = "",
     gmail_thread_id: str = "",
     gmail_message_id: str = "",
+    was_forwarded: bool = False,
 ) -> IngestResult:
     """Single entry point for every buyer request.
 
@@ -487,6 +488,7 @@ def process_buyer_request(
                 ingest_warnings=ingest_warnings,
                 needs_manual_pull=result.needs_manual_pull,
                 proofpoint_portal_url=result.proofpoint_portal_url,
+                was_forwarded=was_forwarded,
             )
         result.record_id = record_id
     except Exception as e:
@@ -1793,6 +1795,7 @@ def _create_record(
     ingest_warnings: Optional[List[Dict[str, str]]] = None,
     needs_manual_pull: bool = False,
     proofpoint_portal_url: str = "",
+    was_forwarded: bool = False,
 ) -> str:
     """Create a new PC or RFQ with the classification stored on it."""
     now = datetime.now().isoformat()
@@ -2008,6 +2011,27 @@ def _create_record(
             extracted_sol, resolved_sol, _agency_tag,
         )
 
+    # PR-AV14 (AV-14): when the ingested email was a forward (Mike or
+    # somebody on his domain forwarded a buyer email to sales@), the Gmail
+    # thread_id we have is the FORWARDER's thread — not the buyer's. Binding
+    # a reply draft to that thread surfaces the quote inside Mike's forward
+    # in his Sent folder, and the buyer never sees a clean fresh email; on
+    # subsequent buyer-reply ingests, the dedup-by-thread substrate (PR-N
+    # #959) can't match because the buyer's reply is on a different thread
+    # entirely. Drop the forwarder thread + message ids from the canonical
+    # fields, but preserve them under `forwarded_*` for diagnostics so
+    # operators can still find the original forward when triaging.
+    if was_forwarded:
+        canonical_thread_id = ""
+        canonical_message_ids: List[str] = []
+        forwarded_thread_id = gmail_thread_id or ""
+        forwarded_message_id = gmail_message_id or ""
+    else:
+        canonical_thread_id = gmail_thread_id or ""
+        canonical_message_ids = [gmail_message_id] if gmail_message_id else []
+        forwarded_thread_id = ""
+        forwarded_message_id = ""
+
     record: Dict[str, Any] = {
         "id": f"{record_type}_{short_id}",
         "created_at": now,
@@ -2024,8 +2048,17 @@ def _create_record(
         # capture Gmail thread id + initial message id so subsequent buyer
         # replies can be matched against this record by thread membership
         # rather than each spawning a new RFQ/PC.
-        "email_thread_id": gmail_thread_id or "",
-        "gmail_message_ids": [gmail_message_id] if gmail_message_id else [],
+        # PR-AV14: when was_forwarded, these are intentionally empty so the
+        # draft builder creates a fresh outbound thread to the buyer rather
+        # than binding to the forwarder's thread.
+        "email_thread_id": canonical_thread_id,
+        "gmail_message_ids": canonical_message_ids,
+        # PR-AV14 forward-trail: preserve the forwarder's ids for diagnostic
+        # visibility (operator triage, "what was the original forward?")
+        # without letting them poison the reply-routing or dedup paths.
+        "was_forwarded": bool(was_forwarded),
+        "forwarded_thread_id": forwarded_thread_id,
+        "forwarded_message_id": forwarded_message_id,
         # Common header fields pulled from either the classifier or parser
         # (or `RT-CALVET-…` synthesized form when CalVet RFQ has no real
         # sol#; see synthesizer above).
