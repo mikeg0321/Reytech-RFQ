@@ -60,6 +60,9 @@ def main():
     SCOPES = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
+        # gmail.compose: required for users.drafts.create — see
+        # SCOPES note in src/core/gmail_api.py. PR-AV5 / AV-15.
+        "https://www.googleapis.com/auth/gmail.compose",
         "https://www.googleapis.com/auth/drive.readonly",
     ]
 
