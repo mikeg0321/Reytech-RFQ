@@ -2009,6 +2009,83 @@ def generate_rfq_package(rid):
         except Exception as _e:
             log.debug('suppressed in _include: %s', _e)
 
+        # ── PR-AV4 (AV-17, 2026-05-14): buyer-attachment template promotion ──
+        # If the agency requires 703B/703C/704B but `tmpl` doesn't have the
+        # slot, the buyer may have attached the form as a buyer_attachment
+        # row in rfq_files (BLOB only, no on-disk path). Pre-AV4 generate
+        # skipped the form entirely and the completeness gate (post-AV3
+        # substitution) still couldn't help because nothing was generated.
+        #
+        # Scan rfq_files for missing slots; if a buyer_attachment blob
+        # matches the filename shape (e.g. "AMS 703C - RFQ - F_R - 03-25.pdf"),
+        # restore it to a temp path under out_dir and inject into tmpl.
+        # The downstream _classify_703b_slot_template fingerprint check
+        # still gates the actual fill — a misidentified file gets rejected
+        # at the shape-classifier level, so this promotion is safe.
+        #
+        # Runs BEFORE the pre-flight discard loop so the promoted templates
+        # populate `tmpl` in time for `_has_703` / `_has_704` checks.
+        try:
+            _av4_missing = []
+            for _slot in ("703b", "703c", "704b"):
+                if _slot in tmpl and os.path.exists(tmpl.get(_slot, "")):
+                    continue
+                _av4_missing.append(_slot)
+            if _av4_missing:
+                from src.api.dashboard import list_rfq_files, get_rfq_file
+                _av4_buyer = list_rfq_files(rid, category="buyer_attachment") or []
+                if not _av4_buyer:
+                    _av4_buyer = [
+                        f for f in (list_rfq_files(rid) or [])
+                        if (f.get("category") or "").strip().lower()
+                           in ("buyer_attachment", "source", "")
+                    ]
+                _av4_promote_dir = os.path.join(out_dir, "_promoted")
+                if _av4_buyer:
+                    os.makedirs(_av4_promote_dir, exist_ok=True)
+                for _f in _av4_buyer:
+                    _fname = (_f.get("filename") or "").upper()
+                    if not _fname.endswith(".PDF"):
+                        continue
+                    # Mirror identify_attachments() ordering: 703C before
+                    # 703B (filename "703C" also contains "703" substring;
+                    # check the specific marker first).
+                    _slot_hit = None
+                    if ("703C" in _fname
+                            or "FAIR_AND_REASONABLE" in _fname
+                            or "FAIR AND REASONABLE" in _fname):
+                        _slot_hit = "703c"
+                    elif "704B" in _fname or "QUOTE_WORKSHEET" in _fname \
+                            or "WORKSHEET" in _fname or "QUOTE WORKSHEET" in _fname:
+                        _slot_hit = "704b"
+                    elif "703B" in _fname:
+                        _slot_hit = "703b"
+                    if not _slot_hit or _slot_hit not in _av4_missing:
+                        continue
+                    if _slot_hit in tmpl and os.path.exists(tmpl.get(_slot_hit, "")):
+                        continue   # filled by an earlier loop pass
+                    _full = get_rfq_file(_f["id"])
+                    if not _full or not _full.get("data"):
+                        continue
+                    _safe = re.sub(r"[^A-Za-z0-9._\- ]+", "_",
+                                   _full.get("filename") or f"{_f['id']}.pdf")
+                    _dest = os.path.join(_av4_promote_dir, _safe)
+                    try:
+                        with open(_dest, "wb") as _w:
+                            _w.write(_full["data"])
+                        tmpl[_slot_hit] = _dest
+                        log.info(
+                            "PR-AV4 promote: rfq=%s buyer_attachment %r → tmpl[%s]",
+                            rid, _full.get("filename"), _slot_hit,
+                        )
+                        t.step(f"{_slot_hit.upper()} promoted from buyer attachment",
+                               filename=_full.get("filename"))
+                    except Exception as _we:
+                        log.warning("PR-AV4 promote write failed for %s: %s",
+                                    _f.get("id"), _we)
+        except Exception as _pe:
+            log.debug("PR-AV4 buyer-attachment promotion suppressed: %s", _pe)
+
         # ── Pre-flight: soft-check buyer templates (warn + drop, never hard block) ──
         # Rationale: Reytech fills 703B/704B templates that the BUYER supplies.
         # If a buyer template is required-by-shape but not uploaded (e.g. the
