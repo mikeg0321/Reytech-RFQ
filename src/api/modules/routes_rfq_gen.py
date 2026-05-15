@@ -1800,6 +1800,13 @@ def generate_rfq_package(rid):
     _user_forms = r.get("package_forms", {}) or {}
     _agency_key = ""
     _agency_cfg: dict = {}
+    # PR-AV-AC7: same hoist for _capacity_blockers — read at L3201
+    # ("Surface capacity blockers in the JSON response") AFTER the
+    # outer except. Defined inside the try at L1949. When the try
+    # aborts early (the rfq_9e63456e crash sequence on 5/15), this
+    # name was unbound and the post-except code crashed at L3201
+    # immediately after AC6 unblocked _include.
+    _capacity_blockers: list = []
     def _include(form_id):
         # Default policy when the inner setup never ran: only include
         # what the user explicitly checked on the package_forms UI.
@@ -2056,7 +2063,21 @@ def generate_rfq_package(rid):
                     continue
                 _av4_missing.append(_slot)
             if _av4_missing:
-                from src.api.dashboard import list_rfq_files, get_rfq_file
+                # PR-AV-AC7: do NOT re-import list_rfq_files / get_rfq_file
+                # here. routes_rfq_gen.py is loaded via exec() into
+                # dashboard.py's namespace (see CLAUDE.md "Module loading"
+                # rule), so both symbols are already in the module globals.
+                # An inline `from src.api.dashboard import ...` here used
+                # to live at this site (PR-AV4/AV-17, 2026-05-14) and
+                # silently broke the entire generate_rfq_package function:
+                # Python sees an assignment to `list_rfq_files` later in
+                # the function and promotes it to local for the WHOLE
+                # function — so the L1815 reference (BEFORE this point)
+                # raises UnboundLocalError, the outer try at L1811
+                # catches into errors[], and the L2629 + L3201 reads
+                # downstream of the except (`_include`, `_capacity_blockers`)
+                # also bomb. AC6 hoisted defaults for those; AC7 fixes
+                # the root cause by removing the shadow.
                 _av4_buyer = list_rfq_files(rid, category="buyer_attachment") or []
                 if not _av4_buyer:
                     _av4_buyer = [
