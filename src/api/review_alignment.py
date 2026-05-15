@@ -323,9 +323,25 @@ def _build_rollup(rfq, manifest, forms, items):
     qa_passed = bool(isinstance(fa, dict) and fa.get("_qa_passed"))
     qa_run = isinstance(fa, dict) and "_qa_passed" in fa
     checks["qa_passed"] = qa_passed if qa_run else None
+    qa_categories: "dict[str, int]" = {}
     if qa_run and not qa_passed:
         crit = (fa.get("_qa_summary") or {}).get("critical_issues") or []
-        issues.append(f"Form QA failed — {len(crit)} critical issue(s)")
+        qa_categories = categorize_qa_issues(crit)
+        # Operator-facing message: replace the opaque "26 critical issue(s)"
+        # with a structured breakdown so a glance tells you what failed.
+        # Falls back to the flat count when categorization yields no
+        # buckets (shouldn't happen in practice — "other" catches all).
+        breakdown = format_qa_breakdown(crit)
+        if breakdown and len(qa_categories) > 1:
+            issues.append(
+                f"Form QA failed — {len(crit)} critical issue(s) "
+                f"({breakdown})"
+            )
+        elif breakdown:
+            # Single category — just label it directly.
+            issues.append(f"Form QA failed — {breakdown}")
+        else:
+            issues.append(f"Form QA failed — {len(crit)} critical issue(s)")
 
     # 3. Source validation
     sv = manifest.get("source_validation") or {}
@@ -374,6 +390,9 @@ def _build_rollup(rfq, manifest, forms, items):
         "aligned": aligned,
         "issues": issues,
         "checks": checks,
+        # PR-AV-QC: categorized QA failure counts for the review-page
+        # drill-down. Empty dict when QA passed or hasn't run.
+        "qa_categories": qa_categories,
         "summary": {
             "forms_required": sum(1 for f in forms if f["required"]),
             "forms_present": sum(1 for f in forms if f["required"] and not f["missing"]),
@@ -382,6 +401,84 @@ def _build_rollup(rfq, manifest, forms, items):
             "items_priced": len(our_items) - len(unpriced) if our_items else 0,
         },
     }
+
+
+# ── QA issue categorizer (PR-AV-QC) ────────────────────────────────────────
+#
+# The QA pipeline (src/forms/form_qa.py) emits one flat `critical_issues`
+# list mixing failure classes from 6+ check sources. The rollup used to say
+# "Form QA failed — 26 critical issue(s)" — opaque. Operators had to drop
+# into dev tools to see which 26 things failed and decide whether to ship-
+# anyway, hand-fill, or stop. This categorizer pattern-matches each issue
+# to its source class so the rollup can surface a structured breakdown
+# ("21 overlay drift, 5 field missing") inline.
+#
+# Patterns are anchored to literal prefixes used by the QA emitters so we
+# don't accidentally drift if an unrelated message picks up a similar word.
+# Unmatched issues fall into the "other" bucket — visible but unlabeled so
+# the operator still sees them.
+
+_QA_CATEGORY_PATTERNS: list = [
+    # (regex, category_label) — first match wins
+    (r"^\[overlay drift\] |^overlay bounds: ",      "overlay drift"),
+    (r"^\[requirements\] ",                          "buyer-email requirement"),
+    (r"^Row \d+(_\d)?: \d+",                         "computation"),
+    (r"^Subtotal mismatch:",                         "computation"),
+    (r"^Negative price in row ",                     "value-range"),
+    (r"^Date '.+' has invalid (month|day):",         "value-range"),
+    (r"^Missing date:",                              "field missing"),
+    (r"^Missing: ",                                  "field missing"),
+    (r"^Cannot read PDF|^PDF not found:|^PDF file not found:",
+                                                     "pdf read error"),
+    (r"^Buyer field '.+' was overwritten:",          "buyer-field contamination"),
+    (r"^Required form not generated:|^Missing required forms:",
+                                                     "missing form"),
+]
+
+
+def categorize_qa_issues(critical_issues) -> "dict[str, int]":
+    """Group flat QA `critical_issues` strings into named failure classes.
+
+    Returns an ordered dict-shape {category_label: count} sorted by count
+    descending. Unmatched issues land in "other" so the operator can still
+    spot them. Empty / None input returns {}.
+
+    The output is for operator-facing summary text in the rollup banner.
+    The flat list is preserved separately for the existing drill-down.
+    """
+    import re as _re
+    counts: "dict[str, int]" = {}
+    if not critical_issues:
+        return counts
+    for raw in critical_issues:
+        # Skip None, ints, dicts, empty strings — only categorize real
+        # message strings. Don't let a stray non-string drop into "other"
+        # (that would inflate the count without an actionable label).
+        if not isinstance(raw, str) or not raw:
+            continue
+        matched = None
+        for pat, label in _QA_CATEGORY_PATTERNS:
+            if _re.match(pat, raw):
+                matched = label
+                break
+        label = matched or "other"
+        counts[label] = counts.get(label, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def format_qa_breakdown(critical_issues) -> str:
+    """Produce a human-readable breakdown for the rollup banner.
+
+    Example: "Form QA failed — 26 critical issues (21 overlay drift, 5
+    field missing)". Returns just the parenthetical (without surrounding
+    text) so callers can format the prefix to taste. Empty when there
+    are no issues or only one category.
+    """
+    cats = categorize_qa_issues(critical_issues)
+    if not cats:
+        return ""
+    parts = [f"{n} {label}" for label, n in cats.items()]
+    return ", ".join(parts)
 
 
 # ── Tiny coercion helpers ───────────────────────────────────────────────────
