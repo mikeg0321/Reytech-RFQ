@@ -2755,9 +2755,13 @@ def review_package(rid):
         except Exception:
             _ak2, _ac2 = "", {}
         _output_dir = os.path.join(DATA_DIR, "output", sol) if sol else None
-        # source_items: no field captures buyer-original items at ingest today
-        # (audit gap — flagged for follow-up). Pass None so the items table
-        # renders with the "no source captured — verify manually" banner.
+        # PR-AV13: source_items reads the audit snapshot written at ingest
+        # (or re-parse) by ingest_pipeline._snapshot_buyer_source_items.
+        # When missing (legacy records, manual-entry, or pre-AV13 ingests),
+        # review_alignment renders the "no source captured" banner —
+        # operator can hit POST /api/admin/rfq/<rid>/reparse (AV-2) to
+        # backfill from the buyer's attachments.
+        _buyer_source_items = r.get("buyer_source_items")
         alignment = compute_review_alignment(
             rfq=r, manifest=manifest, agency_cfg=_ac2,
             output_dir=_output_dir if _output_dir and os.path.isdir(_output_dir) else None,
@@ -2766,7 +2770,7 @@ def review_package(rid):
             # the callee re-defaults to the 7-form filter, hiding standalone
             # forms (incident 2026-05-04, RFQ 7d3c0fee).
             bidpkg_internal=_bidpkg_internal,
-            source_items=None,
+            source_items=_buyer_source_items if _buyer_source_items else None,
         )
     except Exception as _ae:
         log.error("review_alignment failed for %s: %s", rid, _ae, exc_info=True)
