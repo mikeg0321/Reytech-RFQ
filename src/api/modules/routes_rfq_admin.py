@@ -4263,6 +4263,170 @@ def api_rfq_win_warnings(rid):
     })
 
 
+# ── PR-AV2 (2026-05-14): admin reparse for existing RFQs ──────────
+# Closes the AV1 retro-heal gap. The substrate fix in #1004 only
+# affects records ingested AFTER the deploy — already-persisted RFQs
+# like rfq_efbdef4a (25CB021, 16 items where 9 were form-code rows)
+# stay broken. This route mirrors the PC `/pricecheck/<id>/reparse`
+# pattern: pulls the buyer's source PDFs from `rfq_files` blobs,
+# restores them to a temp dir, and re-runs `process_buyer_request`
+# with `existing_record_type="rfq"`. The new ingest_pipeline applies
+# the form_code_filter + form_field_extractor to the existing record
+# in place. Items drop where form codes were parsed as products; sol#
+# / due_date get re-pulled from AcroForm fields.
+#
+# Safety:
+#  - Only re-parses the buyer attachments already on the record (no
+#    new upload). Operator-edited pricing on existing items is
+#    preserved via the underlying ingest-pipeline's record-update
+#    path which is already battle-tested by the PC reparse route.
+#  - Falls back to a clean "ok: false" + reason when no buyer
+#    attachments exist (e.g. an RFQ created via manual upload only).
+#  - 400 when rid doesn't exist or RFQ is in a terminal state
+#    (sent/won/lost/dismissed) — don't re-parse shipped quotes.
+
+
+@bp.route("/api/admin/rfq/<rid>/reparse", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_rfq_reparse(rid):
+    """Re-ingest an existing RFQ from its stored buyer attachments.
+
+    Body: ignored (route takes no params — re-parses every
+    buyer_attachment on the record).
+
+    Returns: process_buyer_request().to_dict() plus a `source_files`
+    list naming which DB-blob files were fed into the pipeline.
+
+    Skips terminal records (sent/won/lost/dismissed/duplicate/archived)
+    — those represent shipped quotes; re-parsing them would mutate
+    history.
+    """
+    from src.api.dashboard import load_rfqs, list_rfq_files, get_rfq_file
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    TERMINAL = {"sent", "won", "lost", "dismissed",
+                "duplicate", "archived", "expired", "no_response"}
+    status = (r.get("status") or "").strip().lower()
+    if status in TERMINAL:
+        return jsonify({
+            "ok": False,
+            "error": f"RFQ status is '{status}' — re-parsing terminal "
+                     "records is not allowed (would mutate shipped state)",
+        }), 400
+
+    # Pull buyer-attachment files. Use the existing helper that already
+    # dedups by (filename, category) so re-saved bundles don't double-
+    # process. `category="buyer_attachment"` is what ingest_pipeline
+    # uses for inbound PDFs.
+    buyer_files = list_rfq_files(rid, category="buyer_attachment")
+    if not buyer_files:
+        # Fallback: try generic 'source' or no-category — some legacy
+        # records pre-date the buyer_attachment classification.
+        all_files = list_rfq_files(rid)
+        buyer_files = [
+            f for f in all_files
+            if (f.get("category") or "").strip().lower()
+               in ("buyer_attachment", "source", "")
+        ]
+    if not buyer_files:
+        return jsonify({
+            "ok": False,
+            "error": "No buyer attachments on this RFQ — nothing to re-parse",
+            "files_listed": 0,
+        }), 400
+
+    # Restore each blob to a fresh tmp dir on the data volume so
+    # process_buyer_request gets real on-disk paths (its parsers expect
+    # file_path, not BLOB bytes).
+    import tempfile
+    tmp_dir = tempfile.mkdtemp(
+        prefix=f"reparse_{rid}_", dir=os.path.join(DATA_DIR, "tmp")
+        if os.path.isdir(os.path.join(DATA_DIR, "tmp"))
+        else None,
+    )
+    restored_paths = []
+    restored_meta = []
+    for f_meta in buyer_files:
+        try:
+            full = get_rfq_file(f_meta["id"])
+            if not full or not full.get("data"):
+                log.debug("reparse rfq %s: file %s has no blob data",
+                          rid, f_meta.get("id"))
+                continue
+            safe_name = re.sub(r"[^A-Za-z0-9._\- ]+", "_",
+                               full.get("filename") or f"{f_meta['id']}.pdf")
+            target = os.path.join(tmp_dir, safe_name)
+            with open(target, "wb") as _w:
+                _w.write(full["data"])
+            restored_paths.append(target)
+            restored_meta.append({
+                "file_id": f_meta["id"],
+                "filename": full.get("filename"),
+                "size_bytes": len(full["data"]),
+            })
+        except Exception as _re:
+            log.warning("reparse rfq %s: restore failed for %s: %s",
+                        rid, f_meta.get("id"), _re)
+
+    if not restored_paths:
+        return jsonify({
+            "ok": False,
+            "error": "Failed to restore any buyer attachments from DB",
+            "files_listed": len(buyer_files),
+        }), 500
+
+    log.info(
+        "reparse rfq %s: restored %d files from DB → %s",
+        rid, len(restored_paths), tmp_dir,
+    )
+
+    # Route through the new unified pipeline. Same flag pattern as
+    # /pricecheck/<id>/reparse — if classifier_v2 is off (it's been on
+    # in prod for months) fall through to a 422 telling the operator
+    # to flip the flag first.
+    try:
+        from src.core.request_classifier import classify_enabled
+        if not classify_enabled():
+            return jsonify({
+                "ok": False,
+                "error": "classifier_v2 flag is off — enable "
+                         "request.classifier_v2_enabled then retry",
+            }), 422
+
+        from src.core.ingest_pipeline import process_buyer_request
+        result = process_buyer_request(
+            files=restored_paths,
+            email_body=r.get("body_text", ""),
+            email_subject=r.get("email_subject", ""),
+            email_sender=r.get("buyer_email", "") or r.get("requestor_email", ""),
+            existing_record_id=rid,
+            existing_record_type="rfq",
+        )
+        return jsonify({
+            "ok": result.ok,
+            "rfq_id": rid,
+            "items_parsed": result.items_parsed,
+            "classification": result.classification,
+            "ingest_warnings": list(getattr(result, "ingest_warnings", []) or []),
+            "needs_review": bool(getattr(result, "needs_review", False)),
+            "reasons": list(result.reasons or []),
+            "errors": list(result.errors or []),
+            "warnings": list(result.warnings or []),
+            "source_files": restored_meta,
+        })
+    except Exception as _e:
+        log.error("reparse rfq %s: pipeline failed: %s", rid, _e, exc_info=True)
+        return jsonify({
+            "ok": False,
+            "error": f"reparse failed: {_e}",
+            "source_files": restored_meta,
+        }), 500
+
+
 # ── PR-AL (2026-05-14): backfill — retroactively apply PR-AI + PR-AJ
 # enrichment to existing non-terminal PCs and RFQs ──────────────────
 
