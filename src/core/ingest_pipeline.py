@@ -413,6 +413,40 @@ def process_buyer_request(
             log.warning("body extraction failed: %s", _e)
             result.warnings.append(f"body-extract: {_e}")
 
+    # ── Step 3c: form-code line-item filter (PR-AV1) ──
+    # Buyer "Required Forms / Documents" tables get parsed as quote
+    # line items by the Vision/regex parsers — rfq_efbdef4a / 25CB021
+    # landed with 16 "items" where rows 7-15 were `Darfur`, `STD204`,
+    # `STD843`, `CalRecycle074`, `CCC`, `Exhibit G`, `VSDS`. Operator
+    # had to delete by hand or quote garbage. Detect form-code-shaped
+    # rows and route them to required_forms instead of line_items.
+    detected_form_ids: List[str] = []
+    if items:
+        try:
+            from src.agents.form_code_filter import filter_form_codes
+            real_items, detected_form_ids = filter_form_codes(items)
+            if detected_form_ids:
+                log.info(
+                    "form_code_filter: dropped %d form-code rows → form_ids=%s",
+                    len(items) - len(real_items), detected_form_ids,
+                )
+                result.reasons.append(
+                    f"form-code filter: kept {len(real_items)}/{len(items)} items, "
+                    f"routed {len(detected_form_ids)} form-codes to required_forms"
+                )
+                items = real_items
+        except Exception as _fce:
+            log.debug("form_code_filter suppressed: %s", _fce)
+
+    # Stash detected form_ids on the header so the record-creator can
+    # union them into the requirements envelope.
+    if detected_form_ids and isinstance(header, dict):
+        existing = list(header.get("_detected_form_ids") or [])
+        for fid in detected_form_ids:
+            if fid not in existing:
+                existing.append(fid)
+        header["_detected_form_ids"] = existing
+
     result.items_parsed = len(items)
 
     # ── Step 4: create or update the record ──
