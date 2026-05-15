@@ -262,6 +262,71 @@ def _detect_prefix(field_names: set, possible_prefixes: list) -> str:
     return ""
 
 
+def _build_fields_from_annots(reader) -> dict:
+    """Walk per-page /Annots to recover form-field widgets when the
+    document-level /AcroForm root is absent.
+
+    PR-AV-AC5: defensive fallback for `verify_filled_form`. When
+    `reader.get_fields()` returns {} (no AcroForm root), pypdf has no
+    top-level enumeration of field widgets — but the per-page /Annots
+    arrays still contain every widget annotation with its /T (field
+    name) and /V (current value). This helper rebuilds a `get_fields()
+    `-shaped dict so the rest of verify_filled_form can run unchanged.
+
+    Returns
+    -------
+    dict[str, dict] : {field_name: {"/V": value_str, "/FT": type_str}}
+        Same shape that `PdfReader.get_fields()` returns for the keys
+        verify_filled_form actually reads.
+    """
+    out: dict = {}
+    try:
+        for page in reader.pages:
+            annots_raw = page.get("/Annots") if "/Annots" in page else None
+            annots = (
+                annots_raw.get_object()
+                if hasattr(annots_raw, "get_object")
+                else annots_raw
+            )
+            if not annots:
+                continue
+            for annot in annots:
+                try:
+                    obj = (
+                        annot.get_object()
+                        if hasattr(annot, "get_object")
+                        else annot
+                    )
+                    ft = obj.get("/FT")
+                    if ft is None:
+                        continue
+                    ft_str = str(ft)
+                    # Only carry over form widgets (text/checkbox/choice/sig)
+                    if ft_str not in ("/Tx", "/Btn", "/Ch", "/Sig"):
+                        continue
+                    name = obj.get("/T")
+                    if name is None:
+                        continue
+                    name_str = str(name)
+                    # First widget with this name wins (mirrors AcroForm
+                    # behavior where /Fields-listed widgets are unique
+                    # by /T).
+                    if name_str in out:
+                        continue
+                    value = obj.get("/V")
+                    out[name_str] = {
+                        "/FT": ft_str,
+                        "/V": value,
+                    }
+                except Exception:
+                    # Defensive: one malformed annot must not break
+                    # the whole audit. Skip and keep going.
+                    continue
+    except Exception:
+        return {}
+    return out
+
+
 def _normalize_solicitation(value: str) -> str:
     """Normalize a solicitation number for comparison.
 
@@ -352,6 +417,25 @@ def verify_filled_form(pdf_path: str, form_id: str, rfq_data: dict, config: dict
         from pypdf import PdfReader
         reader = PdfReader(pdf_path)
         fields = reader.get_fields() or {}
+        # PR-AV-AC5: defense-in-depth fallback for any future writer
+        # bug that strips the document-level /AcroForm root. AC1 fixed
+        # one such bug (bidpkg page-trim's add_page loop, 5/15
+        # rfq_9e63456e: 17 false-positive "Missing:" QA errors) — this
+        # ensures the audit's verdict survives the next one. When the
+        # AcroForm root is absent, `reader.get_fields()` returns {}
+        # even though per-page /Annots still carry text-field widgets
+        # with their /V values populated. Walk those widgets directly
+        # and synthesize a fields-like dict.
+        if not fields:
+            _annot_fields = _build_fields_from_annots(reader)
+            if _annot_fields:
+                fields = _annot_fields
+                result["warnings"].append(
+                    f"PDF /AcroForm root missing — recovered "
+                    f"{len(_annot_fields)} field widgets from per-page "
+                    f"/Annots. Forms still print correctly but a PDF "
+                    f"viewer's field navigation will be broken."
+                )
         field_names = set(fields.keys())
         result["fields_total"] = len(fields)
         result["fields_filled"] = sum(1 for f in fields.values() if f.get("/V"))
