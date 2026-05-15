@@ -91,6 +91,17 @@ class FacilityRecord:
     # When None, behavior is unchanged: CDTFA + cache + base fallback.
     tax_rate: Optional[float] = None
     tax_jurisdiction: str = ""
+    # PR-AV16: procurement routing — where to send the quote response
+    # when this facility is the buyer. Often different from the
+    # individual buyer who emailed the RFQ in. Example: PREQ 10847262
+    # buyer was Mohammad Chechi (mchechi@cdcr.ca.gov) but CCHCS sends
+    # go to a shared procurement inbox staffed by a different team.
+    # When empty, draft_builder.build_recipients falls back to the
+    # buyer (original_sender / requestor_email). When populated, that
+    # value becomes the canonical TO; the original buyer moves to CC
+    # so they stay in the loop without being the primary recipient.
+    procurement_email: str = ""
+    procurement_email_cc: Tuple[str, ...] = field(default_factory=tuple)
 
     def address(self) -> List[str]:
         """Return the 2-line address as a list of strings, safe to

@@ -30,18 +30,82 @@ def build_recipients(rfq: Dict) -> Tuple[str, str]:
 
     Reply target priority — see CLAUDE.md "respond only to the initial
     received email" + Mike's PR-B1 directive:
+
+      0. ``facility.procurement_email`` (PR-AV16) — when the resolved
+         facility carries a canonical procurement inbox, the agency's
+         routing rules say "send to procurement, not to whoever
+         emailed the RFQ in". Example: PREQ 10847262 buyer was
+         Mohammad Chechi but the actual send-to is the CCHCS
+         procurement queue. When set, the original buyer moves to
+         CC so they stay in the loop. When empty, behavior falls
+         through to the buyer-driven chain below (current behavior).
       1. ``original_sender`` — set when ingest detected a forwarded mail
          and extracted the buyer's address from the forward chain.
       2. ``requestor_email`` — primary buyer field on most records.
       3. ``email_sender`` — fallback when neither of the above is set.
     """
-    to = ""
+    # Resolve the buyer email first — needed both as the fallback TO
+    # AND as the CC when procurement routing kicks in.
+    buyer_to = ""
     for k in ("original_sender", "requestor_email", "email_sender"):
         v = (rfq.get(k) or "").strip()
         if v and "@" in v:
-            to = v
+            buyer_to = v
             break
-    cc = (rfq.get("cc_emails") or rfq.get("email_cc") or "").strip()
+
+    cc_parts = []
+    existing_cc = (rfq.get("cc_emails") or rfq.get("email_cc") or "").strip()
+    if existing_cc:
+        cc_parts.append(existing_cc)
+
+    # PR-AV16: procurement-routing lookup. If the rfq's resolved
+    # facility carries a procurement_email, that wins for TO and the
+    # original buyer rides on CC. The lookup is best-effort and
+    # never fails the draft build — any resolver error logs at debug
+    # and falls back to the buyer-driven path.
+    procurement_to = ""
+    try:
+        from src.core.facility_registry import (
+            get as _get_facility, resolve as _resolve_facility,
+        )
+        # Prefer the canonical institution code if ingest already
+        # stamped it; fall back to free-text resolve so legacy
+        # records still route correctly.
+        _fac = None
+        _code = (rfq.get("institution") or "").strip()
+        if _code:
+            _fac = _get_facility(_code)
+        if _fac is None:
+            _seed = (
+                (rfq.get("ship_to") or "").strip()
+                or (rfq.get("agency") or "").strip()
+                or (rfq.get("requestor_name") or "").strip()
+            )
+            if _seed:
+                _fac = _resolve_facility(_seed)
+        if _fac and getattr(_fac, "procurement_email", "").strip():
+            procurement_to = _fac.procurement_email.strip()
+            # Buyer moves to CC so they stay informed without being
+            # the primary recipient.
+            if buyer_to and buyer_to.lower() != procurement_to.lower():
+                cc_parts.append(buyer_to)
+            for alt in (getattr(_fac, "procurement_email_cc", ()) or ()):
+                alt_s = (alt or "").strip()
+                if alt_s and alt_s.lower() != procurement_to.lower():
+                    cc_parts.append(alt_s)
+    except Exception as _pre:
+        log.debug("AV-16 procurement-routing lookup skipped: %s", _pre)
+
+    to = procurement_to or buyer_to
+    # Dedupe + comma-join CC entries; an empty CC stays as ""
+    seen = set()
+    deduped_cc = []
+    for entry in cc_parts:
+        for addr in (a.strip() for a in entry.split(",")):
+            if addr and addr.lower() not in seen:
+                seen.add(addr.lower())
+                deduped_cc.append(addr)
+    cc = ", ".join(deduped_cc)
     return to, cc
 
 
