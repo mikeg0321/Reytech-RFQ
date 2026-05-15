@@ -2087,6 +2087,9 @@ def _create_record(
             or f"AUTO_{short_id}"
         )
         record["items"] = items
+        # PR-AV13 (AV-13): audit-trail snapshot of buyer-asked items.
+        # See _snapshot_buyer_source_items() for why this exists.
+        record["buyer_source_items"] = _snapshot_buyer_source_items(items)
         record["packet_type"] = (
             "cchcs_non_it"
             if classification.shape == "cchcs_packet"
@@ -2213,6 +2216,9 @@ def _create_record(
             or f"AUTO_{short_id}"
         )
         record["line_items"] = items
+        # PR-AV13 (AV-13): audit-trail snapshot of buyer-asked items.
+        # See _snapshot_buyer_source_items() for why this exists.
+        record["buyer_source_items"] = _snapshot_buyer_source_items(items)
 
         # Register every classifiable sibling attachment as a template
         # slot (703b / 704b / bidpkg / dsh_attA-C / 703c). Pre-fix this
@@ -2500,6 +2506,52 @@ def _merge_items_preserving_pricing(
     return merged
 
 
+def _snapshot_buyer_source_items(
+    items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Freeze the parser's view of buyer-asked items for the audit trail.
+
+    Persisted on the record as `buyer_source_items` at ingest (and on
+    every re-parse) BEFORE operator edits touch line_items. The
+    /rfq/<id>/review-package alignment table reads this to render the
+    "Buyer asked X / You replied Y" comparison.
+
+    Without this, operator edits to line_items silently overwrite the
+    buyer's original asks, and there's no way to verify post-hoc that
+    every row in our quote corresponds to a row in the buyer's RFQ.
+
+    Only keeps audit-relevant fields (description, qty, MFG/part,
+    uom, notes). Pricing/cost/markup are deliberately EXCLUDED —
+    those are Reytech's response, not buyer-source. Storing pricing
+    here would double-count and confuse the alignment row diff.
+    """
+    out: List[Dict[str, Any]] = []
+    for it in (items or []):
+        if not isinstance(it, dict):
+            continue
+        qty = it.get("qty") or it.get("quantity") or 0
+        try:
+            qty = int(qty) if qty else 0
+        except (TypeError, ValueError):
+            qty = 0
+        out.append({
+            "description": (it.get("description") or "").strip(),
+            "qty": qty,
+            "part_number": (
+                it.get("part_number")
+                or it.get("mfg_number")
+                or ""
+            ).strip(),
+            "uom": (
+                it.get("uom")
+                or it.get("unit_of_measure")
+                or ""
+            ).strip(),
+            "notes": (it.get("notes") or "").strip(),
+        })
+    return out
+
+
 def _update_existing_record(
     record_id: str,
     record_type: str,
@@ -2570,6 +2622,13 @@ def _update_existing_record(
             pc["items"] = _merge_items_preserving_pricing(
                 pc.get("items") or [], items,
             )
+            # PR-AV13 (AV-13): on every re-parse, OVERWRITE the audit
+            # snapshot with the fresh parser view of buyer-asked items.
+            # `items` here is the new parse output BEFORE the merge with
+            # existing pricing — that's the canonical buyer-asked set
+            # (the merge step preserves operator pricing on rows that
+            # match, but the buyer-asked shape is exactly `items`).
+            pc["buyer_source_items"] = _snapshot_buyer_source_items(items)
             # PR-ε (2026-05-11): re-parse can introduce cost/markup/price
             # drift if the merged item dict carries one alias but not another.
             # Run the canonical reconciler so the saved record stays coherent
@@ -2641,6 +2700,11 @@ def _update_existing_record(
             rfq["line_items"] = _merge_items_preserving_pricing(
                 rfq.get("line_items") or [], items,
             )
+            # PR-AV13 (AV-13): twin of the PC re-parse audit snapshot
+            # above. Overwrite buyer_source_items with the fresh parse
+            # output BEFORE the pricing-preserving merge — that's the
+            # canonical buyer-asked set after re-parse.
+            rfq["buyer_source_items"] = _snapshot_buyer_source_items(items)
             # PR-ε (2026-05-11): twin of the PC re-parse reconcile call
             # above. RFQ re-parse merges items the same way and needs the
             # same canonical-coherence pass.
