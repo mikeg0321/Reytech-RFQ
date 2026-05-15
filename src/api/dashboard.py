@@ -2251,7 +2251,31 @@ def process_rfq_email(rfq_email):
                 # return None (same as legacy 704→PC early-exit).
                 if _v2_result.record_type == "rfq":
                     _rfqs_after = load_rfqs()
-                    return _rfqs_after.get(_v2_result.record_id)
+                    _new_rfq = _rfqs_after.get(_v2_result.record_id)
+                    # PR-AV9 (AV-9): the V2 success branch was returning
+                    # before reaching `_trigger_auto_price` at the end of
+                    # this function. Result: V2-ingested RFQs (most
+                    # modern records — Vision/AcroForm-extracted) never
+                    # got their auto-PC, never ran catalog/history price
+                    # lookup, never progressed from "parsed" to
+                    # "auto_priced" status. Operators had to hand-price
+                    # or hit the manual retry-auto-price route on every
+                    # new RFQ. rfq_efbdef4a / 25CB021 (Vision found 7
+                    # items, Vision-only path) was a flagged example.
+                    # Fire the same trigger the legacy path uses so the
+                    # V2 path reaches pricing parity. `_trigger_auto_price`
+                    # is idempotent (early-exits when auto_price_pc_id
+                    # is already set) so re-entry is safe.
+                    if _new_rfq and _new_rfq.get("line_items"):
+                        try:
+                            _trigger_auto_price(_new_rfq)
+                        except Exception as _ape:
+                            log.debug(
+                                "PR-AV9 auto-price trigger on V2 record "
+                                "%s failed (non-fatal): %s",
+                                _v2_result.record_id, _ape,
+                            )
+                    return _new_rfq
                 return None
             else:
                 log.warning(
