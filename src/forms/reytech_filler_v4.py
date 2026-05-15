@@ -3570,9 +3570,18 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
             valid_keep.append(i)
 
         if valid_keep and valid_keep != list(range(total_pages)):
+            # PR-AV-AC1: use writer.append(reader, pages=...) instead of
+            # iterating add_page(). add_page() copies page objects but does
+            # NOT carry over the /AcroForm root entry — the resulting PDF
+            # still has form-field annotations on each page (with /V values
+            # written by fill_and_sign_pdf) but pypdf.PdfReader.get_fields()
+            # returns {} because there is no AcroForm root to enumerate from.
+            # That caused form_qa.verify_filled_form to report ~17 actually-
+            # filled fields as "Missing:" on every CCHCS bid package (the
+            # 5/15 PREQ 10847262 audit). append(reader, pages=...) clones
+            # the source's /AcroForm node along with the kept pages.
             writer = PdfWriter()
-            for i in valid_keep:
-                writer.add_page(reader.pages[i])
+            writer.append(reader, pages=valid_keep)
             with open(output_path, "wb") as f:
                 writer.write(f)
             skipped = total_pages - len(valid_keep)
