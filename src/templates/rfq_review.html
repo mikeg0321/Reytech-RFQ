@@ -6,6 +6,20 @@
 .rv-header{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);margin-bottom:8px}
 .rv-header h2{margin:0;font-size:18px;color:var(--tx)}
 .rv-3col{display:grid;grid-template-columns:180px 1fr 360px;gap:8px;min-height:calc(100vh - 100px)}
+/* PR-AV-AC10: when toggleView('collapse-left') hides .rv-checklist
+   via display:none, CSS Grid drops it from auto-placement entirely
+   — .rv-preview then snaps to column 1 (the 0px slot in the
+   collapse-left grid-template-columns), collapsing to ~2px wide.
+   Pin each child to its semantic column so display:none on a
+   sibling can't reflow the layout. Also min-width:0 lets grid
+   children shrink past their content intrinsic width when needed.
+   Surfaced on rfq_9e63456e 5/15 DevTools walk: Max button rendered
+   the preview pane as a 2px stripe — operators couldn't see the
+   PDF they'd just generated. */
+.rv-3col > *{min-width:0;min-height:0}
+.rv-3col > .rv-checklist{grid-column:1/2}
+.rv-3col > .rv-preview{grid-column:2/3}
+.rv-3col > .rv-audit{grid-column:3/4}
 .rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:8px;overflow-y:auto;max-height:calc(100vh - 100px)}
 .rv-preview{background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 100px)}
 .rv-audit{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 100px)}
@@ -97,7 +111,14 @@
 /* Forms checklist — bigger text + filenames legible */
 .rv-checklist .rv-form-item{font-size:15px}
 .rv-checklist .rv-form-item .rv-name{font-size:15px}
-.rv-checklist .rv-fname{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;color:var(--tx2)}
+/* PR-AV-AC10: filenames are long opaque strings like
+   "10847262_BidPackage_Reytech.pdf". word-break:break-all (the
+   prior rule) produced ugly mid-word breaks ("Reyt|ech.pdf") in
+   the narrow 180px-wide deliverable card. Single-line + ellipsis +
+   hover-tooltip (existing `title` attr) shows full filename without
+   the awkward wrap. Mike 5/15: "make sure text is appropriate,
+   some text was wide before". */
+.rv-checklist .rv-fname{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--tx2);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .rv-checklist .rv-size{color:var(--tx2);white-space:nowrap;font-size:12px}
 .rv-checklist .rv-qa-pill{display:inline-block;padding:2px 7px;border-radius:9px;font-size:11px;font-weight:600}
 .rv-checklist .rv-qa-pass{background:rgba(63,185,80,.15);color:#3fb950}
