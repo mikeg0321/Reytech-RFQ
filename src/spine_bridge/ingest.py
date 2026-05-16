@@ -43,7 +43,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from src.spine import LineItem, Quote, QuoteStatus, SpineValidationError
+from src.spine import (
+    ContractLineItem,
+    EmailContract,
+    LineItem,
+    Quote,
+    QuoteStatus,
+    SpineValidationError,
+)
 from src.spine_bridge.translator import (
     TranslationIssue,
     _resolve_uom,  # private but project-internal; keeps UOM logic single-sourced
@@ -59,14 +66,19 @@ TaxResolver = Callable[[str], int | None]
 class IngestResult:
     """Outcome of ingesting one email contract.
 
-    quote is None iff issues contains at least one severity='error'.
+    On success (ok==True), `quote` is the canonical Spine Quote and
+    `email_contract` is the immutable buyer-statement that drove
+    ingest. Callers should write both to the DB: write_email_contract
+    FIRST (it's the master substrate), then write_quote. If either
+    field is None, the ingest failed — see issues for details.
     """
     quote: Quote | None
+    email_contract: EmailContract | None = None
     issues: list[TranslationIssue] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return self.quote is not None
+        return self.quote is not None and self.email_contract is not None
 
     def errors(self) -> list[TranslationIssue]:
         return [i for i in self.issues if i.severity == "error"]
@@ -264,4 +276,138 @@ def ingest_email_contract(
         ))
         return IngestResult(quote=None, issues=issues)
 
-    return IngestResult(quote=quote, issues=issues)
+    # ── Build the immutable EmailContract (master substrate) ─────────
+    try:
+        email_contract = _build_email_contract(
+            contract=contract,
+            rfq_id=rfq_id,
+            agency=agency,
+            facility=facility,
+            solicitation=solicitation,
+            tax_bps=tax_bps,
+            raw_items=raw_items,
+            ingest_ts=ingest_ts,
+        )
+    except (SpineValidationError, Exception) as e:
+        issues.append(TranslationIssue(
+            "error", "email_contract",
+            f"EmailContract rejected the buyer-side projection: {e}",
+        ))
+        return IngestResult(quote=None, issues=issues)
+
+    return IngestResult(
+        quote=quote,
+        email_contract=email_contract,
+        issues=issues,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# EmailContract construction — pure projection from the contract dict
+# ──────────────────────────────────────────────────────────────────────
+
+
+_CID_SAFE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+
+
+def _sanitize_for_cid(s: str) -> str:
+    return "".join(c if c in _CID_SAFE else "-" for c in s)[:60]
+
+
+def _build_email_contract(
+    *,
+    contract: dict,
+    rfq_id: str,
+    agency: str,
+    facility: str,
+    solicitation: str,
+    tax_bps: int | None,
+    raw_items: list,
+    ingest_ts: datetime,
+) -> EmailContract:
+    """Build an EmailContract from the parsed contract dict.
+
+    Called only after Quote-construction succeeds, so we can trust the
+    header/line invariants. Captures buyer-side fields that Quote
+    intentionally drops (buyer name/email, due_date, attachment refs,
+    parser version) so the audit chain stays complete.
+    """
+    contract_id = f"contract_{_sanitize_for_cid(rfq_id)}_{int(ingest_ts.timestamp())}"
+
+    buyer = contract.get("buyer") or {}
+    if not isinstance(buyer, dict):
+        buyer = {}
+
+    def _opt_str(*keys: str, src: dict | None = None) -> str | None:
+        src = src or contract
+        for k in keys:
+            v = src.get(k)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+        return None
+
+    def _opt_dt(*keys: str) -> datetime | None:
+        for k in keys:
+            v = contract.get(k)
+            if not v:
+                continue
+            if isinstance(v, datetime):
+                return v
+            try:
+                return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            except Exception:
+                continue
+        return None
+
+    contract_line_items: list[ContractLineItem] = []
+    for idx, raw in enumerate(raw_items):
+        if not isinstance(raw, dict):
+            continue
+        desc = (raw.get("description") or "").strip()[:500]
+        if not desc:
+            continue
+        try:
+            qty = int(float(raw.get("qty") or raw.get("quantity") or 1))
+        except (TypeError, ValueError):
+            continue
+        if qty < 1:
+            continue
+        contract_line_items.append(ContractLineItem(
+            line_no=idx + 1,
+            description=desc,
+            qty=qty,
+            uom=_resolve_uom(raw),
+            mfg_number_suggested=(
+                _opt_str("item_number", "mfg_number", "mfg_number_suggested", src=raw)
+            ),
+            buyer_hints=_opt_str("buyer_hints", "hints", "notes", src=raw),
+        ))
+
+    return EmailContract(
+        contract_id=contract_id,
+        rfq_id=rfq_id,
+        pc_id=_opt_str("pc_id"),
+        source_email_id=_opt_str("source_email_id", "message_id", "email_id"),
+        source_thread_id=_opt_str("source_thread_id", "thread_id"),
+        buyer_name=_opt_str("name", src=buyer),
+        buyer_email=_opt_str("email", src=buyer),
+        buyer_phone=_opt_str("phone", src=buyer),
+        buyer_title=_opt_str("title", src=buyer),
+        agency=agency,  # type: ignore[arg-type]
+        facility=facility,
+        institution_code=_opt_str("institution_code", "institution"),
+        solicitation_number=solicitation,
+        rfq_title=_opt_str("rfq_title", "subject", "title"),
+        release_date=_opt_dt("release_date", "released_at"),
+        due_date=_opt_dt("due_date", "due_at"),
+        ship_to_address=_opt_str("ship_to", "ship_to_address"),
+        ship_to_facility=_opt_str("ship_to_facility"),
+        tax_rate_bps=tax_bps,
+        line_items=contract_line_items,
+        attachment_refs=[
+            str(a) for a in (contract.get("attachment_refs") or [])
+            if str(a).strip()
+        ],
+        ingest_parser_version=_opt_str("parser_version", "ingest_parser_version") or "unknown",
+        ingested_at=ingest_ts,
+    )
