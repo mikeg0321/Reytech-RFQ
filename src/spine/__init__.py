@@ -15,6 +15,9 @@ __all__ = [
     "LineItem",
     "QuoteStatus",
     "SpineValidationError",
+    "render_quote_pdf",
+    "format_dollars",
+    "format_tax_rate",
 ]
 
 from src.spine.model import (
@@ -22,4 +25,9 @@ from src.spine.model import (
     LineItem,
     QuoteStatus,
     SpineValidationError,
+)
+from src.spine.quote_pdf import (
+    render_quote_pdf,
+    format_dollars,
+    format_tax_rate,
 )
