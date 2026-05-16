@@ -1,0 +1,129 @@
+{
+  "_fixture_meta": {
+    "purpose": "Test fixture for Spine translator. Modeled on the rfq_0ebe242f Ashley Russ CCHCS-CCWF Chowchilla quote that expired on 2026-05-13 without a bid (see memory: project_russ_miss_2026_05_13_substrate_failure). Because we never responded, no operational state depends on this RFQ — it is safe to use as a permanent test asset.",
+    "test_account": "Test",
+    "instructions_for_real_data": "To replace this with the actual prod rfq_0ebe242f payload: curl -u <auth> https://web-production-dcee9.up.railway.app/api/admin/rfq/0ebe242f > legacy_russ_no_bid_test.json. The translator does not care about non-required keys; preserve _fixture_meta + the 'institution', 'solicitation_number', 'tax_rate', and 'line_items' fields and the rest can come straight from prod."
+  },
+
+  "id": "rfq_0ebe242f_test",
+  "rfq_number": "Test-NoBid-0ebe242f",
+  "solicitation_number": "PREQ 10844444",
+  "institution": "CCHCS-CCWF Chowchilla",
+  "agency_name": "CCHCS",
+  "requestor_name": "Test (no-bid sample, based on Ashley Russ rfq_0ebe242f)",
+  "delivery_location": "California Health Care Facility Chowchilla 24000 Highway 99 Chowchilla CA 93610",
+  "ship_to": "CCHCS CCWF",
+  "facility": "Test - CCWF Chowchilla",
+  "due_date": "2026-05-13",
+  "due_time": "14:00",
+  "status": "parsed",
+
+  "tax_rate": 0.0775,
+  "tax_rate_pct": 7.75,
+  "tax_enabled": true,
+
+  "shipping_option": "included",
+  "shipping_amount": 0,
+  "delivery_option": "fob_dest",
+  "default_markup": 25,
+
+  "line_items": [
+    {
+      "line_no": 1,
+      "description": "GLOVES, NITRILE, EXAM, POWDER-FREE, MEDIUM, 100/BOX",
+      "item_number": "MK-2102M",
+      "qty": 20,
+      "uom": "BX",
+      "supplier_cost": 4.85,
+      "vendor_cost": 4.85,
+      "cost": 4.85,
+      "unit_price": 6.50,
+      "bid_price": 6.50,
+      "price_per_unit": 6.50,
+      "our_price": 6.50,
+      "markup_pct": 34.0,
+      "item_link": "https://www.mckesson.com/medical-supplies/personal-protective-equipment/MK-2102M",
+      "item_supplier": "McKesson"
+    },
+    {
+      "line_no": 2,
+      "description": "MASKS, SURGICAL, EAR LOOP, BLUE, 50/BOX",
+      "item_number": "PRM-1820",
+      "qty": 12,
+      "uom": "BX",
+      "supplier_cost": 8.25,
+      "vendor_cost": 8.25,
+      "unit_price": 11.00,
+      "bid_price": 11.00,
+      "price_per_unit": 11.00,
+      "markup_pct": 33.3,
+      "item_link": "https://example-medical.com/sku/PRM-1820"
+    },
+    {
+      "line_no": 3,
+      "description": "WIPES, DISINFECTING, 75CT CANISTER",
+      "item_number": "CLO-15949",
+      "qty": 50,
+      "uom": "EA",
+      "supplier_cost": 4.25,
+      "unit_price": 5.75,
+      "price_per_unit": 5.75,
+      "markup_pct": 35.3,
+      "item_link": "https://clorox.example.com/sku/CLO-15949"
+    },
+    {
+      "line_no": 4,
+      "description": "BANDAGES, ELASTIC, 4 INCH, 10/BOX",
+      "item_number": "DYN-3354",
+      "qty": 30,
+      "uom": "BX",
+      "supplier_cost": 3.10,
+      "unit_price": 4.20,
+      "price_per_unit": 4.20,
+      "markup_pct": 35.5,
+      "item_link": "https://medical.example.com/sku/DYN-3354"
+    },
+    {
+      "line_no": 5,
+      "description": "TAPE, MEDICAL, PAPER, 1 INCH, 12/PACK",
+      "item_number": "3M-1530",
+      "qty": 25,
+      "uom": "PK",
+      "supplier_cost": 7.50,
+      "unit_price": 10.10,
+      "price_per_unit": 10.10,
+      "markup_pct": 34.7,
+      "item_link": "https://3m.example.com/sku/1530"
+    },
+    {
+      "line_no": 6,
+      "description": "SCRUB, SURGICAL, 4OZ BOTTLE",
+      "item_number": "BD-9120",
+      "qty": 40,
+      "uom": "BT",
+      "supplier_cost": 6.20,
+      "unit_price": 8.40,
+      "price_per_unit": 8.40,
+      "markup_pct": 35.5,
+      "item_link": "https://bd.example.com/sku/9120"
+    },
+    {
+      "line_no": 7,
+      "description": "STETHOSCOPE, DUAL HEAD, BLACK",
+      "item_number": "LIT-3157",
+      "qty": 5,
+      "uom": "EA",
+      "supplier_cost": 38.50,
+      "unit_price": 52.00,
+      "price_per_unit": 52.00,
+      "markup_pct": 35.1,
+      "item_link": "https://littmann.example.com/sku/3157"
+    }
+  ],
+
+  "extra": {
+    "_note": "This `extra` catch-all is exactly the legacy substrate's silent-drop landmine. The Spine translator records every field that lives here as an info-level issue so an audit shows what was passed over.",
+    "buyer_email": "test-norussponse@example.com",
+    "linked_pc_id": null
+  }
+}

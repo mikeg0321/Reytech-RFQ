@@ -172,6 +172,57 @@ def make_spine_blueprint(
             headers={"Content-Disposition": disposition},
         )
 
+    # ─── GET /spine/quotes/<quote_id>/edit (operator UI) ──────────────
+
+    @spine_bp.route("/spine/quotes/<quote_id>/edit", methods=["GET"])
+    @_wrap
+    def edit_quote(quote_id: str):
+        """Render the operator editor for a Spine quote.
+
+        Reads the canonical Quote, renders spine_pc_detail.html with
+        the current state. The template's Save button POSTs the full
+        state back to /spine/quotes/<id>/state — one POST per click,
+        no per-keystroke autosave.
+        """
+        try:
+            from flask import render_template
+        except Exception:
+            return jsonify({"error": "template_engine_unavailable"}), 500
+
+        quote = read_quote(db_path, quote_id)
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        # Pre-compute display values so the template stays logic-light.
+        return render_template(
+            "spine_pc_detail.html",
+            quote=quote.to_persisted_dict(),
+            # Pre-formatted computed fields for display (model still
+            # owns the math; template just shows the values).
+            subtotal_display=f"${quote.subtotal_cents/100:,.2f}",
+            tax_display=f"${quote.tax_cents/100:,.2f}",
+            total_display=f"${quote.total_cents/100:,.2f}",
+            tax_rate_pct=f"{quote.tax_rate_bps/100:.2f}",
+            line_displays=[
+                {
+                    "line_no": li.line_no,
+                    "description": li.description,
+                    "mfg_number": li.mfg_number or "",
+                    "qty": li.qty,
+                    "uom": li.uom,
+                    "cost_dollars": f"{li.cost_cents/100:.2f}",
+                    "unit_price_dollars": f"{li.unit_price_cents/100:.2f}",
+                    "extension_display": f"${li.extension_cents/100:,.2f}",
+                    "markup_display": (
+                        f"{li.markup_pct_display:.1f}%"
+                        if li.markup_pct_display is not None else "—"
+                    ),
+                    "cost_source_url": li.cost_source_url or "",
+                }
+                for li in quote.line_items
+            ],
+        )
+
     # ─── GET /spine/quotes/<quote_id>/events ──────────────────────────
 
     @spine_bp.route("/spine/quotes/<quote_id>/events", methods=["GET"])
