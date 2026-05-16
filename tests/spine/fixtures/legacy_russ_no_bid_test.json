@@ -1,0 +1,70 @@
+{
+  "_fixture_meta": {
+    "purpose": "REAL-DATA test fixture. Modeled on the actual Ashley Russ CCHCS RFQ — Solicitation 10846581 — Non-Cloud RFQ Packet 12.3.25 — for 30 EA Resvent iBreeze 20A-W CPAP machines to CCWF Chowchilla. The RFQ was due 5/15/2026 at 4:00 PM PT; the bid window closed 3 hours before this fixture was captured, so the operational risk is zero — Reytech cannot ship this anymore and CCHCS will resolicit if needed. The data SHAPE is real (line item, qty, model, ship-to, solicitation #, buyer email); the cost and unit_price are reasonable estimates standing in for Mike's actual vendor quote (Resvent iBreeze 20A-W has online retail floor $299.99 — see WebSearch results 5/15). When Mike runs the next CCHCS bid, this fixture pattern is the canonical 'no-bid test account' the Spine roadmap calls for.",
+    "test_account": "Test",
+    "real_rfq_source": "C:\\Users\\mikeg\\OneDrive\\Desktop\\Non-Cloud RFQ Packet 12.3.25 - PREQ10845681.pdf (filename has typo; actual sol# is 10846581 per page 1 of the PDF)",
+    "deadline_missed": "2026-05-15T16:00:00-07:00 PDT",
+    "instructions_for_real_data": "If Mike's actual vendor cost comes in (e.g., from McKesson, Cardinal, Henry Schein, or direct from Resvent USA), update line_items[0].supplier_cost to the real $/unit value. Translator math will flow through correctly without any other edit."
+  },
+
+  "id": "rfq_PREQ10846581_test",
+  "rfq_number": "Test-NoBid-PREQ10846581",
+  "solicitation_number": "10846581",
+  "institution": "CCHCS-CCWF Chowchilla",
+  "agency_name": "CCHCS",
+  "requestor_name": "Ashley Russ",
+  "delivery_location": "Central California Women's Facility 23370 Rd. 22 Chowchilla CA 93610",
+  "ship_to": "Central California Women's Facility 23370 Rd. 22 Chowchilla CA 93610",
+  "facility": "Test - CCWF Chowchilla",
+  "due_date": "2026-05-15",
+  "due_time": "16:00",
+  "status": "parsed",
+
+  "tax_rate": 0.0775,
+  "tax_rate_pct": 7.75,
+  "tax_enabled": true,
+  "_tax_jurisdiction": "Madera County, CA (Chowchilla 93610) — 7.75%",
+
+  "shipping_option": "included",
+  "shipping_amount": 0,
+  "delivery_option": "fob_dest",
+  "default_markup": 35,
+
+  "line_items": [
+    {
+      "line_no": 1,
+      "description": "Resvent Auto W/WIFI CPAP (4/case) — 30 total CPAPs or 7.5 cases",
+      "item_number": "20A",
+      "qty": 30,
+      "uom": "EA",
+      "supplier_cost": 250.00,
+      "vendor_cost": 250.00,
+      "cost": 250.00,
+      "unit_price": 337.50,
+      "bid_price": 337.50,
+      "price_per_unit": 337.50,
+      "markup_pct": 35.0,
+      "item_link": "https://shop.resvent.com/products/ibreeze-cpap-machine",
+      "item_supplier": "Resvent USA"
+    }
+  ],
+
+  "extra": {
+    "_note": "This `extra` catch-all is exactly the legacy substrate's silent-drop landmine the Spine model refuses by construction. The translator records every legacy alias / orphan / shipping field as an info-level issue.",
+    "buyer_email": "Ashley.Russ@cdcr.ca.gov",
+    "linked_pc_id": null,
+    "required_attachments": [
+      "Signed/Dated RFQ (all pages)",
+      "Line Item Cost Worksheet",
+      "Bidder Declaration (GSPD-05-105)",
+      "DVBE Declaration (STD 843)",
+      "Postconsumer-Content Cert (CalRecycle 74)",
+      "Payee Data Record (STD 204) + CDCR Supplemental",
+      "California Civil Rights Cert",
+      "DARFUR Contracting Act Cert",
+      "CUF Certification (CCHCS-MC-345)",
+      "Seller's Permit",
+      "GenAI Disclosure & Factsheet (AMS 708, Rev 03/2025)"
+    ]
+  }
+}

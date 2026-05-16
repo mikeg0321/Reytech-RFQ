@@ -54,6 +54,9 @@ data/reytech.db-wal
 data/reytech.db-shm
 data/qa_intelligence.db
 data/rfq.db
+data/spine.db
+data/spine.db-wal
+data/spine.db-shm
 data/scprs_harvest.log
 data/reminded_ids.json
 
