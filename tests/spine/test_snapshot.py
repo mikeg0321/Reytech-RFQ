@@ -278,3 +278,154 @@ def test_latest_snapshot_returns_none_when_absent(db_path):
     q = _finalized_quote()
     write_quote(db_path, q, actor="seed")
     assert latest_snapshot(db_path, q.quote_id) is None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# W-Q-009 deep — multi-page render-gate coverage
+# ──────────────────────────────────────────────────────────────────────
+#
+# The render-matching gate concatenates all pages' extracted text
+# before counting money strings, so structurally it handles N pages.
+# These tests prove the gate catches the 2026-04-03 incident class
+# (row silently dropped at a page break) for quotes that ACTUALLY
+# span 3+ pages.
+
+
+def _many_line_quote(n: int, quote_id: str | None = None) -> Quote:
+    """Build a quote with `n` distinct line items, each with a unique
+    extension money string so the gate's Counter can distinguish them.
+    """
+    lines = []
+    for i in range(1, n + 1):
+        lines.append(LineItem(
+            line_no=i,
+            description=f"Test item line {i:03d}",
+            mfg_number=f"M{i:04d}",
+            qty=1,
+            uom="EA",
+            cost_cents=1000 + i,            # unique
+            unit_price_cents=2000 + i,      # unique → unique extension
+            cost_source_url="https://example.com",
+            cost_validated_at=_fresh_ts(),
+        ))
+    return Quote(
+        quote_id=quote_id or f"Q-multipage-{n}",
+        agency="CCHCS",
+        facility="Multi-page test",
+        solicitation_number=f"MP{n}",
+        line_items=lines,
+        tax_rate_bps=775,
+        status=QuoteStatus.PARSED,
+    )
+
+
+@pytest.mark.parametrize("n_items", [25, 50, 100])
+def test_render_gate_passes_on_multipage_quotes(n_items):
+    """Happy path: large quotes render cleanly with the gate enabled.
+    Proves the gate's text-concatenation across pages works at scale —
+    the gate's per-extension Counter check must succeed when those
+    money strings are spread across multiple pages.
+
+    Page count is whatever ReportLab decides (depends on font metrics
+    + cell padding); the structural property we care about is that
+    the gate doesn't false-positive on multi-page quotes, AND every
+    extension money string is found in the combined text.
+    """
+    import io, pypdf
+    q = _many_line_quote(n_items)
+    pdf_bytes = render_quote_pdf(q)  # gate runs inside; raises on fail
+    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    # At minimum 2 pages for n>=25 (verified earlier in W-Q-009).
+    assert len(reader.pages) >= 2, (
+        f"{n_items} items must span at least 2 pages; got {len(reader.pages)}"
+    )
+    # Defense: re-extract and assert every line's extension money
+    # string appears at least once in the combined text. Same logic
+    # as the gate, separately verified at the test boundary.
+    import re as _re
+    money_re = _re.compile(r"-?\$[\d,]+\.\d{2}")
+    text = "\n".join(p.extract_text() or "" for p in reader.pages)
+    found = set(money_re.findall(text))
+    for li in q.line_items:
+        ext_str = f"${li.extension_cents/100:,.2f}"
+        assert ext_str in found, f"line {li.line_no} extension {ext_str} not in PDF"
+
+
+def test_render_gate_catches_row_dropped_at_page_break(monkeypatch):
+    """The 2026-04-03 incident class: a row gets silently dropped at
+    a page-break (hardcoded 8-row page-1 capacity vs actual 11-row
+    template). The gate must catch this even when the row's absence
+    only manifests on page 2+.
+
+    Sabotage: monkey-patch _line_item_table to drop the LAST row.
+    The model has N extensions; the rendered text will only contain
+    N-1. The Counter check fires.
+    """
+    import src.spine.quote_pdf as qpdf
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Paragraph, Table, TableStyle
+
+    orig = qpdf._line_item_table
+    def liar(quote):
+        # Drop the last line — exactly the multi-page-page-break bug
+        # class. Render everything else correctly.
+        s = qpdf._styles()
+        header = ["#", "MFG #", "DESCRIPTION", "QTY", "UOM",
+                  "UNIT PRICE", "EXTENSION"]
+        rows = [header]
+        for li in quote.line_items[:-1]:    # drop the last
+            rows.append([
+                str(li.line_no), li.mfg_number or "",
+                Paragraph(qpdf._escape_pdf_text(li.description), s["li_desc"]),
+                f"{li.qty:,}", li.uom,
+                qpdf.format_dollars(li.unit_price_cents),
+                qpdf.format_dollars(li.extension_cents),
+            ])
+        tbl = Table(rows, colWidths=[0.4*inch, 0.95*inch, 2.85*inch,
+                                      0.55*inch, 0.45*inch, 0.9*inch, 0.9*inch],
+                    repeatRows=1)
+        return tbl
+
+    monkeypatch.setattr(qpdf, "_line_item_table", liar)
+
+    q = _many_line_quote(25)  # spans 2 pages; the dropped row is on page 2
+    with pytest.raises(SpineRenderMismatchError) as excinfo:
+        render_quote_pdf(q)
+    # The error should name a missing line (or the totals, which
+    # diverge because subtotal in the model includes the dropped row's
+    # extension while the renderer's totals block still uses the
+    # model's subtotal_cents — so SUBTOTAL displays correctly but the
+    # missing per-line extension makes the Counter fall short).
+    msg = str(excinfo.value).lower()
+    assert "money string" in msg or "extension" in msg
+
+
+def test_render_gate_catches_subtotal_diverging_from_lines(monkeypatch):
+    """Companion sabotage: line items rendered correctly, but the
+    totals block lies about subtotal (the legacy ReportLab template
+    drew totals from a separate calculation path that could drift
+    from the line table). Gate must catch this too.
+    """
+    import src.spine.quote_pdf as qpdf
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Table, TableStyle
+
+    def liar_totals(quote):
+        # Hardcode subtotal as $1.00 regardless of model.
+        rows = [
+            ["SUBTOTAL", "$1.00"],
+            [f"TAX ({qpdf.format_tax_rate(quote.tax_rate_bps)})",
+             qpdf.format_dollars(quote.tax_cents)],
+            ["SHIPPING", qpdf.format_dollars(0)],
+            ["TOTAL", qpdf.format_dollars(quote.total_cents)],
+        ]
+        tbl = Table(rows, colWidths=[1.6 * inch, 1.4 * inch], hAlign="RIGHT")
+        return tbl
+
+    monkeypatch.setattr(qpdf, "_totals_block", liar_totals)
+
+    q = _many_line_quote(25)
+    with pytest.raises(SpineRenderMismatchError) as excinfo:
+        render_quote_pdf(q)
+    assert "SUBTOTAL" in str(excinfo.value)
+    assert "$1.00" in str(excinfo.value)
