@@ -17,6 +17,11 @@ __all__ = [
     "QuoteStatus",
     "SpineValidationError",
     "SUPPORTED_UOM",
+    # Email contract — the master ingestion record
+    "EmailContract",
+    "ContractLineItem",
+    "ContractDelta",
+    "contract_vs_quote",
     # DB
     "init_db",
     "read_quote",
@@ -27,6 +32,9 @@ __all__ = [
     "read_snapshot",
     "iter_snapshots",
     "latest_snapshot",
+    "write_email_contract",
+    "read_email_contract",
+    "find_contract_for_quote",
     # Rendering
     "render_quote_pdf",
     "format_dollars",
@@ -41,6 +49,14 @@ from src.spine.model import (
     SpineValidationError,
     SUPPORTED_UOM,
 )
+from src.spine.email_contract import (
+    EmailContract,
+    ContractLineItem,
+)
+from src.spine.contract_diff import (
+    ContractDelta,
+    contract_vs_quote,
+)
 from src.spine.db import (
     init_db,
     read_quote,
@@ -51,6 +67,9 @@ from src.spine.db import (
     read_snapshot,
     iter_snapshots,
     latest_snapshot,
+    write_email_contract,
+    read_email_contract,
+    find_contract_for_quote,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,
