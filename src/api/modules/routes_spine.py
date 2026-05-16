@@ -37,6 +37,8 @@ from src.spine import (
     SpineRenderMismatchError,
     SpineValidationError,
     SUPPORTED_UOM,
+    contract_vs_quote,
+    find_contract_for_quote,
     init_db,
     iter_snapshots,
     latest_snapshot,
@@ -47,6 +49,7 @@ from src.spine import (
     write_quote,
     write_snapshot,
 )
+from src.spine.contract_diff import delta_to_dict
 
 log = logging.getLogger("reytech.spine")
 
@@ -237,6 +240,75 @@ def make_spine_blueprint(
             mimetype="application/pdf",
             headers={"Content-Disposition": disposition},
         )
+
+    # ─── GET /spine/quotes/<quote_id>/contract ────────────────────────
+    #
+    # Returns the EmailContract that drove this quote's ingest — the
+    # master ground-truth record of what the buyer asked for. The
+    # contract is append-only; what you see here is byte-faithful to
+    # what was extracted from the inbound RFQ.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/contract",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_quote_contract(quote_id: str):
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        contract = find_contract_for_quote(db_path, quote_id)
+        if contract is None:
+            return jsonify({
+                "error": "no_contract",
+                "detail": (
+                    "No EmailContract found for this quote. The quote "
+                    "may have been ingested before the email-contract "
+                    "substrate existed (pre-2026-05-16 data) or via a "
+                    "path that did not call write_email_contract."
+                ),
+            }), 404
+        return jsonify(contract.model_dump(mode="json"))
+
+    # ─── GET /spine/quotes/<quote_id>/contract-diff ───────────────────
+    #
+    # Returns the per-field delta between the contract (buyer-stated
+    # truth) and the current quote (operator state). Every override
+    # is traceable to the field path, contract value, and operator
+    # value. This is what gives operators + auditors a clean "what
+    # changed and why" view at any point in the quote's lifecycle.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/contract-diff",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_quote_contract_diff(quote_id: str):
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+        contract = find_contract_for_quote(db_path, quote_id)
+        if contract is None:
+            return jsonify({
+                "error": "no_contract",
+                "detail": "no EmailContract found for this quote",
+            }), 404
+
+        deltas = contract_vs_quote(contract, quote)
+        return jsonify({
+            "quote_id": quote_id,
+            "contract_id": contract.contract_id,
+            "delta_count": len(deltas),
+            "deltas": [delta_to_dict(d) for d in deltas],
+            "clean": len(deltas) == 0,
+        })
 
     # ─── GET /spine/quotes/<quote_id>/forms/703b/pdf ──────────────────
     #
