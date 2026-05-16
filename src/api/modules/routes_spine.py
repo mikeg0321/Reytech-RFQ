@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Callable
 
 from flask import Blueprint, Response, jsonify, request
@@ -402,6 +403,39 @@ def make_spine_blueprint(
             "quote_id": quote_id,
             "snapshots": [{k: v for k, v in s.items() if k != "state_json"}
                           for s in snaps],
+        })
+
+    # ─── GET /spine/quotes/<quote_id>/oracle-suggestions ──────────────
+    #
+    # Read-only window into the Pricing Oracle. Oracle SUGGESTS;
+    # operator DECIDES; substrate STORES only operator-typed values.
+    # See project_spine_oracle_wiring_plan_2026_05_15.md (memory) for
+    # the architectural rule. This endpoint returns FIXTURE data in
+    # v1 — PR-O4 will swap the body in oracle_proxy.suggestions_for_quote
+    # to call the real parent-repo oracle. The JSON shape is the
+    # contract and is preserved across that swap.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/oracle-suggestions",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_oracle_suggestions(quote_id: str):
+        from src.spine_bridge import suggestions_for_quote, suggestion_to_dict
+
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        suggestions = suggestions_for_quote(quote)
+        return jsonify({
+            "quote_id": quote_id,
+            "oracle_version": "fixture-v1",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "lines": [suggestion_to_dict(s) for s in suggestions],
         })
 
     # ─── GET /spine/quotes/<quote_id>/snapshot/<sid>/pdf ──────────────

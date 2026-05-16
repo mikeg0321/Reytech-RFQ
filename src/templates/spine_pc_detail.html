@@ -83,6 +83,31 @@
   .spine-lock-banner { margin: 10px 0 14px; padding: 12px 16px; background:#f3f0ff; border:1px solid #ddd6fe; border-left:4px solid #7c3aed; border-radius:6px; font-size:13px; color:#4c1d95; }
   .spine-lock-banner strong { color:#4c1d95; }
   .spine-lock-banner code { background:#ede9fe; padding:1px 6px; border-radius:3px; font-size:12px; }
+
+  /* Oracle panel — collapsible per-row suggestions below the form.
+     Oracle SUGGESTS, operator DECIDES. Click-to-accept fills inputs
+     but never writes substrate directly; Save is still the only
+     writer. See project_spine_oracle_wiring_plan_2026_05_15.md. */
+  .spine-oracle-panel { margin: 16px 0; border: 1px solid #d0d7de; border-radius: 6px; background: #fafbfc; padding: 12px 16px; font-size: 13px; }
+  .spine-oracle-panel .panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .spine-oracle-panel .panel-header strong { color: #1f2937; }
+  .spine-oracle-panel .panel-header .oracle-version { color: #6b7280; font-size: 11px; }
+  .spine-oracle-panel .panel-header button { padding: 4px 10px; font-size: 12px; }
+  .spine-oracle-row { display: grid; grid-template-columns: 60px 1fr 1fr 1fr; gap: 10px; align-items: start; padding: 8px; border-top: 1px solid #eaeef2; font-size: 12px; }
+  .spine-oracle-row .line-label { font-weight: 600; color: #57606a; padding-top: 2px; }
+  .spine-oracle-suggestion { background: #fff; border: 1px solid #d0d7de; border-radius: 4px; padding: 6px 8px; }
+  .spine-oracle-suggestion .lbl { display: block; color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+  .spine-oracle-suggestion .val { display: block; font-weight: 600; color: #1f2937; font-size: 13px; margin: 1px 0; }
+  .spine-oracle-suggestion .basis { display: block; color: #6b7280; font-size: 11px; }
+  .spine-oracle-suggestion button.accept-chip { margin-top: 4px; padding: 2px 8px; background: #1f883d; color: #fff; border: 0; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: 600; }
+  .spine-oracle-suggestion button.accept-chip:hover { background: #1a7233; }
+  .spine-oracle-suggestion button.accept-chip:disabled { opacity: 0.4; cursor: not-allowed; background: #6b7280; }
+  .conf-high { color: #166534; }
+  .conf-medium { color: #92400e; }
+  .conf-low { color: #991b1b; }
+  .freshness-stale { color: #991b1b; font-weight: 600; }
+  .competitor-undercut { color: #166534; font-weight: 600; }
+  .competitor-above { color: #991b1b; font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -260,6 +285,29 @@
     <div id="spine-result" class="spine-result"></div>
   </form>
 
+  {# Oracle panel — populated client-side by JS from
+     GET /oracle-suggestions. Hidden until status >= priced (suggestions
+     are most useful once the operator has an initial price to compare
+     against). Click "Refresh" or "Show suggestions" to load. #}
+  {% if quote.status != "sent" %}
+  <div class="spine-oracle-panel" id="spine-oracle-panel" hidden>
+    <div class="panel-header">
+      <strong>🔮 Pricing Oracle</strong>
+      <span class="oracle-version" id="spine-oracle-version"></span>
+      <button type="button" id="spine-oracle-refresh">🔄 Refresh suggestions</button>
+      <span style="margin-left:auto;color:#6b7280;font-size:11px">
+        Oracle suggests; you decide. Clicking ✓ fills the input; Save is the only writer.
+      </span>
+    </div>
+    <div id="spine-oracle-rows">
+      <div style="color:#6b7280;padding:8px">Loading…</div>
+    </div>
+  </div>
+  <p style="margin: 8px 0; font-size: 12px; color: #57606a;">
+    <a href="#" id="spine-oracle-toggle">🔮 Show Pricing Oracle suggestions</a>
+  </p>
+  {% endif %}
+
   <p class="spine-footer-note">
     The Spine writes ONE row per Save. No per-keystroke autosave. Status transitions
     do NOT recompute line items. Tax and markup are derived from your typed values —
@@ -391,15 +439,181 @@
     el.addEventListener('input', function(){ recomputeMarkupFromPrice(lineNo); });
   });
 
+  // ── Oracle panel — read-only suggestions per line.
+  //
+  // Oracle SUGGESTS, operator DECIDES. The chips do NOT POST when
+  // clicked — they only fill the corresponding form input. Save is
+  // still the only writer. The audit trail in the event log carries
+  // the actor's note ("oracle cost applied L1") via X-Spine-Note on
+  // the next Save.
+  //
+  // Architectural commitment: no auto-apply, no oracle daemon writes,
+  // no oracle_suggested_* substrate field. See
+  // project_spine_oracle_wiring_plan_2026_05_15.md.
+  const oraclePanel = document.getElementById('spine-oracle-panel');
+  const oracleToggle = document.getElementById('spine-oracle-toggle');
+  const oracleRefresh = document.getElementById('spine-oracle-refresh');
+  const oracleVersion = document.getElementById('spine-oracle-version');
+  const oracleRows = document.getElementById('spine-oracle-rows');
+  let oracleAccepted = [];   // per-line notes for the next Save's audit
+
+  function fmtMoney(cents) {
+    if (cents === null || cents === undefined) return '—';
+    const sign = cents < 0 ? '-' : '';
+    const abs = Math.abs(cents);
+    const whole = Math.floor(abs / 100);
+    const frac = (abs % 100).toString().padStart(2, '0');
+    return sign + '$' + whole.toLocaleString() + '.' + frac;
+  }
+
+  function renderOracleSuggestion(s) {
+    const wrap = document.createElement('div');
+    wrap.className = 'spine-oracle-row';
+    wrap.dataset.lineNo = s.line_no;
+
+    // Line label
+    const label = document.createElement('div');
+    label.className = 'line-label';
+    label.textContent = 'Line ' + s.line_no;
+    wrap.appendChild(label);
+
+    // Suggested cost
+    const costBox = document.createElement('div');
+    costBox.className = 'spine-oracle-suggestion';
+    costBox.innerHTML =
+      '<span class="lbl">💡 Suggested cost</span>' +
+      '<span class="val">' + fmtMoney(s.suggested_cost_cents) + '</span>' +
+      '<span class="basis">' +
+        (s.cost_sources.length > 0
+          ? s.cost_sources.map(src =>
+              src.url
+                ? '<a href="' + src.url + '" target="_blank">' + src.label + '</a>'
+                : src.label
+            ).join(' · ')
+          : '—') +
+      '</span>' +
+      (s.suggested_cost_cents !== null
+        ? '<button type="button" class="accept-chip" data-accept="cost" data-line="' + s.line_no + '" data-value="' + s.suggested_cost_cents + '">✓ Apply to COST</button>'
+        : '');
+    wrap.appendChild(costBox);
+
+    // Suggested unit price
+    const priceBox = document.createElement('div');
+    priceBox.className = 'spine-oracle-suggestion';
+    priceBox.innerHTML =
+      '<span class="lbl">💡 Suggested unit price</span>' +
+      '<span class="val">' + fmtMoney(s.suggested_unit_price_cents) + '</span>' +
+      '<span class="basis">' + s.price_basis + '</span>' +
+      '<span class="basis ' + (s.freshness_days > 30 ? 'freshness-stale' : '') + '">' +
+      'confidence <span class="conf-' + s.confidence + '">' + s.confidence + '</span>' +
+      ' · freshness ' + s.freshness_days + 'd' +
+      (s.freshness_days > 30 ? ' (stale)' : '') +
+      '</span>' +
+      (s.suggested_unit_price_cents !== null
+        ? '<button type="button" class="accept-chip" data-accept="price" data-line="' + s.line_no + '" data-value="' + s.suggested_unit_price_cents + '">✓ Apply to UNIT PRICE</button>'
+        : '');
+    wrap.appendChild(priceBox);
+
+    // Competitor signal
+    const compBox = document.createElement('div');
+    compBox.className = 'spine-oracle-suggestion';
+    if (s.competitor_unit_price_cents !== null) {
+      const undercut = s.competitor_delta_pct < 0;
+      compBox.innerHTML =
+        '<span class="lbl">🎯 Competitor signal</span>' +
+        '<span class="val">' + fmtMoney(s.competitor_unit_price_cents) + '</span>' +
+        '<span class="basis">' +
+          (s.competitor_vendor || 'unknown vendor') +
+        '</span>' +
+        '<span class="basis ' + (undercut ? 'competitor-undercut' : 'competitor-above') + '">' +
+          (undercut ? '🔻 you undercut by ' : '🔺 you are above by ') +
+          Math.abs(s.competitor_delta_pct) + '%' +
+        '</span>';
+    } else {
+      compBox.innerHTML = '<span class="lbl">🎯 Competitor signal</span><span class="basis">no recent winning bid found</span>';
+    }
+    wrap.appendChild(compBox);
+    return wrap;
+  }
+
+  async function loadOracleSuggestions() {
+    oracleRows.innerHTML = '<div style="color:#6b7280;padding:8px">Loading…</div>';
+    try {
+      const resp = await fetch('/spine/quotes/' + encodeURIComponent(quoteId) + '/oracle-suggestions');
+      if (!resp.ok) {
+        oracleRows.innerHTML = '<div style="color:#991b1b;padding:8px">Oracle load failed: HTTP ' + resp.status + '</div>';
+        return;
+      }
+      const body = await resp.json();
+      oracleVersion.textContent = '· ' + body.oracle_version + ' · ' + body.generated_at.slice(0, 19);
+      oracleRows.innerHTML = '';
+      body.lines.forEach(function(s){ oracleRows.appendChild(renderOracleSuggestion(s)); });
+    } catch (e) {
+      oracleRows.innerHTML = '<div style="color:#991b1b;padding:8px">Oracle error: ' + e.message + '</div>';
+    }
+  }
+
+  if (oracleToggle) {
+    oracleToggle.addEventListener('click', function(e){
+      e.preventDefault();
+      oraclePanel.hidden = !oraclePanel.hidden;
+      if (!oraclePanel.hidden && oracleRows.children.length <= 1) {
+        loadOracleSuggestions();
+      }
+      this.textContent = oraclePanel.hidden
+        ? '🔮 Show Pricing Oracle suggestions'
+        : '🔮 Hide Pricing Oracle suggestions';
+    });
+  }
+  if (oracleRefresh) {
+    oracleRefresh.addEventListener('click', loadOracleSuggestions);
+  }
+
+  // Delegated handler — chip clicks fill the corresponding input.
+  // No network call; Save is the only writer.
+  if (oracleRows) {
+    oracleRows.addEventListener('click', function(e){
+      const btn = e.target.closest('button.accept-chip');
+      if (!btn) return;
+      const lineNo = btn.dataset.line;
+      const kind = btn.dataset.accept;          // 'cost' or 'price'
+      const cents = parseInt(btn.dataset.value, 10);
+      const dollars = (cents / 100).toFixed(2);
+      const targetName = (kind === 'cost' ? 'cost-' : 'price-') + lineNo;
+      const target = document.querySelector('input[name="' + targetName + '"]');
+      if (!target) return;
+      target.value = dollars;
+      // Fire input event so the markup ↔ price two-way binding picks up.
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      // Track for the audit trail.
+      oracleAccepted.push('L' + lineNo + ' ' + kind + ' accepted from oracle');
+      // Visual: dim the chip + change label so operator sees it landed.
+      btn.disabled = true;
+      btn.textContent = '✓ Applied — click Save to commit';
+    });
+  }
+
   async function spinePost(body) {
+    const headers = { 'Content-Type': 'application/json' };
+    // If the operator accepted oracle suggestions since the last
+    // Save, surface that in the audit trail on this Save. The
+    // substrate stores only operator-typed values; the note records
+    // the provenance the operator chose.
+    if (typeof oracleAccepted !== 'undefined' && oracleAccepted.length > 0) {
+      headers['X-Spine-Note'] = oracleAccepted.join('; ');
+    }
     const resp = await fetch('/spine/quotes/' + encodeURIComponent(quoteId) + '/state', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify(body),
     });
     const text = await resp.text();
     let parsed = null;
     try { parsed = JSON.parse(text); } catch (e) { parsed = { raw: text }; }
+    if (resp.status === 200) {
+      // Audit note successfully recorded; clear for next save.
+      if (typeof oracleAccepted !== 'undefined') oracleAccepted.length = 0;
+    }
     return { status: resp.status, body: parsed };
   }
 

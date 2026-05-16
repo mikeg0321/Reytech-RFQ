@@ -19,6 +19,12 @@ from src.spine_bridge.ingest import (
     TaxResolver,
     ingest_email_contract,
 )
+from src.spine_bridge.oracle_proxy import (
+    OracleLineSuggestion,
+    OracleSource,
+    suggestions_for_quote,
+    suggestion_to_dict,
+)
 
 __all__ = [
     "LegacyTranslationResult",
@@ -27,4 +33,8 @@ __all__ = [
     "IngestResult",
     "TaxResolver",
     "ingest_email_contract",
+    "OracleLineSuggestion",
+    "OracleSource",
+    "suggestions_for_quote",
+    "suggestion_to_dict",
 ]
