@@ -73,6 +73,31 @@ CREATE TABLE IF NOT EXISTS spine_quote_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_spine_snapshots_quote_id
     ON spine_quote_snapshots(quote_id, created_at DESC);
+
+-- ──────────────────────────────────────────────────────────────────
+-- EmailContracts — the ingestion master record.
+-- ──────────────────────────────────────────────────────────────────
+-- Per Mike 2026-05-16: the email contract is the ground truth that
+-- every Quote and rendered PDF is compared against. One row per
+-- ingestion event. Append-only — corrections (rebid, revised RFQ)
+-- create a NEW contract row with the same source_thread_id, never
+-- modify the prior. The contract is the BUYER'S statement; we
+-- preserve it byte-for-byte so audit + replay both work.
+CREATE TABLE IF NOT EXISTS spine_email_contracts (
+    contract_id     TEXT PRIMARY KEY,
+    rfq_id          TEXT,                  -- nullable: contract may pre-date its quote
+    pc_id           TEXT,
+    source_email_id TEXT,
+    source_thread_id TEXT,
+    contract_json   TEXT NOT NULL,         -- EmailContract.model_dump(mode='json')
+    sha256          TEXT NOT NULL,
+    ingested_at     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_spine_contracts_rfq_id
+    ON spine_email_contracts(rfq_id);
+CREATE INDEX IF NOT EXISTS idx_spine_contracts_thread
+    ON spine_email_contracts(source_thread_id, ingested_at DESC);
 """
 
 # Module-level write lock — Python-side serializer for the single
@@ -411,6 +436,127 @@ def latest_snapshot(db_path: str | Path, quote_id: str) -> dict | None:
     """
     rows = iter_snapshots(db_path, quote_id)
     return rows[0] if rows else None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# EmailContract path — THE ONLY WRITER for spine_email_contracts.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def write_email_contract(db_path: str | Path, contract) -> dict:
+    """Persist an EmailContract. Append-only.
+
+    Per Mike 2026-05-16: the contract is the BUYER'S statement and
+    is captured once at ingest. Re-issuing the same contract_id
+    raises — corrections must come as NEW contract rows with a new
+    contract_id (typically sharing source_thread_id for rebid
+    grouping).
+
+    Returns metadata dict (sha256, ingested_at, byte_len).
+    """
+    from src.spine.email_contract import EmailContract
+
+    if not isinstance(contract, EmailContract):
+        raise SpineValidationError(
+            f"write_email_contract expects EmailContract; got "
+            f"{type(contract).__name__}"
+        )
+
+    state_json = json.dumps(contract.model_dump(mode="json"), sort_keys=True)
+    sha = hashlib.sha256(state_json.encode("utf-8")).hexdigest()
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    with _WRITE_LOCK:
+        with _connect(db_path) as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM spine_email_contracts WHERE contract_id = ?",
+                (contract.contract_id,),
+            ).fetchone()
+            if existing:
+                raise SpineValidationError(
+                    f"contract_id={contract.contract_id!r} already exists. "
+                    "Contracts are append-only; create a new contract_id "
+                    "for rebids (preserve source_thread_id to group)."
+                )
+            _persist_contract(
+                conn,
+                contract_id=contract.contract_id,
+                rfq_id=contract.rfq_id,
+                pc_id=contract.pc_id,
+                source_email_id=contract.source_email_id,
+                source_thread_id=contract.source_thread_id,
+                contract_json=state_json,
+                sha256=sha,
+                ingested_at=now_iso,
+            )
+
+    return {
+        "contract_id": contract.contract_id,
+        "sha256": sha,
+        "ingested_at": now_iso,
+        "byte_len": len(state_json),
+    }
+
+
+def _persist_contract(
+    conn: sqlite3.Connection,
+    *,
+    contract_id: str,
+    rfq_id: str | None,
+    pc_id: str | None,
+    source_email_id: str | None,
+    source_thread_id: str | None,
+    contract_json: str,
+    sha256: str,
+    ingested_at: str,
+) -> None:
+    """THE ONLY function in src/spine/ that writes spine_email_contracts.
+
+    Mirror of _persist_state / _persist_snapshot. Adding any other
+    INSERT/UPDATE/DELETE against spine_email_contracts inside src/spine/
+    is a substrate regression.
+    """
+    conn.execute(
+        "INSERT INTO spine_email_contracts "
+        "(contract_id, rfq_id, pc_id, source_email_id, source_thread_id, "
+        " contract_json, sha256, ingested_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (contract_id, rfq_id, pc_id, source_email_id, source_thread_id,
+         contract_json, sha256, ingested_at),
+    )
+
+
+def read_email_contract(db_path: str | Path, contract_id: str):
+    """Load and validate an EmailContract from the DB. Returns None
+    if absent. The contract is fully Pydantic-validated on every
+    read — same property as Quote."""
+    from src.spine.email_contract import EmailContract
+
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT contract_json FROM spine_email_contracts WHERE contract_id = ?",
+            (contract_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    state = json.loads(row["contract_json"])
+    return EmailContract.model_validate(state)
+
+
+def find_contract_for_quote(db_path: str | Path, quote_id: str):
+    """Find the EmailContract that drove ingest of `quote_id`. Returns
+    the EmailContract, or None if the quote was ingested before the
+    contract substrate existed (legacy data).
+    """
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT contract_id FROM spine_email_contracts "
+            "WHERE rfq_id = ? ORDER BY ingested_at DESC LIMIT 1",
+            (quote_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return read_email_contract(db_path, row["contract_id"])
 
 
 # ──────────────────────────────────────────────────────────────────────
