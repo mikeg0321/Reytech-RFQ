@@ -238,6 +238,61 @@ def make_spine_blueprint(
             headers={"Content-Disposition": disposition},
         )
 
+    # ─── GET /spine/quotes/<quote_id>/forms/703b/pdf ──────────────────
+    #
+    # CCHCS 703B — RFQ Informal Competitive cover sheet. Fills the
+    # vendor identity + solicitation # from the Quote + ReytechIdentity
+    # env config, runs the matching gate (SpineFormFillError on any
+    # divergence), returns the bytes. ?fillable=1 leaves form widgets
+    # for last-minute operator edits in Adobe; default is flat per
+    # government convention.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/703b/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_703b_pdf(quote_id: str):
+        from src.spine.agency_forms import (
+            ReytechIdentity, fill_703b_pdf, SpineFormFillError,
+        )
+
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        fillable = request.args.get("fillable", "0") == "1"
+        try:
+            pdf_bytes = fill_703b_pdf(
+                quote,
+                ReytechIdentity.from_env(),
+                flatten=not fillable,
+            )
+        except SpineFormFillError as e:
+            log.error("spine.get_703b: fill gate caught divergence for %s: %s",
+                      quote_id, e)
+            return jsonify({"error": "form_fill_mismatch", "detail": str(e)}), 409
+        except FileNotFoundError as e:
+            return jsonify({"error": "template_missing", "detail": str(e)}), 500
+        except Exception as e:
+            log.exception("spine.get_703b: fill failed for %s", quote_id)
+            return jsonify({"error": "fill_failed", "detail": str(e)}), 500
+
+        inline = request.args.get("inline", "1") != "0"
+        disposition = (
+            f'inline; filename="703b_{quote_id}.pdf"'
+            if inline else
+            f'attachment; filename="703b_{quote_id}.pdf"'
+        )
+        return Response(
+            pdf_bytes,
+            mimetype="application/pdf",
+            headers={"Content-Disposition": disposition},
+        )
+
     # ─── GET /spine/quotes/<quote_id>/edit (operator UI) ──────────────
 
     @spine_bp.route("/spine/quotes/<quote_id>/edit", methods=["GET"])
