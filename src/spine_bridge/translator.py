@@ -290,21 +290,19 @@ def _resolve_facility(legacy: dict) -> str:
 def _resolve_solicitation(legacy: dict) -> str:
     """Pull solicitation number, stripping PREQ prefix if present.
 
-    Mirrors form_field_extractor's PREQ-strip rule (AV-1 substrate fix).
+    PREQ-strip rule lives in _solicitation.strip_solicitation_prefix
+    so this translator and src/spine_bridge/ingest.py both use the
+    same pattern. Mirrors form_field_extractor's AV-1 substrate fix.
     """
-    sol = str(
+    from src.spine_bridge._solicitation import strip_solicitation_prefix
+
+    raw = (
         legacy.get("solicitation_number")
         or legacy.get("sol_number")
         or legacy.get("rfq_number")
         or ""
-    ).strip()
-    # Strip 'PREQ ' or 'PREQ-' prefix.
-    upper = sol.upper()
-    for prefix in ("PREQ ", "PREQ-", "PREQ"):
-        if upper.startswith(prefix):
-            sol = sol[len(prefix):].strip()
-            break
-    return sol[:64] or "UNKNOWN"
+    )
+    return strip_solicitation_prefix(raw)[:64] or "UNKNOWN"
 
 
 # ──────────────────────────────────────────────────────────────────────

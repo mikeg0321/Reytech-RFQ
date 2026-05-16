@@ -40,8 +40,16 @@ def russ_legacy() -> dict:
 def test_russ_fixture_translates_cleanly(russ_legacy):
     """The Russ no-bid test fixture must produce a valid Spine Quote.
 
-    7 line items, all aliases present and consistent, tax_rate=0.0775.
-    Translator should accept it and produce a 'parsed' Spine Quote.
+    1 line item (Resvent CPAP), tax_rate=0.0775, sol# 10846581.
+    Translator must accept the fixture and produce a 'parsed' Spine
+    Quote whose math matches what shadow_diff later verifies against
+    the legacy total.
+
+    Fixture last updated 2026-05-15 (the Russ Test PREQ fixture, see
+    project_spine_substrate_primitives_2026_05_15 in memory). When
+    the fixture is replaced, refresh both this assertion AND
+    test_russ_fixture_records_dropped_legacy_fields below — they
+    share a fixture and the counts must stay in sync with it.
     """
     result = translate_legacy_quote(russ_legacy)
     assert result.ok, (
@@ -53,13 +61,21 @@ def test_russ_fixture_translates_cleanly(russ_legacy):
     assert q.status == QuoteStatus.PARSED
     assert q.agency == "CCHCS"
     assert "Test" in q.facility
-    assert q.solicitation_number == "10844444"  # PREQ prefix stripped
+    # Fixture's solicitation_number is "10846581" (no prefix in this
+    # particular fixture, but the translator strips PREQ if present).
+    assert q.solicitation_number == "10846581"
     assert q.tax_rate_bps == 775  # 0.0775 → 775 bps
-    assert len(q.line_items) == 7
+    assert len(q.line_items) == 1
 
 
 def test_russ_fixture_records_dropped_legacy_fields(russ_legacy):
-    """Audit-trail behavior: every legacy alias/orphan should be noted."""
+    """Audit-trail behavior: every legacy alias/orphan should be noted.
+
+    Fixture-coupled — see note on test_russ_fixture_translates_cleanly.
+    The fixture currently carries shipping_option + shipping_amount +
+    delivery_option at the quote level (3 charter-banned fields) and
+    markup_pct on every line item (1 line → 1 markup drop note).
+    """
     result = translate_legacy_quote(russ_legacy)
     assert result.ok
     issue_paths = {i.field_path for i in result.issues}
@@ -70,8 +86,13 @@ def test_russ_fixture_records_dropped_legacy_fields(russ_legacy):
     assert "delivery_option" in issue_paths
 
     # markup_pct dropped on every line (derived in Spine).
-    markup_drops = [i for i in result.issues if i.field_path.endswith(".markup_pct")]
-    assert len(markup_drops) == 7  # one per line item
+    markup_drops = [
+        i for i in result.issues if i.field_path.endswith(".markup_pct")
+    ]
+    assert len(markup_drops) == len(result.quote.line_items), (
+        "every line item with a stored markup_pct must produce one "
+        "info-level drop note"
+    )
 
 
 def test_russ_quote_renders_to_valid_pdf(russ_legacy):

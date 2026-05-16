@@ -178,58 +178,23 @@ def test_no_autosave_hooks_in_spine_template():
     # The W-U-009 invariant is "no per-keystroke POST to the server."
     # Client-side recompute listeners (markup ↔ unit_price two-way
     # binding, KPI strip live updates) are allowed and expected —
-    # they don't hit the network. The banned list flags anything
-    # that wires a network call to a keystroke event.
-    banned_patterns = [
-        'oninput="',
-        'onchange="recalc',
-        'onchange="trigger',
-        'triggerPcAutosave',
-        'doPcAutosave',
-        'sendBeacon',
-    ]
-    found = [p for p in banned_patterns if p in text]
-    assert not found, (
+    # they don't hit the network. The audit logic lives in
+    # tests/spine/_template_audit.py so multiple future tests can
+    # reuse it without copy-paste drift.
+    from tests.spine._template_audit import (
+        find_banned_literals,
+        find_keystroke_network_calls,
+    )
+    found_literals = find_banned_literals(text)
+    assert not found_literals, (
         "spine_pc_detail.html contains autosave / per-keystroke hooks. "
-        f"The Spine requires single-POST-per-save. Found: {found!r}"
+        f"The Spine requires single-POST-per-save. Found: {found_literals!r}"
     )
-    # Tighter check: any addEventListener('input'|'keyup', ...) handler
-    # whose body contains a fetch/XHR is a per-keystroke POST and is
-    # banned. Handlers without network calls (recompute, focus moves,
-    # live math) are fine — that's exactly what the Spine UI needs to
-    # give the operator a responsive editor without spawning a flood
-    # of writes.
-    import re
-    listener_re = re.compile(
-        r"addEventListener\(['\"](input|keyup|keydown|keypress)['\"][^)]*\)",
-        re.IGNORECASE,
+    keystroke_offenses = find_keystroke_network_calls(text)
+    assert not keystroke_offenses, (
+        "per-keystroke listener appears to fire a network call: "
+        + "; ".join(keystroke_offenses[:3])
     )
-    for m in listener_re.finditer(text):
-        # Walk forward from the listener match and isolate the
-        # callback body by matching braces. We start after the first
-        # '{' that follows the listener (the body opener) and track
-        # nesting until we hit its mate. Anything inside that span
-        # is the listener body — if it contains a network call, the
-        # invariant is violated.
-        idx = m.end()
-        open_brace = text.find("{", idx)
-        if open_brace == -1 or open_brace - idx > 80:
-            continue   # listener has no body in JS-source sense
-        depth = 1
-        i = open_brace + 1
-        while i < len(text) and depth > 0:
-            ch = text[i]
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-            i += 1
-        body = text[open_brace + 1: i - 1]
-        if any(needle in body for needle in ("fetch(", "XMLHttpRequest", "sendBeacon")):
-            raise AssertionError(
-                f"per-keystroke listener appears to fire a network call: "
-                f"{text[m.start(): m.end()]!r} … body: {body[:200]!r}"
-            )
 
 
 def test_template_js_preserves_cost_validated_at_when_cost_unchanged(client_with_seeded):

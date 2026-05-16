@@ -311,16 +311,25 @@ def test_multiple_posts_append_to_event_log(client, db_path):
                                "X-Spine-Note": "sent to mohammed"})
     assert r4.status_code == 200, r4.json
 
-    # Event log shows all 4 state stages with the actor + note metadata.
+    # Event log shows all 4 state stages PLUS the snapshot event
+    # logged at the finalized stage. The snapshot event preserves the
+    # quote's then-current status (finalized) so the chain reads:
+    # parsed → priced → finalized → finalized(snapshot) → sent.
     events_r = client.get("/spine/quotes/Q-flow-001/events")
     assert events_r.status_code == 200
     events = events_r.json["events"]
-    assert len(events) == 4
-    assert [e["status"] for e in events] == ["parsed", "priced", "finalized", "sent"]
+    assert len(events) == 5
+    assert [e["status"] for e in events] == [
+        "parsed", "priced", "finalized", "finalized", "sent",
+    ]
     assert events[0]["actor"] == "ingest"
     assert events[0]["note"] == "initial parse"
-    assert events[3]["actor"] == "operator"
-    assert events[3]["note"] == "sent to mohammed"
+    # Snapshot event is event #3 (zero-indexed), between finalize and sent.
+    assert "snapshotted" in events[3]["note"]
+    assert "pdf_url=" in events[3]["note"]
+    # Send event remains the final one.
+    assert events[4]["actor"] == "operator"
+    assert events[4]["note"] == "sent to mohammed"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -354,6 +363,41 @@ def test_snapshot_endpoint_succeeds_on_finalized(client):
     assert body["snapshot_id"].startswith("snap_Q-snap-ok_")
     assert len(body["sha256"]) == 64
     assert body["byte_len"] > 500
+
+
+def test_snapshot_event_logged_with_pdf_link(client, db_path):
+    """Reviewer 2026-05-15: when a snapshot is captured, the event log
+    must show the snapshot ID + sha256 prefix + a deep link to the
+    immutable PDF bytes. Without this, audit chains split across
+    spine_quote_snapshots and event_log; this test forces them to
+    stay coherent."""
+    from src.spine import read_event_log
+
+    q = _ok_quote("Q-snap-event", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-snap-event/state", json=q.to_persisted_dict())
+    p = q.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-snap-event/state", json=p.to_persisted_dict())
+    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-snap-event/state", json=f.to_persisted_dict())
+
+    before = read_event_log(db_path, "Q-snap-event")
+    r = client.post("/spine/quotes/Q-snap-event/snapshot",
+                     headers={"X-Spine-Actor": "operator-alice"})
+    assert r.status_code == 200
+    sid = r.json["snapshot_id"]
+    # New: response carries a pre-built snapshot_pdf_url.
+    assert r.json["snapshot_pdf_url"] == (
+        f"/spine/quotes/Q-snap-event/snapshot/{sid}/pdf"
+    )
+
+    after = read_event_log(db_path, "Q-snap-event")
+    assert len(after) == len(before) + 1
+    snap_event = after[-1]
+    assert snap_event["actor"] == "operator-alice"
+    assert "snapshotted" in snap_event["note"]
+    assert sid in snap_event["note"]
+    assert "pdf_url=" in snap_event["note"]
+    assert r.json["sha256"][:16] in snap_event["note"]
 
 
 def test_snapshot_endpoint_idempotent_on_repeat_click(client):

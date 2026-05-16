@@ -379,7 +379,35 @@ def make_spine_blueprint(
             log.exception("spine.post_snapshot: write failed for %s", quote_id)
             return jsonify({"error": "snapshot_failed", "detail": str(e)}), 500
 
-        return jsonify(result), 200
+        # Record the snapshot in the event log too, with a deep link
+        # to the immutable bytes. Reviewer 2026-05-15: without this,
+        # the audit chain split across spine_quote_snapshots and
+        # event_log — the event log is the canonical chain operators
+        # check, so a snapshot must show up there with everything an
+        # auditor needs to retrieve the bytes.
+        snap_url = (
+            f"/spine/quotes/{quote_id}/snapshot/{result['snapshot_id']}/pdf"
+        )
+        snapshot_event_note = (
+            f"snapshotted: id={result['snapshot_id']} "
+            f"sha256={result['sha256'][:16]} "
+            f"pdf_url={snap_url}"
+            + (f" note={note}" if note else "")
+        )
+        try:
+            write_quote(db_path, quote, actor=actor, note=snapshot_event_note)
+        except Exception as e:
+            # Event-log write failure must not lose the snapshot —
+            # the bytes are already persisted. Log and surface a
+            # warning in the response so monitoring can pick up.
+            log.warning(
+                "spine.post_snapshot: event-log write failed for %s: %s",
+                quote_id, e,
+            )
+
+        # Echo the snapshot URL back so the UI can link to it without
+        # constructing the URL client-side.
+        return jsonify({**result, "snapshot_pdf_url": snap_url}), 200
 
     # ─── GET /spine/quotes/<quote_id>/snapshots ───────────────────────
     #

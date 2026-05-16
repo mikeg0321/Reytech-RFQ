@@ -130,13 +130,10 @@ def ingest_email_contract(
         # Derive a short facility label from ship_to first line.
         facility = ship_to.split("\n")[0][:64] or "UNKNOWN"
 
-    sol_raw = str(contract.get("solicitation_number") or "").strip()
-    # Strip PREQ prefix (same rule as translator).
-    sol_upper = sol_raw.upper()
-    for prefix in ("PREQ ", "PREQ-", "PREQ"):
-        if sol_upper.startswith(prefix):
-            sol_raw = sol_raw[len(prefix):].strip()
-            break
+    # Strip PREQ-style prefix via the shared helper so this and the
+    # translator can't drift (one of the substrate-meltdown classes).
+    from src.spine_bridge._solicitation import strip_solicitation_prefix
+    sol_raw = strip_solicitation_prefix(contract.get("solicitation_number"))
     if not sol_raw:
         issues.append(TranslationIssue(
             "error", "solicitation_number",

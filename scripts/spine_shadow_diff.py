@@ -239,7 +239,13 @@ def render_diff_report(legacy: dict, *, color: bool = True) -> tuple[str, int]:
     else:
         exit_code = 0
         lines.append("")
-        lines.append(f"{_GREEN}CLEAN — Spine total matches legacy.{_RESET}")
+        # Reviewer 2026-05-15: surface the trial-run readiness signal
+        # explicitly. After 5 consecutive CLEAN ships, the Spine is
+        # ready for an operator-side trial (Charter Day-14 deliverable).
+        lines.append(
+            f"{_GREEN}CLEAN — Spine total matches legacy "
+            f"(ready for operator trial run).{_RESET}"
+        )
 
     return "\n".join(lines), exit_code
 
