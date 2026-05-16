@@ -88,7 +88,12 @@
           <td class="col-num">{{ li.line_no }}</td>
           <td class="col-mfg">{{ li.mfg_number }}</td>
           <td class="col-desc">{{ li.description }}</td>
-          <td class="col-qty">{{ li.qty }}</td>
+          <td class="col-qty">
+            <input type="number" step="1" min="1"
+                   name="qty-{{ li.line_no }}"
+                   value="{{ li.qty }}"
+                   aria-label="Qty for line {{ li.line_no }}">
+          </td>
           <td class="col-uom">{{ li.uom }}</td>
           <td class="col-cost">
             <input type="number" step="0.01" min="0"
@@ -165,10 +170,13 @@
     // field from initialQuote. Operator only edits cost, unit_price, and
     // cost_source_url per line — everything else round-trips intact.
     const lineItems = initialQuote.line_items.map(function(li){
+      const qtyInput = document.querySelector('input[name="qty-' + li.line_no + '"]');
+      const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value, 10) || li.qty) : li.qty;
       const cost = dollarsToCents(document.querySelector('input[name="cost-' + li.line_no + '"]').value);
       const price = dollarsToCents(document.querySelector('input[name="price-' + li.line_no + '"]').value);
       const url = document.querySelector('input[name="src-' + li.line_no + '"]').value.trim();
       const updated = Object.assign({}, li, {
+        qty: qty,
         cost_cents: cost,
         unit_price_cents: price,
         cost_source_url: url || null,
