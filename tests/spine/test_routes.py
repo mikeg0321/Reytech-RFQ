@@ -200,8 +200,82 @@ def test_post_to_sent_quote_returns_409(client):
     assert r2.json["error"] == "state_transition_rejected"
 
 
+def test_post_rejects_illegal_transition_parsed_to_finalized(client):
+    """W-S-006 — POST must consult _ALLOWED_TRANSITIONS at the trust boundary.
+
+    Regression for the CHROME_WALKTHROUGH_GATE 2026-05-15 finding: the
+    Spine model's state machine (parsed→priced→finalized→sent) is
+    enforced by Quote.with_status(), but the POST /state route called
+    Quote.model_validate(body) directly and never invoked with_status().
+    A caller could short-circuit parsed→finalized in one POST if cost,
+    source URL, and tax were already valid for the finalized
+    preconditions. That is the exact substrate failure class the gate
+    was built to prevent.
+    """
+    parsed = _ok_quote("Q-skip-001", status=QuoteStatus.PARSED,
+                        line_items=[_ok_line(1)])
+    r1 = client.post("/spine/quotes/Q-skip-001/state",
+                      json=parsed.to_persisted_dict())
+    assert r1.status_code == 200
+
+    # Try parsed → finalized directly. The new line item is fully
+    # valid for finalized (cost source + fresh validated_at), so the
+    # model-validate stage will accept it. Only the transition check
+    # can reject this.
+    skip_body = parsed.to_persisted_dict()
+    skip_body["status"] = "finalized"
+    r2 = client.post("/spine/quotes/Q-skip-001/state", json=skip_body)
+    assert r2.status_code == 409, (
+        f"parsed→finalized must be rejected as illegal transition; "
+        f"got {r2.status_code} {r2.json!r}"
+    )
+    assert r2.json["error"] == "state_transition_rejected"
+    assert "illegal transition" in r2.json["detail"].lower()
+    assert "priced" in r2.json["detail"]
+
+
+def test_post_rejects_illegal_transition_parsed_to_sent(client):
+    """W-S-006 sibling — parsed→sent in one POST must be 409."""
+    parsed = _ok_quote("Q-skip-002", status=QuoteStatus.PARSED,
+                        line_items=[_ok_line(1)])
+    client.post("/spine/quotes/Q-skip-002/state",
+                json=parsed.to_persisted_dict())
+
+    skip_body = parsed.to_persisted_dict()
+    skip_body["status"] = "sent"
+    r = client.post("/spine/quotes/Q-skip-002/state", json=skip_body)
+    assert r.status_code == 409
+    assert r.json["error"] == "state_transition_rejected"
+
+
+def test_post_allows_legal_reopen_priced_to_parsed(client):
+    """W-S-007 regression — make sure the new gate doesn't block legal reopens."""
+    parsed = _ok_quote("Q-reopen-001", status=QuoteStatus.PARSED,
+                       line_items=[_ok_line(1)])
+    client.post("/spine/quotes/Q-reopen-001/state",
+                json=parsed.to_persisted_dict())
+
+    priced_body = parsed.to_persisted_dict()
+    priced_body["status"] = "priced"
+    r = client.post("/spine/quotes/Q-reopen-001/state", json=priced_body)
+    assert r.status_code == 200
+
+    reopened_body = priced_body.copy()
+    reopened_body["status"] = "parsed"
+    r2 = client.post("/spine/quotes/Q-reopen-001/state", json=reopened_body)
+    assert r2.status_code == 200, (
+        f"priced→parsed reopen must be allowed; got {r2.status_code} {r2.json!r}"
+    )
+
+
 def test_multiple_posts_append_to_event_log(client, db_path):
-    """The whole flow: parse → price → finalize → sent. 4 events recorded."""
+    """The whole flow: parse → price → finalize → snapshot → sent.
+    4 state events + 1 snapshot recorded.
+
+    The snapshot step is required at the finalized→sent boundary by
+    the route precondition added 2026-05-15. See W-S-009 in the
+    walkthrough catalog.
+    """
     q1 = _ok_quote("Q-flow-001", status=QuoteStatus.PARSED)
     r1 = client.post("/spine/quotes/Q-flow-001/state",
                       json=q1.to_persisted_dict(),
@@ -222,14 +296,22 @@ def test_multiple_posts_append_to_event_log(client, db_path):
                       headers={"X-Spine-Actor": "operator"})
     assert r3.status_code == 200
 
+    # Snapshot the finalized state. The bytes captured here ARE what
+    # ships to the buyer.
+    snap_r = client.post("/spine/quotes/Q-flow-001/snapshot",
+                          headers={"X-Spine-Actor": "operator",
+                                   "X-Spine-Note": "approved for ship"})
+    assert snap_r.status_code == 200, snap_r.json
+    assert snap_r.json["snapshot_id"].startswith("snap_Q-flow-001_")
+
     q4 = q3.model_copy(update={"status": QuoteStatus.SENT})
     r4 = client.post("/spine/quotes/Q-flow-001/state",
                       json=q4.to_persisted_dict(),
                       headers={"X-Spine-Actor": "operator",
                                "X-Spine-Note": "sent to mohammed"})
-    assert r4.status_code == 200
+    assert r4.status_code == 200, r4.json
 
-    # Event log shows all 4 stages with the actor + note metadata.
+    # Event log shows all 4 state stages with the actor + note metadata.
     events_r = client.get("/spine/quotes/Q-flow-001/events")
     assert events_r.status_code == 200
     events = events_r.json["events"]
@@ -239,6 +321,167 @@ def test_multiple_posts_append_to_event_log(client, db_path):
     assert events[0]["note"] == "initial parse"
     assert events[3]["actor"] == "operator"
     assert events[3]["note"] == "sent to mohammed"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Snapshot endpoints (W-Q-013/014, W-S-009)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_snapshot_endpoint_requires_finalized_status(client):
+    """A parsed or priced quote cannot be snapshotted."""
+    q = _ok_quote("Q-snap-prec", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-snap-prec/state", json=q.to_persisted_dict())
+    r = client.post("/spine/quotes/Q-snap-prec/snapshot")
+    assert r.status_code == 409
+    assert r.json["error"] == "snapshot_precondition_failed"
+    assert "finalized" in r.json["detail"]
+
+
+def test_snapshot_endpoint_succeeds_on_finalized(client):
+    q = _ok_quote("Q-snap-ok", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-snap-ok/state", json=q.to_persisted_dict())
+    p = q.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-snap-ok/state", json=p.to_persisted_dict())
+    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-snap-ok/state", json=f.to_persisted_dict())
+
+    r = client.post("/spine/quotes/Q-snap-ok/snapshot",
+                     headers={"X-Spine-Actor": "operator",
+                              "X-Spine-Note": "ship it"})
+    assert r.status_code == 200
+    body = r.json
+    assert body["snapshot_id"].startswith("snap_Q-snap-ok_")
+    assert len(body["sha256"]) == 64
+    assert body["byte_len"] > 500
+
+
+def test_snapshot_endpoint_idempotent_on_repeat_click(client):
+    q = _ok_quote("Q-snap-idem", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-snap-idem/state", json=q.to_persisted_dict())
+    p = q.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-snap-idem/state", json=p.to_persisted_dict())
+    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-snap-idem/state", json=f.to_persisted_dict())
+
+    r1 = client.post("/spine/quotes/Q-snap-idem/snapshot")
+    r2 = client.post("/spine/quotes/Q-snap-idem/snapshot")
+    assert r1.json["snapshot_id"] == r2.json["snapshot_id"]
+    list_r = client.get("/spine/quotes/Q-snap-idem/snapshots")
+    assert len(list_r.json["snapshots"]) == 1
+
+
+def test_send_without_snapshot_rejected(client):
+    """W-S-009: finalized→sent without any snapshot returns 409.
+    This is the architectural enforcement of 'the bytes shipped to
+    the buyer are the bytes the operator approved.'
+    """
+    q = _ok_quote("Q-no-snap", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-no-snap/state", json=q.to_persisted_dict())
+    p = q.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-no-snap/state", json=p.to_persisted_dict())
+    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-no-snap/state", json=f.to_persisted_dict())
+
+    sent = f.model_copy(update={"status": QuoteStatus.SENT})
+    r = client.post("/spine/quotes/Q-no-snap/state", json=sent.to_persisted_dict())
+    assert r.status_code == 409
+    assert r.json["error"] == "state_transition_rejected"
+    assert "snapshot" in r.json["detail"].lower()
+
+
+def test_send_with_diverged_state_rejected(client):
+    """Operator snapshots, then edits a value, then tries to send.
+    The send must fail because the state has diverged from what was
+    approved. Operator must re-snapshot to commit to the new state.
+    """
+    q = _ok_quote("Q-diverge", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-diverge/state", json=q.to_persisted_dict())
+    p = q.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-diverge/state", json=p.to_persisted_dict())
+    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-diverge/state", json=f.to_persisted_dict())
+    snap_r = client.post("/spine/quotes/Q-diverge/snapshot")
+    assert snap_r.status_code == 200
+
+    # Edit a value AFTER snapshotting.
+    diverged_li = f.line_items[0].model_copy(update={"unit_price_cents": 99_999})
+    diverged = f.model_copy(update={"line_items": [diverged_li, *f.line_items[1:]]})
+    save_r = client.post("/spine/quotes/Q-diverge/state",
+                          json=diverged.to_persisted_dict())
+    assert save_r.status_code == 200
+
+    # Try to send.
+    sent_diverged = diverged.model_copy(update={"status": QuoteStatus.SENT})
+    r = client.post("/spine/quotes/Q-diverge/state",
+                     json=sent_diverged.to_persisted_dict())
+    assert r.status_code == 409
+    assert "diverged" in r.json["detail"].lower()
+    assert snap_r.json["snapshot_id"] in r.json["detail"]
+
+
+def test_send_after_resnapshot_succeeds(client):
+    """Operator edits, re-snapshots, sends. The flow is allowed."""
+    q = _ok_quote("Q-resnap", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-resnap/state", json=q.to_persisted_dict())
+    p = q.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-resnap/state", json=p.to_persisted_dict())
+    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-resnap/state", json=f.to_persisted_dict())
+    client.post("/spine/quotes/Q-resnap/snapshot")
+
+    # Edit and re-snapshot.
+    new_li = f.line_items[0].model_copy(update={"unit_price_cents": 80_000})
+    edited = f.model_copy(update={"line_items": [new_li, *f.line_items[1:]]})
+    client.post("/spine/quotes/Q-resnap/state", json=edited.to_persisted_dict())
+    r2 = client.post("/spine/quotes/Q-resnap/snapshot")
+    assert r2.status_code == 200
+
+    sent = edited.model_copy(update={"status": QuoteStatus.SENT})
+    rs = client.post("/spine/quotes/Q-resnap/state",
+                      json=sent.to_persisted_dict())
+    assert rs.status_code == 200
+
+
+def test_get_snapshot_pdf_returns_immutable_bytes(client):
+    q = _ok_quote("Q-snap-pdf", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-snap-pdf/state", json=q.to_persisted_dict())
+    p = q.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-snap-pdf/state", json=p.to_persisted_dict())
+    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-snap-pdf/state", json=f.to_persisted_dict())
+    sr = client.post("/spine/quotes/Q-snap-pdf/snapshot")
+    sid = sr.json["snapshot_id"]
+    sha = sr.json["sha256"]
+
+    r = client.get(f"/spine/quotes/Q-snap-pdf/snapshot/{sid}/pdf")
+    assert r.status_code == 200
+    assert r.mimetype == "application/pdf"
+    assert r.data.startswith(b"%PDF-")
+    assert r.headers["X-Spine-Snapshot-Sha256"] == sha
+    import hashlib
+    assert hashlib.sha256(r.data).hexdigest() == sha
+
+
+def test_get_snapshot_pdf_scope_check(client):
+    """Snapshot ID must belong to the URL's quote_id (defense in depth
+    against caller confusion / cross-quote leakage)."""
+    q1 = _ok_quote("Q-scope-a", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-scope-a/state", json=q1.to_persisted_dict())
+    p1 = q1.model_copy(update={"status": QuoteStatus.PRICED})
+    client.post("/spine/quotes/Q-scope-a/state", json=p1.to_persisted_dict())
+    f1 = p1.model_copy(update={"status": QuoteStatus.FINALIZED})
+    client.post("/spine/quotes/Q-scope-a/state", json=f1.to_persisted_dict())
+    sr = client.post("/spine/quotes/Q-scope-a/snapshot")
+    sid_a = sr.json["snapshot_id"]
+
+    q2 = _ok_quote("Q-scope-b", status=QuoteStatus.PARSED)
+    client.post("/spine/quotes/Q-scope-b/state", json=q2.to_persisted_dict())
+
+    # Try to fetch Q-scope-a's snapshot under Q-scope-b's URL.
+    r = client.get(f"/spine/quotes/Q-scope-b/snapshot/{sid_a}/pdf")
+    assert r.status_code == 400
+    assert r.json["error"] == "snapshot_scope_mismatch"
 
 
 # ──────────────────────────────────────────────────────────────────────

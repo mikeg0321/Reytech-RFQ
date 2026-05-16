@@ -255,6 +255,30 @@ py -3.14 scripts/spine_serve_local.py
 **Setup:** Finalized quote.
 **Pass:** Reopen-to-Priced button works; status flips; line items intact.
 
+### W-S-009 — `finalized → sent` REQUIRES an approved snapshot matching current state
+**Source:** Mr. Wolf 2026-05-15 substrate fix · the structural enforcement of "the bytes shipped to the buyer are the bytes the operator approved"
+**Bug class:** Operator edits a value AFTER finalize, hits Send, ships
+the edited version. The buyer receives bytes that nobody explicitly
+approved. The 5/15 hand-overlay-PDF workflow was the operator's
+manual workaround for this gap.
+**Three failure modes the gate closes:**
+
+| Case | Pre-fix behavior | Post-fix behavior |
+|---|---|---|
+| No snapshot exists | sent succeeds, ships re-rendered bytes | 409 `state_transition_rejected — snapshot required` |
+| Snapshot exists, state edited after | sent succeeds with edited bytes | 409 `state has diverged from latest approved snapshot` |
+| Snapshot exists, state unchanged | sent succeeds (correct) | sent succeeds (correct, and bytes pulled from snapshot) |
+
+**Setup:** Finalize a quote without snapshotting. Try `finalized → sent`.
+**Pass:** 409 with detail mentioning "snapshot required". Snapshot.
+Edit unit price. Try sent. 409 with detail "diverged from latest
+approved snapshot (snap_X)". Re-snapshot. Try sent. 200.
+**Spine status:** ✅ Enforced in `routes_spine.post_quote_state` via
+`_identity_matches(latest_snapshot, quote)`.
+**Automated:** `test_send_without_snapshot_rejected`,
+`test_send_with_diverged_state_rejected`,
+`test_send_after_resnapshot_succeeds`.
+
 ---
 
 # W-P — Persistence / Event Log / Audit
@@ -390,6 +414,31 @@ py -3.14 scripts/spine_serve_local.py
 **Source:** `feedback_visual_verify_always`
 **Pass:** During Save, page reloads without snapping the viewport to unexpected locations.
 
+### W-U-014 — Live PDF preview pane reloads on Save
+**Source:** Mr. Wolf 2026-05-15 substrate fix · industry pattern (Stripe, QuickBooks, Zoho)
+**Bug class:** Operator edits a value, hits Save, has no in-app way
+to see what the buyer will receive. The 5/15 incidents lived in this
+blindspot — by the time anyone realized the PDF was wrong, the email
+was sent.
+**Setup:** Open editor on parsed quote. Right pane shows live PDF
+preview with the current state. Note the displayed extension on
+row 1 ($10,125.00 at qty=30).
+**Steps:** Change qty to 60 in the left pane. Click Save.
+**Pass:** Right pane reloads automatically. New extension $20,250.00
+visible. KPI block on the left ALSO shows $20,250.00. They match.
+**Spine status:** ✅ Iframe with cache-busting nonce on every save.
+
+### W-U-015 — Locked banner on sent quotes; iframe points at snapshot bytes
+**Source:** Mr. Wolf 2026-05-15 substrate fix
+**Setup:** Quote in `sent` status with a snapshot.
+**Pass:** Purple lock banner at top: "📌 LOCKED — ships snapshot
+`snap_xxx_yyyy` · sha256 `abc123…` · captured … by operator". Right
+pane iframe `src` is `/snapshot/<sid>/pdf`, not `/pdf`. Save button
+disabled with tooltip "Sent is terminal — no further edits". Mark
+Sent button absent (no transitions from sent in v1).
+**Spine status:** ✅ Template branches on status; iframe URL set
+server-side from `latest_snap`.
+
 ---
 
 # W-Q — Quote PDF Render
@@ -444,6 +493,61 @@ py -3.14 scripts/spine_serve_local.py
 
 ### W-Q-012 — Print fidelity (letter-size, 0.75in margins)
 **Pass:** Open in Chrome print preview. Page boundaries clean. No content clipped.
+
+### W-Q-013 — Render-matching gate refuses lying bytes
+**Source:** Mr. Wolf 2026-05-15 substrate fix · 5/15 TAX $0.00 incident
+**Bug class:** Renderer emits a money string that disagrees with the
+model (the literal `$0.00` shipped on both 5/15 quotes despite tax
+being computed correctly in the model). No upstream code change
+caught this — the bytes left the function and were emailed.
+**Setup:** Build a Quote with subtotal $10,125 at 7.75% tax.
+Monkey-patch `_totals_block` to hard-code `$0.00` for the TAX cell.
+Call `render_quote_pdf(quote)`.
+**Pass:** `SpineRenderMismatchError` raised. Error names the TAX
+cell, shows expected `$784.69`, shows displayed `$0.00`. NO bytes
+returned.
+**Spine status:** ✅ `_verify_render_matches_model` re-extracts via
+pdfplumber and compares cent-for-cent. Function is structurally
+incapable of returning lying bytes.
+**Automated:** `test_render_matching_gate_catches_zero_tax_injection`,
+`test_render_matching_gate_catches_wrong_extension`,
+`test_render_matching_gate_passes_on_correct_render`.
+
+### W-Q-014 — Snapshot is byte-identical + immutable
+**Source:** Stripe void-and-replace pattern · CHARTER `displayed == persisted == delivered`
+**Bug class:** Re-render at send-time can drift from approved render
+if upstream state changed silently (the 5/15 `rfq_9e63456e` 5-of-7-
+rows-wiped class). Snapshot table holds the bytes that were
+**approved**.
+**Setup:** Finalize a quote. POST `/snapshot`. Get `snapshot_id`
+and `sha256`. GET `/snapshot/<sid>/pdf`. Compute sha256 of returned
+bytes.
+**Pass:** Same sha256 as the snapshot row. `Content-Disposition`
+inline. `X-Spine-Snapshot-Sha256` and `X-Spine-Snapshot-CreatedAt`
+headers present. POST `/snapshot` again on unchanged state returns
+the same `snapshot_id` (idempotent on identity).
+**Spine status:** ✅ `write_snapshot` runs the render gate, then
+INSERTs `pdf_bytes` + `sha256` + `state_json`. Append-only.
+**Automated:** `test_snapshot_writes_one_row`,
+`test_snapshot_is_idempotent_on_unchanged_state`,
+`test_snapshot_bytes_are_byte_identical_on_read`,
+`test_snapshot_changes_when_state_changes`,
+`test_get_snapshot_pdf_returns_immutable_bytes`,
+`test_get_snapshot_pdf_scope_check`.
+
+### W-Q-015 — Sent quote ships the snapshot bytes, not a re-render
+**Source:** Mr. Wolf 2026-05-15 substrate fix
+**Bug class:** Even with a snapshot in hand, if the send path
+calls `render_quote_pdf(read_quote(...))` it can produce different
+bytes than what the operator approved (state changed between
+approve and send; timestamp drift; render-engine non-determinism).
+**Setup:** Finalize quote, snapshot, transition to sent. Open the
+preview iframe.
+**Pass:** Iframe `src` points at `/snapshot/<sid>/pdf`, not `/pdf`.
+The bytes displayed are the exact snapshot bytes.
+**Spine status:** ✅ Editor template branches on `quote.status ==
+"sent"` and renders the snapshot URL. Sending logic (when wired)
+will pull bytes via `read_snapshot` not `render_quote_pdf`.
 
 ---
 
@@ -551,15 +655,15 @@ py -3.14 scripts/spine_serve_local.py
 |----------|-----------|-----------|-------------|
 | W-M Math | 8 | 7 | 1 (negative margin display) |
 | W-A Alias | 10 | 9 | 1 (3-way drift) |
-| W-S State | 8 | 7 | 1 (status pill colors) |
+| W-S State | 9 | 8 | 1 (status pill colors) |
 | W-P Persistence | 6 | 5 | 1 (silent mutation 30-min wait) |
 | W-I Ingest | 8 | 6 | 2 (Vision wiring DEFERRED) |
-| W-U UI | 13 | 4 | 9 (visual) |
-| W-Q PDF | 12 | 8 | 4 (real Chrome + visual) |
+| W-U UI | 15 | 6 | 9 (visual) |
+| W-Q PDF | 15 | 11 | 4 (real Chrome + visual) |
 | W-T Translator | 8 | 8 | 0 |
 | W-O Workflow | 5 | 1 | 4 (operator timing/feel) |
 | W-R Process | 10 | 0 | 10 (gates on the gate itself) |
-| **TOTAL** | **88** | **55** | **33** |
+| **TOTAL** | **94** | **61** | **33** |
 
 **The bet:** if the 33 manual-only scenarios all pass in one night of
 Chrome MCP + Vision testing, the Spine substrate has structurally

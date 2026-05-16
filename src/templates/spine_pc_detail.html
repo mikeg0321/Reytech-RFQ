@@ -3,7 +3,7 @@
 
 {% block head_extra %}
 <style>
-  .spine-page { max-width: 1100px; margin: 18px auto; padding: 0 16px; font-size: 14px; }
+  .spine-page { max-width: 1800px; margin: 18px auto; padding: 0 16px; font-size: 14px; }
   .spine-header { display:flex; gap:24px; align-items:flex-start; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #d0d7de; }
   .spine-header h1 { margin:0; font-size:20px; font-weight:600; }
   .spine-header .meta { color:#57606a; font-size:13px; margin-top:4px; }
@@ -12,6 +12,30 @@
   .spine-status-priced { background:#dbeafe; color:#1d4ed8; }
   .spine-status-finalized { background:#dcfce7; color:#166534; }
   .spine-status-sent { background:#e0e0e0; color:#444; }
+
+  /* Two-pane layout: form on the left, live PDF preview on the right.
+     The right pane is the operator's "what the buyer will see" mirror —
+     reloads on every Save so displayed cells always match the bytes
+     about to be snapshotted.
+
+     The form pane is wider by default (3fr vs 2fr) and has a generous
+     min-width so the 10-column line-item table can show every input
+     value without truncation. Below 1280px the panes stack vertically
+     so neither gets squeezed. Caught by Mike 2026-05-15: QTY/COST/
+     UNIT PRICE inputs were rendering at 25–37px (under the threshold
+     where number-input spinner arrows leave any space for the value),
+     so the operator saw empty/single-char cells while the PDF preview
+     and DOM both held the correct values. Substrate-correct, surface-
+     wrong — exactly the displayed/persisted divergence class. */
+  .spine-2pane { display:grid; grid-template-columns: minmax(960px, 3fr) minmax(480px, 2fr); gap:22px; align-items:flex-start; }
+  @media (max-width: 1480px) { .spine-2pane { grid-template-columns: 1fr; } }
+  .spine-pane-form { min-width:0; }
+  .spine-pane-preview { position:sticky; top:14px; height: calc(100vh - 40px); display:flex; flex-direction:column; gap:8px; }
+  .spine-pane-preview .preview-header { display:flex; align-items:center; gap:10px; font-size:12px; color:#57606a; padding-bottom:6px; border-bottom:1px solid #eaeef2; }
+  .spine-pane-preview .preview-header strong { color:#222; font-size:13px; }
+  .spine-pane-preview iframe { flex:1; min-height:600px; border:1px solid #d0d7de; border-radius:6px; background:#fff; }
+  .spine-pane-preview .preview-empty { flex:1; display:flex; align-items:center; justify-content:center; border:1px dashed #d0d7de; border-radius:6px; color:#999; font-size:13px; padding:20px; text-align:center; }
+
   .spine-kpi { display:flex; gap:14px; flex-wrap:wrap; }
   .spine-kpi .kpi-cell { background:#f6f8fa; padding:8px 14px; border-radius:6px; border:1px solid #d0d7de; min-width:120px; }
   .spine-kpi .kpi-cell .lbl { display:block; font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.04em; }
@@ -20,16 +44,25 @@
   .spine-li-table th { background:#222; color:#fff; padding:8px 10px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
   .spine-li-table td { padding:8px 10px; border-bottom:1px solid #eaeef2; vertical-align:top; }
   .spine-li-table tr:nth-child(even) td { background:#fafbfc; }
-  .spine-li-table input[type="number"], .spine-li-table input[type="text"], .spine-li-table input[type="url"] { width:100%; padding:4px 6px; border:1px solid #d0d7de; border-radius:4px; font-size:13px; box-sizing:border-box; }
-  .spine-li-table input:focus { outline:2px solid #0969da; outline-offset:-1px; border-color:#0969da; }
+  .spine-li-table input[type="number"], .spine-li-table input[type="text"], .spine-li-table input[type="url"], .spine-li-table select { width:100%; min-width:0; padding:4px 6px; border:1px solid #d0d7de; border-radius:4px; font-size:13px; box-sizing:border-box; font-family:inherit; }
+  .spine-li-table input:focus, .spine-li-table select:focus { outline:2px solid #0969da; outline-offset:-1px; border-color:#0969da; }
+  /* Kill native number-input spinner arrows. They eat ~16px of input
+     width that we can't afford in a 10-column table and add visual
+     noise. Operator types the number; the substrate validates. */
+  .spine-li-table input[type="number"] { -moz-appearance:textfield; appearance:textfield; }
+  .spine-li-table input[type="number"]::-webkit-inner-spin-button,
+  .spine-li-table input[type="number"]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
   .spine-li-table .col-num { width:30px; text-align:center; color:#57606a; }
-  .spine-li-table .col-mfg { width:100px; }
-  .spine-li-table .col-desc { min-width:220px; }
-  .spine-li-table .col-qty { width:55px; text-align:center; }
-  .spine-li-table .col-uom { width:45px; text-align:center; }
-  .spine-li-table .col-cost, .spine-li-table .col-price { width:85px; }
-  .spine-li-table .col-src { width:130px; }
-  .spine-li-table .col-markup, .spine-li-table .col-ext { width:80px; text-align:right; color:#57606a; }
+  .spine-li-table .col-mfg { width:110px; }
+  .spine-li-table .col-desc { min-width:200px; }
+  .spine-li-table .col-qty { width:70px; }
+  .spine-li-table .col-qty input { text-align:right; }
+  .spine-li-table .col-uom { width:78px; }
+  .spine-li-table .col-cost, .spine-li-table .col-price { width:95px; }
+  .spine-li-table .col-cost input, .spine-li-table .col-price input { text-align:right; }
+  .spine-li-table .col-src { width:160px; }
+  .spine-li-table .col-src input { font-size:11px; }
+  .spine-li-table .col-markup, .spine-li-table .col-ext { width:88px; text-align:right; color:#57606a; }
   .spine-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px; }
   .spine-actions button { padding:8px 18px; border:1px solid #d0d7de; background:#fff; border-radius:6px; cursor:pointer; font-weight:600; font-size:13px; }
   .spine-actions button.primary { background:#1f883d; color:#fff; border-color:#1f883d; }
@@ -38,15 +71,23 @@
   .spine-actions button:disabled { opacity:0.45; cursor:not-allowed; }
   .spine-status-buttons button.status-btn { background:#0969da; color:#fff; border-color:#0969da; }
   .spine-status-buttons button.status-btn:hover { background:#0860c4; }
+  .spine-actions button.snapshot-btn { background:#7c3aed; color:#fff; border-color:#7c3aed; }
+  .spine-actions button.snapshot-btn:hover { background:#6d28d9; }
   .spine-result { margin-top:14px; padding:10px 14px; border-radius:6px; font-size:13px; display:none; }
   .spine-result.ok { background:#dcfce7; color:#166534; border:1px solid #86efac; display:block; }
   .spine-result.err { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; display:block; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
   .spine-footer-note { color:#57606a; font-size:11px; margin-top:18px; padding-top:10px; border-top:1px dashed #d0d7de; }
+
+  /* Snapshot lock banner — visible when status=sent so the operator
+     knows: this quote ships these exact bytes, no further edits. */
+  .spine-lock-banner { margin: 10px 0 14px; padding: 12px 16px; background:#f3f0ff; border:1px solid #ddd6fe; border-left:4px solid #7c3aed; border-radius:6px; font-size:13px; color:#4c1d95; }
+  .spine-lock-banner strong { color:#4c1d95; }
+  .spine-lock-banner code { background:#ede9fe; padding:1px 6px; border-radius:3px; font-size:12px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="spine-page" data-spine-quote-id="{{ quote.quote_id }}">
+<div class="spine-page" data-spine-quote-id="{{ quote.quote_id }}" data-spine-status="{{ quote.status }}" data-spine-updated-at="{{ quote.updated_at }}">
   <div class="spine-header">
     <div style="flex:1">
       <h1>Spine Quote — {{ quote.quote_id }}</h1>
@@ -58,6 +99,54 @@
       </div>
     </div>
   </div>
+
+  {% if latest_snap %}
+  <div class="spine-lock-banner" id="spine-lock-banner">
+    {% if quote.status == "sent" %}
+      <strong>📌 LOCKED — ships snapshot <code>{{ latest_snap.snapshot_id }}</code></strong><br>
+      sha256 <code>{{ latest_snap.sha256[:16] }}…</code> · captured {{ latest_snap.created_at }} by {{ latest_snap.actor }}
+      &nbsp;·&nbsp; <a href="/spine/quotes/{{ quote.quote_id }}/snapshot/{{ latest_snap.snapshot_id }}/pdf" target="_blank">View locked PDF</a>
+    {% else %}
+      <strong>Latest snapshot:</strong> <code>{{ latest_snap.snapshot_id }}</code> · sha256 <code>{{ latest_snap.sha256[:16] }}…</code> · {{ latest_snap.created_at }}
+      {% if snap_matches_current %}
+        &nbsp;<span style="color:#166534">✓ matches current state — ready to ship</span>
+      {% else %}
+        &nbsp;<span style="color:#991b1b">⚠ current state has diverged — re-snapshot before send</span>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="spine-2pane">
+  <div class="spine-pane-preview">
+    <div class="preview-header">
+      <strong>Live Preview</strong>
+      <span>—</span>
+      <span>what the buyer will see; reloads on every Save</span>
+      <span style="margin-left:auto">
+        <a id="spine-preview-popout" href="/spine/quotes/{{ quote.quote_id }}/pdf" target="_blank">↗ Open in new tab</a>
+      </span>
+    </div>
+    {# Server-rendered src so test client + initial paint both work
+       even before JS runs. JS reloadPreview() swaps in a nonce-bust
+       URL on every Save. Sent quotes point directly at the immutable
+       snapshot bytes (no live re-render path). #}
+    {% if latest_snap and quote.status == "sent" %}
+    <iframe
+      id="spine-preview-iframe"
+      title="Locked snapshot PDF — what was shipped to the buyer"
+      src="/spine/quotes/{{ quote.quote_id }}/snapshot/{{ latest_snap.snapshot_id }}/pdf"
+      loading="lazy"></iframe>
+    {% else %}
+    <iframe
+      id="spine-preview-iframe"
+      title="Live PDF preview of the current Quote state"
+      src="/spine/quotes/{{ quote.quote_id }}/pdf"
+      loading="lazy"></iframe>
+    {% endif %}
+  </div>
+
+  <div class="spine-pane-form">
 
   <div class="spine-kpi">
     <div class="kpi-cell"><span class="lbl">Subtotal</span><span class="val">{{ subtotal_display }}</span></div>
@@ -94,7 +183,14 @@
                    value="{{ li.qty }}"
                    aria-label="Qty for line {{ li.line_no }}">
           </td>
-          <td class="col-uom">{{ li.uom }}</td>
+          <td class="col-uom">
+            <select name="uom-{{ li.line_no }}"
+                    aria-label="Unit of measure for line {{ li.line_no }}">
+              {% for u in supported_uom %}
+                <option value="{{ u }}"{% if li.uom == u %} selected{% endif %}>{{ u }}</option>
+              {% endfor %}
+            </select>
+          </td>
           <td class="col-cost">
             <input type="number" step="0.01" min="0"
                    name="cost-{{ li.line_no }}"
@@ -114,7 +210,19 @@
                    value="{{ li.unit_price_dollars }}"
                    aria-label="Unit price for line {{ li.line_no }}">
           </td>
-          <td class="col-markup" data-markup-cell="{{ li.line_no }}">{{ li.markup_display }}</td>
+          {# Markup is editable as sugar: typing here updates unit_price
+             via JS (price = cost × (1 + markup/100)). The substrate
+             still stores ONLY unit_price_cents — markup never persists.
+             The qty-clobbers-markup class (5/15 P0) stays structurally
+             closed because there is no stored markup field to clobber. #}
+          <td class="col-markup">
+            <input type="number" step="0.1"
+                   name="markup-{{ li.line_no }}"
+                   value="{{ li.markup_value }}"
+                   data-markup-input="{{ li.line_no }}"
+                   aria-label="Markup % for line {{ li.line_no }}"
+                   placeholder="—">
+          </td>
           <td class="col-ext" data-extension-cell="{{ li.line_no }}">{{ li.extension_display }}</td>
         </tr>
         {% endfor %}
@@ -122,7 +230,16 @@
     </table>
 
     <div class="spine-actions">
-      <button type="button" class="primary" id="spine-save-btn">💾 Save</button>
+      <button type="button" class="primary" id="spine-save-btn"
+              {% if quote.status == "sent" %}disabled title="Sent is terminal — no further edits"{% endif %}>
+        💾 Save
+      </button>
+
+      {% if quote.status == "finalized" %}
+        <button type="button" class="snapshot-btn" id="spine-snapshot-btn">
+          📌 Snapshot &amp; Lock
+        </button>
+      {% endif %}
 
       <span class="spine-status-buttons" style="margin-left:auto; display:flex; gap:8px;">
         {% if quote.status == "parsed" %}
@@ -131,7 +248,10 @@
           <button type="button" class="status-btn" data-transition="finalized">Mark Finalized</button>
           <button type="button" data-transition="parsed">↩ Reopen to Parsed</button>
         {% elif quote.status == "finalized" %}
-          <button type="button" class="status-btn" data-transition="sent">📤 Mark Sent</button>
+          <button type="button" class="status-btn" data-transition="sent"
+                  {% if not snap_matches_current %}disabled title="Snapshot does not match current state — re-snapshot before sending"{% endif %}>
+            📤 Mark Sent
+          </button>
           <button type="button" data-transition="priced">↩ Reopen to Priced</button>
         {% endif %}
       </span>
@@ -143,21 +263,54 @@
   <p class="spine-footer-note">
     The Spine writes ONE row per Save. No per-keystroke autosave. Status transitions
     do NOT recompute line items. Tax and markup are derived from your typed values —
-    they are never stored. Shipping is always $0.00 by design.
+    they are never stored. Shipping is always $0.00 by design. Finalized quotes
+    require an approved snapshot before they can be sent — the snapshot IS what
+    ships to the buyer.
   </p>
 
   <p class="spine-footer-note">
-    <a href="/spine/quotes/{{ quote.quote_id }}/pdf" target="_blank">📄 Open Quote PDF</a>
+    <a href="/spine/quotes/{{ quote.quote_id }}/snapshots" target="_blank">📚 Snapshot history (JSON)</a>
     &nbsp;|&nbsp;
     <a href="/spine/quotes/{{ quote.quote_id }}/events" target="_blank">🪵 View event log (JSON)</a>
   </p>
-</div>
+
+  </div><!-- /spine-pane-form -->
+  </div><!-- /spine-2pane -->
+
+</div><!-- /spine-page -->
 
 <script>
 (function(){
   // Spine UI — single POST per Save. No per-keystroke autosave.
-  const quoteId = document.querySelector('.spine-page').dataset.spineQuoteId;
+  const pageEl = document.querySelector('.spine-page');
+  const quoteId = pageEl.dataset.spineQuoteId;
   const initialQuote = {{ quote | tojson }};
+
+  // Live PDF preview: load on page ready, then reload after every
+  // successful Save. The nonce defeats the browser cache so the
+  // iframe re-renders the latest state. Locked quotes (status=sent)
+  // point the preview at the immutable snapshot bytes instead of a
+  // fresh render.
+  const previewIframe = document.getElementById('spine-preview-iframe');
+  const previewPopout = document.getElementById('spine-preview-popout');
+  const lockedSnapId = {{ (latest_snap.snapshot_id if latest_snap and quote.status == "sent" else None) | tojson }};
+
+  function previewUrl(nonce) {
+    if (lockedSnapId) {
+      return '/spine/quotes/' + encodeURIComponent(quoteId) +
+             '/snapshot/' + encodeURIComponent(lockedSnapId) + '/pdf';
+    }
+    return '/spine/quotes/' + encodeURIComponent(quoteId) +
+           '/pdf?nonce=' + encodeURIComponent(nonce);
+  }
+  function reloadPreview() {
+    const nonce = Date.now().toString(36);
+    const url = previewUrl(nonce);
+    previewIframe.src = url;
+    if (previewPopout) previewPopout.href = url;
+  }
+  // Initial load.
+  reloadPreview();
 
   function dollarsToCents(s) {
     const f = parseFloat(s);
@@ -167,25 +320,76 @@
 
   function gatherFormState() {
     // Build a Quote payload from the form, preserving every non-editable
-    // field from initialQuote. Operator only edits cost, unit_price, and
-    // cost_source_url per line — everything else round-trips intact.
+    // field from initialQuote. Operator edits qty, uom, cost,
+    // unit_price, cost_source_url. Markup is sugar that mutates
+    // unit_price client-side (see markup-input listener below); the
+    // POST body only carries unit_price_cents, never a markup field.
+    // The substrate has no markup_pct column by Charter rule.
+    //
+    // cost_validated_at is ONLY restamped when cost_cents actually
+    // changes — otherwise the original timestamp from initialQuote
+    // is preserved. Auto-stamping on every save created phantom
+    // divergence between the snapshot and a no-op Save (caught by
+    // live walk 2026-05-15: clicked Mark Sent → server 409'd because
+    // the snapshot's frozen cost_validated_at didn't match the new
+    // stamp the transition's pre-save had just written).
     const lineItems = initialQuote.line_items.map(function(li){
       const qtyInput = document.querySelector('input[name="qty-' + li.line_no + '"]');
       const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value, 10) || li.qty) : li.qty;
+      const uomSelect = document.querySelector('select[name="uom-' + li.line_no + '"]');
+      const uom = uomSelect ? uomSelect.value : li.uom;
       const cost = dollarsToCents(document.querySelector('input[name="cost-' + li.line_no + '"]').value);
       const price = dollarsToCents(document.querySelector('input[name="price-' + li.line_no + '"]').value);
       const url = document.querySelector('input[name="src-' + li.line_no + '"]').value.trim();
-      const updated = Object.assign({}, li, {
+      const costChanged = (cost !== li.cost_cents);
+      return Object.assign({}, li, {
         qty: qty,
+        uom: uom,
         cost_cents: cost,
         unit_price_cents: price,
         cost_source_url: url || null,
-        cost_validated_at: new Date().toISOString(),
+        cost_validated_at: costChanged
+          ? new Date().toISOString()
+          : li.cost_validated_at,
       });
-      return updated;
     });
     return Object.assign({}, initialQuote, { line_items: lineItems });
   }
+
+  // Markup is sugar over unit_price. Operator types target markup,
+  // unit_price recomputes from cost × (1 + markup/100). Operator
+  // types unit_price or cost, markup recomputes for display. The
+  // substrate stores ONLY cost_cents and unit_price_cents; markup
+  // never persists. See template note above the markup input.
+  function recomputeMarkupFromPrice(lineNo) {
+    const cost = parseFloat(document.querySelector('input[name="cost-' + lineNo + '"]').value);
+    const price = parseFloat(document.querySelector('input[name="price-' + lineNo + '"]').value);
+    const markupEl = document.querySelector('input[name="markup-' + lineNo + '"]');
+    if (!markupEl) return;
+    if (!isFinite(cost) || cost <= 0 || !isFinite(price)) {
+      markupEl.value = '';
+      return;
+    }
+    const markup = ((price - cost) / cost) * 100;
+    markupEl.value = markup.toFixed(1);
+  }
+  function recomputePriceFromMarkup(lineNo) {
+    const cost = parseFloat(document.querySelector('input[name="cost-' + lineNo + '"]').value);
+    const markup = parseFloat(document.querySelector('input[name="markup-' + lineNo + '"]').value);
+    const priceEl = document.querySelector('input[name="price-' + lineNo + '"]');
+    if (!priceEl) return;
+    if (!isFinite(cost) || cost <= 0 || !isFinite(markup)) return;
+    const price = cost * (1 + markup / 100);
+    priceEl.value = price.toFixed(2);
+  }
+  document.querySelectorAll('input[data-markup-input]').forEach(function(el){
+    const lineNo = el.dataset.markupInput;
+    el.addEventListener('input', function(){ recomputePriceFromMarkup(lineNo); });
+  });
+  document.querySelectorAll('input[name^="cost-"], input[name^="price-"]').forEach(function(el){
+    const lineNo = el.name.split('-')[1];
+    el.addEventListener('input', function(){ recomputeMarkupFromPrice(lineNo); });
+  });
 
   async function spinePost(body) {
     const resp = await fetch('/spine/quotes/' + encodeURIComponent(quoteId) + '/state', {
@@ -205,27 +409,71 @@
     el.textContent = msg;
   }
 
-  // Save button — single POST with the current form state.
-  document.getElementById('spine-save-btn').addEventListener('click', async function(){
-    const btn = this;
-    btn.disabled = true;
-    showResult('ok', 'Saving…');
-    try {
-      const result = await spinePost(gatherFormState());
-      if (result.status === 200) {
-        showResult('ok', 'Saved. Reloading…');
-        setTimeout(function(){ window.location.reload(); }, 400);
-      } else {
-        showResult('err',
-          'HTTP ' + result.status + ' — ' + (result.body.error || 'unknown') +
-          '\n\n' + (result.body.detail || JSON.stringify(result.body, null, 2)));
+  // Save button — single POST with the current form state. On
+  // success, reload the page so the server-rendered KPI block + the
+  // snapshot-matches banner reflect the new state. The preview pane
+  // is refreshed at page-load via reloadPreview().
+  const saveBtn = document.getElementById('spine-save-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async function(){
+      const btn = this;
+      btn.disabled = true;
+      showResult('ok', 'Saving…');
+      try {
+        const result = await spinePost(gatherFormState());
+        if (result.status === 200) {
+          showResult('ok', 'Saved. Reloading…');
+          setTimeout(function(){ window.location.reload(); }, 400);
+        } else {
+          showResult('err',
+            'HTTP ' + result.status + ' — ' + (result.body.error || 'unknown') +
+            '\n\n' + (result.body.detail || JSON.stringify(result.body, null, 2)));
+          btn.disabled = false;
+        }
+      } catch (e) {
+        showResult('err', 'Network error: ' + e.message);
         btn.disabled = false;
       }
-    } catch (e) {
-      showResult('err', 'Network error: ' + e.message);
-      btn.disabled = false;
-    }
-  });
+    });
+  }
+
+  // Snapshot & Lock button — POSTs /snapshot which renders the PDF,
+  // runs the matching gate server-side, persists immutable bytes +
+  // sha256. The page reloads so the lock banner + Mark-Sent enable
+  // state come from authoritative server-rendered state, not JS.
+  const snapBtn = document.getElementById('spine-snapshot-btn');
+  if (snapBtn) {
+    snapBtn.addEventListener('click', async function(){
+      const btn = this;
+      btn.disabled = true;
+      showResult('ok', 'Rendering, verifying, and snapshotting…');
+      try {
+        const resp = await fetch(
+          '/spine/quotes/' + encodeURIComponent(quoteId) + '/snapshot',
+          { method: 'POST', headers: { 'X-Spine-Note': 'operator approved via UI' } }
+        );
+        const text = await resp.text();
+        let parsed;
+        try { parsed = JSON.parse(text); } catch (e) { parsed = { raw: text }; }
+        if (resp.status === 200) {
+          showResult('ok',
+            'Snapshot ' + parsed.snapshot_id + ' captured. ' +
+            'sha256=' + parsed.sha256.slice(0, 16) + '… ' +
+            'Reloading…');
+          setTimeout(function(){ window.location.reload(); }, 600);
+        } else {
+          showResult('err',
+            'Snapshot rejected: HTTP ' + resp.status + ' — ' +
+            (parsed.error || 'unknown') + '\n\n' +
+            (parsed.detail || JSON.stringify(parsed, null, 2)));
+          btn.disabled = false;
+        }
+      } catch (e) {
+        showResult('err', 'Network error during snapshot: ' + e.message);
+        btn.disabled = false;
+      }
+    });
+  }
 
   // Status transition buttons — Save the current form, then POST again
   // with the new status. Each transition is two atomic POSTs.

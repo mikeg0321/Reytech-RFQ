@@ -16,16 +16,22 @@ __all__ = [
     "LineItem",
     "QuoteStatus",
     "SpineValidationError",
+    "SUPPORTED_UOM",
     # DB
     "init_db",
     "read_quote",
     "write_quote",
     "read_event_log",
     "iter_quote_ids",
+    "write_snapshot",
+    "read_snapshot",
+    "iter_snapshots",
+    "latest_snapshot",
     # Rendering
     "render_quote_pdf",
     "format_dollars",
     "format_tax_rate",
+    "SpineRenderMismatchError",
 ]
 
 from src.spine.model import (
@@ -33,6 +39,7 @@ from src.spine.model import (
     LineItem,
     QuoteStatus,
     SpineValidationError,
+    SUPPORTED_UOM,
 )
 from src.spine.db import (
     init_db,
@@ -40,9 +47,14 @@ from src.spine.db import (
     write_quote,
     read_event_log,
     iter_quote_ids,
+    write_snapshot,
+    read_snapshot,
+    iter_snapshots,
+    latest_snapshot,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,
     format_dollars,
     format_tax_rate,
+    SpineRenderMismatchError,
 )

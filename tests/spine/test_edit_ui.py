@@ -175,6 +175,11 @@ def test_no_autosave_hooks_in_spine_template():
         "src", "templates", "spine_pc_detail.html",
     )
     text = open(template_path, encoding="utf-8").read()
+    # The W-U-009 invariant is "no per-keystroke POST to the server."
+    # Client-side recompute listeners (markup ↔ unit_price two-way
+    # binding, KPI strip live updates) are allowed and expected —
+    # they don't hit the network. The banned list flags anything
+    # that wires a network call to a keystroke event.
     banned_patterns = [
         'oninput="',
         'onchange="recalc',
@@ -182,18 +187,74 @@ def test_no_autosave_hooks_in_spine_template():
         'triggerPcAutosave',
         'doPcAutosave',
         'sendBeacon',
-        "addEventListener('input'",
-        'addEventListener("input"',
-        # Per-keystroke handlers — anything on input/keyup that fires
-        # a save is banned.
-        "addEventListener('keyup'",
-        'addEventListener("keyup"',
     ]
     found = [p for p in banned_patterns if p in text]
     assert not found, (
         "spine_pc_detail.html contains autosave / per-keystroke hooks. "
         f"The Spine requires single-POST-per-save. Found: {found!r}"
     )
+    # Tighter check: any addEventListener('input'|'keyup', ...) handler
+    # whose body contains a fetch/XHR is a per-keystroke POST and is
+    # banned. Handlers without network calls (recompute, focus moves,
+    # live math) are fine — that's exactly what the Spine UI needs to
+    # give the operator a responsive editor without spawning a flood
+    # of writes.
+    import re
+    listener_re = re.compile(
+        r"addEventListener\(['\"](input|keyup|keydown|keypress)['\"][^)]*\)",
+        re.IGNORECASE,
+    )
+    for m in listener_re.finditer(text):
+        # Walk forward from the listener match and isolate the
+        # callback body by matching braces. We start after the first
+        # '{' that follows the listener (the body opener) and track
+        # nesting until we hit its mate. Anything inside that span
+        # is the listener body — if it contains a network call, the
+        # invariant is violated.
+        idx = m.end()
+        open_brace = text.find("{", idx)
+        if open_brace == -1 or open_brace - idx > 80:
+            continue   # listener has no body in JS-source sense
+        depth = 1
+        i = open_brace + 1
+        while i < len(text) and depth > 0:
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            i += 1
+        body = text[open_brace + 1: i - 1]
+        if any(needle in body for needle in ("fetch(", "XMLHttpRequest", "sendBeacon")):
+            raise AssertionError(
+                f"per-keystroke listener appears to fire a network call: "
+                f"{text[m.start(): m.end()]!r} … body: {body[:200]!r}"
+            )
+
+
+def test_template_js_preserves_cost_validated_at_when_cost_unchanged(client_with_seeded):
+    """Regression: 2026-05-15 live-walk caught the template auto-stamping
+    cost_validated_at = new Date() on EVERY save. That created phantom
+    divergence between the latest snapshot and a no-op post-snapshot Save
+    triggered by the Mark Sent button's first phase. The substrate
+    correctly 409'd because the timestamps diverged — but the operator
+    workflow couldn't complete (snapshot → Mark Sent → stuck).
+
+    The fix gates the restamp on costChanged. This test scans the
+    rendered template's JS for the gate and the comment that names
+    the bug so future edits can't quietly remove it.
+    """
+    text = client_with_seeded.get("/spine/quotes/Q-edit-001/edit").data.decode("utf-8")
+    # The conditional restamp must be present.
+    assert "costChanged" in text, (
+        "spine_pc_detail.html JS must gate cost_validated_at restamp "
+        "on whether cost actually changed. Auto-stamping on every save "
+        "creates phantom snapshot divergence (caught 2026-05-15 live)."
+    )
+    # And it must reference li.cost_validated_at as the fallback path —
+    # otherwise the gate exists but doesn't preserve the original
+    # timestamp on no-op saves.
+    assert "li.cost_validated_at" in text
 
 
 def test_save_button_targets_post_state_endpoint(client_with_seeded):

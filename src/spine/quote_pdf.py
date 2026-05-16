@@ -12,14 +12,26 @@ cents). Total line is quote.total_cents. Subtotal is
 quote.subtotal_cents. The PDF cannot diverge from the model because
 the model's @computed_field properties ARE the math.
 
+THE MATCHING GATE
+─────────────────
+After ReportLab builds the PDF, render_quote_pdf re-extracts the
+displayed money lines via pdfplumber and compares them cent-for-cent
+to the source Quote. If any displayed value (subtotal, tax, shipping,
+total, per-line extension) does not match the model, the function
+raises SpineRenderMismatchError. The function is structurally
+incapable of returning bytes that lie about the math. Closes the
+5/15 substrate failure class where TAX rendered $0.00 on a non-zero
+subtotal and shipped to the buyer without anyone catching it.
+
 The renderer is deliberately spartan in v1 (Day-3 gate). Visual polish
 (letterhead, branding, watermark) is a separate later PR. What matters
-here: the math is bit-exact, the layout is legible, pdfplumber can
-extract every total back out for round-trip verification.
+here: the math is bit-exact, the layout is legible, AND the renderer
+will not produce bytes that disagree with the model.
 """
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -35,8 +47,29 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from src.spine.model import SpineValidationError
+
 if TYPE_CHECKING:
     from src.spine.model import Quote
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Render-matching gate — the structural invariant.
+# ──────────────────────────────────────────────────────────────────────
+
+
+class SpineRenderMismatchError(SpineValidationError):
+    """Raised when rendered PDF bytes disagree with the source Quote.
+
+    Inherits from SpineValidationError so route handlers that already
+    catch SpineValidationError surface this as 409 (state corrupt)
+    rather than 500 (server error). The bytes never leave the
+    renderer; the caller decides how to surface it.
+
+    The presence of this exception in the codebase is part of the
+    contract. Removing it without first removing the call to
+    _verify_render_matches_model is a substrate regression.
+    """
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -146,8 +179,158 @@ def render_quote_pdf(quote: "Quote", *, today: datetime | None = None) -> bytes:
     story.append(Spacer(1, 0.30 * inch))
     story.extend(_footer())
 
-    doc.build(buf_drawn_objects := story)
-    return buf.getvalue()
+    doc.build(story)
+    pdf_bytes = buf.getvalue()
+
+    # THE MATCHING GATE. Renders that disagree with the model never
+    # leave this function. See module docstring for the failure-class
+    # this closes.
+    _verify_render_matches_model(pdf_bytes, quote)
+    return pdf_bytes
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Render-matching gate implementation
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
+    """Re-extract the rendered PDF and assert every money line matches.
+
+    Cent-exact comparison of every operator-visible money value:
+      - Subtotal, Tax, Shipping (always $0.00), Total
+      - Each line item's Extension column
+
+    pdfplumber is read-only — it is not a second renderer, it is the
+    audit eye on this one. If extraction can't find a value the gate
+    is supposed to verify, that is itself a render failure (the cell
+    is missing or unparseable in the bytes) and raises.
+
+    Raises SpineRenderMismatchError on any divergence.
+    """
+    try:
+        import pdfplumber
+    except ImportError as e:
+        raise SpineRenderMismatchError(
+            "pdfplumber is required to verify rendered output. "
+            "It ships with the spine package; reinstall requirements."
+        ) from e
+
+    expected_lines = {
+        "SUBTOTAL": format_dollars(quote.subtotal_cents),
+        "TAX": format_dollars(quote.tax_cents),
+        "SHIPPING": format_dollars(0),
+        "TOTAL": format_dollars(quote.total_cents),
+    }
+    expected_extensions = {
+        li.line_no: format_dollars(li.extension_cents) for li in quote.line_items
+    }
+
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+    # Money pattern: $-1,234.56 or $0.00.
+    money_re = re.compile(r"-?\$[\d,]+\.\d{2}")
+
+    # 1) Totals block — each label appears once; the value that
+    #    follows it must match the model. Word boundaries on the
+    #    label so "TOTAL" doesn't substring-match inside "SUBTOTAL".
+    #    Whitespace inside the label is collapsed because pdfplumber
+    #    may split "TAX (7.75%)" across the label/value boundary.
+    for label, expected_str in expected_lines.items():
+        label_re = re.compile(r"\b" + re.escape(label) + r"\b")
+        m_label = label_re.search(full_text)
+        if m_label is None:
+            raise SpineRenderMismatchError(
+                f"render gate: label {label!r} not found in rendered PDF text. "
+                f"Renderer must emit the {label} line on every quote. "
+                f"Rendered text head: {full_text[:300]!r}"
+            )
+        # Search money tokens after the label match's END (so a label
+        # like "SUBTOTAL" doesn't pick up the dollar amount that
+        # belongs to a row above the totals block).
+        tail = full_text[m_label.end():]
+        m_money = money_re.search(tail)
+        if m_money is None:
+            raise SpineRenderMismatchError(
+                f"render gate: no money value found after label {label!r}. "
+                f"Tail: {tail[:120]!r}"
+            )
+        rendered_str = m_money.group(0)
+        if rendered_str != expected_str:
+            raise SpineRenderMismatchError(
+                f"render gate MISMATCH on {label}: "
+                f"model expected {expected_str!r}, PDF displays {rendered_str!r}. "
+                f"This is the 5/15 substrate failure class. Render aborted; "
+                f"no bytes returned."
+            )
+
+    # 2) Per-line extension column — every line item's qty × unit_price
+    #    must appear in the rendered text as the expected money string.
+    #
+    #    A bare `in` check would pass even if the renderer wrote the
+    #    wrong extension for a row, because the same money string can
+    #    legitimately appear elsewhere on the page (e.g., the single-
+    #    line-item case where subtotal == extension). The robust check
+    #    is a count: build the multiset of money strings the model says
+    #    should appear (4 totals + N extensions), then assert the
+    #    rendered text contains each money string at least that many
+    #    times. A renderer that lies about one extension will reduce
+    #    the count of the correct string by 1.
+    from collections import Counter
+    expected_counts = Counter()
+    for line_no, expected_ext in expected_extensions.items():
+        expected_counts[expected_ext] += 1
+    expected_counts[format_dollars(quote.subtotal_cents)] += 1
+    expected_counts[format_dollars(quote.tax_cents)] += 1
+    expected_counts[format_dollars(0)] += 1
+    expected_counts[format_dollars(quote.total_cents)] += 1
+
+    actual_counts = Counter(money_re.findall(full_text))
+
+    for money_str, expected_n in expected_counts.items():
+        if actual_counts.get(money_str, 0) < expected_n:
+            # Pin down which line went missing for the operator-facing
+            # error message: the first line whose extension equals
+            # money_str is the most likely culprit.
+            offending_line = next(
+                (ln for ln, ext in expected_extensions.items() if ext == money_str),
+                None,
+            )
+            raise SpineRenderMismatchError(
+                f"render gate: money string {money_str!r} appears "
+                f"{actual_counts.get(money_str, 0)} times in the rendered "
+                f"PDF, but the model expects it at least {expected_n} "
+                f"times (extension on line {offending_line} or a totals "
+                f"line is missing/wrong). Render aborted."
+            )
+
+    # 3) Identity check — Reytech identity, quote ID, solicitation #
+    #    must appear. Substrate guarantees the operator can identify
+    #    the document; renderer that drops the identity is broken.
+    #
+    #    pdfplumber's text extraction interleaves table columns in
+    #    layout order, so a long quote_id that wraps across cells can
+    #    end up split (e.g., "rfq_PREQ10846581_tes" followed by other
+    #    cells' content followed by trailing "t"). Wrap-tolerant
+    #    check: verify the full string OR a meaningfully-long leading
+    #    prefix is contiguous in the whitespace-collapsed text. The
+    #    prefix is long enough to be uniquely identifying (12 chars
+    #    handles all real Reytech ID schemes); accepting a wrap means
+    #    we don't false-positive on cosmetic layout, but we still
+    #    catch any renderer that drops the identity entirely.
+    flattened = "".join(full_text.split())
+    for required in (REYTECH_NAME, quote.quote_id, quote.solicitation_number):
+        target = required.replace(" ", "")
+        if target in flattened:
+            continue
+        prefix_len = min(12, len(target))
+        if prefix_len > 0 and target[:prefix_len] in flattened:
+            continue
+        raise SpineRenderMismatchError(
+            f"render gate: required identifier {required!r} not found "
+            f"in rendered PDF. Renderer dropped the document's identity."
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────

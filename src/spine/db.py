@@ -11,6 +11,7 @@ module. Adding a second writer fails the build.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -39,6 +40,39 @@ CREATE TABLE IF NOT EXISTS spine_quotes (
 
 CREATE INDEX IF NOT EXISTS idx_spine_quotes_updated_at
     ON spine_quotes(updated_at DESC);
+
+-- ──────────────────────────────────────────────────────────────────
+-- Immutable Quote PDF snapshots.
+-- ──────────────────────────────────────────────────────────────────
+-- A snapshot is the durable, byte-identical record of what was shown
+-- to the operator at approval time. Each row is the materialization
+-- of one Finalize-and-Snapshot click:
+--   - pdf_bytes         : the rendered PDF, byte-identical to what the
+--                         operator approved and to what gets emailed.
+--   - sha256            : hex digest of pdf_bytes for integrity checks
+--                         against transit corruption.
+--   - state_json        : Quote.to_persisted_dict() at snapshot time.
+--                         The matching gate (in quote_pdf.py) has
+--                         already verified pdf_bytes is consistent
+--                         with this state before the row is written.
+--   - actor / note      : same audit fields as the event log.
+-- This table is APPEND-ONLY. There is no UPDATE path. There is no
+-- DELETE path. The "void and replace" pattern from Stripe is the
+-- precedent — corrections create a new snapshot, never modify a
+-- prior one.
+CREATE TABLE IF NOT EXISTS spine_quote_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    quote_id    TEXT NOT NULL,
+    sha256      TEXT NOT NULL,
+    pdf_bytes   BLOB NOT NULL,
+    state_json  TEXT NOT NULL,
+    actor       TEXT NOT NULL,
+    note        TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_spine_snapshots_quote_id
+    ON spine_quote_snapshots(quote_id, created_at DESC);
 """
 
 # Module-level write lock — Python-side serializer for the single
@@ -209,6 +243,174 @@ def _persist_state(
         "VALUES (?, ?, ?, ?, ?)",
         (quote_id, state_json, event_log, created_at, updated_at),
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Snapshot path — THE ONLY WRITER for spine_quote_snapshots.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def write_snapshot(
+    db_path: str | Path,
+    quote: Quote,
+    *,
+    actor: str,
+    note: str | None = None,
+) -> dict:
+    """Render `quote` to PDF, run the matching gate, persist the bytes.
+
+    The act of writing a snapshot is the act of approving "these exact
+    bytes are what we will deliver to the agency." Three things happen
+    atomically (Python-side lock + SQLite atomicity):
+
+    1. The Quote is rendered via render_quote_pdf, which runs the
+       SpineRenderMismatchError gate. If the renderer ever produces
+       bytes that disagree with the model, no snapshot is written.
+    2. SHA-256 of pdf_bytes is computed for integrity-on-send checks.
+    3. (snapshot_id, quote_id, sha256, pdf_bytes, state_json, actor,
+       note, created_at) is INSERTed into spine_quote_snapshots.
+
+    The status precondition (quote.status in {FINALIZED, SENT}) is
+    enforced at the HTTP layer, not here — internal callers
+    (re-render, audit replay) may want snapshots of earlier states
+    for forensic comparison without satisfying the operator-flow gate.
+
+    Returns:
+        dict with snapshot_id, sha256, created_at, byte_len.
+
+    Raises:
+        SpineRenderMismatchError: render disagreed with the model.
+        SpineValidationError: actor was empty.
+    """
+    from src.spine.quote_pdf import render_quote_pdf
+
+    if not actor or not actor.strip():
+        raise SpineValidationError("write_snapshot requires non-empty actor.")
+
+    pdf_bytes = render_quote_pdf(quote)  # raises SpineRenderMismatchError on lie
+    sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    state_dict = _quote_to_persisted_dict(quote)
+    # Exclude updated_at from the identity hash — it changes every save
+    # but does not represent a different operator-approved state. The
+    # snapshot's job is to commit to a specific Quote SHAPE; updated_at
+    # is a timestamp on that shape, not a part of it.
+    identity_dict = {k: v for k, v in state_dict.items() if k != "updated_at"}
+    state_json = json.dumps(state_dict, sort_keys=True)
+    state_identity = hashlib.sha256(
+        json.dumps(identity_dict, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    # Deterministic snapshot_id derived from the STATE's identity hash,
+    # not the PDF bytes — ReportLab embeds /CreationDate and /ModDate
+    # in every render, so byte hashes differ across calls even for an
+    # unchanged Quote. The state identity is the operator's intent;
+    # the PDF bytes are a deterministic-modulo-timestamps render of
+    # that intent. Idempotency lives on intent, not bytes.
+    snapshot_id = f"snap_{quote.quote_id}_{state_identity[:12]}"
+
+    with _WRITE_LOCK:
+        with _connect(db_path) as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM spine_quote_snapshots WHERE snapshot_id = ?",
+                (snapshot_id,),
+            ).fetchone()
+            if existing:
+                # Same bytes, same state → no-op. Caller treats it as
+                # success. This is intentional: clicking Snapshot
+                # twice on an unchanged state should not duplicate
+                # rows in the audit chain.
+                row = conn.execute(
+                    "SELECT snapshot_id, sha256, created_at, LENGTH(pdf_bytes) AS byte_len "
+                    "FROM spine_quote_snapshots WHERE snapshot_id = ?",
+                    (snapshot_id,),
+                ).fetchone()
+                return dict(row)
+            _persist_snapshot(
+                conn,
+                snapshot_id=snapshot_id,
+                quote_id=quote.quote_id,
+                sha256=sha256,
+                pdf_bytes=pdf_bytes,
+                state_json=state_json,
+                actor=actor.strip(),
+                note=note,
+                created_at=now_iso,
+            )
+
+    return {
+        "snapshot_id": snapshot_id,
+        "sha256": sha256,
+        "created_at": now_iso,
+        "byte_len": len(pdf_bytes),
+    }
+
+
+def _persist_snapshot(
+    conn: sqlite3.Connection,
+    *,
+    snapshot_id: str,
+    quote_id: str,
+    sha256: str,
+    pdf_bytes: bytes,
+    state_json: str,
+    actor: str,
+    note: str | None,
+    created_at: str,
+) -> None:
+    """THE ONLY function in src/spine/ that writes spine_quote_snapshots.
+
+    Mirror of _persist_state for the snapshot table. Adding any other
+    INSERT/UPDATE/DELETE against spine_quote_snapshots inside src/spine/
+    is a substrate regression and must fail the architecture-contract
+    test (test_one_writer_for_spine_snapshots).
+    """
+    conn.execute(
+        "INSERT INTO spine_quote_snapshots "
+        "(snapshot_id, quote_id, sha256, pdf_bytes, state_json, "
+        " actor, note, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (snapshot_id, quote_id, sha256, pdf_bytes, state_json,
+         actor, note, created_at),
+    )
+
+
+def read_snapshot(db_path: str | Path, snapshot_id: str) -> dict | None:
+    """Load a snapshot by ID. Returns dict with bytes + metadata, or None."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT snapshot_id, quote_id, sha256, pdf_bytes, state_json, "
+            "       actor, note, created_at "
+            "FROM spine_quote_snapshots WHERE snapshot_id = ?",
+            (snapshot_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def iter_snapshots(db_path: str | Path, quote_id: str) -> list[dict]:
+    """Return all snapshots for a quote, newest-first. Excludes bytes."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT snapshot_id, quote_id, sha256, state_json, "
+            "       actor, note, created_at, LENGTH(pdf_bytes) AS byte_len "
+            "FROM spine_quote_snapshots WHERE quote_id = ? "
+            "ORDER BY created_at DESC",
+            (quote_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def latest_snapshot(db_path: str | Path, quote_id: str) -> dict | None:
+    """Return the most recent snapshot for a quote, or None.
+
+    Used by routes_spine to enforce the finalized→sent precondition:
+    a quote may only transition to sent if its current state matches
+    the state captured in the latest snapshot.
+    """
+    rows = iter_snapshots(db_path, quote_id)
+    return rows[0] if rows else None
 
 
 # ──────────────────────────────────────────────────────────────────────

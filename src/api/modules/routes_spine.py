@@ -29,14 +29,22 @@ from typing import Callable
 
 from flask import Blueprint, Response, jsonify, request
 
+import json
+
 from src.spine import (
     Quote,
+    SpineRenderMismatchError,
     SpineValidationError,
+    SUPPORTED_UOM,
     init_db,
+    iter_snapshots,
+    latest_snapshot,
     read_event_log,
     read_quote,
+    read_snapshot,
     render_quote_pdf,
     write_quote,
+    write_snapshot,
 )
 
 log = logging.getLogger("reytech.spine")
@@ -117,6 +125,63 @@ def make_spine_blueprint(
                 "detail": str(e),
             }), 422
 
+        # Enforce the linear state machine at the trust boundary.
+        # Without this, model_validate() validates the NEW state's
+        # preconditions but never compares against the prior status,
+        # so _ALLOWED_TRANSITIONS in spine/model.py is dead code on
+        # the POST path. Found by CHROME_WALKTHROUGH_GATE W-S-006.
+        try:
+            prior_quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.post_quote_state: prior-state load failed for %s", quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if prior_quote is not None and prior_quote.status != quote.status:
+            try:
+                prior_quote.with_status(quote.status)
+            except SpineValidationError as e:
+                return jsonify({
+                    "error": "state_transition_rejected",
+                    "detail": str(e),
+                }), 409
+
+            # Snapshot precondition for finalized → sent (W-S-009):
+            # a quote may only enter "sent" if the operator has approved
+            # a snapshot whose state_json matches the about-to-be-sent
+            # state byte-for-byte. This is the structural enforcement
+            # of "the bytes shipped to the buyer are the bytes the
+            # operator approved." Without it, an operator can edit a
+            # finalized quote and ship the edited version, with the
+            # displayed-vs-delivered drift the 5/15 incident class is
+            # built on.
+            #
+            # Identity comparison excludes:
+            #   - updated_at: timestamp on the same shape, not part of it
+            #   - status: snapshot is taken at finalized; we're entering
+            #     sent — they will always differ on status by design
+            if quote.status.value == "sent":
+                snap = latest_snapshot(db_path, quote_id)
+                if snap is None:
+                    return jsonify({
+                        "error": "state_transition_rejected",
+                        "detail": (
+                            "finalized → sent requires a snapshot to exist. "
+                            "POST /spine/quotes/<id>/snapshot before "
+                            "transitioning to sent. The snapshot IS the "
+                            "audit record of what was approved for ship."
+                        ),
+                    }), 409
+                if not _identity_matches(snap, quote):
+                    return jsonify({
+                        "error": "state_transition_rejected",
+                        "detail": (
+                            "finalized → sent rejected: current state has "
+                            "diverged from the latest approved snapshot "
+                            f"({snap['snapshot_id']}). Re-snapshot to "
+                            "approve the current state, or revert your "
+                            "edits to match the approved snapshot."
+                        ),
+                    }), 409
+
         actor = (
             request.headers.get("X-Spine-Actor")
             or _try_session_user()
@@ -193,10 +258,21 @@ def make_spine_blueprint(
         if quote is None:
             return jsonify({"error": "not_found", "quote_id": quote_id}), 404
 
+        # Surface the latest snapshot (if any) so the editor can show
+        # the lock banner, the "matches current state" indicator, and
+        # gate the Mark-Sent button on snapshot freshness. The send
+        # endpoint enforces the same rule server-side; the UI just
+        # gives the operator an early-warning signal.
+        snap = latest_snapshot(db_path, quote_id)
+        snap_matches_current = _identity_matches(snap, quote) if snap else False
+
         # Pre-compute display values so the template stays logic-light.
         return render_template(
             "spine_pc_detail.html",
             quote=quote.to_persisted_dict(),
+            latest_snap=snap,
+            snap_matches_current=snap_matches_current,
+            supported_uom=SUPPORTED_UOM,
             # Pre-formatted computed fields for display (model still
             # owns the math; template just shows the values).
             subtotal_display=f"${quote.subtotal_cents/100:,.2f}",
@@ -213,9 +289,13 @@ def make_spine_blueprint(
                     "cost_dollars": f"{li.cost_cents/100:.2f}",
                     "unit_price_dollars": f"{li.unit_price_cents/100:.2f}",
                     "extension_display": f"${li.extension_cents/100:,.2f}",
-                    "markup_display": (
-                        f"{li.markup_pct_display:.1f}%"
-                        if li.markup_pct_display is not None else "—"
+                    # Editable markup input takes a numeric value, not a
+                    # formatted string. Falls back to empty string when
+                    # cost is zero (markup undefined — operator sees
+                    # the empty cell as "type a markup to set price").
+                    "markup_value": (
+                        f"{li.markup_pct_display:.1f}"
+                        if li.markup_pct_display is not None else ""
                     ),
                     "cost_source_url": li.cost_source_url or "",
                 }
@@ -240,7 +320,161 @@ def make_spine_blueprint(
                 return jsonify({"error": "not_found", "quote_id": quote_id}), 404
         return jsonify({"quote_id": quote_id, "events": events})
 
+    # ─── POST /spine/quotes/<quote_id>/snapshot ───────────────────────
+    #
+    # Renders the current Quote to PDF, runs the matching gate, persists
+    # the bytes + sha256 + state to spine_quote_snapshots. The snapshot
+    # is the immutable, byte-identical record of what was approved for
+    # ship. Status must be `finalized` (operator confirmed pricing) or
+    # `sent` (re-snapshot of a sent quote is legal for audit replay).
+    # Returns 200 with snapshot_id + sha256.
+    #
+    # This endpoint IS the matching gate at the trust boundary: a row
+    # in spine_quote_snapshots is the proof that displayed == persisted
+    # == about-to-be-delivered.
+
+    @spine_bp.route("/spine/quotes/<quote_id>/snapshot", methods=["POST"])
+    @_wrap
+    def post_quote_snapshot(quote_id: str):
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.post_snapshot: load failed for %s", quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        if quote.status.value not in ("finalized", "sent"):
+            return jsonify({
+                "error": "snapshot_precondition_failed",
+                "detail": (
+                    f"snapshot requires status in (finalized, sent); "
+                    f"current status is {quote.status.value}. "
+                    "Transition to finalized first."
+                ),
+            }), 409
+
+        actor = (
+            request.headers.get("X-Spine-Actor")
+            or _try_session_user()
+            or "operator"
+        )
+        note = request.headers.get("X-Spine-Note")
+
+        try:
+            result = write_snapshot(db_path, quote, actor=actor, note=note)
+        except SpineRenderMismatchError as e:
+            # The gate caught a render-vs-model divergence. Surface
+            # the detail so the operator sees exactly which cell lies.
+            log.error("spine.post_snapshot: render gate caught divergence for %s: %s",
+                      quote_id, e)
+            return jsonify({
+                "error": "render_mismatch",
+                "detail": str(e),
+            }), 409
+        except SpineValidationError as e:
+            return jsonify({"error": "snapshot_rejected", "detail": str(e)}), 409
+        except Exception as e:
+            log.exception("spine.post_snapshot: write failed for %s", quote_id)
+            return jsonify({"error": "snapshot_failed", "detail": str(e)}), 500
+
+        return jsonify(result), 200
+
+    # ─── GET /spine/quotes/<quote_id>/snapshots ───────────────────────
+    #
+    # Newest-first list of snapshot metadata (NO bytes). Operator UI
+    # uses this to display the audit chain ("Snapshot snap_abc... at
+    # 2026-05-15 21:30 by operator — sha256 14c580...").
+
+    @spine_bp.route("/spine/quotes/<quote_id>/snapshots", methods=["GET"])
+    @_wrap
+    def get_quote_snapshots(quote_id: str):
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+        snaps = iter_snapshots(db_path, quote_id)
+        # Strip state_json from list view — it's large and only
+        # needed by the snapshot-detail endpoint.
+        return jsonify({
+            "quote_id": quote_id,
+            "snapshots": [{k: v for k, v in s.items() if k != "state_json"}
+                          for s in snaps],
+        })
+
+    # ─── GET /spine/quotes/<quote_id>/snapshot/<sid>/pdf ──────────────
+    #
+    # Stream the immutable PDF bytes for a specific snapshot. This is
+    # what the send-to-buyer path reads — never a fresh render. URL
+    # carries both quote_id (for auth/scope checks) and snapshot_id
+    # (for the bytes).
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/snapshot/<snapshot_id>/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_snapshot_pdf(quote_id: str, snapshot_id: str):
+        snap = read_snapshot(db_path, snapshot_id)
+        if snap is None:
+            return jsonify({
+                "error": "not_found",
+                "snapshot_id": snapshot_id,
+            }), 404
+        # Scope check: snapshot_id must belong to the quote in the URL.
+        if snap["quote_id"] != quote_id:
+            return jsonify({
+                "error": "snapshot_scope_mismatch",
+                "url_quote_id": quote_id,
+                "snapshot_quote_id": snap["quote_id"],
+            }), 400
+        inline = request.args.get("inline", "1") != "0"
+        disposition = (
+            f'inline; filename="snapshot_{snapshot_id}.pdf"'
+            if inline else
+            f'attachment; filename="snapshot_{snapshot_id}.pdf"'
+        )
+        return Response(
+            bytes(snap["pdf_bytes"]),
+            mimetype="application/pdf",
+            headers={
+                "Content-Disposition": disposition,
+                "X-Spine-Snapshot-Sha256": snap["sha256"],
+                "X-Spine-Snapshot-CreatedAt": snap["created_at"],
+            },
+        )
+
     return spine_bp
+
+
+# Fields excluded from snapshot ↔ live-quote identity comparison.
+# updated_at: ticks on every save; not part of the approved shape.
+# status:     snapshot was taken at finalized, comparison happens when
+#             the operator is transitioning to sent — by construction
+#             they differ on status; that's not divergence.
+_IDENTITY_EXCLUDED_FIELDS = ("updated_at", "status")
+
+
+def _identity_matches(snap: dict, quote: Quote) -> bool:
+    """True iff the snapshot's persisted state == quote.to_persisted_dict()
+    after dropping the excluded fields.
+
+    This is the single source of truth for "the live quote still
+    matches what the operator approved." Both the route precondition
+    (send blocking) and the template indicator (Mark-Sent disable)
+    use this; drift between them would itself be a bug class.
+    """
+    snap_identity = {
+        k: v for k, v in json.loads(snap["state_json"]).items()
+        if k not in _IDENTITY_EXCLUDED_FIELDS
+    }
+    quote_identity = {
+        k: v for k, v in quote.to_persisted_dict().items()
+        if k not in _IDENTITY_EXCLUDED_FIELDS
+    }
+    return snap_identity == quote_identity
 
 
 def _try_session_user() -> str | None:
