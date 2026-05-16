@@ -41,6 +41,7 @@ from src.spine import (
     find_contract_for_quote,
     init_db,
     iter_snapshots,
+    latest_rejections,
     latest_snapshot,
     read_event_log,
     read_quote,
@@ -553,6 +554,165 @@ def make_spine_blueprint(
             if quote is None:
                 return jsonify({"error": "not_found", "quote_id": quote_id}), 404
         return jsonify({"quote_id": quote_id, "events": events})
+
+    # ─── GET /spine/quotes/<quote_id>/package ─────────────────────────
+    #
+    # The output-vs-contract gate. Returns the list of forms the package
+    # WOULD include for this quote, validated against the linked
+    # EmailContract's required_forms. Refuses 409 on any divergence:
+    #   - no EmailContract bound to the quote
+    #   - contract requires a form for which no Spine renderer is
+    #     registered (FORM_REGISTRY gap)
+    # The actual per-form bytes still come from the existing per-form
+    # routes (/forms/703b/pdf, /forms/704b/pdf, etc.) — this endpoint
+    # is the gate, not the bundler. Closes 5/15 finding #7 structurally:
+    # operator cannot ship a packet that has more or fewer forms than
+    # the buyer's email asked for.
+
+    @spine_bp.route("/spine/quotes/<quote_id>/package", methods=["GET"])
+    @_wrap
+    def get_quote_package(quote_id: str):
+        from src.spine.agency_forms import FORM_REGISTRY
+
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.get_package: load failed for %s", quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        contract = find_contract_for_quote(db_path, quote_id)
+        if contract is None:
+            return jsonify({
+                "error": "no_contract",
+                "detail": (
+                    "no EmailContract linked to quote_id={}; the package "
+                    "endpoint requires contract-defined required_forms. "
+                    "Either ingest via spine_ingest with EmailContract or "
+                    "write_email_contract directly before requesting "
+                    "/package."
+                ).format(quote_id),
+            }), 409
+
+        required = list(contract.required_forms)
+        required_set = set(required)
+        registered_set = set(FORM_REGISTRY.keys())
+        missing = sorted(required_set - registered_set)
+        if missing:
+            return jsonify({
+                "error": "renderer_missing",
+                "detail": (
+                    "contract requires forms {} but no Spine renderer "
+                    "is registered. Either register one in "
+                    "src/spine/agency_forms/__init__.py FORM_REGISTRY or "
+                    "remove the form from contract.required_forms."
+                ).format(missing),
+                "required_forms": sorted(required_set),
+                "registered_forms": sorted(registered_set),
+                "missing": missing,
+            }), 409
+
+        # Build per-form URLs. The Quote PDF uses the existing /pdf route
+        # (not /forms/quote/pdf — predates the agency-forms pattern).
+        per_form_routes = {
+            "quote":  f"/spine/quotes/{quote_id}/pdf",
+            "703b":   f"/spine/quotes/{quote_id}/forms/703b/pdf",
+            "704b":   f"/spine/quotes/{quote_id}/forms/704b/pdf",
+            "bidpkg": f"/spine/quotes/{quote_id}/forms/bidpkg/pdf",
+        }
+
+        files = []
+        for code in required:
+            url = per_form_routes.get(code)
+            if url is None:
+                # FORM_REGISTRY has the renderer but no HTTP route yet —
+                # surfaceable error so operator + CI catches the gap.
+                return jsonify({
+                    "error": "no_http_route",
+                    "detail": (
+                        "FORM_REGISTRY has renderer for {} but no "
+                        "per-form HTTP route mapping in routes_spine."
+                    ).format(code),
+                    "missing_route_for": code,
+                }), 500
+            files.append({
+                "form_code": code,
+                "filename": f"{quote_id}_{code}.pdf",
+                "url": url,
+            })
+
+        # Final identity check — rendered set MUST equal required set.
+        # (Trivially true given the loop above, but explicit guards the
+        # invariant against future loops that filter or reorder.)
+        rendered_codes = {f["form_code"] for f in files}
+        if rendered_codes != required_set:
+            log.error(
+                "spine.get_package: rendered_set=%r != required_set=%r "
+                "(quote=%s) — substrate invariant violated",
+                rendered_codes, required_set, quote_id,
+            )
+            return jsonify({
+                "error": "output_contract_mismatch",
+                "detail": (
+                    "rendered forms {} do not match contract required "
+                    "forms {} — substrate invariant violation"
+                ).format(sorted(rendered_codes), sorted(required_set)),
+            }), 409
+
+        return jsonify({
+            "quote_id": quote_id,
+            "contract_id": contract.contract_id,
+            "required_forms": required,
+            "response_packaging": contract.response_packaging,
+            "files": files,
+        })
+
+    # ─── GET /spine/queue/rejected ────────────────────────────────────
+    #
+    # Triage surface for the missed-bid silent-drop class. Every email
+    # the ingest pipeline considered and refused emits a row to
+    # spine_ingest_rejections; this route surfaces them newest-first
+    # with optional reason_code filter. The Telegram missed-bid watcher
+    # (queued) consumes this same read path.
+
+    @spine_bp.route("/spine/queue/rejected", methods=["GET"])
+    @_wrap
+    def get_queue_rejected():
+        # Validate limit at the route boundary so a bad param returns
+        # 400 instead of 500.
+        raw_limit = request.args.get("limit", "50").strip()
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            return jsonify({
+                "error": "bad_request",
+                "detail": f"limit must be an integer 1..1000; got {raw_limit!r}",
+            }), 400
+        if limit < 1 or limit > 1000:
+            return jsonify({
+                "error": "bad_request",
+                "detail": f"limit must be 1..1000; got {limit}",
+            }), 400
+
+        reason_code = request.args.get("reason_code", "").strip() or None
+
+        try:
+            rows = latest_rejections(
+                db_path, limit=limit, reason_code=reason_code,
+            )
+        except SpineValidationError as e:
+            return jsonify({"error": "bad_request", "detail": str(e)}), 400
+        except Exception as e:
+            log.exception("spine.get_queue_rejected: read failed")
+            return jsonify({"error": "read_failed", "detail": str(e)}), 500
+
+        return jsonify({
+            "count": len(rows),
+            "limit": limit,
+            "reason_code_filter": reason_code,
+            "rejections": rows,
+        })
 
     # ─── POST /spine/quotes/<quote_id>/snapshot ───────────────────────
     #

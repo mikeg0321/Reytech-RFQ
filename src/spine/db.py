@@ -98,6 +98,35 @@ CREATE INDEX IF NOT EXISTS idx_spine_contracts_rfq_id
     ON spine_email_contracts(rfq_id);
 CREATE INDEX IF NOT EXISTS idx_spine_contracts_thread
     ON spine_email_contracts(source_thread_id, ingested_at DESC);
+
+-- ──────────────────────────────────────────────────────────────────
+-- IngestRejections — every email considered emits a row.
+-- ──────────────────────────────────────────────────────────────────
+-- Closes the "missed-bid silent-drop" class (Russ-class miss). When
+-- the ingest pipeline refuses an inbound email, the rejection is
+-- durably recorded so the operator can audit what was dropped and
+-- the Telegram missed-bid watcher (queued) can escalate aging
+-- rejections. Append-only; one writer (`write_ingest_rejection`).
+CREATE TABLE IF NOT EXISTS spine_ingest_rejections (
+    rejection_id     TEXT PRIMARY KEY,
+    source_email_id  TEXT,
+    source_thread_id TEXT,
+    sender_email     TEXT,
+    subject          TEXT,
+    reason_code      TEXT NOT NULL,
+    reason_detail    TEXT,
+    raw_excerpt      TEXT,
+    received_at      TEXT,
+    rejected_at      TEXT NOT NULL,
+    parser_version   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_spine_rejections_rejected_at
+    ON spine_ingest_rejections(rejected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_spine_rejections_reason
+    ON spine_ingest_rejections(reason_code);
+CREATE INDEX IF NOT EXISTS idx_spine_rejections_thread
+    ON spine_ingest_rejections(source_thread_id);
 """
 
 # Module-level write lock — Python-side serializer for the single
@@ -557,6 +586,137 @@ def find_contract_for_quote(db_path: str | Path, quote_id: str):
     if row is None:
         return None
     return read_email_contract(db_path, row["contract_id"])
+
+
+# ──────────────────────────────────────────────────────────────────────
+# IngestRejection path — THE ONLY WRITER for spine_ingest_rejections.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def write_ingest_rejection(db_path: str | Path, rejection) -> dict:
+    """Persist an IngestRejection. Append-only.
+
+    Closes the "missed-bid silent-drop" class: every email the parser
+    considered and refused emits exactly one row here. Re-issuing the
+    same rejection_id is rejected (substrate invariant: rejection is a
+    durable historical fact; if the same email is reconsidered later
+    and a new judgment is rendered, that's a NEW rejection_id).
+
+    Returns metadata dict (rejection_id, rejected_at).
+    """
+    from src.spine.ingest_rejection import IngestRejection
+
+    if not isinstance(rejection, IngestRejection):
+        raise SpineValidationError(
+            f"write_ingest_rejection expects IngestRejection; got "
+            f"{type(rejection).__name__}"
+        )
+
+    rejected_at_iso = rejection.rejected_at.astimezone(timezone.utc).isoformat()
+    received_at_iso = (
+        rejection.received_at.astimezone(timezone.utc).isoformat()
+        if rejection.received_at is not None else None
+    )
+
+    with _WRITE_LOCK:
+        with _connect(db_path) as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM spine_ingest_rejections WHERE rejection_id = ?",
+                (rejection.rejection_id,),
+            ).fetchone()
+            if existing:
+                raise SpineValidationError(
+                    f"rejection_id={rejection.rejection_id!r} already exists. "
+                    "Rejections are append-only; emit a new rejection_id "
+                    "for any new judgment on the same email."
+                )
+            _persist_rejection(
+                conn,
+                rejection_id=rejection.rejection_id,
+                source_email_id=rejection.source_email_id,
+                source_thread_id=rejection.source_thread_id,
+                sender_email=rejection.sender_email,
+                subject=rejection.subject,
+                reason_code=rejection.reason_code,
+                reason_detail=rejection.reason_detail,
+                raw_excerpt=rejection.raw_excerpt,
+                received_at=received_at_iso,
+                rejected_at=rejected_at_iso,
+                parser_version=rejection.parser_version,
+            )
+
+    return {
+        "rejection_id": rejection.rejection_id,
+        "rejected_at": rejected_at_iso,
+        "reason_code": rejection.reason_code,
+    }
+
+
+def _persist_rejection(
+    conn: sqlite3.Connection,
+    *,
+    rejection_id: str,
+    source_email_id: str | None,
+    source_thread_id: str | None,
+    sender_email: str | None,
+    subject: str | None,
+    reason_code: str,
+    reason_detail: str | None,
+    raw_excerpt: str | None,
+    received_at: str | None,
+    rejected_at: str,
+    parser_version: str,
+) -> None:
+    """THE ONLY function in src/spine/ that writes spine_ingest_rejections.
+
+    Mirror of _persist_contract. Adding any other INSERT/UPDATE/DELETE
+    against spine_ingest_rejections inside src/spine/ is a substrate
+    regression (caught by test_one_writer.py).
+    """
+    conn.execute(
+        "INSERT INTO spine_ingest_rejections "
+        "(rejection_id, source_email_id, source_thread_id, sender_email, "
+        " subject, reason_code, reason_detail, raw_excerpt, "
+        " received_at, rejected_at, parser_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (rejection_id, source_email_id, source_thread_id, sender_email,
+         subject, reason_code, reason_detail, raw_excerpt,
+         received_at, rejected_at, parser_version),
+    )
+
+
+def latest_rejections(
+    db_path: str | Path,
+    *,
+    limit: int = 50,
+    reason_code: str | None = None,
+) -> list[dict]:
+    """Return recent rejections newest-first. Optional reason_code filter.
+
+    Read-side surface for the /queue/rejected route and the
+    Telegram missed-bid watcher (queued). Returns plain dicts —
+    rehydration into IngestRejection is the caller's choice.
+    """
+    if not isinstance(limit, int) or limit < 1 or limit > 1000:
+        raise SpineValidationError(
+            f"limit must be 1..1000; got {limit!r}"
+        )
+    sql = (
+        "SELECT rejection_id, source_email_id, source_thread_id, "
+        "       sender_email, subject, reason_code, reason_detail, "
+        "       raw_excerpt, received_at, rejected_at, parser_version "
+        "FROM spine_ingest_rejections "
+    )
+    params: tuple = ()
+    if reason_code is not None:
+        sql += "WHERE reason_code = ? "
+        params = (reason_code,)
+    sql += "ORDER BY rejected_at DESC LIMIT ?"
+    params = params + (limit,)
+
+    with _connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ──────────────────────────────────────────────────────────────────────
