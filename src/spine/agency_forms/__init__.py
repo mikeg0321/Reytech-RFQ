@@ -45,10 +45,14 @@ from src.spine.agency_forms.cchcs_703b import (
 from src.spine.agency_forms.cchcs_704b import (
     fill_704b_pdf,
 )
+from src.spine.agency_forms.cchcs_bidpkg import (
+    fill_bidpkg_pdf,
+)
 
 __all__ = [
     "ReytechIdentity",
     "SpineFormFillError",
     "fill_703b_pdf",
     "fill_704b_pdf",
+    "fill_bidpkg_pdf",
 ]
