@@ -619,6 +619,55 @@ def process_buyer_request(
             log.error("linker crashed: %s", e, exc_info=True)
             result.warnings.append(f"linker: {e}")
 
+    # ── Step 6: Spine shadow-ingest (flag-gated, best-effort) ──
+    # Mirrors the parsed contract into the Spine substrate
+    # (spine_email_contracts + spine_quotes) so the master substrate
+    # fills with real data during the 30-day shadow window. Never
+    # raises into the legacy path; gated by SPINE_SHADOW_INGEST_ENABLED
+    # (default OFF). See src/spine_bridge/shadow_ingest.py.
+    try:
+        from src.spine_bridge.shadow_ingest import shadow_ingest_to_spine
+        _shadow = shadow_ingest_to_spine(
+            record_id=record_id,
+            record_type=record_type,
+            classification=classification,
+            header=header,
+            items=items,
+            email_subject=email_subject,
+            email_sender=email_sender,
+            gmail_thread_id=gmail_thread_id,
+            gmail_message_id=gmail_message_id,
+            email_received_at=email_received_at,
+        )
+        if _shadow.get("ok"):
+            result.reasons.append(
+                f"spine shadow: {_shadow['contract_id']}"
+            )
+        elif _shadow.get("reason") not in (None, "flag_off"):
+            # Surface non-flag-off failures as warnings so the operator
+            # sees them, but never block the legacy ok path.
+            result.warnings.append(
+                f"spine shadow: {_shadow.get('reason')}"
+            )
+        try:
+            from src.core.utilization import record_feature_use
+            record_feature_use(
+                feature="spine.shadow_ingest",
+                context={
+                    "record_id": record_id,
+                    "record_type": record_type,
+                    "reason": _shadow.get("reason"),
+                    "contract_id": _shadow.get("contract_id"),
+                    "issue_count": len(_shadow.get("issues") or []),
+                },
+                ok=bool(_shadow.get("ok")),
+            )
+        except Exception as _e:
+            log.debug("spine shadow telemetry suppressed: %s", _e)
+    except Exception as _e:
+        log.error("spine shadow_ingest crashed: %s", _e, exc_info=True)
+        result.warnings.append(f"spine shadow: {_e}")
+
     result.ok = True
     _telemetry_ctx["record_type"] = result.record_type
     _telemetry_ctx["record_id"] = result.record_id
