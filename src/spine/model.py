@@ -359,6 +359,21 @@ class Quote(BaseModel):
     # State machine
     # ──────────────────────────────────────────────────────────────
 
+    def to_persisted_dict(self) -> dict:
+        """Serialize for persistence / transport.
+
+        Returns model_dump(mode='json') with every @computed_field
+        excluded — subtotal_cents / tax_cents / total_cents /
+        extension_cents / markup_pct_display are derived on every read
+        and must never appear in stored or transported state.
+
+        Routes use this for both GET responses (so the client never
+        receives stale computed fields it might try to echo back) and
+        as the inverse of model_validate (so a POST round-trip writes
+        and reads the same JSON shape).
+        """
+        return self.model_dump(mode="json", exclude=_COMPUTED_FIELD_NAMES)
+
     def with_status(self, new_status: QuoteStatus) -> "Quote":
         """Return a new Quote with the requested status transition.
 

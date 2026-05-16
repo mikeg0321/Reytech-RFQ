@@ -11,10 +11,18 @@ Hard rules enforced by tests/spine/test_spine_architecture.py:
 """
 
 __all__ = [
+    # Model
     "Quote",
     "LineItem",
     "QuoteStatus",
     "SpineValidationError",
+    # DB
+    "init_db",
+    "read_quote",
+    "write_quote",
+    "read_event_log",
+    "iter_quote_ids",
+    # Rendering
     "render_quote_pdf",
     "format_dollars",
     "format_tax_rate",
@@ -25,6 +33,13 @@ from src.spine.model import (
     LineItem,
     QuoteStatus,
     SpineValidationError,
+)
+from src.spine.db import (
+    init_db,
+    read_quote,
+    write_quote,
+    read_event_log,
+    iter_quote_ids,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,

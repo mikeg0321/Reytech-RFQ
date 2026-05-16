@@ -217,14 +217,10 @@ def _persist_state(
 
 
 def _quote_to_persisted_dict(quote: Quote) -> dict:
-    """Serialize a Quote for storage.
+    """Serialize a Quote for storage. Delegates to Quote.to_persisted_dict().
 
-    Uses model_dump(mode='json') so datetimes become ISO strings.
-    Excludes every @computed_field property (subtotal_cents, tax_cents,
-    total_cents, extension_cents, markup_pct_display) — they are
-    derived on every read, never persisted. This closes the
-    silent-mutation class at the persistence layer: even if someone
-    hand-edits the stored JSON to inject a fake subtotal, the loaded
-    Quote rejects it via extra='forbid'.
+    Single source of truth lives on the model itself; this is the
+    DB-layer indirection so future schema changes (e.g., wrapping in
+    a "v": 1 envelope) happen in one place.
     """
-    return quote.model_dump(mode="json", exclude=_COMPUTED_FIELD_NAMES)
+    return quote.to_persisted_dict()
