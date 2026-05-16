@@ -52,17 +52,32 @@
   .spine-li-table input[type="number"] { -moz-appearance:textfield; appearance:textfield; }
   .spine-li-table input[type="number"]::-webkit-inner-spin-button,
   .spine-li-table input[type="number"]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+  /* Column widths — order matches CCHCS AMS 704B buyer worksheet so
+     operator cross-checks left-to-right against the PDF on the right
+     pane. Operator-internal columns (Cost, Markup, URL) are added at
+     positions that keep buyer-facing columns clustered together.
+     Per Mike 2026-05-16: # → Qty → UOM → Description → MFG# (ITEM
+     NUMBER) → Cost → Unit Price → Markup → Extension → ↗ → URL. */
   .spine-li-table .col-num { width:30px; text-align:center; color:#57606a; }
-  .spine-li-table .col-mfg { width:110px; }
-  .spine-li-table .col-desc { min-width:200px; }
-  .spine-li-table .col-qty { width:70px; }
+  .spine-li-table .col-qty { width:64px; }
   .spine-li-table .col-qty input { text-align:right; }
-  .spine-li-table .col-uom { width:78px; }
+  .spine-li-table .col-uom { width:72px; }
+  .spine-li-table .col-desc { min-width:220px; }
+  .spine-li-table .col-mfg { width:120px; }
+  .spine-li-table .col-mfg input { font-size:12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .spine-li-table .col-cost, .spine-li-table .col-price { width:95px; }
   .spine-li-table .col-cost input, .spine-li-table .col-price input { text-align:right; }
-  .spine-li-table .col-src { width:160px; }
+  .spine-li-table .col-markup, .spine-li-table .col-ext { width:84px; text-align:right; color:#57606a; }
+  /* URL goes to the far right — operator can collapse this column
+     visually by not focusing it; substrate enforcement still fires
+     on missing source for cost ≥ $100. The arrow icon sits just LEFT
+     of the URL input so one click confirms the source price online. */
+  .spine-li-table .col-src-arrow { width:28px; text-align:center; padding:8px 2px; }
+  .spine-li-table .col-src-arrow a { text-decoration:none; color:#0969da; font-size:16px; opacity:0.7; }
+  .spine-li-table .col-src-arrow a:hover { opacity:1; }
+  .spine-li-table .col-src-arrow a.disabled { color:#999; cursor:default; pointer-events:none; opacity:0.35; }
+  .spine-li-table .col-src { min-width:200px; width:auto; }
   .spine-li-table .col-src input { font-size:11px; }
-  .spine-li-table .col-markup, .spine-li-table .col-ext { width:88px; text-align:right; color:#57606a; }
   .spine-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px; }
   .spine-actions button { padding:8px 18px; border:1px solid #d0d7de; background:#fff; border-radius:6px; cursor:pointer; font-weight:600; font-size:13px; }
   .spine-actions button.primary { background:#1f883d; color:#fff; border-color:#1f883d; }
@@ -200,27 +215,34 @@
   </div>
 
   <form id="spine-form" onsubmit="return false;">
+    {# Column order matches CCHCS AMS 704B worksheet (Mike 2026-05-16):
+       # → Qty → UOM → Description → MFG# (= worksheet ITEM NUMBER) →
+       Cost (operator-internal) → Unit Price (= worksheet PRICE PER UNIT) →
+       Markup (display sugar) → Extension (= worksheet SUBTOTAL) →
+       ↗ open-in-new-tab → Source URL (far right). MFG# is EDITABLE so
+       operator can correct any Vision/AcroForm parse miss in place —
+       per [[buyer-data-into-catalog-as-evidence]] this is also a write
+       path that the catalog ingest can pick up. #}
     <table class="spine-li-table" id="spine-li-table">
       <thead>
         <tr>
           <th class="col-num">#</th>
-          <th class="col-mfg">MFG #</th>
-          <th class="col-desc">Description</th>
           <th class="col-qty">Qty</th>
           <th class="col-uom">UOM</th>
+          <th class="col-desc">Description</th>
+          <th class="col-mfg">MFG # / Item No.</th>
           <th class="col-cost">Cost</th>
-          <th class="col-src">Source URL</th>
           <th class="col-price">Unit Price</th>
           <th class="col-markup">Markup</th>
           <th class="col-ext">Extension</th>
+          <th class="col-src-arrow" aria-label="Open source URL"></th>
+          <th class="col-src">Source URL</th>
         </tr>
       </thead>
       <tbody>
         {% for li in line_displays %}
         <tr data-line-no="{{ li.line_no }}">
           <td class="col-num">{{ li.line_no }}</td>
-          <td class="col-mfg">{{ li.mfg_number }}</td>
-          <td class="col-desc">{{ li.description }}</td>
           <td class="col-qty">
             <input type="number" step="1" min="1"
                    name="qty-{{ li.line_no }}"
@@ -235,18 +257,23 @@
               {% endfor %}
             </select>
           </td>
+          <td class="col-desc">{{ li.description }}</td>
+          <td class="col-mfg">
+            {# Editable — operator corrects Vision/AcroForm parse misses
+               in place. Empty string saves as None per the model's
+               `mfg_number: str | None`. Max 64 chars per the model. #}
+            <input type="text"
+                   name="mfg-{{ li.line_no }}"
+                   value="{{ li.mfg_number }}"
+                   maxlength="64"
+                   placeholder="503-0142-01"
+                   aria-label="MFG number for line {{ li.line_no }}">
+          </td>
           <td class="col-cost">
             <input type="number" step="0.01" min="0"
                    name="cost-{{ li.line_no }}"
                    value="{{ li.cost_dollars }}"
                    aria-label="Cost for line {{ li.line_no }}">
-          </td>
-          <td class="col-src">
-            <input type="url"
-                   name="src-{{ li.line_no }}"
-                   value="{{ li.cost_source_url }}"
-                   placeholder="https://supplier.example.com/sku"
-                   aria-label="Cost source URL for line {{ li.line_no }}">
           </td>
           <td class="col-price">
             <input type="number" step="0.01" min="0"
@@ -268,6 +295,25 @@
                    placeholder="—">
           </td>
           <td class="col-ext" data-extension-cell="{{ li.line_no }}">{{ li.extension_display }}</td>
+          <td class="col-src-arrow">
+            {# Inline anchor — JS keeps href in sync with the URL input
+               so operator can click ↗ at any time to verify the source.
+               Disabled (no-op) when the URL input is empty. #}
+            <a href="{{ li.cost_source_url or '#' }}"
+               target="_blank" rel="noopener noreferrer"
+               data-src-arrow="{{ li.line_no }}"
+               class="{% if not li.cost_source_url %}disabled{% endif %}"
+               aria-label="Open source URL for line {{ li.line_no }} in new tab"
+               title="Open source URL in new tab">↗</a>
+          </td>
+          <td class="col-src">
+            <input type="url"
+                   name="src-{{ li.line_no }}"
+                   value="{{ li.cost_source_url }}"
+                   data-src-input="{{ li.line_no }}"
+                   placeholder="https://supplier.example.com/sku"
+                   aria-label="Cost source URL for line {{ li.line_no }}">
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -432,8 +478,15 @@
       const cost = dollarsToCents(document.querySelector('input[name="cost-' + li.line_no + '"]').value);
       const price = dollarsToCents(document.querySelector('input[name="price-' + li.line_no + '"]').value);
       const url = document.querySelector('input[name="src-' + li.line_no + '"]').value.trim();
+      // MFG # is editable so operator can correct Vision/AcroForm parse
+      // misses (e.g. SAC 5/16: Vision wrote "1"/"2" for mfg_number when
+      // worksheet ITEM NUMBER had "503-0142-01"/"008-0869-00"). Empty
+      // string saves as null per the model's mfg_number: str | None.
+      const mfgInput = document.querySelector('input[name="mfg-' + li.line_no + '"]');
+      const mfg = mfgInput ? mfgInput.value.trim() : (li.mfg_number || "");
       const costChanged = (cost !== li.cost_cents);
       return Object.assign({}, li, {
+        mfg_number: mfg || null,
         qty: qty,
         uom: uom,
         cost_cents: cost,
@@ -480,6 +533,25 @@
   document.querySelectorAll('input[name^="cost-"], input[name^="price-"]').forEach(function(el){
     const lineNo = el.name.split('-')[1];
     el.addEventListener('input', function(){ recomputeMarkupFromPrice(lineNo); });
+  });
+
+  // Keep the ↗ arrow's href in sync with the URL input so operator can
+  // click through at any time during pricing. Disabled visual state when
+  // input is empty. No network call — pure DOM mirror.
+  document.querySelectorAll('input[data-src-input]').forEach(function(input){
+    const lineNo = input.dataset.srcInput;
+    const arrow = document.querySelector('a[data-src-arrow="' + lineNo + '"]');
+    if (!arrow) return;
+    input.addEventListener('input', function(){
+      const url = input.value.trim();
+      if (url && /^https?:\/\//i.test(url)) {
+        arrow.setAttribute('href', url);
+        arrow.classList.remove('disabled');
+      } else {
+        arrow.setAttribute('href', '#');
+        arrow.classList.add('disabled');
+      }
+    });
   });
 
   // ── Send-prep panel — Gmail compose URL + PDF download.
