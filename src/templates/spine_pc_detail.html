@@ -78,6 +78,25 @@
   .spine-result.err { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; display:block; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
   .spine-footer-note { color:#57606a; font-size:11px; margin-top:18px; padding-top:10px; border-top:1px dashed #d0d7de; }
 
+  /* Send-prep panel — appears when status >= finalized AND there's a
+     snapshot. Operator types recipient, clicks Prepare, gets Gmail
+     compose URL + PDF download. The Spine doesn't call Gmail itself
+     (charter), just produces a ready-to-send envelope. */
+  .spine-send-panel { margin: 16px 0; padding: 14px 16px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; font-size: 13px; }
+  .spine-send-panel h4 { margin: 0 0 10px; font-size: 14px; color: #1f2937; }
+  .spine-send-panel .send-grid { display: grid; grid-template-columns: 80px 1fr 80px 1fr; gap: 8px; align-items: center; }
+  .spine-send-panel label { font-size: 11px; color: #57606a; text-transform: uppercase; letter-spacing: .04em; }
+  .spine-send-panel input { padding: 5px 8px; border: 1px solid #d0d7de; border-radius: 4px; font-size: 13px; font-family: inherit; }
+  .spine-send-panel .actions { margin-top: 12px; display: flex; gap: 10px; align-items: center; }
+  .spine-send-panel button { padding: 7px 14px; background: #1f883d; color: #fff; border: 0; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 13px; }
+  .spine-send-panel button:hover { background: #1a7233; }
+  .spine-send-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .spine-send-envelope { margin-top: 12px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #86efac; border-radius: 5px; font-size: 12px; display: none; }
+  .spine-send-envelope.shown { display: block; }
+  .spine-send-envelope a { display: inline-block; padding: 4px 10px; margin-right: 8px; background: #1f883d; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 600; }
+  .spine-send-envelope a:hover { background: #1a7233; }
+  .spine-send-envelope code { background: #d1fae5; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
   /* Snapshot lock banner — visible when status=sent so the operator
      knows: this quote ships these exact bytes, no further edits. */
   .spine-lock-banner { margin: 10px 0 14px; padding: 12px 16px; background:#f3f0ff; border:1px solid #ddd6fe; border-left:4px solid #7c3aed; border-radius:6px; font-size:13px; color:#4c1d95; }
@@ -285,6 +304,30 @@
     <div id="spine-result" class="spine-result"></div>
   </form>
 
+  {# Send-prep panel — visible when there's a snapshot and status
+     allows shipping. Operator types recipient, clicks Prepare, gets
+     Gmail compose URL + PDF download. Each prep is logged in the
+     event log via X-Spine-Note (handled server-side). #}
+  {% if latest_snap and quote.status in ("finalized", "sent") %}
+  <div class="spine-send-panel">
+    <h4>📤 Prepare email to buyer</h4>
+    <div class="send-grid">
+      <label for="spine-send-to">To</label>
+      <input type="email" id="spine-send-to" placeholder="procurement@cchcs.ca.gov" autocomplete="email">
+      <label for="spine-send-cc">CC</label>
+      <input type="email" id="spine-send-cc" placeholder="(optional)" autocomplete="email">
+    </div>
+    <div class="actions">
+      <button type="button" id="spine-send-prep-btn">Prepare Email</button>
+      <span style="color:#57606a;font-size:11px">
+        Spine builds the Gmail draft URL + downloads the locked PDF.
+        You attach the PDF and click Send in Gmail.
+      </span>
+    </div>
+    <div class="spine-send-envelope" id="spine-send-envelope"></div>
+  </div>
+  {% endif %}
+
   {# Oracle panel — populated client-side by JS from
      GET /oracle-suggestions. Hidden until status >= priced (suggestions
      are most useful once the operator has an initial price to compare
@@ -438,6 +481,74 @@
     const lineNo = el.name.split('-')[1];
     el.addEventListener('input', function(){ recomputeMarkupFromPrice(lineNo); });
   });
+
+  // ── Send-prep panel — Gmail compose URL + PDF download.
+  //
+  // Spine doesn't call Gmail itself (charter). This handler POSTs
+  // the operator-typed recipient to /send-prep, gets back the
+  // envelope, opens Gmail in a new tab with subject+body filled,
+  // and downloads the snapshot PDF so the operator can attach it.
+  const sendPrepBtn = document.getElementById('spine-send-prep-btn');
+  const sendEnvelopeEl = document.getElementById('spine-send-envelope');
+  if (sendPrepBtn) {
+    sendPrepBtn.addEventListener('click', async function(){
+      const btn = this;
+      const to = document.getElementById('spine-send-to').value.trim();
+      const cc = document.getElementById('spine-send-cc').value.trim();
+      if (!to) {
+        sendEnvelopeEl.className = 'spine-send-envelope shown';
+        sendEnvelopeEl.style.background = '#fee2e2';
+        sendEnvelopeEl.style.borderColor = '#fca5a5';
+        sendEnvelopeEl.textContent = 'TO is required.';
+        return;
+      }
+      btn.disabled = true;
+      sendEnvelopeEl.className = 'spine-send-envelope shown';
+      sendEnvelopeEl.style.background = '';
+      sendEnvelopeEl.style.borderColor = '';
+      sendEnvelopeEl.textContent = 'Preparing envelope…';
+      try {
+        const resp = await fetch(
+          '/spine/quotes/' + encodeURIComponent(quoteId) + '/send-prep',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: to, cc: cc }),
+          }
+        );
+        const body = await resp.json();
+        if (resp.status !== 200) {
+          sendEnvelopeEl.style.background = '#fee2e2';
+          sendEnvelopeEl.style.borderColor = '#fca5a5';
+          sendEnvelopeEl.innerHTML = '<strong>Send-prep failed: HTTP ' + resp.status +
+            '</strong><br>' + (body.detail || body.error || '');
+          btn.disabled = false;
+          return;
+        }
+        // Success — render envelope, open Gmail compose, trigger PDF download.
+        sendEnvelopeEl.innerHTML =
+          '<strong>✓ Envelope ready</strong><br>' +
+          '<a href="' + body.gmail_compose_url + '" target="_blank" rel="noopener">' +
+          '↗ Open Gmail compose</a>' +
+          '<a href="' + body.snapshot_pdf_url + '" download="' + body.snapshot_pdf_filename + '">' +
+          '📄 Download PDF</a>' +
+          '<br><br>' +
+          'Subject: <code>' + body.subject + '</code><br>' +
+          'Snapshot: <code>' + body.snapshot_id + '</code> · sha256 <code>' +
+          body.sha256.slice(0, 16) + '…</code><br>' +
+          '<br>' +
+          '<small>Open Gmail, attach the downloaded PDF, click Send.</small>';
+        // Auto-open Gmail compose in a new tab.
+        window.open(body.gmail_compose_url, '_blank', 'noopener');
+        btn.disabled = false;
+      } catch (e) {
+        sendEnvelopeEl.style.background = '#fee2e2';
+        sendEnvelopeEl.style.borderColor = '#fca5a5';
+        sendEnvelopeEl.textContent = 'Network error: ' + e.message;
+        btn.disabled = false;
+      }
+    });
+  }
 
   // ── Oracle panel — read-only suggestions per line.
   //

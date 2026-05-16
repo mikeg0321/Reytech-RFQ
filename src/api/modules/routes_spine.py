@@ -405,6 +405,175 @@ def make_spine_blueprint(
                           for s in snaps],
         })
 
+    # ─── POST /spine/quotes/<quote_id>/send-prep ──────────────────────
+    #
+    # Prepare a send envelope: subject + body + the immutable
+    # snapshot URL + Gmail-compose deep link. Closes the snapshot loop:
+    # bytes that ship to the buyer ARE the snapshot bytes, never a
+    # re-render.
+    #
+    # The Spine does not call Gmail itself — the parent app (or the
+    # operator) handles the actual send. This endpoint produces a
+    # complete, ready-to-fill compose URL plus a downloadable PDF
+    # link. UI opens Gmail in a new tab; operator attaches the PDF
+    # and clicks Send. Each prep call is recorded in the event log
+    # via X-Spine-Note for full audit trail.
+
+    @spine_bp.route("/spine/quotes/<quote_id>/send-prep", methods=["POST"])
+    @_wrap
+    def post_send_prep(quote_id: str):
+        import re
+        from urllib.parse import quote as urlencode_q
+
+        body = request.get_json(silent=True) or {}
+        to_raw = (body.get("to") or "").strip()
+        cc_raw = (body.get("cc") or "").strip()
+        if not to_raw:
+            return jsonify({
+                "error": "missing_recipient",
+                "detail": "'to' is required",
+            }), 400
+        email_re = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+        if not email_re.match(to_raw):
+            return jsonify({
+                "error": "invalid_recipient",
+                "detail": f"'to' must look like an email address; got {to_raw!r}",
+            }), 422
+        if cc_raw and not email_re.match(cc_raw):
+            return jsonify({
+                "error": "invalid_cc",
+                "detail": f"'cc' must look like an email address; got {cc_raw!r}",
+            }), 422
+
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        if quote.status.value not in ("finalized", "sent"):
+            return jsonify({
+                "error": "send_precondition_failed",
+                "detail": (
+                    f"send-prep requires status in (finalized, sent); "
+                    f"current status is {quote.status.value}. "
+                    "Snapshot the quote first; the bytes shipped to the "
+                    "buyer are the snapshot bytes."
+                ),
+            }), 409
+
+        snap = latest_snapshot(db_path, quote_id)
+        if snap is None:
+            return jsonify({
+                "error": "no_snapshot",
+                "detail": (
+                    "send-prep requires an approved snapshot. "
+                    "POST /spine/quotes/<id>/snapshot first."
+                ),
+            }), 409
+        if not _identity_matches(snap, quote):
+            return jsonify({
+                "error": "snapshot_stale",
+                "detail": (
+                    "Latest snapshot does not match current state. "
+                    "Re-snapshot to approve the current state before "
+                    "preparing the send."
+                ),
+            }), 409
+
+        # Build the envelope. Subject and body are deterministic from
+        # the quote state — same inputs → same envelope, so two preps
+        # for the same quote produce the same email shape.
+        total_str = f"${quote.total_cents/100:,.2f}"
+        subject = (
+            f"Reytech Quote — Solicitation {quote.solicitation_number} — "
+            f"{total_str}"
+        )
+        line_count = len(quote.line_items)
+        plural = "s" if line_count != 1 else ""
+        snapshot_url_path = (
+            f"/spine/quotes/{quote_id}/snapshot/{snap['snapshot_id']}/pdf"
+        )
+        body_text = (
+            f"Hello,\n\n"
+            f"Please find attached Reytech Inc.'s quote for "
+            f"solicitation {quote.solicitation_number} "
+            f"({quote.facility}).\n\n"
+            f"Summary:\n"
+            f"  Line items:  {line_count} item{plural}\n"
+            f"  Subtotal:    ${quote.subtotal_cents/100:,.2f}\n"
+            f"  Tax ({quote.tax_rate_bps/100:.2f}%):  "
+            f"${quote.tax_cents/100:,.2f}\n"
+            f"  Shipping:    $0.00\n"
+            f"  Total:       {total_str}\n\n"
+            f"Prices firm 30 days unless otherwise stated. "
+            f"Reytech Inc. is a California Small Business / DVBE supplier.\n\n"
+            f"Quote ID:    {quote.quote_id}\n"
+            f"Snapshot ID: {snap['snapshot_id']}\n"
+            f"SHA-256:     {snap['sha256']}\n\n"
+            f"Please contact rfq@reytechinc.com or 949-229-1575 with "
+            f"any questions.\n"
+        )
+
+        # Gmail compose URL — opens a fresh draft in a new tab with
+        # the subject + body pre-filled. Operator attaches the PDF
+        # (downloaded from snapshot_url_path) before sending.
+        gmail_compose_url = (
+            "https://mail.google.com/mail/?view=cm&fs=1"
+            f"&to={urlencode_q(to_raw)}"
+            + (f"&cc={urlencode_q(cc_raw)}" if cc_raw else "")
+            + f"&su={urlencode_q(subject)}"
+            + f"&body={urlencode_q(body_text)}"
+        )
+
+        pdf_filename = (
+            f"Reytech_Quote_{quote.solicitation_number}_"
+            f"{quote.quote_id}.pdf"
+        )
+
+        envelope = {
+            "snapshot_id": snap["snapshot_id"],
+            "snapshot_pdf_url": snapshot_url_path,
+            "snapshot_pdf_filename": pdf_filename,
+            "sha256": snap["sha256"],
+            "to": [to_raw],
+            "cc": [cc_raw] if cc_raw else [],
+            "subject": subject,
+            "body": body_text,
+            "gmail_compose_url": gmail_compose_url,
+        }
+
+        # Record the prep in the event log so the audit chain shows
+        # who prepared what envelope when, before the operator
+        # actually clicks Send in Gmail. We write a NO-OP state save
+        # (same Quote, same status) with the prep note. The substrate
+        # has only one writer (write_quote); reusing it here keeps
+        # the audit chain coherent without a second writer for events.
+        actor = (
+            request.headers.get("X-Spine-Actor")
+            or _try_session_user()
+            or "operator"
+        )
+        prep_note = (
+            f"prepared send envelope to={to_raw}"
+            + (f" cc={cc_raw}" if cc_raw else "")
+            + f" snapshot={snap['snapshot_id']}"
+            + f" sha256={snap['sha256'][:16]}"
+        )
+        try:
+            write_quote(db_path, quote, actor=actor, note=prep_note)
+        except Exception as e:
+            # Audit write failure should not block returning the
+            # envelope — operator can still send manually. Log and
+            # carry on.
+            log.warning(
+                "send-prep audit write failed for %s: %s",
+                quote_id, e,
+            )
+
+        return jsonify(envelope), 200
+
     # ─── GET /spine/quotes/<quote_id>/oracle-suggestions ──────────────
     #
     # Read-only window into the Pricing Oracle. Oracle SUGGESTS;
