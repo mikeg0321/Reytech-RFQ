@@ -6055,6 +6055,7 @@ _ROUTE_MODULES = [
     "routes_forms_drift",          # Phase 1.6 PR3i: monthly forms-drift monitor
     "routes_buyer_templates",      # Phase 1.6 PR3c: buyer-template auto-capture (fingerprint+register)
     "routes_spine",                # The Spine — canonical CCHCS quote substrate (Mr. Wolf 2026-05-15)
+    "routes_admin_export_eml",     # Path-B admin: fetch raw .eml by sol# (2026-05-16 Spine handoff §5)
 ]
 
 for _mod in _ROUTE_MODULES:
