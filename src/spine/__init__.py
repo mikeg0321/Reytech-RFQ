@@ -22,6 +22,12 @@ __all__ = [
     "ContractLineItem",
     "ContractDelta",
     "contract_vs_quote",
+    "FormCode",
+    "ALL_FORM_CODES",
+    "CCHCS_DEFAULT_REQUIRED_FORMS",
+    # Ingest rejections — every email considered emits a row
+    "IngestRejection",
+    "RejectionReason",
     # DB
     "init_db",
     "read_quote",
@@ -35,6 +41,8 @@ __all__ = [
     "write_email_contract",
     "read_email_contract",
     "find_contract_for_quote",
+    "write_ingest_rejection",
+    "latest_rejections",
     # Rendering
     "render_quote_pdf",
     "format_dollars",
@@ -52,10 +60,17 @@ from src.spine.model import (
 from src.spine.email_contract import (
     EmailContract,
     ContractLineItem,
+    FormCode,
+    ALL_FORM_CODES,
+    CCHCS_DEFAULT_REQUIRED_FORMS,
 )
 from src.spine.contract_diff import (
     ContractDelta,
     contract_vs_quote,
+)
+from src.spine.ingest_rejection import (
+    IngestRejection,
+    RejectionReason,
 )
 from src.spine.db import (
     init_db,
@@ -70,6 +85,8 @@ from src.spine.db import (
     write_email_contract,
     read_email_contract,
     find_contract_for_quote,
+    write_ingest_rejection,
+    latest_rejections,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,

@@ -35,9 +35,48 @@ Architectural rules:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# ──────────────────────────────────────────────────────────────────────
+# FormCode — the canonical literal for every form Reytech can render.
+# ──────────────────────────────────────────────────────────────────────
+# This is the single source of truth for what the email-contract's
+# `required_forms` can declare AND what the agency_forms FORM_REGISTRY
+# (built in Phase 2) must satisfy. A code added here without a registered
+# renderer fails the build-time architecture-contract test
+# `test_every_form_code_has_renderer`.
+#
+# Naming convention: lowercase + underscores, agency-prefix-free for
+# generic forms. "cchcs_*" prefix only for the few forms whose shape
+# is agency-specific by design (703B/704B/bidpkg are CCHCS-named in the
+# filename but conceptually generic enough that future agencies may
+# share them — left bare for that reason).
+FormCode = Literal[
+    "703b",          # CCHCS 703B cover sheet + certifications
+    "703c",          # 703B alternate (CCHCS sometimes ships this)
+    "704b",          # CCHCS 704B line-item form
+    "704c",          # 704B alternate
+    "bidpkg",        # CCHCS bid package (14-page bundle)
+    "quote",         # Reytech Quote PDF
+    "calrecycle_74", # CalRecycle 74 EPP form
+    "std_204",       # CA STD 204 Payee Data Record
+    "std_1000",      # CA STD 1000 GenAI disclosure
+    "dvbe_843",      # CA DVBE 843 declaration
+    "darfur",        # Darfur Act certification
+    "cuf",           # CV 012 Commercially Useful Function
+]
+
+ALL_FORM_CODES: tuple[str, ...] = get_args(FormCode)
+
+# CCHCS standard response set. Every CCHCS bid Mike has shipped to date
+# has consisted of exactly these four files. The default here is the
+# empirical truth — the Phase-2 ingest classifier will derive this from
+# attachment shapes per email; until then, this default keeps existing
+# fixtures passing and codifies what the buyer has been asking for.
+CCHCS_DEFAULT_REQUIRED_FORMS: list[str] = ["703b", "704b", "bidpkg", "quote"]
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -154,6 +193,48 @@ class EmailContract(BaseModel):
             "Storage paths or message-attachment refs for the "
             "originals. Lets future audits re-render the parser's "
             "view of what the buyer sent."
+        ),
+    )
+
+    # ── Required output specification ─────────────────────────────────
+    # Closes the "we shipped something the buyer didn't ask for, or
+    # didn't ship something they did" class (5/15 finding #7). Every
+    # downstream renderer iterates this list; the /package endpoint's
+    # output-vs-contract gate refuses 409 on any divergence between
+    # rendered_set and this declared set.
+    required_forms: list[FormCode] = Field(
+        default_factory=lambda: list(CCHCS_DEFAULT_REQUIRED_FORMS),
+        description=(
+            "Forms the buyer's email + attachments require in the "
+            "response packet. Phase-1 default is the CCHCS empirical "
+            "standard; Phase-2 derives this per email from attachment "
+            "shape classification."
+        ),
+    )
+    response_due: datetime | None = Field(
+        default=None,
+        description=(
+            "Bid-response deadline expressed by the buyer's email "
+            "(may differ from `due_date` if the buyer specified a "
+            "separate response cutoff). Falls back to `due_date` "
+            "downstream when unset."
+        ),
+    )
+    response_packaging: Literal["single_pdf", "separate_pdfs", "either"] = Field(
+        default="separate_pdfs",
+        description=(
+            "How the buyer wants the response delivered. CCHCS empirical "
+            "default is `separate_pdfs` (four attachments). `single_pdf` "
+            "means merge to one file; `either` accepts both."
+        ),
+    )
+    parse_confidence: Literal["high", "medium", "low"] = Field(
+        default="high",
+        description=(
+            "Parser's confidence that this contract faithfully reflects "
+            "the buyer's email. `low` is the trigger for the "
+            "`/queue/rejected` triage surface — operator must hand-"
+            "validate before any quote ships."
         ),
     )
 
