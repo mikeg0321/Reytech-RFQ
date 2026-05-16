@@ -375,6 +375,158 @@ def test_9e63456e_pdf_total_equals_subtotal_plus_tax_exactly():
 # ──────────────────────────────────────────────────────────────────────
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Width / overflow regression — closes the
+# [feedback_text_width_overflow_check] class from memory.
+# Visual verify on 5/15 showed descriptions colliding with the QTY
+# column on rows where description text exceeded its cell width.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_long_descriptions_do_not_overflow_into_qty_column():
+    """Every line item's QTY value must render in the QTY column.
+
+    Uses pdfplumber.extract_words() (bounding boxes) — not
+    extract_tables(), which would need gridlines we deliberately
+    don't draw. The QTY column's x range is bounded by the "QTY"
+    header word on the left and the "UOM" header word on the right.
+    For each line item, the qty value (formatted with comma) must
+    appear as a word whose left edge falls within that x range.
+
+    If descriptions overflow, the qty value's x0 would be pushed
+    right past the column boundary, OR the description's tail would
+    overlap the QTY column. This catches both failures.
+    """
+    long_desc_items = [
+        LineItem(
+            line_no=1,
+            description="GLOVES, EXAM, NITRILE, POWDER-FREE, LARGE, 100/BOX",
+            mfg_number="MK-2103L",
+            qty=10, uom="BX",
+            cost_cents=3500,
+            cost_source_url="https://supplier.example.com/x",
+            cost_validated_at=_fresh_ts(),
+            unit_price_cents=5000,
+        ),
+        LineItem(
+            line_no=2,
+            description="STICKERS, REINFORCEMENT, ROUND, BEIGE, 200/PACK",
+            mfg_number="AVE-5722",
+            qty=540, uom="PAC",
+            cost_cents=1850,
+            cost_source_url="https://supplier.example.com/x",
+            cost_validated_at=_fresh_ts(),
+            unit_price_cents=2803,
+        ),
+        LineItem(
+            line_no=3,
+            description="BOARD, DRY ERASE, 36in x 48in, ALUMINUM FRAME",
+            mfg_number="QRT-S537",
+            qty=1000, uom="EA",
+            cost_cents=14500,
+            cost_source_url="https://supplier.example.com/x",
+            cost_validated_at=_fresh_ts(),
+            unit_price_cents=18000,
+        ),
+    ]
+    q = Quote(
+        quote_id="Q-overflow-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10000099",
+        line_items=long_desc_items,
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+    )
+
+    with pdfplumber.open(io.BytesIO(render_quote_pdf(q))) as pdf:
+        page = pdf.pages[0]
+        words = page.extract_words()
+
+    qty_header = next((w for w in words if w["text"] == "QTY"), None)
+    uom_header = next((w for w in words if w["text"] == "UOM"), None)
+    subtotal_label = next((w for w in words if w["text"] == "SUBTOTAL"), None)
+    assert qty_header is not None, "QTY header not found"
+    assert uom_header is not None, "UOM header not found"
+    assert subtotal_label is not None, "SUBTOTAL totals-row not found"
+
+    # The QTY column's x range. The qty values are centered in
+    # the cell; the left edge must be at or after QTY header x0
+    # minus a small tolerance, and the right edge must fall before
+    # the UOM column begins.
+    qty_col_x0_min = qty_header["x0"] - 8
+    qty_col_x1_max = uom_header["x0"] - 2
+
+    # Vertical scope: BELOW the QTY header row, ABOVE the SUBTOTAL
+    # totals block. Otherwise the totals block's right-aligned
+    # numbers (which share x with the qty column) would false-positive.
+    header_bottom = qty_header["bottom"]
+    body_top_limit = subtotal_label["top"]
+    qty_col_words = [
+        w for w in words
+        if header_bottom < w["top"] < body_top_limit
+        and qty_col_x0_min <= w["x0"]
+        and w["x1"] <= qty_col_x1_max
+    ]
+    qty_col_texts = [w["text"] for w in qty_col_words]
+
+    expected = [f"{li.qty:,}" for li in long_desc_items]
+    for q_str in expected:
+        assert q_str in qty_col_texts, (
+            f"QTY value {q_str!r} not found in QTY column. "
+            f"Words in QTY column: {qty_col_texts!r}. "
+            "If a description's tail appears here instead, the "
+            "renderer is letting text overflow its cell."
+        )
+
+    # No QTY-column word should be obviously non-numeric (allowing for
+    # comma-formatted ints like "1,000"). If a description tail leaks
+    # in, it would be alphabetic.
+    for w in qty_col_words:
+        stripped = w["text"].replace(",", "")
+        assert stripped.isdigit(), (
+            f"QTY column contains non-numeric word {w['text']!r} at "
+            f"x0={w['x0']:.1f}, x1={w['x1']:.1f}. "
+            "Description has overflowed into QTY column."
+        )
+
+
+def test_description_with_xml_special_chars_renders_safely():
+    """Descriptions with `&`, `<`, `>` must not crash reportlab.
+
+    reportlab's Paragraph parses input as inline XML — unescaped
+    special chars would crash the render. The Spine escapes them
+    inside the renderer so operator-entered content is always safe.
+    """
+    items = [
+        LineItem(
+            line_no=1,
+            description="STAPLER & PUNCH COMBO <heavy-duty>",
+            mfg_number="X-1",
+            qty=1, uom="EA",
+            cost_cents=1000,
+            cost_source_url="https://supplier.example.com/x",
+            cost_validated_at=_fresh_ts(),
+            unit_price_cents=1500,
+        ),
+    ]
+    q = Quote(
+        quote_id="Q-xml-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="x",
+        line_items=items,
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+    )
+    pdf_bytes = render_quote_pdf(q)
+    assert pdf_bytes.startswith(b"%PDF-")
+    text = _extract_text(pdf_bytes)
+    # The rendered text should contain the original literal characters
+    # (reportlab unescapes for display).
+    assert "STAPLER & PUNCH COMBO" in text
+
+
 @pytest.mark.parametrize("n_items", [1, 5, 8, 9, 16, 17, 25])
 def test_renders_at_item_count_boundaries(n_items):
     """The legacy substrate had bugs at page boundaries (8, 9, 16, 17,

@@ -237,11 +237,31 @@ except Exception as e:
     log.exception("spine: init_db failed at %s", SPINE_DB_PATH)
 
 # Register on the shared dashboard blueprint with prod auth.
+# Idempotent: if 'spine' is already nested on bp (this module re-imported
+# in the same process — happens under pytest's test isolation, importlib
+# reloads, or dashboard's exec-loader running alongside a direct import),
+# skip the second registration. A second register_blueprint call on bp
+# would queue the same name twice, then crash with
+# "name 'spine' is already registered for a different blueprint
+# 'dashboard.spine'" when bp is finally registered on an app.
 try:
     from src.api.shared import bp, auth_required
-    _spine_prod_bp = make_spine_blueprint(SPINE_DB_PATH, auth_decorator=auth_required)
-    bp.register_blueprint(_spine_prod_bp)
-    log.info("spine: routes registered on dashboard bp")
+
+    _already_nested = False
+    try:
+        _already_nested = any(
+            getattr(child, "name", None) == "spine"
+            for child, _opts in getattr(bp, "_blueprints", [])
+        )
+    except Exception:
+        _already_nested = False
+
+    if not _already_nested:
+        _spine_prod_bp = make_spine_blueprint(SPINE_DB_PATH, auth_decorator=auth_required)
+        bp.register_blueprint(_spine_prod_bp)
+        log.info("spine: routes registered on dashboard bp")
+    else:
+        log.info("spine: already registered on dashboard bp — idempotent skip")
 except Exception:
     # If we're being imported standalone (e.g., a test directly imports
     # this module), shared.bp may not be available. The factory is

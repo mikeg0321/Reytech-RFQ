@@ -85,6 +85,21 @@ def format_tax_rate(bps: int) -> str:
     return f"{bps / 100:.2f}%"
 
 
+def _escape_pdf_text(s: str) -> str:
+    """Escape XML-special chars before wrapping in a reportlab Paragraph.
+
+    reportlab.platypus.Paragraph parses its input as inline XML — bare
+    `&`, `<`, or `>` in operator-entered descriptions would either
+    crash the render or produce garbage. Escape them here so any line
+    item description renders safely regardless of content.
+    """
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Renderer
 # ──────────────────────────────────────────────────────────────────────
@@ -170,6 +185,15 @@ def _styles() -> dict[str, ParagraphStyle]:
             "footer", parent=base["Normal"],
             fontSize=8, leading=10, textColor=colors.HexColor("#666666"),
         ),
+        "li_desc": ParagraphStyle(
+            # Wrapping style for the line-item description column so
+            # long descriptions reflow inside their cell instead of
+            # overflowing into the QTY column. Closes the
+            # text-width-overflow class from memory.
+            "li_desc", parent=base["Normal"],
+            fontSize=9, leading=11, fontName="Helvetica",
+            spaceBefore=0, spaceAfter=0,
+        ),
     }
 
 
@@ -214,16 +238,23 @@ def _quote_meta(quote: "Quote", today: datetime) -> list:
 def _line_item_table(quote: "Quote") -> Table:
     """Render line items. Columns chosen for legibility + extraction.
 
-    Width budget (~7.0 inch usable): Line 0.40 | MFG 0.85 | Desc 3.05 |
-    Qty 0.45 | UOM 0.45 | Unit 0.90 | Ext 0.90.
+    Width budget (~7.0 inch usable): Line 0.40 | MFG 0.95 | Desc 2.85 |
+    Qty 0.55 | UOM 0.45 | Unit 0.90 | Ext 0.90 = 7.00.
+
+    Description is wrapped in a Paragraph so long product names
+    reflow inside the cell instead of overflowing into the QTY
+    column. The qty column was widened from 0.45 → 0.55 inch to fit
+    comma-grouped values like "1,000" at 9pt Helvetica without
+    crowding.
     """
+    s = _styles()
     header = ["#", "MFG #", "DESCRIPTION", "QTY", "UOM", "UNIT PRICE", "EXTENSION"]
     rows: list[list] = [header]
     for li in quote.line_items:
         rows.append([
             str(li.line_no),
             li.mfg_number or "",
-            li.description,
+            Paragraph(_escape_pdf_text(li.description), s["li_desc"]),
             f"{li.qty:,}",
             li.uom,
             format_dollars(li.unit_price_cents),
@@ -231,13 +262,13 @@ def _line_item_table(quote: "Quote") -> Table:
         ])
 
     col_widths = [
-        0.40 * inch,
-        0.85 * inch,
-        3.05 * inch,
-        0.45 * inch,
-        0.45 * inch,
-        0.90 * inch,
-        0.90 * inch,
+        0.40 * inch,   # #
+        0.95 * inch,   # MFG #
+        2.85 * inch,   # DESCRIPTION (wraps via Paragraph)
+        0.55 * inch,   # QTY
+        0.45 * inch,   # UOM
+        0.90 * inch,   # UNIT PRICE
+        0.90 * inch,   # EXTENSION
     ]
     tbl = Table(rows, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(TableStyle([

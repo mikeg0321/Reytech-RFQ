@@ -6054,6 +6054,7 @@ _ROUTE_MODULES = [
     "routes_training_corpus",      # Phase 1.6 PR3g: 12-month training-base bootstrap + coverage report
     "routes_forms_drift",          # Phase 1.6 PR3i: monthly forms-drift monitor
     "routes_buyer_templates",      # Phase 1.6 PR3c: buyer-template auto-capture (fingerprint+register)
+    "routes_spine",                # The Spine — canonical CCHCS quote substrate (Mr. Wolf 2026-05-15)
 ]
 
 for _mod in _ROUTE_MODULES:
