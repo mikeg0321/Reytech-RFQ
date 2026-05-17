@@ -251,7 +251,9 @@ def shadow_ingest_to_spine(
         # the shadow path runs before routes_spine has registered.
         init_db(path)
         write_email_contract(path, result.email_contract)
-        write_quote(path, result.quote, actor="spine_shadow_ingest")
+        persisted_quote = write_quote(
+            path, result.quote, actor="spine_shadow_ingest"
+        )
     except Exception as e:
         log.exception("shadow_ingest: persist failed for %s", record_id)
         out["reason"] = f"persist_failed: {e}"
@@ -261,4 +263,148 @@ def shadow_ingest_to_spine(
     out["contract_id"] = result.email_contract.contract_id
     out["quote_id"] = result.quote.quote_id
     out["reason"] = "shadow_written"
+
+    # ── Auto-link PC predecessor (Mike 5/17 directive) ──────────────
+    # Run the matcher against prior quotes at the same facility. If
+    # confidence ≥ AUTO_LINK_THRESHOLD, persist the top match so the
+    # editor + auto-price substrate can read it. Best-effort: a matcher
+    # failure does NOT fail the ingest (the quote is already written).
+    linked_pc_id: str | None = None
+    try:
+        link_info = _maybe_write_auto_link(path, persisted_quote)
+        if link_info is not None:
+            out["auto_link"] = link_info
+            linked_pc_id = link_info["to_quote_id"]
+    except Exception as e:
+        log.exception(
+            "shadow_ingest: auto-link failed for %s (non-fatal)",
+            persisted_quote.quote_id,
+        )
+        out["auto_link_error"] = str(e)
+
+    # ── Auto-price carry-forward (Mike 5/17 directive — "should be
+    # auto priced"). Only fires when a link was just written: the link
+    # is the substrate's evidence that the PC predecessor is the right
+    # cost source. Best-effort: a carry failure does NOT fail ingest
+    # and does NOT undo the link.
+    if linked_pc_id is not None:
+        try:
+            carry_info = _maybe_carry_costs(path, persisted_quote, linked_pc_id)
+            if carry_info is not None:
+                out["auto_price"] = carry_info
+        except Exception as e:
+            log.exception(
+                "shadow_ingest: auto-price failed for %s (non-fatal)",
+                persisted_quote.quote_id,
+            )
+            out["auto_price_error"] = str(e)
+
     return out
+
+
+def _maybe_write_auto_link(path, target_quote) -> dict | None:
+    """Run the matcher and persist a link if it clears the threshold.
+
+    Returns metadata dict on success, None when nothing matched.
+    Isolated so the ingest function stays a straight line; testable
+    independently with seeded DB state.
+    """
+    from src.spine import (
+        find_pc_candidates,
+        iter_quote_ids,
+        read_quote,
+        write_quote_link,
+    )
+
+    # Pull all prior quote IDs and resolve each. The Spine DB is
+    # small in shadow mode (<1k rows); a full scan is fine. When
+    # the substrate scales, add a facility-indexed reader to db.py
+    # so this becomes a SQL filter instead of a Python filter.
+    candidates = []
+    for qid in iter_quote_ids(path):
+        if qid == target_quote.quote_id:
+            continue
+        q = read_quote(path, qid)
+        if q is None:
+            continue
+        candidates.append(q)
+
+    matches = find_pc_candidates(target_quote, candidates)
+    if not matches:
+        return None
+
+    top = matches[0]
+    link = write_quote_link(
+        path,
+        from_quote_id=target_quote.quote_id,
+        to_quote_id=top["quote_id"],
+        match_method="auto_mfg_desc",
+        confidence=top["confidence"],
+        evidence=top["evidence"],
+        actor="spine_auto_linker",
+    )
+    return {
+        "to_quote_id": top["quote_id"],
+        "confidence": top["confidence"],
+        "match_method": "auto_mfg_desc",
+        "link_id": link["link_id"],
+        "candidates_considered": len(candidates),
+        "matches_above_threshold": len(matches),
+    }
+
+
+def _maybe_carry_costs(path, target_quote, source_quote_id) -> dict | None:
+    """If the linked PC has prior validated costs on MFG#-matched
+    lines, carry them forward and write the enriched Quote back.
+
+    Returns a summary dict on actual carry, None when nothing was
+    carried (matcher linked on sol# alone with no overlapping MFG#,
+    target already had costs, or source PC was itself unpriced).
+
+    Best-effort sibling of _maybe_write_auto_link — same isolation
+    discipline so the ingest function stays a straight line and so
+    the helper is testable independently with seeded DB state.
+    """
+    from src.spine import (
+        carry_forward_costs,
+        read_quote,
+        write_quote,
+    )
+
+    source = read_quote(path, source_quote_id)
+    if source is None:
+        # Linked PC vanished between link-write and carry — shouldn't
+        # happen in single-process ingest, but defensive.
+        return None
+
+    new_target, summary = carry_forward_costs(target_quote, source)
+    if not summary["carried"]:
+        # Link existed (same sol# or partial MFG#) but no exact-MFG#
+        # matches with non-zero source costs — nothing to carry.
+        # Still report deltas if any so observability picks them up.
+        if not summary["deltas"]:
+            return None
+        return {
+            "source_quote_id": source_quote_id,
+            "carried_count": 0,
+            "delta_count": len(summary["deltas"]),
+            "carried": [],
+            "deltas": summary["deltas"],
+        }
+
+    # Persist the enriched Quote. This is a second write to the same
+    # quote_id — the event log appends, the seq does NOT reassign
+    # (already stamped on the first write).
+    write_quote(
+        path,
+        new_target,
+        actor="spine_auto_pricer",
+        note=f"auto_price_carried from {source_quote_id}",
+    )
+    return {
+        "source_quote_id": source_quote_id,
+        "carried_count": len(summary["carried"]),
+        "delta_count": len(summary["deltas"]),
+        "carried": summary["carried"],
+        "deltas": summary["deltas"],
+    }
