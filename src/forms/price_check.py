@@ -1332,8 +1332,21 @@ def parse_ams704(pdf_path: str) -> dict:
             _logical_row += 1
             # Preserve buyer's original item number from the form field
             _buyer_item_num = (row_data.get("item_number") or "").strip()
+            # 704B AcroForm convention: many buyers use the "ITEM NUMBER"
+            # column to hold the MFG# / SKU code ("W14105", "MK-2103L",
+            # "24354534"), not a row index. When the field value
+            # contains a non-sequential token, promote it directly to
+            # mfg_number AND replace item_number with the logical row.
+            # Without this, the editor's "#" column shows MFG codes
+            # instead of 1/2/3 and the auto-link substrate has no
+            # mfg_number to match on at the line level.
+            _is_mfg_in_item_field = bool(_buyer_item_num) and not _is_sequential_number(_buyer_item_num)
             item = {
-                "item_number": _buyer_item_num or str(_logical_row),
+                "item_number": (
+                    str(_logical_row)
+                    if _is_mfg_in_item_field
+                    else (_buyer_item_num or str(_logical_row))
+                ),
                 "qty": qty,
                 "uom": (row_data.get("uom", "ea") or "ea").upper(),
                 "qty_per_uom": qty_per_uom,
@@ -1343,10 +1356,16 @@ def parse_ams704(pdf_path: str) -> dict:
                 "row_index": _logical_row,
             }
 
-            # Extract real MFG/part number from substituted field, description, etc.
-            real_pn = extract_item_numbers(item)
-            if real_pn:
-                item["mfg_number"] = real_pn
+            # Promote MFG code from the AcroForm ITEM NUMBER field
+            # FIRST — it's the buyer's most-authoritative MFG signal on
+            # 704Bs. Then fall back to extract_item_numbers (which
+            # searches substituted + description) for other layouts.
+            if _is_mfg_in_item_field:
+                item["mfg_number"] = _buyer_item_num
+            else:
+                real_pn = extract_item_numbers(item)
+                if real_pn:
+                    item["mfg_number"] = real_pn
             
             log.info("  parsed row %d: desc='%s' mfg='%s' sub='%s' qty=%d uom=%s",
                      row_num, item["description"][:40], item.get("mfg_number",""),

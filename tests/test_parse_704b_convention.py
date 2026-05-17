@@ -81,17 +81,20 @@ def test_704b_convention_parses_all_items():
 
 def test_704b_convention_preserves_row_order():
     """On 704B the ITEM NUMBER column is MFG#/SKU, not sequential — the
-    parser must return items in the buyer's Row1→RowN order, not sorted
-    by ITEM NUMBER converted to int."""
+    parser must return items in the buyer's Row1→RowN order. With the
+    PR #1045 (task #15) fix, the SKU codes are promoted to mfg_number
+    and item_number becomes the logical row; this test now compares
+    mfg_number to confirm the original sequence survived (post-parse
+    sort must skip these because they aren't sequential small ints)."""
     fields, rows = _fake_704b_fields()
     result = _run_parse_with_stub(fields)
     items = result.get("line_items", [])
-    expected_item_nums = [r[0] for r in rows]
-    got = [it.get("item_number") for it in items]
-    assert got == expected_item_nums, (
-        f"row order scrambled — expected {expected_item_nums}, got {got}. "
-        "The post-parse numeric sort must be skipped when item_numbers "
-        "are SKU codes."
+    expected_mfgs = [r[0] for r in rows]
+    got_mfgs = [it.get("mfg_number") for it in items]
+    assert got_mfgs == expected_mfgs, (
+        f"row order scrambled — expected {expected_mfgs}, got {got_mfgs}. "
+        "The post-parse numeric sort must skip rows whose ITEM NUMBER "
+        "values are SKU codes."
     )
 
 
@@ -134,3 +137,84 @@ def test_704a_convention_still_sorts_sequential_item_numbers():
         "sequential small-int item_numbers must still be sorted — "
         "the multi-page 704A fix should not have regressed"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Fix: 704B ITEM NUMBER → mfg_number promotion (PR #1045, task #15)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_704b_item_number_promoted_to_mfg_number():
+    """When buyer wrote MFG#/SKU codes in the ITEM NUMBER column, the
+    parser MUST stamp them as item['mfg_number'] (not just leave them
+    in item['item_number']). Without this, the spine auto-link +
+    auto-price substrate has no MFG signal to match on at the line
+    level."""
+    fields, rows = _fake_704b_fields()
+    result = _run_parse_with_stub(fields)
+    items = result.get("line_items", [])
+    expected_mfgs = [r[0] for r in rows]
+    got_mfgs = [it.get("mfg_number") for it in items]
+    assert got_mfgs == expected_mfgs, (
+        f"mfg_number not populated from 704B ITEM NUMBER field — "
+        f"expected {expected_mfgs}, got {got_mfgs}. "
+        "Auto-link substrate cannot match this RFQ to a prior PC."
+    )
+
+
+def test_704b_item_number_column_reset_to_logical_row():
+    """Operator-visible "#" column should show 1/2/3..., not W14105.
+    The buyer's MFG code goes to mfg_number; item_number becomes the
+    logical row index."""
+    fields, rows = _fake_704b_fields()
+    result = _run_parse_with_stub(fields)
+    items = result.get("line_items", [])
+    expected_row_nums = [str(i + 1) for i in range(len(rows))]
+    got_row_nums = [it.get("item_number") for it in items]
+    assert got_row_nums == expected_row_nums, (
+        f"item_number not reset to logical row — expected "
+        f"{expected_row_nums}, got {got_row_nums}. Editor's # column "
+        "would show MFG codes instead of row indices."
+    )
+
+
+def test_704a_sequential_item_numbers_not_promoted_to_mfg():
+    """Guard rail: when the buyer wrote 1/2/3 in ITEM NUMBER (704A
+    convention), those small ints are NOT promoted to mfg_number.
+    item_number stays as-is."""
+    fields = {}
+    rows = [("1", "FIRST"), ("2", "SECOND"), ("3", "THIRD")]
+    for i, (itemno, desc) in enumerate(rows, start=1):
+        fields[f"ITEM Row{i}"] = {"/V": itemno}
+        fields[(
+            "ITEM DESCRIPTION NOUN FIRST Include manufacturer part "
+            f"number andor reference numberRow{i}"
+        )] = {"/V": desc}
+        fields[f"QTYRow{i}"] = {"/V": "1"}
+        fields[f"UNIT OF MEASURE UOMRow{i}"] = {"/V": "EA"}
+    result = _run_parse_with_stub(fields)
+    items = result.get("line_items", [])
+    # mfg_number should NOT be set from the sequential item_number.
+    # It may still be set if the description contains a part number,
+    # but the descriptions here are pure words.
+    for it in items:
+        # Either no mfg_number, or it didn't come from the row index.
+        assert it.get("mfg_number") not in ("1", "2", "3"), (
+            f"sequential row index leaked to mfg_number: {it!r}"
+        )
+
+
+def test_704b_mixed_pure_digit_skus_promoted():
+    """Pure-digit SKUs (like '24354534', '4056') are still MFG codes,
+    not row numbers — anything > 50 trips _is_sequential_number."""
+    fields, rows = _fake_704b_fields()
+    result = _run_parse_with_stub(fields)
+    items = result.get("line_items", [])
+    by_mfg = {it.get("mfg_number"): it for it in items}
+    assert "24354534" in by_mfg, "pure-digit long SKU not promoted"
+    assert "4056" in by_mfg, "pure-digit 4-digit SKU not promoted"
+    # And their item_number column shows logical rows, not the SKU.
+    for mfg, it in by_mfg.items():
+        assert it.get("item_number") != mfg, (
+            f"item_number still equals mfg_number for {mfg}"
+        )
