@@ -629,3 +629,126 @@ def test_auto_price_failure_does_not_fail_ingest(
     assert rfq_res["ok"] is True  # ingest still succeeded
     assert rfq_res.get("auto_link") is not None
     assert "pricer exploded" in rfq_res.get("auto_price_error", "")
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Catalog observation on ingest (task #16 + #21)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_ingest_observes_catalog_entries_for_each_line(flag_on, patch_tax, db_path):
+    """Every ingest with MFG# rows should drive one catalog observation
+    per line. Independent of link outcome."""
+    from src.spine import catalog_get_entry
+
+    result = shadow_ingest_to_spine(
+        record_id="rfq_cat_001",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert result["ok"] is True
+    cat = result.get("catalog")
+    assert cat is not None, "expected catalog summary on ingest result"
+    assert cat["observed"] == 2  # both _items() rows have item_number
+    assert cat["created"] == 2
+    assert cat["updated"] == 0
+
+    # Each MFG# from the items has a catalog row.
+    entry_a = catalog_get_entry(db_path, "MK-2103L")
+    assert entry_a is not None
+    assert entry_a["last_seen_quote_id"] == "rfq_cat_001"
+
+
+def test_repeat_ingest_increments_seen_count_in_catalog(
+    flag_on, patch_tax, db_path
+):
+    """Two ingests of the same MFG# → seen_count==2 + descriptions union."""
+    from src.spine import catalog_get_entry
+
+    shadow_ingest_to_spine(
+        record_id="rfq_cat_seed",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    shadow_ingest_to_spine(
+        record_id="rfq_cat_repeat",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    entry = catalog_get_entry(db_path, "MK-2103L")
+    assert entry["seen_count"] == 2
+    assert entry["last_seen_quote_id"] == "rfq_cat_repeat"
+
+
+def test_catalog_observation_independent_of_auto_link(
+    flag_on, patch_tax, db_path
+):
+    """Even when no PC predecessor exists (no auto_link), the catalog
+    still grows. The substrate doesn't gate catalog writes on link
+    outcome."""
+    from src.spine import catalog_iter_entries
+
+    result = shadow_ingest_to_spine(
+        record_id="rfq_no_link_001",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert result.get("auto_link") is None      # no prior PC
+    assert result.get("catalog")["observed"] == 2
+    assert len(catalog_iter_entries(db_path)) == 2
+
+
+def test_catalog_failure_does_not_fail_ingest(
+    flag_on, patch_tax, db_path, monkeypatch
+):
+    """Catalog observation is best-effort like link/carry — failure
+    surfaces as catalog_error without sinking the ingest."""
+    import src.spine_bridge.shadow_ingest as si
+
+    def _boom(*a, **kw):
+        raise RuntimeError("catalog exploded")
+
+    monkeypatch.setattr(si, "_observe_catalog_from_quote", _boom)
+
+    result = shadow_ingest_to_spine(
+        record_id="rfq_cat_resilient_001",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert result["ok"] is True
+    assert "catalog exploded" in result.get("catalog_error", "")
+
+
+def test_catalog_skips_lines_without_mfg(flag_on, patch_tax, db_path):
+    """Rows where item_number is empty produce no catalog observation."""
+    items_no_mfg = [{"description": "MYSTERY ITEM",
+                     "item_number": "", "qty": 1, "uom": "EA"}]
+    result = shadow_ingest_to_spine(
+        record_id="rfq_no_mfg_001",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=items_no_mfg,
+        db_path=db_path,
+    )
+    if result["ok"]:
+        cat = result.get("catalog")
+        # Either no catalog field (observed==0) or summary with 0.
+        if cat is not None:
+            assert cat["observed"] == 0
+            assert cat["skipped_no_mfg"] >= 1

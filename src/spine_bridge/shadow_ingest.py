@@ -299,6 +299,34 @@ def shadow_ingest_to_spine(
             )
             out["auto_price_error"] = str(e)
 
+    # ── Catalog observation (task #16 + #21) — every ingest with any
+    # MFG#-bearing line items emits one observation per row. Runs
+    # INDEPENDENTLY of link/carry — even when no PC predecessor exists
+    # the catalog still grows. Best-effort: a catalog write failure
+    # does NOT fail ingest and does NOT undo the link/carry.
+    try:
+        # Re-read the persisted quote so we see any cost carry that
+        # auto-price just wrote (auto-price calls write_quote a 2nd time).
+        final_quote = persisted_quote
+        try:
+            from src.spine import read_quote as _rq
+            reloaded = _rq(path, persisted_quote.quote_id)
+            if reloaded is not None:
+                final_quote = reloaded
+        except Exception:
+            # If re-read fails, observe with the pre-carry snapshot.
+            pass
+
+        cat_info = _observe_catalog_from_quote(path, final_quote)
+        if cat_info["observed"] > 0:
+            out["catalog"] = cat_info
+    except Exception as e:
+        log.exception(
+            "shadow_ingest: catalog observation failed for %s (non-fatal)",
+            persisted_quote.quote_id,
+        )
+        out["catalog_error"] = str(e)
+
     return out
 
 
@@ -407,4 +435,58 @@ def _maybe_carry_costs(path, target_quote, source_quote_id) -> dict | None:
         "delta_count": len(summary["deltas"]),
         "carried": summary["carried"],
         "deltas": summary["deltas"],
+    }
+
+
+def _observe_catalog_from_quote(path, quote) -> dict:
+    """Emit one catalog observation per line item with a non-empty
+    MFG#. Returns summary dict {observed, skipped_no_mfg, created,
+    updated}.
+
+    Best-effort sibling of _maybe_write_auto_link / _maybe_carry_costs
+    — same isolation discipline so the ingest function stays a
+    straight line and the catalog write is testable independently.
+
+    Cost data is passed through when present (cost_cents > 0) so the
+    catalog's last_priced_at + last_priced_cents update on every
+    priced ingest — fueling the stale-cost recheck signal (task #22).
+    """
+    from src.spine.catalog import observe
+
+    observed = 0
+    skipped_no_mfg = 0
+    created = 0
+    updated = 0
+
+    for li in quote.line_items:
+        if not li.mfg_number or not li.mfg_number.strip():
+            skipped_no_mfg += 1
+            continue
+        try:
+            result = observe(
+                path,
+                mfg_number=li.mfg_number,
+                description=li.description,
+                uom=li.uom,
+                quote_id=quote.quote_id,
+                cost_cents=li.cost_cents if li.cost_cents > 0 else None,
+                actor="spine_shadow_ingest",
+            )
+        except Exception as e:
+            log.warning(
+                "catalog observe failed for mfg=%r line=%d (continuing): %s",
+                li.mfg_number, li.line_no, e,
+            )
+            continue
+        observed += 1
+        if result.get("created"):
+            created += 1
+        else:
+            updated += 1
+
+    return {
+        "observed": observed,
+        "skipped_no_mfg": skipped_no_mfg,
+        "created": created,
+        "updated": updated,
     }
