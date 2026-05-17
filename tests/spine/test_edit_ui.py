@@ -102,10 +102,17 @@ def test_edit_page_renders_200(client_with_seeded):
 
 
 def test_edit_page_renders_quote_id_in_title(client_with_seeded):
+    """Editor surface shows the buyer-facing display_number (assigned at
+    write_quote time post-PR #1040) and ALSO the internal quote_id —
+    operator needs both: display for buyer comms, quote_id for the URL.
+    """
     r = client_with_seeded.get("/spine/quotes/Q-edit-001/edit")
     text = r.data.decode("utf-8")
+    # Internal quote_id still present (URLs / debug surfaces / data attrs)
     assert "Q-edit-001" in text
-    assert "<title>Spine — Q-edit-001</title>" in text
+    # And the buyer-facing R{yy}Q#### appears in the title.
+    import re
+    assert re.search(r"<title>Spine — R\d{2}Q\d{4}</title>", text)
 
 
 def test_edit_page_404_for_missing_quote(client_with_seeded):

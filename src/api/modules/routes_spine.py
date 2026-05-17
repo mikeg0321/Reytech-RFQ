@@ -502,9 +502,15 @@ def make_spine_blueprint(
         snap_matches_current = _identity_matches(snap, quote) if snap else False
 
         # Pre-compute display values so the template stays logic-light.
+        # display_number (the buyer-facing R{yy}Q####) is a computed
+        # field — to_persisted_dict() correctly excludes it (substrate
+        # rule: no derived values in persisted state), so we surface it
+        # to the template as a separate kwarg alongside the money strings.
+        quote_dict = quote.to_persisted_dict()
+        quote_dict["display_number"] = quote.display_number
         return render_template(
             "spine_pc_detail.html",
-            quote=quote.to_persisted_dict(),
+            quote=quote_dict,
             latest_snap=snap,
             snap_matches_current=snap_matches_current,
             supported_uom=SUPPORTED_UOM,

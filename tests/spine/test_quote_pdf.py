@@ -552,3 +552,96 @@ def test_renders_at_item_count_boundaries(n_items):
     assert f"MFG-{n_items:03d}" in text
     # And the totals block must survive paging.
     assert "TOTAL" in text
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Buyer-facing display number (PR #1040) — R{yy}Q#### on the Quote PDF.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_pdf_renders_display_number_when_assigned():
+    """When the substrate has stamped quote_seq + quote_year, the PDF
+    header shows the R{yy}Q#### identifier — not the internal quote_id."""
+    q = Quote(
+        quote_id="Q-internal-uuid-xyz",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+        quote_seq=347,
+        quote_year=2026,
+    )
+    pdf_bytes = render_quote_pdf(q)
+    text = _extract_text(pdf_bytes)
+    assert "R26Q0347" in text
+    # The label string is split across columns by pdfplumber's layout
+    # scan, so a literal "QUOTE NUMBER:" substring check is too brittle.
+    # The substantive thing is that the OLD "QUOTE ID:" label is gone —
+    # which we verify by its absence in the flattened text.
+    flattened = "".join(text.split())
+    assert "QUOTEID:" not in flattened
+    # And the internal id MUST NOT leak alongside the buyer label.
+    assert "Q-internal-uuid-xyz" not in text
+
+
+def test_pdf_falls_back_to_quote_id_when_display_number_none():
+    """Legacy rows without a stamped seq render their internal quote_id
+    so identity is preserved."""
+    q = Quote(
+        quote_id="Q-legacy-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+    )
+    pdf_bytes = render_quote_pdf(q)
+    text = _extract_text(pdf_bytes)
+    assert "Q-legacy-001" in text
+
+
+def test_pdf_render_gate_requires_display_number_when_set():
+    """Identity gate fires on whichever label the renderer shows the buyer.
+    With quote_seq + quote_year stamped, that label IS display_number —
+    the gate must require that string in the rendered bytes."""
+    q = Quote(
+        quote_id="Q-internal-uuid-xyz",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+        quote_seq=999,
+        quote_year=2026,
+    )
+    # Render-and-verify is internal — it raises on mismatch. A passing
+    # call is the test.
+    pdf_bytes = render_quote_pdf(q)
+    text = _extract_text(pdf_bytes)
+    # And the OLD internal id should NOT be in the rendered surface.
+    assert "Q-internal-uuid-xyz" not in text
+
+
+def test_pdf_title_metadata_uses_display_number():
+    """Window title / file-save name should also reflect the buyer-facing
+    identifier, not the internal UUID."""
+    q = Quote(
+        quote_id="Q-internal-2",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+        quote_seq=5,
+        quote_year=2026,
+    )
+    pdf_bytes = render_quote_pdf(q)
+    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    title = reader.metadata.title if reader.metadata else ""
+    assert title is not None
+    assert "R26Q0005" in title

@@ -224,3 +224,96 @@ def test_hand_injected_computed_field_in_db_raises_on_load(db_path):
 
     with pytest.raises(Exception):  # ValidationError — extra forbidden.
         read_quote(db_path, q.quote_id)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Sequential numbering — write_quote auto-assigns quote_seq + quote_year
+# on the very first persist of a quote_id (PR #1040 wiring on top of
+# spine_counters from PR #1039).
+# ──────────────────────────────────────────────────────────────────────
+
+from datetime import datetime as _dt, timezone as _tz
+from src.spine.db import get_counter, next_value, set_counter
+
+
+def test_write_quote_assigns_seq_on_first_persist(db_path: Path):
+    q = _quote(quote_id="Q-first-001")
+    assert q.quote_seq is None
+    assert q.quote_year is None
+
+    written = write_quote(db_path, q, actor="ingest")
+
+    assert written.quote_seq == 1
+    assert written.quote_year == _dt.now(_tz.utc).year
+    assert written.display_number == f"R{written.quote_year % 100:02d}Q0001"
+
+
+def test_write_quote_does_not_reassign_on_subsequent_writes(db_path: Path):
+    """The seq is identity. A second write to the same quote_id MUST
+    keep the same seq — operator edits don't burn fresh numbers."""
+    q = _quote(quote_id="Q-stable-001")
+    first = write_quote(db_path, q, actor="ingest")
+    second = write_quote(
+        db_path,
+        first.model_copy(update={"facility": "CHCF"}),
+        actor="operator",
+    )
+    assert first.quote_seq == second.quote_seq
+    assert first.quote_year == second.quote_year
+    assert first.display_number == second.display_number
+
+
+def test_write_quote_distinct_ids_get_distinct_seqs(db_path: Path):
+    """Each quote_id pulls its own number from spine_counters."""
+    a = write_quote(db_path, _quote(quote_id="Q-aa1"), actor="ingest")
+    b = write_quote(db_path, _quote(quote_id="Q-bb1"), actor="ingest")
+    c = write_quote(db_path, _quote(quote_id="Q-cc1"), actor="ingest")
+    seqs = sorted([a.quote_seq, b.quote_seq, c.quote_seq])
+    assert seqs == [1, 2, 3]
+
+
+def test_write_quote_persists_seq_to_disk(db_path: Path):
+    written = write_quote(db_path, _quote(quote_id="Q-persist-001"), actor="ingest")
+    reloaded = read_quote(db_path, "Q-persist-001")
+    assert reloaded is not None
+    assert reloaded.quote_seq == written.quote_seq
+    assert reloaded.quote_year == written.quote_year
+    assert reloaded.display_number == written.display_number
+
+
+def test_write_quote_respects_pre_assigned_seq(db_path: Path):
+    """Callers (e.g., test fixtures, replay scripts) may construct a
+    Quote with quote_seq already set; write_quote MUST NOT overwrite."""
+    year = _dt.now(_tz.utc).year
+    pre_assigned = _quote(quote_id="Q-pre-001").model_copy(update={
+        "quote_seq": 9999,
+        "quote_year": year,
+    })
+    written = write_quote(db_path, pre_assigned, actor="replay")
+    assert written.quote_seq == 9999
+    assert written.quote_year == year
+    # Counter MUST be untouched — replay rows don't burn the live counter.
+    assert get_counter(db_path, f"quote_{year}") is None
+
+
+def test_write_quote_increments_counter_in_spine_counters(db_path: Path):
+    """The counter row in spine_counters reflects the latest assignment."""
+    year = _dt.now(_tz.utc).year
+    write_quote(db_path, _quote(quote_id="Q-c1"), actor="ingest")
+    assert get_counter(db_path, f"quote_{year}") == 1
+    write_quote(db_path, _quote(quote_id="Q-c2"), actor="ingest")
+    assert get_counter(db_path, f"quote_{year}") == 2
+
+
+def test_write_quote_uses_existing_counter_value(db_path: Path):
+    """If the counter is pre-seeded (e.g., by an operator who ran
+    set_counter to skip a burned number), write_quote MUST continue
+    from there, not reset."""
+    year = _dt.now(_tz.utc).year
+    set_counter(db_path, f"quote_{year}", 0, actor="operator")
+    # Reseed to 5 incrementally (set_counter has a max-jump=5 guard so
+    # we cannot jump straight from 0 to 100 — exercise that intentionally).
+    for v in (1, 2, 3, 4, 5):
+        set_counter(db_path, f"quote_{year}", v, actor="operator")
+    written = write_quote(db_path, _quote(quote_id="Q-after-seed"), actor="ingest")
+    assert written.quote_seq == 6
