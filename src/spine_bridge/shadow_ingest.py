@@ -251,7 +251,9 @@ def shadow_ingest_to_spine(
         # the shadow path runs before routes_spine has registered.
         init_db(path)
         write_email_contract(path, result.email_contract)
-        write_quote(path, result.quote, actor="spine_shadow_ingest")
+        persisted_quote = write_quote(
+            path, result.quote, actor="spine_shadow_ingest"
+        )
     except Exception as e:
         log.exception("shadow_ingest: persist failed for %s", record_id)
         out["reason"] = f"persist_failed: {e}"
@@ -261,4 +263,72 @@ def shadow_ingest_to_spine(
     out["contract_id"] = result.email_contract.contract_id
     out["quote_id"] = result.quote.quote_id
     out["reason"] = "shadow_written"
+
+    # ── Auto-link PC predecessor (Mike 5/17 directive) ──────────────
+    # Run the matcher against prior quotes at the same facility. If
+    # confidence ≥ AUTO_LINK_THRESHOLD, persist the top match so the
+    # editor + auto-price substrate can read it. Best-effort: a matcher
+    # failure does NOT fail the ingest (the quote is already written).
+    try:
+        link_info = _maybe_write_auto_link(path, persisted_quote)
+        if link_info is not None:
+            out["auto_link"] = link_info
+    except Exception as e:
+        log.exception(
+            "shadow_ingest: auto-link failed for %s (non-fatal)",
+            persisted_quote.quote_id,
+        )
+        out["auto_link_error"] = str(e)
+
     return out
+
+
+def _maybe_write_auto_link(path, target_quote) -> dict | None:
+    """Run the matcher and persist a link if it clears the threshold.
+
+    Returns metadata dict on success, None when nothing matched.
+    Isolated so the ingest function stays a straight line; testable
+    independently with seeded DB state.
+    """
+    from src.spine import (
+        find_pc_candidates,
+        iter_quote_ids,
+        read_quote,
+        write_quote_link,
+    )
+
+    # Pull all prior quote IDs and resolve each. The Spine DB is
+    # small in shadow mode (<1k rows); a full scan is fine. When
+    # the substrate scales, add a facility-indexed reader to db.py
+    # so this becomes a SQL filter instead of a Python filter.
+    candidates = []
+    for qid in iter_quote_ids(path):
+        if qid == target_quote.quote_id:
+            continue
+        q = read_quote(path, qid)
+        if q is None:
+            continue
+        candidates.append(q)
+
+    matches = find_pc_candidates(target_quote, candidates)
+    if not matches:
+        return None
+
+    top = matches[0]
+    link = write_quote_link(
+        path,
+        from_quote_id=target_quote.quote_id,
+        to_quote_id=top["quote_id"],
+        match_method="auto_mfg_desc",
+        confidence=top["confidence"],
+        evidence=top["evidence"],
+        actor="spine_auto_linker",
+    )
+    return {
+        "to_quote_id": top["quote_id"],
+        "confidence": top["confidence"],
+        "match_method": "auto_mfg_desc",
+        "link_id": link["link_id"],
+        "candidates_considered": len(candidates),
+        "matches_above_threshold": len(matches),
+    }
