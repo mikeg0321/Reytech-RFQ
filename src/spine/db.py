@@ -127,6 +127,28 @@ CREATE INDEX IF NOT EXISTS idx_spine_rejections_reason
     ON spine_ingest_rejections(reason_code);
 CREATE INDEX IF NOT EXISTS idx_spine_rejections_thread
     ON spine_ingest_rejections(source_thread_id);
+
+-- ──────────────────────────────────────────────────────────────────
+-- Sequential counters — the substrate primitive for R26PCXXXX /
+-- R26R#### / R26Q#### buyer-facing numbers.
+-- ──────────────────────────────────────────────────────────────────
+-- One row per named counter ("pc_2026", "rfq_2026", "quote_2026", ...).
+-- next_value() reads-modifies-writes under _WRITE_LOCK and refuses to
+-- jump more than +5 in a single call (mirrors the quote_counter rule
+-- from CLAUDE.md: "Max jump = 5. Counter blocked if it tries to jump
+-- more than 5 from last known value.").
+--
+-- The current_value column stores the LAST value handed out. The next
+-- call returns current_value + 1. Counters are year-namespaced by the
+-- caller (e.g., "pc_2026" rolls to "pc_2027" on Jan 1) so a year
+-- rollover doesn't require resetting the integer — it just selects a
+-- different row.
+CREATE TABLE IF NOT EXISTS spine_counters (
+    counter_name  TEXT PRIMARY KEY,
+    current_value INTEGER NOT NULL,
+    last_set_at   TEXT NOT NULL,
+    last_actor    TEXT
+);
 """
 
 # Module-level write lock — Python-side serializer for the single
@@ -732,3 +754,160 @@ def _quote_to_persisted_dict(quote: Quote) -> dict:
     a "v": 1 envelope) happen in one place.
     """
     return quote.to_persisted_dict()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Sequential counters — THE ONLY WRITER for spine_counters.
+# ──────────────────────────────────────────────────────────────────────
+
+COUNTER_MAX_JUMP = 5
+
+
+def next_value(
+    db_path: str | Path,
+    counter_name: str,
+    *,
+    actor: str,
+) -> int:
+    """Atomically increment `counter_name` and return the new value.
+
+    First call for a never-seen counter returns 1. Subsequent calls
+    return prior + 1. The read-modify-write happens under _WRITE_LOCK
+    so concurrent callers receive distinct sequential values.
+
+    Args:
+        db_path:      SQLite database path.
+        counter_name: Stable key — e.g., "pc_2026", "rfq_2026",
+                      "quote_2026". Year-namespacing is the caller's
+                      responsibility; this layer treats the name as
+                      an opaque string.
+        actor:        Who triggered the increment ("spine_ingest",
+                      "operator", a username). Recorded for audit.
+
+    Returns:
+        The newly-assigned integer (>= 1).
+    """
+    if not counter_name or not counter_name.strip():
+        raise SpineValidationError("next_value requires non-empty counter_name.")
+    if not actor or not actor.strip():
+        raise SpineValidationError("next_value requires non-empty actor.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    with _WRITE_LOCK:
+        with _connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT current_value FROM spine_counters WHERE counter_name = ?",
+                (counter_name.strip(),),
+            ).fetchone()
+            prior = int(row["current_value"]) if row is not None else 0
+            new_value = prior + 1
+            _persist_counter(
+                conn,
+                counter_name=counter_name.strip(),
+                current_value=new_value,
+                last_set_at=now_iso,
+                last_actor=actor.strip(),
+            )
+
+    return new_value
+
+
+def get_counter(db_path: str | Path, counter_name: str) -> int | None:
+    """Return the current value of a counter, or None if never set.
+
+    Pure read; no mutation, no lock. Callers that care about a
+    "what would the next value be?" preview can use this + 1, but
+    must not act on the preview — only `next_value` is atomic.
+    """
+    if not counter_name or not counter_name.strip():
+        raise SpineValidationError("get_counter requires non-empty counter_name.")
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT current_value FROM spine_counters WHERE counter_name = ?",
+            (counter_name.strip(),),
+        ).fetchone()
+    if row is None:
+        return None
+    return int(row["current_value"])
+
+
+def set_counter(
+    db_path: str | Path,
+    counter_name: str,
+    value: int,
+    *,
+    actor: str,
+) -> None:
+    """Manually set a counter to `value`. Operator escape hatch.
+
+    Mirrors the CLAUDE.md quote_counter rule: a manual set is
+    authoritative, but the writer refuses jumps greater than
+    COUNTER_MAX_JUMP (=5) above the current value to catch
+    fat-finger errors that would burn an entire numbering block.
+    Setting BELOW the current value is allowed (back-correction
+    of a bad increment) and is recorded in last_actor for audit.
+
+    Args:
+        db_path:      SQLite path.
+        counter_name: Counter key.
+        value:        New current_value. Must be >= 0.
+        actor:        Who is forcing the value. Required for audit.
+
+    Raises:
+        SpineValidationError: value < 0, jump > 5, or empty actor.
+    """
+    if not counter_name or not counter_name.strip():
+        raise SpineValidationError("set_counter requires non-empty counter_name.")
+    if not actor or not actor.strip():
+        raise SpineValidationError("set_counter requires non-empty actor.")
+    if not isinstance(value, int) or value < 0:
+        raise SpineValidationError(
+            f"set_counter value must be a non-negative int; got {value!r}"
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    with _WRITE_LOCK:
+        with _connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT current_value FROM spine_counters WHERE counter_name = ?",
+                (counter_name.strip(),),
+            ).fetchone()
+            prior = int(row["current_value"]) if row is not None else 0
+            if value > prior + COUNTER_MAX_JUMP:
+                raise SpineValidationError(
+                    f"set_counter refused: {counter_name!r} jump "
+                    f"{prior} -> {value} exceeds max_jump={COUNTER_MAX_JUMP}. "
+                    "Apply smaller increments or audit the request."
+                )
+            _persist_counter(
+                conn,
+                counter_name=counter_name.strip(),
+                current_value=value,
+                last_set_at=now_iso,
+                last_actor=actor.strip(),
+            )
+
+
+def _persist_counter(
+    conn: sqlite3.Connection,
+    *,
+    counter_name: str,
+    current_value: int,
+    last_set_at: str,
+    last_actor: str | None,
+) -> None:
+    """THE ONLY function in src/spine/ that writes spine_counters.
+
+    Mirror of _persist_state / _persist_snapshot / _persist_contract /
+    _persist_rejection. Adding any other INSERT/UPDATE/DELETE against
+    spine_counters inside src/spine/ is a substrate regression caught
+    by test_one_writer.py.
+    """
+    conn.execute(
+        "INSERT OR REPLACE INTO spine_counters "
+        "(counter_name, current_value, last_set_at, last_actor) "
+        "VALUES (?, ?, ?, ?)",
+        (counter_name, current_value, last_set_at, last_actor),
+    )
