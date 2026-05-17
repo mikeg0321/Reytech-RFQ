@@ -43,6 +43,11 @@ __all__ = [
     "find_contract_for_quote",
     "write_ingest_rejection",
     "latest_rejections",
+    # Sequential counters — R26PCXXXX / R26R#### / R26Q#### substrate
+    "next_value",
+    "get_counter",
+    "set_counter",
+    "COUNTER_MAX_JUMP",
     # Rendering
     "render_quote_pdf",
     "format_dollars",
@@ -87,6 +92,10 @@ from src.spine.db import (
     find_contract_for_quote,
     write_ingest_rejection,
     latest_rejections,
+    next_value,
+    get_counter,
+    set_counter,
+    COUNTER_MAX_JUMP,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,
