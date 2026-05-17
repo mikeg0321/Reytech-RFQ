@@ -48,6 +48,11 @@ __all__ = [
     "get_counter",
     "set_counter",
     "COUNTER_MAX_JUMP",
+    # Quote ↔ Quote links — PC predecessor ← RFQ rebid (Mike 5/17)
+    "write_quote_link",
+    "find_links_from",
+    "find_links_to",
+    "AUTO_LINK_OPERATOR_CONFIDENCE",
     # Rendering
     "render_quote_pdf",
     "format_dollars",
@@ -96,6 +101,10 @@ from src.spine.db import (
     get_counter,
     set_counter,
     COUNTER_MAX_JUMP,
+    write_quote_link,
+    find_links_from,
+    find_links_to,
+    AUTO_LINK_OPERATOR_CONFIDENCE,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,
