@@ -530,3 +530,152 @@ def test_replay_9e63456e_renders_correct_total():
     # bps math is the deterministic correct answer.
     assert q.tax_cents == 386399
     assert q.total_cents == 4683620 + 386399  # $50,700.19 — matches manifest.
+
+
+# ──────────────────────────────────────────────────────────────────────
+# display_number — buyer-facing R{yy}Q#### identifier (PR #1040)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_display_number_none_when_seq_and_year_both_missing():
+    """Legacy rows pre-PR #1040: no seq/year stored → no display string.
+
+    Renderers fall back to quote_id when display_number is None.
+    """
+    q = _ok_quote()
+    assert q.quote_seq is None
+    assert q.quote_year is None
+    assert q.display_number is None
+
+
+def test_display_number_renders_when_both_set():
+    q = Quote(
+        quote_id="Q-test-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        quote_seq=347,
+        quote_year=2026,
+    )
+    assert q.display_number == "R26Q0347"
+
+
+def test_display_number_zero_pads_to_4_digits():
+    q = Quote(
+        quote_id="Q-test-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        quote_seq=1,
+        quote_year=2026,
+    )
+    assert q.display_number == "R26Q0001"
+
+
+def test_display_number_widens_past_9999_without_truncating():
+    """Format guard: if the year ever crosses 9999 quotes, the rendered
+    string widens naturally. Number stays correct — no silent truncation."""
+    q = Quote(
+        quote_id="Q-test-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        quote_seq=10001,
+        quote_year=2026,
+    )
+    assert q.display_number == "R26Q10001"
+
+
+def test_display_number_none_when_only_seq_set():
+    q = Quote(
+        quote_id="Q-test-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        quote_seq=5,
+    )
+    assert q.display_number is None
+
+
+def test_display_number_none_when_only_year_set():
+    q = Quote(
+        quote_id="Q-test-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        quote_year=2026,
+    )
+    assert q.display_number is None
+
+
+def test_quote_seq_must_be_positive():
+    """seq=0 is meaningless; refuse at validation."""
+    with pytest.raises(ValidationError):
+        Quote(
+            quote_id="Q-test-001",
+            agency="CCHCS",
+            facility="SATF",
+            solicitation_number="10847262",
+            line_items=[_ok_line(1)],
+            tax_rate_bps=825,
+            quote_seq=0,
+            quote_year=2026,
+        )
+
+
+def test_quote_year_rejects_out_of_range():
+    """Year must be 2024..2099. Catches bad ingest stamps."""
+    with pytest.raises(ValidationError):
+        Quote(
+            quote_id="Q-test-001",
+            agency="CCHCS",
+            facility="SATF",
+            solicitation_number="10847262",
+            line_items=[_ok_line(1)],
+            tax_rate_bps=825,
+            quote_seq=1,
+            quote_year=1999,
+        )
+
+
+def test_display_number_excluded_from_to_persisted_dict():
+    """display_number is @computed_field — never persisted (would drift)."""
+    q = Quote(
+        quote_id="Q-test-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        quote_seq=347,
+        quote_year=2026,
+    )
+    persisted = q.to_persisted_dict()
+    assert "display_number" not in persisted
+    # The underlying integers ARE persisted — that's the truth of intent.
+    assert persisted["quote_seq"] == 347
+    assert persisted["quote_year"] == 2026
+
+
+def test_century_rollover_via_year_2099_renders_99():
+    q = Quote(
+        quote_id="Q-test-001",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1)],
+        tax_rate_bps=825,
+        quote_seq=12,
+        quote_year=2099,
+    )
+    assert q.display_number == "R99Q0012"

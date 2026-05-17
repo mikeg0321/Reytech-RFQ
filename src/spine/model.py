@@ -106,7 +106,7 @@ _ALLOWED_TRANSITIONS: dict[QuoteStatus, set[QuoteStatus]] = {
 # Computed fields that must be excluded from persisted dicts /
 # state-transition copies. Listed by exact field name so updates to
 # the model schema fail loudly via the test suite, not silently here.
-_COMPUTED_FIELD_NAMES_QUOTE = {"subtotal_cents", "tax_cents", "total_cents"}
+_COMPUTED_FIELD_NAMES_QUOTE = {"subtotal_cents", "tax_cents", "total_cents", "display_number"}
 _COMPUTED_FIELD_NAMES_LINE = {"extension_cents", "markup_pct_display"}
 _COMPUTED_FIELD_NAMES: dict = {
     **{name: True for name in _COMPUTED_FIELD_NAMES_QUOTE},
@@ -261,6 +261,32 @@ class Quote(BaseModel):
     )
     status: QuoteStatus = QuoteStatus.PARSED
 
+    # Buyer-facing sequential identity. Assigned once at first write by
+    # db.write_quote pulling from spine_counters (PR #1039). Stored as
+    # (year, seq) integer pair; the display string `R26Q####` is
+    # computed at the surface so a year-rollover edit never desyncs
+    # the rendered form from the underlying integer. Both nullable to
+    # support (a) replay of pre-#1040 rows that never had a seq
+    # assigned and (b) test fixtures that construct Quotes directly.
+    quote_seq: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Sequential integer assigned from spine_counters at first "
+            "persist. Substrate-owned: callers do NOT set this; "
+            "db.write_quote stamps it."
+        ),
+    )
+    quote_year: int | None = Field(
+        default=None,
+        ge=2024,
+        le=2099,
+        description=(
+            "Year the quote_seq was assigned in. Pairs with quote_seq "
+            "to render the buyer-facing R{yy}Q#### display."
+        ),
+    )
+
     # Provenance (immutable after first write).
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -354,6 +380,26 @@ class Quote(BaseModel):
     def total_cents(self) -> int:
         """Subtotal + Tax. Shipping is the implicit constant $0.00."""
         return self.subtotal_cents + self.tax_cents
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def display_number(self) -> str | None:
+        """Buyer-facing identifier — `R26Q####` (and R26Q00347 etc.).
+
+        Computed from quote_seq + quote_year so the rendered string is
+        always consistent with the stored integers. Returns None when
+        either component is absent — legacy rows from before the
+        sequential-numbering substrate landed (PR #1040) won't have
+        an assignment; renderers fall back to quote_id in that case.
+
+        The format mirrors Mike's verbal spec (2026-05-17): R + 2-digit
+        year + Q + 4-digit zero-padded sequence. If quote_seq crosses
+        9999 the width widens naturally (Python `{n:04d}` already does
+        this — `{10001:04d}` is `"10001"`, not truncated).
+        """
+        if self.quote_seq is None or self.quote_year is None:
+            return None
+        return f"R{self.quote_year % 100:02d}Q{self.quote_seq:04d}"
 
     # ──────────────────────────────────────────────────────────────
     # State machine

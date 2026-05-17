@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Spine — {{ quote.quote_id }}{% endblock %}
+{% block title %}Spine — {{ quote.display_number or quote.quote_id }}{% endblock %}
 
 {% block head_extra %}
 <style>
@@ -149,7 +149,7 @@
 <div class="spine-page" data-spine-quote-id="{{ quote.quote_id }}" data-spine-status="{{ quote.status }}" data-spine-updated-at="{{ quote.updated_at }}">
   <div class="spine-header">
     <div style="flex:1">
-      <h1>Spine Quote — {{ quote.quote_id }}</h1>
+      <h1>Spine Quote — {{ quote.display_number or quote.quote_id }}{% if quote.display_number %} <span style="font-size:0.55em;color:#999;font-weight:normal">({{ quote.quote_id }})</span>{% endif %}</h1>
       <div class="meta">
         <span class="spine-status-pill spine-status-{{ quote.status }}">{{ quote.status }}</span>
         &nbsp; Agency: <strong>{{ quote.agency }}</strong>

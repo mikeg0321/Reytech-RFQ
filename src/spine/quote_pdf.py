@@ -164,7 +164,7 @@ def render_quote_pdf(quote: "Quote", *, today: datetime | None = None) -> bytes:
         rightMargin=0.75 * inch,
         topMargin=0.6 * inch,
         bottomMargin=0.6 * inch,
-        title=f"Reytech Quote {quote.quote_id}",
+        title=f"Reytech Quote {quote.display_number or quote.quote_id}",
         author=REYTECH_NAME,
     )
 
@@ -320,7 +320,12 @@ def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
     #    we don't false-positive on cosmetic layout, but we still
     #    catch any renderer that drops the identity entirely.
     flattened = "".join(full_text.split())
-    for required in (REYTECH_NAME, quote.quote_id, quote.solicitation_number):
+    # The rendered identifier is display_number when assigned (post-#1040
+    # ingest); otherwise the internal quote_id (legacy rows). The gate
+    # follows the renderer — whichever the operator+buyer will see is
+    # what must be present in the rendered PDF.
+    rendered_quote_label = quote.display_number or quote.quote_id
+    for required in (REYTECH_NAME, rendered_quote_label, quote.solicitation_number):
         target = required.replace(" ", "")
         if target in flattened:
             continue
@@ -399,9 +404,14 @@ def _quote_meta(quote: "Quote", today: datetime) -> list:
         [Paragraph("SOLICITATION:", s["meta_label"]),
          Paragraph(quote.solicitation_number, s["meta_value"])],
     ]
+    # Buyer-facing identifier on top: prefer the substrate-assigned
+    # R{yy}Q#### (PR #1040). Falls back to the internal quote_id only
+    # for legacy rows that pre-date the sequential-numbering substrate
+    # — once those are quoted out the fallback never fires.
+    quote_label = quote.display_number or quote.quote_id
     right = [
-        [Paragraph("QUOTE ID:", s["meta_label"]),
-         Paragraph(quote.quote_id, s["meta_value"])],
+        [Paragraph("QUOTE NUMBER:", s["meta_label"]),
+         Paragraph(quote_label, s["meta_value"])],
         [Paragraph("DATE:", s["meta_label"]),
          Paragraph(today.strftime("%Y-%m-%d"), s["meta_value"])],
     ]

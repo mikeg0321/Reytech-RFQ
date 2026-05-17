@@ -257,14 +257,6 @@ def write_quote(
     now_iso = datetime.now(timezone.utc).isoformat()
     quote = quote.model_copy(update={"updated_at": datetime.now(timezone.utc)})
 
-    new_event = {
-        "timestamp": now_iso,
-        "actor": actor.strip(),
-        "status": quote.status.value,
-        "note": note,
-        "state": _quote_to_persisted_dict(quote),
-    }
-
     with _WRITE_LOCK:
         with _connect(db_path) as conn:
             prior = conn.execute(
@@ -272,6 +264,43 @@ def write_quote(
                 "WHERE quote_id = ?",
                 (quote.quote_id,),
             ).fetchone()
+
+            # First-write sequential number assignment. On the very
+            # first persist of a quote_id, pull the next R{yy}Q####
+            # integer from spine_counters and stamp the model so every
+            # subsequent read renders the same buyer-facing identifier.
+            # We do this INSIDE the _WRITE_LOCK + connection so the
+            # counter increment and the spine_quotes INSERT are atomic
+            # from the caller's point of view: two parallel first-writes
+            # can't both win the same seq, and a counter increment
+            # can never be left without a corresponding quote row.
+            if prior is None and quote.quote_seq is None:
+                year = datetime.now(timezone.utc).year
+                row = conn.execute(
+                    "SELECT current_value FROM spine_counters "
+                    "WHERE counter_name = ?",
+                    (f"quote_{year}",),
+                ).fetchone()
+                seq = (int(row["current_value"]) if row is not None else 0) + 1
+                _persist_counter(
+                    conn,
+                    counter_name=f"quote_{year}",
+                    current_value=seq,
+                    last_set_at=now_iso,
+                    last_actor=actor.strip(),
+                )
+                quote = quote.model_copy(update={
+                    "quote_seq": seq,
+                    "quote_year": year,
+                })
+
+            new_event = {
+                "timestamp": now_iso,
+                "actor": actor.strip(),
+                "status": quote.status.value,
+                "note": note,
+                "state": _quote_to_persisted_dict(quote),
+            }
 
             if prior is None:
                 events = [new_event]
