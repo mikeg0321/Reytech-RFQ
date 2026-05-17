@@ -625,11 +625,51 @@ def classify_request(
         log.debug("agency_config lookup failed: %s", e)
 
     # ── Is this a "quote only" (PC) or "full package" (RFQ)? ──
-    result.is_quote_only = result.shape in (
+    #
+    # Mike 2026-05-17 SAC walkthrough: SAC came in with a fillable 704B
+    # + a 703B AMS template + a bid package PDF + an Argarin@cdcr email
+    # with subject "Urgent Request for Quote: 10847457 for SAC due 5/18
+    # at 5:00 pm". That's an RFQ by every signal except the one this
+    # flag used to fire on (fillable 704B alone).
+    #
+    # The 703B/703C and bid package PDFs are RFQ-only artifacts — CCHCS
+    # ships them when they want a formal bid response, never on a
+    # market-test PC. Detect them in the attachment set; if present,
+    # this is RFQ context regardless of the 704B's shape.
+    #
+    # This closes the substrate gap surfaced 2026-05-17: SAC was
+    # mis-classified as PC → ID prefix wrong → analytics wrong → would
+    # have skipped PC↔RFQ auto-link substrate (task #19) too.
+    _attachment_names_lower = [
+        os.path.basename(p).lower() for p in attachments
+        if p and isinstance(p, str)
+    ]
+    _has_rfq_companion = any(
+        # 703B / 703C templates (with or without "AMS" prefix, with
+        # space/dash variants). Skip "704" so 704B doesn't false-match.
+        re.search(r"\b703\s*[bc]\b", n) or
+        re.search(r"\bams[\s_-]*703\b", n) or
+        # Bid package: CCHCS standard "BID PACKAGE & FORMS" or "bidpkg".
+        "bid package" in n or "bidpkg" in n or
+        re.search(r"non[\s_-]*it[\s_-]*rfq[\s_-]*packet", n)
+        for n in _attachment_names_lower
+    )
+
+    _pc_shape = result.shape in (
         SHAPE_PC_704_DOCX,
         SHAPE_PC_704_PDF_DOCUSIGN,
         SHAPE_PC_704_PDF_FILLABLE,
     )
+
+    if _pc_shape and _has_rfq_companion:
+        # Form is PC-shaped but RFQ artifacts present → it's an RFQ.
+        result.is_quote_only = False
+        result.reasons.append(
+            "is_quote_only=False: PC-shaped 704 accompanied by 703B/"
+            "703C/bidpkg attachment(s) — full RFQ context"
+        )
+    else:
+        result.is_quote_only = _pc_shape
 
     # ── Solicitation number extraction ──
     result.solicitation_number = _extract_solicitation(corpus, inline_text_samples)

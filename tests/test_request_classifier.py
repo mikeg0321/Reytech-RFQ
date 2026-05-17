@@ -207,6 +207,107 @@ class TestGenericXlsxRFQ:
         assert r.is_quote_only is False
 
 
+# ─── is_quote_only: PC-shape + RFQ companion → RFQ context ─────────────
+#
+# Mike 2026-05-17 SAC walkthrough: SAC came in with a fillable 704B
+# alongside a 703B AMS form AND a bid package PDF — clearly an RFQ.
+# Pre-fix classifier set is_quote_only=True because the 704B was the
+# primary shape, ignoring the corroborating RFQ-only attachments. The
+# downstream ID prefix landed as pc_ instead of rfq_ (cosmetic), and
+# the future PC↔RFQ auto-link substrate would have skipped this as a
+# PC. Closes that class.
+
+class TestIsQuoteOnlyWithRfqCompanion:
+    """When a PC-shaped 704 ships alongside 703B/703C/bidpkg attachments,
+    it's an RFQ — the buyer wants the full package response."""
+
+    def test_pc_docx_alone_is_quote_only_true(self):
+        """Baseline: 704 worksheet alone = PC."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[PC_DOCX_FOOD])
+        assert r.is_quote_only is True
+
+    def test_pc_with_703b_companion_is_quote_only_false(self):
+        """SAC pattern: AMS 703B alongside the 704 = full RFQ context."""
+        from src.core.request_classifier import classify_request
+        # Second path is filename-only; the classifier's filename scan
+        # picks it up even though the file doesn't exist (the per-PDF
+        # _classify_pdf call is what needs a real file; the companion
+        # detection is filename-only by design).
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/AMS 703B - RFQ - Informal Competitive - RFQ 10847457.pdf",
+        ])
+        assert r.is_quote_only is False
+        assert any("is_quote_only=False" in reason for reason in r.reasons)
+
+    def test_pc_with_703c_companion_is_quote_only_false(self):
+        """703C alternate (Fair-and-Reasonable pathway) → also RFQ."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/AMS 703C - Sole Source - RFQ 99999.pdf",
+        ])
+        assert r.is_quote_only is False
+
+    def test_pc_with_bidpkg_companion_is_quote_only_false(self):
+        """SAC pattern: BID PACKAGE & FORMS PDF + 704 = RFQ."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/BID PACKAGE & FORMS (Under 100k) - Attachment 3.pdf",
+        ])
+        assert r.is_quote_only is False
+
+    def test_pc_with_lowercase_bidpkg_companion_is_quote_only_false(self):
+        """Filename heuristic is case-insensitive."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/some_bidpkg_attachment.pdf",
+        ])
+        assert r.is_quote_only is False
+
+    def test_pc_with_704b_only_does_not_false_match_as_703(self):
+        """The substring '703' in the filename triggers — but '704' must
+        not. Critical: 'AMS 704B' filename alone is still PC."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/AMS 704B - CCHCS Acquisition Quote Worksheet.pdf",
+        ])
+        # PC + another 704 sibling = still PC. No 703 anywhere.
+        assert r.is_quote_only is True
+
+    def test_pc_with_irrelevant_pdf_companion_is_quote_only_true(self):
+        """Companion attachments that aren't 703/bidpkg don't flip the flag."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/email_signature_logo.jpg",
+            "/tmp/random_invoice_2024.pdf",
+        ])
+        assert r.is_quote_only is True
+
+    def test_pc_with_ams_703_no_letter_suffix_is_quote_only_false(self):
+        """Some buyers attach 'AMS 703' without B/C suffix — count it."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/AMS 703 generic informal.pdf",
+        ])
+        assert r.is_quote_only is False
+
+    def test_pc_with_non_it_rfq_packet_companion_is_quote_only_false(self):
+        """CCHCS sometimes labels the bid package as 'Non-IT RFQ Packet'."""
+        from src.core.request_classifier import classify_request
+        r = classify_request(attachments=[
+            PC_DOCX_FOOD,
+            "/tmp/CCHCS Non-IT RFQ Packet 2024.pdf",
+        ])
+        assert r.is_quote_only is False
+
+
 # ─── Multi-attachment pricing-page tiebreak (DSH-style bundles) ────────
 #
 # DSH (and similar) split a single RFQ across multiple PDFs:
