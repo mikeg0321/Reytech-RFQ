@@ -61,6 +61,16 @@ __all__ = [
     "carry_forward_costs",
     "parse_carry_note",
     "COST_CARRY_PREFIX",
+    # Catalog substrate — buyer-supplied product data over time
+    "catalog_observe",
+    "catalog_get_entry",
+    "catalog_iter_entries",
+    "catalog_find_stale_priced",
+    "catalog_record_enrichment",
+    "CATALOG_STALENESS_DAYS",
+    "ENRICHMENT_PENDING",
+    "ENRICHMENT_FETCHED",
+    "ENRICHMENT_FAILED",
     # Rendering
     "render_quote_pdf",
     "format_dollars",
@@ -123,6 +133,17 @@ from src.spine.auto_pricer import (
     carry_forward_costs,
     parse_carry_note,
     COST_CARRY_PREFIX,
+)
+from src.spine.catalog import (
+    observe as catalog_observe,
+    get_entry as catalog_get_entry,
+    iter_entries as catalog_iter_entries,
+    find_stale_priced_entries as catalog_find_stale_priced,
+    record_enrichment as catalog_record_enrichment,
+    CATALOG_STALENESS_DAYS,
+    ENRICHMENT_PENDING,
+    ENRICHMENT_FETCHED,
+    ENRICHMENT_FAILED,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,

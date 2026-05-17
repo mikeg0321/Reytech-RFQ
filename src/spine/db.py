@@ -188,6 +188,57 @@ CREATE INDEX IF NOT EXISTS idx_spine_links_from
     ON spine_quote_links(from_quote_id, confidence DESC);
 CREATE INDEX IF NOT EXISTS idx_spine_links_to
     ON spine_quote_links(to_quote_id, confidence DESC);
+
+-- ──────────────────────────────────────────────────────────────────
+-- Product catalog — buyer-supplied + validated product data.
+-- ──────────────────────────────────────────────────────────────────
+-- Closes Mike's 5/17 directive: "this data should be cataloged in
+-- the table". Every spine ingest with a non-empty mfg_number emits
+-- a catalog observation. Over time the catalog becomes the durable
+-- record of what buyers actually ask for + what we've priced before.
+--
+-- One row per normalized MFG#. Repeated observations of the same
+-- MFG# update last_seen_at, increment seen_count, and union the
+-- descriptions/uoms/unspsc lists. Cost data updates last_priced_at
+-- + last_priced_cents + last_priced_quote_id when a Quote line
+-- carrying that MFG# has cost_cents > 0 (substrate input for the
+-- stale-cost recheck signal — task #22).
+--
+-- source_url + photo_url + photo_path are nullable enrichment
+-- columns (task #23). The catalog substrate exposes the columns;
+-- the actual fetcher is a separate background worker that walks
+-- the catalog and fills them in.
+CREATE TABLE IF NOT EXISTS spine_catalog (
+    catalog_id            TEXT PRIMARY KEY,
+    mfg_number            TEXT NOT NULL,
+    canonical_description TEXT NOT NULL,
+    descriptions_json     TEXT NOT NULL,
+    uoms_seen_json        TEXT NOT NULL,
+    unspsc_codes_json     TEXT NOT NULL,
+    seen_count            INTEGER NOT NULL DEFAULT 1,
+    first_seen_at         TEXT NOT NULL,
+    last_seen_at          TEXT NOT NULL,
+    last_seen_quote_id    TEXT,
+    -- Stale-cost recheck signal (task #22)
+    last_priced_at        TEXT,
+    last_priced_quote_id  TEXT,
+    last_priced_cents     INTEGER,
+    -- Enrichment columns (task #23) — written by a background fetcher.
+    source_url            TEXT,
+    source_url_checked_at TEXT,
+    photo_url             TEXT,
+    photo_path            TEXT,
+    enrichment_status     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_spine_catalog_mfg
+    ON spine_catalog(mfg_number);
+CREATE INDEX IF NOT EXISTS idx_spine_catalog_last_seen
+    ON spine_catalog(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_spine_catalog_last_priced
+    ON spine_catalog(last_priced_at DESC);
+CREATE INDEX IF NOT EXISTS idx_spine_catalog_enrichment
+    ON spine_catalog(enrichment_status, last_seen_at DESC);
 """
 
 # Module-level write lock — Python-side serializer for the single
