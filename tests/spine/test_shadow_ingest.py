@@ -325,3 +325,134 @@ def test_flag_parsing(monkeypatch, db_path, patch_tax, value, expected_on):
         assert result["ok"] is True
     else:
         assert result["reason"] == "flag_off"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Auto-link PC predecessor (PR #1042)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _items_overlap_with(_items_func) -> list[dict]:
+    """Return _items() with one extra row so a second ingest's MFG#s
+    overlap with the first by 2/3. Combined with same sol# → auto-link."""
+    base = _items_func()
+    return base + [
+        {"description": "WIPES, ALCOHOL, 200/BX",
+         "item_number": "PRM-2200", "qty": 5, "uom": "BX"},
+    ]
+
+
+def test_auto_link_fires_when_second_ingest_matches_first(
+    flag_on, patch_tax, db_path
+):
+    """First ingest seeds a PC predecessor. Second ingest of an RFQ
+    with identical sol# + overlapping MFG#s gets an auto-link row."""
+    from src.spine import find_links_from
+
+    # 1. Seed predecessor (treat as the "PC").
+    first = shadow_ingest_to_spine(
+        record_id="pc_predecessor_001",
+        record_type="pc",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert first["ok"] is True
+    assert first.get("auto_link") is None  # no prior quotes to link to
+
+    # 2. Ingest the rebid RFQ — same sol#, same facility, same items.
+    second = shadow_ingest_to_spine(
+        record_id="rfq_rebid_001",
+        record_type="rfq",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert second["ok"] is True
+    link = second.get("auto_link")
+    assert link is not None, "expected auto_link metadata on second ingest"
+    assert link["to_quote_id"] == "pc_predecessor_001"
+    assert link["confidence"] >= 0.50
+    assert link["match_method"] == "auto_mfg_desc"
+    assert link["candidates_considered"] == 1
+
+    # 3. The link row is queryable from the DB.
+    links = find_links_from(db_path, "rfq_rebid_001")
+    assert len(links) == 1
+    assert links[0]["to_quote_id"] == "pc_predecessor_001"
+    assert links[0]["actor"] == "spine_auto_linker"
+
+
+def test_no_auto_link_when_no_prior_quotes(flag_on, patch_tax, db_path):
+    """First ingest into a fresh DB: matcher runs but finds no candidates."""
+    from src.spine import find_links_from
+
+    result = shadow_ingest_to_spine(
+        record_id="rfq_solo_001",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert result["ok"] is True
+    assert result.get("auto_link") is None
+    assert find_links_from(db_path, "rfq_solo_001") == []
+
+
+def test_no_auto_link_when_candidate_below_threshold(
+    flag_on, patch_tax, db_path
+):
+    """Unrelated sol# + zero MFG# overlap → no link created."""
+    from src.spine import find_links_from
+
+    shadow_ingest_to_spine(
+        record_id="pc_unrelated_001",
+        record_type="pc",
+        classification=_Classification(solicitation_number="SOL-AAA"),
+        header=_header(),
+        items=[{"description": "ALPHA WIDGET", "item_number": "ALPHA-1",
+                "qty": 1, "uom": "EA"}],
+        db_path=db_path,
+    )
+    result = shadow_ingest_to_spine(
+        record_id="rfq_different_001",
+        record_type="rfq",
+        classification=_Classification(solicitation_number="SOL-BBB"),
+        header=_header(),
+        items=[{"description": "OMEGA WIDGET", "item_number": "OMEGA-1",
+                "qty": 1, "uom": "EA"}],
+        db_path=db_path,
+    )
+    assert result["ok"] is True
+    assert result.get("auto_link") is None
+    assert find_links_from(db_path, "rfq_different_001") == []
+
+
+def test_auto_link_failure_does_not_fail_ingest(
+    flag_on, patch_tax, db_path, monkeypatch
+):
+    """The quote is the load-bearing record; a matcher / link-writer
+    exception MUST NOT cause ingest to report failure. The error is
+    surfaced via the return dict instead."""
+    # Sabotage the matcher to raise.
+    import src.spine_bridge.shadow_ingest as si
+
+    def _boom(*a, **kw):
+        raise RuntimeError("matcher exploded")
+
+    monkeypatch.setattr(si, "_maybe_write_auto_link", _boom)
+
+    result = shadow_ingest_to_spine(
+        record_id="rfq_resilient_001",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert result["ok"] is True  # ingest still succeeded
+    assert result["quote_id"] == "rfq_resilient_001"
+    assert "matcher exploded" in result.get("auto_link_error", "")
