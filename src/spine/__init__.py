@@ -57,6 +57,10 @@ __all__ = [
     "score_quote_pair",
     "find_pc_candidates",
     "AUTO_LINK_THRESHOLD",
+    # Auto-pricer — carry validated costs from linked PC to new RFQ
+    "carry_forward_costs",
+    "parse_carry_note",
+    "COST_CARRY_PREFIX",
     # Rendering
     "render_quote_pdf",
     "format_dollars",
@@ -114,6 +118,11 @@ from src.spine.quote_matcher import (
     score_quote_pair,
     find_pc_candidates,
     AUTO_LINK_THRESHOLD,
+)
+from src.spine.auto_pricer import (
+    carry_forward_costs,
+    parse_carry_note,
+    COST_CARRY_PREFIX,
 )
 from src.spine.quote_pdf import (
     render_quote_pdf,
