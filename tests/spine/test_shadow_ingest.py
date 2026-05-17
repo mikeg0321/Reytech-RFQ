@@ -456,3 +456,176 @@ def test_auto_link_failure_does_not_fail_ingest(
     assert result["ok"] is True  # ingest still succeeded
     assert result["quote_id"] == "rfq_resilient_001"
     assert "matcher exploded" in result.get("auto_link_error", "")
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Auto-price carry-forward on ingest (PR #1044)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _items_priced() -> list[dict]:
+    """Same shape as _items() — the PC has costs typed in.
+
+    The shadow-ingest helper builds a Spine Quote from a contract dict;
+    contract dicts don't carry costs (cost is operator-input on the
+    Spine quote later). So to get a PC with costs, we use
+    spine.write_quote directly after the first ingest.
+    """
+    return _items()
+
+
+def _stamp_costs_on_quote(db_path: str, quote_id: str, mfg_to_cost: dict[str, int]):
+    """Update a Spine quote in place so its line items have the given
+    costs keyed by MFG#. Used in tests to simulate a PC that an
+    operator has already priced."""
+    from datetime import datetime, timedelta, timezone
+    from src.spine import read_quote, write_quote
+
+    q = read_quote(db_path, quote_id)
+    assert q is not None
+    fresh = datetime.now(timezone.utc) - timedelta(days=1)
+    new_lines = []
+    for li in q.line_items:
+        cost = mfg_to_cost.get((li.mfg_number or "").upper(), li.cost_cents)
+        new_lines.append(li.model_copy(update={
+            "cost_cents": cost,
+            "cost_source_url": "https://supplier.example.com/sku",
+            "cost_validated_at": fresh,
+            "unit_price_cents": int(cost * 1.35),  # arbitrary markup
+        }))
+    write_quote(db_path, q.model_copy(update={"line_items": new_lines}),
+                actor="test_seeder", note="seed costs")
+
+
+def test_auto_price_carries_costs_from_linked_pc(flag_on, patch_tax, db_path):
+    """End-to-end: PC ingest → operator prices → RFQ ingest of same
+    items → auto-link fires → auto-price carries cost forward."""
+    from src.spine import read_quote, parse_carry_note
+
+    # 1. Ingest the PC predecessor.
+    pc_res = shadow_ingest_to_spine(
+        record_id="pc_predecessor_priced",
+        record_type="pc",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert pc_res["ok"] is True
+
+    # 2. Operator prices the PC line items.
+    _stamp_costs_on_quote(db_path, "pc_predecessor_priced", {
+        "MK-2103L": 4200,
+        "PRM-1820": 8800,
+    })
+
+    # 3. Ingest the rebid RFQ — same sol#, same items.
+    rfq_res = shadow_ingest_to_spine(
+        record_id="rfq_carry_target",
+        record_type="rfq",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert rfq_res["ok"] is True
+    assert rfq_res.get("auto_link") is not None
+    assert rfq_res.get("auto_link")["to_quote_id"] == "pc_predecessor_priced"
+
+    # 4. Auto-price summary present and carries both lines.
+    ap = rfq_res.get("auto_price")
+    assert ap is not None
+    assert ap["source_quote_id"] == "pc_predecessor_priced"
+    assert ap["carried_count"] == 2
+    assert ap["delta_count"] == 0
+
+    # 5. The persisted RFQ now has the carried costs + carry stamps.
+    new_rfq = read_quote(db_path, "rfq_carry_target")
+    assert new_rfq is not None
+    by_mfg = {li.mfg_number: li for li in new_rfq.line_items}
+    assert by_mfg["MK-2103L"].cost_cents == 4200
+    assert by_mfg["PRM-1820"].cost_cents == 8800
+    # Notes carry provenance.
+    parsed = parse_carry_note(by_mfg["MK-2103L"].cost_hand_validated_note)
+    assert parsed is not None
+    assert parsed["from_quote_id"] == "pc_predecessor_priced"
+
+
+def test_no_auto_price_when_pc_has_no_costs(flag_on, patch_tax, db_path):
+    """Link fires (sol# match) but PC was never priced — nothing to
+    carry. The ingest result has no auto_price field."""
+    shadow_ingest_to_spine(
+        record_id="pc_unpriced",
+        record_type="pc",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    # Skip the operator-prices step.
+
+    rfq_res = shadow_ingest_to_spine(
+        record_id="rfq_no_carry",
+        record_type="rfq",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert rfq_res["ok"] is True
+    assert rfq_res.get("auto_link") is not None  # link fires (sol# + MFG)
+    assert rfq_res.get("auto_price") is None      # but nothing to carry
+
+
+def test_no_auto_price_when_no_link(flag_on, patch_tax, db_path):
+    """First ingest with no prior PC → no link, no auto-price."""
+    rfq_res = shadow_ingest_to_spine(
+        record_id="rfq_solo_carry",
+        record_type="rfq",
+        classification=_Classification(),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert rfq_res["ok"] is True
+    assert rfq_res.get("auto_link") is None
+    assert rfq_res.get("auto_price") is None
+
+
+def test_auto_price_failure_does_not_fail_ingest(
+    flag_on, patch_tax, db_path, monkeypatch
+):
+    """A carry / write exception MUST NOT cause ingest to report failure.
+    The quote is the load-bearing record; the error is surfaced via
+    auto_price_error and observability picks it up."""
+    import src.spine_bridge.shadow_ingest as si
+
+    # First, seed a linked predecessor so auto_link fires.
+    shadow_ingest_to_spine(
+        record_id="pc_for_resilience",
+        record_type="pc",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    _stamp_costs_on_quote(db_path, "pc_for_resilience", {
+        "MK-2103L": 4200, "PRM-1820": 8800,
+    })
+
+    def _boom(*a, **kw):
+        raise RuntimeError("pricer exploded")
+
+    monkeypatch.setattr(si, "_maybe_carry_costs", _boom)
+
+    rfq_res = shadow_ingest_to_spine(
+        record_id="rfq_pricer_resilient",
+        record_type="rfq",
+        classification=_Classification(solicitation_number="10847262"),
+        header=_header(),
+        items=_items(),
+        db_path=db_path,
+    )
+    assert rfq_res["ok"] is True  # ingest still succeeded
+    assert rfq_res.get("auto_link") is not None
+    assert "pricer exploded" in rfq_res.get("auto_price_error", "")
