@@ -149,6 +149,45 @@ CREATE TABLE IF NOT EXISTS spine_counters (
     last_set_at   TEXT NOT NULL,
     last_actor    TEXT
 );
+
+-- ──────────────────────────────────────────────────────────────────
+-- Quote ↔ Quote links — typically PC predecessor ← RFQ rebid.
+-- ──────────────────────────────────────────────────────────────────
+-- Closes Mike's 5/17 directive: "PC goes out, RFQ comes in, should be
+-- auto priced". This table records the relationship so the editor can
+-- surface "this RFQ matches your prior PC R26PC####" and the auto-price
+-- substrate (queued PR) can copy validated prior costs forward.
+--
+-- Directional: from_quote_id is the NEW quote (typically the RFQ);
+-- to_quote_id is the PRIOR quote (typically the PC). A single from
+-- may have multiple links (manual + auto, primary + alternate); the
+-- top-confidence row is the canonical link.
+--
+-- Append-only. Operators don't DELETE prior judgments — they add new
+-- ones. A bad auto-link is overridden by a higher-confidence
+-- "operator_manual" link, not by deleting the auto row. Audit chain
+-- stays intact.
+--
+-- evidence_json carries the structured reason the matcher decided:
+--   { "mfg_overlap_ratio": 0.75, "desc_jaccard_mean": 0.62,
+--     "same_facility": true, "same_solicitation_number": false,
+--     "matched_line_pairs": [[1, 1], [2, 3], [4, 4]] }
+-- Future matchers may add fields; reader is tolerant.
+CREATE TABLE IF NOT EXISTS spine_quote_links (
+    link_id        TEXT PRIMARY KEY,
+    from_quote_id  TEXT NOT NULL,
+    to_quote_id    TEXT NOT NULL,
+    match_method   TEXT NOT NULL,
+    confidence     REAL NOT NULL,
+    evidence_json  TEXT NOT NULL,
+    linked_at      TEXT NOT NULL,
+    actor          TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_spine_links_from
+    ON spine_quote_links(from_quote_id, confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_spine_links_to
+    ON spine_quote_links(to_quote_id, confidence DESC);
 """
 
 # Module-level write lock — Python-side serializer for the single
@@ -940,3 +979,194 @@ def _persist_counter(
         "VALUES (?, ?, ?, ?)",
         (counter_name, current_value, last_set_at, last_actor),
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Quote links — THE ONLY WRITER for spine_quote_links.
+# ──────────────────────────────────────────────────────────────────────
+
+# Confidence values are bounded [0.0, 1.0]. Operator-asserted manual
+# links use AUTO_LINK_OPERATOR_CONFIDENCE; the matcher sets its own
+# value derived from the evidence. The boundary itself is enforced at
+# the writer.
+LINK_CONFIDENCE_MIN = 0.0
+LINK_CONFIDENCE_MAX = 1.0
+AUTO_LINK_OPERATOR_CONFIDENCE = 1.0
+
+
+def write_quote_link(
+    db_path: str | Path,
+    *,
+    from_quote_id: str,
+    to_quote_id: str,
+    match_method: str,
+    confidence: float,
+    evidence: dict | None = None,
+    actor: str,
+) -> dict:
+    """Persist a directional link between two quotes. Append-only.
+
+    A link records "from_quote_id has a relationship to to_quote_id of
+    the given match_method with the given confidence". The canonical
+    use is PC predecessor (`to`) ← RFQ rebid (`from`). Operators may
+    add multiple links per `from` (primary + alternates); reads sort
+    by confidence DESC.
+
+    Args:
+        db_path:        SQLite path.
+        from_quote_id:  Quote.quote_id of the newer record (e.g., RFQ).
+        to_quote_id:    Quote.quote_id of the prior record (e.g., PC).
+                        MUST NOT equal from_quote_id (self-link refused).
+        match_method:   Short tag — "auto_mfg_desc", "operator_manual",
+                        "auto_solicitation_match", etc. Free-form so
+                        new matchers can declare their kind.
+        confidence:     0.0..1.0. The matcher's confidence; 1.0 reserved
+                        for operator-asserted ground truth.
+        evidence:       Structured JSON-serializable dict explaining the
+                        decision. Stored verbatim for audit.
+        actor:          Who wrote the link. "spine_auto_linker",
+                        "operator:<user>", etc.
+
+    Returns:
+        dict with link_id, linked_at.
+
+    Raises:
+        SpineValidationError on invalid inputs (self-link, bad
+        confidence, empty actor/method, missing quote_ids).
+    """
+    if not from_quote_id or not from_quote_id.strip():
+        raise SpineValidationError("write_quote_link requires from_quote_id.")
+    if not to_quote_id or not to_quote_id.strip():
+        raise SpineValidationError("write_quote_link requires to_quote_id.")
+    if from_quote_id.strip() == to_quote_id.strip():
+        raise SpineValidationError(
+            f"write_quote_link refused: self-link "
+            f"({from_quote_id!r} → itself) is meaningless."
+        )
+    if not match_method or not match_method.strip():
+        raise SpineValidationError("write_quote_link requires match_method.")
+    if not actor or not actor.strip():
+        raise SpineValidationError("write_quote_link requires actor.")
+    if not isinstance(confidence, (int, float)):
+        raise SpineValidationError(
+            f"write_quote_link confidence must be number; got {type(confidence).__name__}"
+        )
+    if confidence < LINK_CONFIDENCE_MIN or confidence > LINK_CONFIDENCE_MAX:
+        raise SpineValidationError(
+            f"write_quote_link confidence must be in "
+            f"[{LINK_CONFIDENCE_MIN}, {LINK_CONFIDENCE_MAX}]; got {confidence}"
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    evidence_dict = evidence if evidence is not None else {}
+    evidence_str = json.dumps(evidence_dict, sort_keys=True)
+
+    # Deterministic link_id derived from (from, to, method) so the same
+    # matcher running twice on the same pair doesn't duplicate. Operator
+    # re-confirmation of an existing auto-link no-ops.
+    payload = f"{from_quote_id.strip()}|{to_quote_id.strip()}|{match_method.strip()}"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    link_id = f"link_{digest}"
+
+    with _WRITE_LOCK:
+        with _connect(db_path) as conn:
+            existing = conn.execute(
+                "SELECT linked_at FROM spine_quote_links WHERE link_id = ?",
+                (link_id,),
+            ).fetchone()
+            if existing:
+                return {"link_id": link_id, "linked_at": existing["linked_at"], "duplicate": True}
+            _persist_link(
+                conn,
+                link_id=link_id,
+                from_quote_id=from_quote_id.strip(),
+                to_quote_id=to_quote_id.strip(),
+                match_method=match_method.strip(),
+                confidence=float(confidence),
+                evidence_json=evidence_str,
+                linked_at=now_iso,
+                actor=actor.strip(),
+            )
+
+    return {"link_id": link_id, "linked_at": now_iso, "duplicate": False}
+
+
+def _persist_link(
+    conn: sqlite3.Connection,
+    *,
+    link_id: str,
+    from_quote_id: str,
+    to_quote_id: str,
+    match_method: str,
+    confidence: float,
+    evidence_json: str,
+    linked_at: str,
+    actor: str,
+) -> None:
+    """THE ONLY function in src/spine/ that writes spine_quote_links.
+
+    Mirror of _persist_state / _persist_snapshot / _persist_contract /
+    _persist_rejection / _persist_counter. Substrate convention.
+    """
+    conn.execute(
+        "INSERT INTO spine_quote_links "
+        "(link_id, from_quote_id, to_quote_id, match_method, confidence, "
+        " evidence_json, linked_at, actor) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (link_id, from_quote_id, to_quote_id, match_method, confidence,
+         evidence_json, linked_at, actor),
+    )
+
+
+def find_links_from(db_path: str | Path, from_quote_id: str) -> list[dict]:
+    """Return all links originating from `from_quote_id`, highest
+    confidence first. Plain dicts — caller decides what to do with
+    them. Empty list if no links.
+
+    Used by editor surfaces ("this RFQ links to PC R26PC####") and by
+    the auto-price substrate (queued PR — pull validated costs from
+    the top-confidence linked PC)."""
+    if not from_quote_id or not from_quote_id.strip():
+        raise SpineValidationError("find_links_from requires from_quote_id.")
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT link_id, from_quote_id, to_quote_id, match_method, "
+            "       confidence, evidence_json, linked_at, actor "
+            "FROM spine_quote_links WHERE from_quote_id = ? "
+            "ORDER BY confidence DESC, linked_at DESC",
+            (from_quote_id.strip(),),
+        ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["evidence"] = json.loads(d["evidence_json"])
+        except Exception:
+            d["evidence"] = {}
+        out.append(d)
+    return out
+
+
+def find_links_to(db_path: str | Path, to_quote_id: str) -> list[dict]:
+    """Return all links pointing TO `to_quote_id`. Mirror of
+    find_links_from for the reverse direction — "which RFQs reference
+    this PC?". Same sort + shape."""
+    if not to_quote_id or not to_quote_id.strip():
+        raise SpineValidationError("find_links_to requires to_quote_id.")
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT link_id, from_quote_id, to_quote_id, match_method, "
+            "       confidence, evidence_json, linked_at, actor "
+            "FROM spine_quote_links WHERE to_quote_id = ? "
+            "ORDER BY confidence DESC, linked_at DESC",
+            (to_quote_id.strip(),),
+        ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["evidence"] = json.loads(d["evidence_json"])
+        except Exception:
+            d["evidence"] = {}
+        out.append(d)
+    return out
