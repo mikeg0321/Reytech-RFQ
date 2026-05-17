@@ -6056,6 +6056,7 @@ _ROUTE_MODULES = [
     "routes_buyer_templates",      # Phase 1.6 PR3c: buyer-template auto-capture (fingerprint+register)
     "routes_spine",                # The Spine — canonical CCHCS quote substrate (Mr. Wolf 2026-05-15)
     "routes_admin_export_eml",     # Path-B admin: fetch raw .eml by sol# (2026-05-16 Spine handoff §5)
+    "routes_gmail_health",         # Proactive Gmail OAuth liveness — closes 2026-05-16 silent-break class
 ]
 
 for _mod in _ROUTE_MODULES:
@@ -6121,6 +6122,18 @@ else:
 
 # ── Background agent schedulers (disabled in tests via ENABLE_BACKGROUND_AGENTS=false) ──
 if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+    # ── Start Gmail OAuth Liveness Watchdog (closes 2026-05-16 silent-break class) ──
+    # Polls users.getProfile() every 5 min for both inboxes; persists state to
+    # data/gmail_health.json; alerts via Twilio on broken→healthy and reverse.
+    # If this had been running 2026-05-16, the prod OAuth break would have
+    # surfaced within 5 min instead of hours.
+    try:
+        import src.agents.gmail_auth_watchdog as _gaw_mod
+        _gaw_mod.start_watchdog_thread()
+        log.info("Gmail auth watchdog started (5-min liveness probes, restartable)")
+    except Exception as _e:
+        log.warning("Gmail auth watchdog failed to start: %s", _e)
+
     # ── Start Follow-Up Engine (auto-creates follow-up drafts) ──────────────
     try:
         import src.agents.follow_up_engine as _fue_mod
