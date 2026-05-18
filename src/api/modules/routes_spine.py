@@ -48,6 +48,7 @@ from src.spine import (
     read_quote,
     read_snapshot,
     render_quote_pdf,
+    write_email_contract,
     write_quote,
     write_snapshot,
 )
@@ -787,6 +788,137 @@ def make_spine_blueprint(
             "response_packaging": contract.response_packaging,
             "files": files,
         })
+
+    # ─── POST /spine/quotes/<quote_id>/contract-override ──────────────
+    #
+    # Operator path for filling in EmailContract fields the inbound
+    # parser missed (5/18 Mike: "shouldn't I be allowed to fill out
+    # if not caught in the email contract so it shows on documents?").
+    #
+    # The contract substrate is append-only by Charter rule — corrections
+    # are never written in-place. Instead, this endpoint:
+    #   1. Loads the latest contract for `quote_id` (via find_contract_
+    #      for_quote → newest by ingested_at).
+    #   2. model_copy()s with the operator-supplied field overrides.
+    #   3. Writes a NEW contract row (same rfq_id, new contract_id with
+    #      `_op<ts>` suffix). Now find_contract_for_quote returns this
+    #      corrected version, and every downstream renderer (Quote PDF,
+    #      703B, 704B, bidpkg) picks up the operator's fills on the
+    #      next request.
+    #
+    # Body: JSON dict whose keys are any subset of EmailContract fields
+    # the operator wants to set/overwrite. Common fields parsers miss:
+    #   buyer_name, buyer_phone, buyer_title, ship_to_address,
+    #   ship_to_facility, release_date, due_date.
+    # `actor` is required (recorded in the new contract_id for audit).
+    #
+    # Returns 200 with {new_contract_id, prior_contract_id, fields_set:
+    # [...]} on success. 404 when no prior contract exists for the
+    # quote. 409 when the merged contract fails Pydantic validation.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/contract-override",
+        methods=["POST"],
+    )
+    @_wrap
+    def post_contract_override(quote_id: str):
+        from datetime import datetime, timezone
+        from src.spine.email_contract import EmailContract
+
+        body = request.get_json(silent=True) or {}
+        actor = (body.pop("actor", None) or "").strip()
+        if not actor:
+            return jsonify({
+                "error": "bad_request",
+                "detail": "actor (non-empty string) is required in body",
+            }), 400
+
+        # The contract substrate is the source of truth for these field
+        # names; we use the model's fields to validate the override
+        # keys and reject typos at the boundary.
+        allowed_fields = set(EmailContract.model_fields.keys()) - {
+            # Provenance / linkage fields the operator should NEVER
+            # override directly — they're managed by the substrate.
+            "contract_id", "rfq_id", "pc_id",
+            "source_email_id", "source_thread_id",
+            "ingested_at", "ingest_parser_version",
+        }
+        bad_keys = [k for k in body if k not in allowed_fields]
+        if bad_keys:
+            return jsonify({
+                "error": "bad_request",
+                "detail": (
+                    f"unknown or non-overridable field(s): {bad_keys}. "
+                    f"allowed: {sorted(allowed_fields)}"
+                ),
+            }), 400
+
+        prior = find_contract_for_quote(db_path, quote_id)
+        if prior is None:
+            return jsonify({
+                "error": "no_contract",
+                "detail": (
+                    f"no EmailContract bound to quote_id={quote_id!r}. "
+                    "Contract-override requires a prior contract to "
+                    "build the correction from (so source_email_id + "
+                    "required_forms etc. carry forward)."
+                ),
+            }), 404
+
+        # Merge: operator overrides win, prior contract fills the rest.
+        try:
+            corrected = prior.model_copy(update=body)
+        except Exception as e:
+            return jsonify({
+                "error": "validation_failed",
+                "detail": (
+                    f"merged contract failed validation: {e}. "
+                    "Check field types (dates as ISO strings, ints as "
+                    "ints, lists as lists)."
+                ),
+            }), 409
+
+        # New contract_id ties the correction to the prior + actor +
+        # timestamp so the audit chain is human-readable. Same rfq_id
+        # so find_contract_for_quote picks this up as the latest.
+        # Microsecond resolution so two rapid corrections from the same
+        # actor in the same second don't collide on contract_id (the
+        # spine_email_contracts unique constraint would reject the
+        # second write).
+        now = datetime.now(timezone.utc)
+        ts = f"{int(now.timestamp())}{now.microsecond:06d}"
+        actor_slug = "".join(c for c in actor if c.isalnum() or c in "_-")[:24]
+        # Append-only naming: prior contract_id stays untouched; the
+        # new id is derived from it so downstream forensic tooling can
+        # follow the chain.
+        prior_id = prior.contract_id
+        # Trim potential prior `_op...` suffix to keep the chain
+        # shallow — `_op` substrings nest otherwise on repeat overrides.
+        # The full prior chain is preserved in the contract_id chain
+        # readable on /events.
+        base_id = prior_id.split("_op")[0]
+        new_id = f"{base_id}_op{ts}_{actor_slug}"[:80]
+
+        corrected = corrected.model_copy(update={"contract_id": new_id})
+
+        try:
+            meta = write_email_contract(db_path, corrected)
+        except SpineValidationError as e:
+            return jsonify({"error": "write_failed", "detail": str(e)}), 409
+        except Exception as e:
+            log.exception("spine.contract_override: write failed for %s", quote_id)
+            return jsonify({"error": "write_failed", "detail": str(e)}), 500
+
+        return jsonify({
+            "ok": True,
+            "quote_id": quote_id,
+            "new_contract_id": meta["contract_id"],
+            "prior_contract_id": prior_id,
+            "fields_set": sorted(body.keys()),
+            "actor": actor,
+            "sha256": meta["sha256"],
+            "ingested_at": meta["ingested_at"],
+        }), 200
 
     # ─── GET /spine/queue/rejected ────────────────────────────────────
     #
