@@ -257,7 +257,16 @@
               {% endfor %}
             </select>
           </td>
-          <td class="col-desc">{{ li.description }}</td>
+          <td class="col-desc">
+            {# Editable — operator adds clarifying notes or trims
+               buyer noise. Max 500 chars per Quote.LineItem.description. #}
+            <input type="text"
+                   name="desc-{{ li.line_no }}"
+                   value="{{ li.description }}"
+                   maxlength="500"
+                   style="width:100%;box-sizing:border-box"
+                   aria-label="Description for line {{ li.line_no }}">
+          </td>
           <td class="col-mfg">
             {# Editable — operator corrects Vision/AcroForm parse misses
                in place. Empty string saves as None per the model's
@@ -321,7 +330,8 @@
 
     <div class="spine-actions">
       <button type="button" class="primary" id="spine-save-btn"
-              {% if quote.status == "sent" %}disabled title="Sent is terminal — no further edits"{% endif %}>
+              {% if quote.status == "sent" %}disabled title="Sent is terminal — no further edits"{% endif %}
+              title="Commit edits. Totals + tax recompute from your typed values on reload.">
         💾 Save
       </button>
 
@@ -345,6 +355,12 @@
           <button type="button" data-transition="priced">↩ Reopen to Priced</button>
         {% endif %}
       </span>
+    </div>
+
+    <div class="spine-actions-help" style="margin-top:6px;font-size:12px;color:#57606a">
+      💡 <strong>Save</strong> commits your edits and reloads (totals
+      recompute from typed values). <strong>Mark Priced / Finalized / Sent</strong>
+      auto-saves first, then transitions — one click is enough.
     </div>
 
     <div id="spine-result" class="spine-result"></div>
@@ -484,8 +500,11 @@
       // string saves as null per the model's mfg_number: str | None.
       const mfgInput = document.querySelector('input[name="mfg-' + li.line_no + '"]');
       const mfg = mfgInput ? mfgInput.value.trim() : (li.mfg_number || "");
+      const descInput = document.querySelector('input[name="desc-' + li.line_no + '"]');
+      const desc = descInput ? descInput.value.trim() : li.description;
       const costChanged = (cost !== li.cost_cents);
       return Object.assign({}, li, {
+        description: desc || li.description,
         mfg_number: mfg || null,
         qty: qty,
         uom: uom,

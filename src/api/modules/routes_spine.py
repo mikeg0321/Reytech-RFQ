@@ -169,6 +169,19 @@ def make_spine_blueprint(
                 "body_quote_id": body.get("quote_id"),
             }), 400
 
+        # Strip server-side computed fields the editor template echoed
+        # back. PR #1040 added display_number to the GET payload so the
+        # editor title could render the R{yy}Q#### identifier; the
+        # default JS Save flow round-trips the same dict back here, and
+        # Quote's extra='forbid' refuses it. Computed fields are NEVER
+        # stored — strip on the trust boundary.
+        for _stripped in ("display_number", "subtotal_cents", "tax_cents", "total_cents"):
+            body.pop(_stripped, None)
+        for _li in body.get("line_items") or []:
+            if isinstance(_li, dict):
+                _li.pop("extension_cents", None)
+                _li.pop("markup_pct_display", None)
+
         try:
             quote = Quote.model_validate(body)
         except Exception as e:
