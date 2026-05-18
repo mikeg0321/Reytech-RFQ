@@ -141,7 +141,12 @@ def test_edit_page_shows_kpi_block_with_correct_totals(client_with_seeded):
     assert "$1,820.00" in text
     assert "$150.15" in text
     assert "$1,970.15" in text
-    assert "8.25%" in text
+    # Tax-rate label is now "Tax (<span data-kpi='tax-rate'>8.25</span>%)" —
+    # the live-recompute hook splits the rate into its own span. Whitespace-
+    # collapse then check the trio is contiguous.
+    import re
+    flat = re.sub(r"<[^>]+>", "", text).replace(" ", "")
+    assert "Tax(8.25%)" in flat or "Tax(8.25)" in flat or "8.25%" in flat
     assert "Shipping" in text or "SHIPPING" in text
     assert "$0.00" in text  # shipping line always present
 

@@ -16,6 +16,7 @@ $50K bid and burned the rfq_0ebe242f Russ RFQ.
 |------|--------------|--------------|
 | 2026-05-15 | 19 substrate failure classes in one day; both shipped quotes had `Tax $0.00` and required hand-overlay PDF edit; cost-basis on Item 2555 was $20.85 in app vs $6.68 online | likely $50K CCHCS bid lost |
 | 2026-05-15 P0 | Single qty 2→3 edit on row 5 of e02b7fa6 flipped markup 35%→16% and mangled the whole quote | quote re-priced 3× |
+| **2026-05-17** | **PR #1040 added `display_number` to the rendered editor dict; the JS `initialQuote = {{ quote\|tojson }}` round-tripped it into the POST body → `extra='forbid'` rejected → HTTP 422 on every Save AND every Mark Priced (transitions Save-first). Vision walk verified H1 / title / PDF rendered correctly but NEVER CLICKED SAVE.** | **3 prod bugs in one ship — Save dead, status transitions dead, KPIs stuck at $0.00. Mike caught it on first walk.** |
 | 2026-05-13 | "PR-I" looked complete in tests + memory; digest was empty in prod because it was wired to wrong endpoint | walkthrough found the gap that grep missed |
 | 2026-05-05 | `pc.items` / `pc.line_items` alias drift dropped Mike's "Nads Hair Removal" line from UI even though it persisted in JSON | live UI data loss on a real Mike quote |
 | 2026-04-23 | Bundle-5 + Bundle-6 shipped to prod with pytest template-render assertions as the only UI proof; `readonly` lock, modal submit, live math, KPI strip — none exercised in real Chrome | spawned the CHROME-VERIFIED hard rule |
@@ -26,6 +27,37 @@ $50K bid and burned the rfq_0ebe242f Russ RFQ.
 The pattern: **tests passed + grep was clean + the substrate was wrong.**
 This gate is the operational fix — every quote-related ship now runs
 the catalog in real Chrome (with Vision watching) before merge.
+
+## MANDATORY: Save round-trip on every editor-touching PR
+
+Added 2026-05-18 after the PR #1040 / 422 incident. Render
+verification (GET → screenshot → "looks right") catches ZERO bugs
+that live on the POST path. The trust boundary the operator
+actually crosses is **Save / Mark Priced / Mark Sent**.
+
+Every PR that touches the editor template, the Quote model, the
+spine POST handler, or anything they consume MUST walk this 4-step
+sequence and commit the artifacts to `_diag/walk_<date>/`:
+
+| # | Action | Artifact to commit |
+|---|--------|---------------------|
+| 1 | Type real values into ≥1 input per row (cost, price, desc, MFG#) | screenshot BEFORE Save |
+| 2 | Click **Save** → wait for the result banner | screenshot of green-banner success |
+| 3 | Page reloads (or refresh) → confirm KPI strip shows non-zero subtotal/tax/total | screenshot of reloaded KPIs |
+| 4 | Confirm `POST /spine/quotes/<id>/state` returned 200 | network-tab capture OR console log |
+
+Then for any status-transition button your PR enables (Mark Priced,
+Mark Finalized, Mark Sent): click it, screenshot the status pill
+change after reload.
+
+`CHROME_VERIFIED_SKIP=1` is the WRONG escape hatch when the PR
+touches the editor — the right escape hatch is to actually walk it.
+The 30 seconds it takes is the difference between "the H1 renders
+R26Q0001" (true and useless) and "the operator can save a quote".
+
+The PR #1040 bug — `display_number` echoed into POST body, rejected
+by `extra='forbid'`, 422 on every Save — would have been caught in
+the Save-banner screenshot. Render-only walks are no longer enough.
 
 ## Rules of the Gate
 
