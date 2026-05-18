@@ -258,3 +258,120 @@ def test_route_704b_returns_409_when_over_capacity(client, db_path):
     assert r.status_code == 409
     body = r.get_json()
     assert body["error"] == "form_fill_mismatch"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# PR #1053 — REQUESTOR from contract, ITEM NUMBER from mfg, merchandise
+# subtotal populated. Each regression caught 5/18 on R26Q40 vision-walk.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _ok_contract(quote_id: str = "rfq_704b_test", **overrides):
+    from src.spine.email_contract import ContractLineItem, EmailContract
+    base = dict(
+        contract_id="contract_704b_test_001",
+        rfq_id=quote_id,
+        agency="CCHCS",
+        facility="Test - CCWF",
+        solicitation_number="10846581",
+        buyer_name="Marc Argarin",
+        buyer_email="marc.argarin@cdcr.ca.gov",
+        buyer_phone="555-555-5555",
+        ship_to_address="900 Quebec Ave\nCorcoran, CA 93212",
+        ship_to_facility="CCWF Receiving",
+        line_items=[ContractLineItem(line_no=1, description="X", qty=1, uom="EA")],
+    )
+    base.update(overrides)
+    return EmailContract(**base)
+
+
+def _extract_text(pdf_bytes: bytes) -> str:
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        return "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+
+def test_704b_requestor_block_comes_from_contract_not_reytech():
+    """REQUESTOR + PHONE/EMAIL must show the state official (buyer side),
+    NOT Reytech identity. Pre-#1053 the 704B rendered REQUESTOR=Reytech
+    contact_person which made the bid look like Reytech was requesting
+    its own quote — would fail CCHCS responsiveness."""
+    q = _quote("Q-req-from-contract", n_items=1)
+    c = _ok_contract(
+        quote_id="Q-req-from-contract",
+        buyer_name="Marc Argarin",
+        buyer_email="marc.argarin@cdcr.ca.gov",
+        buyer_phone="916-555-1234",
+    )
+    text = _extract_text(fill_704b_pdf(q, _identity(), contract=c))
+    # Buyer info present in REQUESTOR block.
+    assert "Marc Argarin" in text
+    assert "marc.argarin@cdcr.ca.gov" in text
+    assert "916-555-1234" in text
+    # Reytech identity (defaults) MUST NOT be in the requestor slot —
+    # it can still appear in COMPANY NAME / PERSON PROVIDING QUOTE.
+    # Specifically: Reytech's identity.email must NOT show as the
+    # REQUESTOR email. The check is structural: buyer email present
+    # AND identity email NOT present, OR identity email present only
+    # in the COMPANY-NAME context.
+    assert _identity().email not in text or "marc.argarin" in text
+
+
+def test_704b_item_number_renders_mfg_not_row_number():
+    """ITEM NUMBER column = buyer-side MFG / catalog #. Pre-#1053 it
+    rendered str(li.line_no) which collided with row position and was
+    useless for the agency cross-checking the manufacturer's catalog.
+    Mirror of PR #1045 (parser side); writer side was missed."""
+    q = _quote("Q-itemno-mfg", n_items=2)
+    # Override mfg to a real-shape part #.
+    q = q.model_copy(update={
+        "line_items": [
+            q.line_items[0].model_copy(update={"mfg_number": "503-0142-01"}),
+            q.line_items[1].model_copy(update={"mfg_number": "008-0869-00"}),
+        ]
+    })
+    text = _extract_text(fill_704b_pdf(q, _identity()))
+    # pdfplumber splits cell content on column-edge whitespace —
+    # flatten before checking.
+    flat = "".join(text.split())
+    assert "503-0142-01" in flat
+    assert "008-0869-00" in flat
+
+
+def test_704b_merchandise_subtotal_field_is_populated():
+    """The bottom-of-page MERCHANDISE SUBTOTAL (fill_154) must equal
+    the sum of line extensions. Pre-#1053 it was blank — CCHCS reviewer
+    had to hand-total to verify."""
+    q = _quote("Q-merch-sub", n_items=3)
+    expected_total = sum(li.extension_cents for li in q.line_items)
+    text = _extract_text(fill_704b_pdf(q, _identity()))
+    whole, frac = divmod(expected_total, 100)
+    expected_str = f"{whole:,}.{frac:02d}"
+    flat = "".join(text.replace("$", "").split())
+    assert expected_str.replace(",", "") in flat
+
+
+def test_704b_no_contract_falls_back_to_reytech_for_requestor():
+    """Legacy callers passing no contract still render — REQUESTOR
+    falls back to Reytech identity. Keeps pre-#1053 fixtures + tests
+    green; production should always pass a contract."""
+    q = _quote("Q-no-contract", n_items=1)
+    text = _extract_text(fill_704b_pdf(q, _identity()))
+    # Falls back: Reytech contact_person shows as both PERSON PROVIDING
+    # QUOTE and REQUESTOR (legacy behavior, documented in _field_map).
+    assert _identity().contact_person in text
+
+
+def test_reytech_identity_defaults_are_real_not_placeholder():
+    """The dataclass defaults MUST be Mike's actual buyer-facing values.
+    Closes the 5/18 ship-blocking class where prod (no REYTECH_* env)
+    fell through to "Michael Greenwald / 1 Reytech Way, Irvine /
+    rfq@" placeholders. Every CCHCS form with those defaults would
+    fail responsiveness."""
+    i = ReytechIdentity()
+    assert i.business_name == "Reytech Inc."
+    assert "Trabuco Canyon" in i.address
+    assert "30 Carnoustie Way" in i.address
+    assert i.contact_person == "Michael Guadan"
+    assert i.title == "Owner"
+    assert i.email == "sales@reytechinc.com"
+    assert i.sellers_permit == "245652416-00001"

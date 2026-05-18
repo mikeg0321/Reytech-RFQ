@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 from src.spine.agency_forms.cchcs_703b import ReytechIdentity, SpineFormFillError
 
 if TYPE_CHECKING:
+    from src.spine.email_contract import EmailContract
     from src.spine.model import Quote
 
 
@@ -89,8 +90,21 @@ def _dollars(cents: int) -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def _field_map(quote: "Quote", identity: ReytechIdentity, today: datetime) -> dict[str, str]:
-    """Build the AcroForm value dict from the Quote + identity."""
+def _field_map(
+    quote: "Quote",
+    identity: ReytechIdentity,
+    today: datetime,
+    contract: "EmailContract | None" = None,
+) -> dict[str, str]:
+    """Build the AcroForm value dict from the Quote + identity.
+
+    The REQUESTOR / DEPARTMENT / PHONEEMAIL block on page 1 is the
+    STATE OFFICIAL contacting Reytech (the buyer side), not Reytech
+    itself. When a contract is provided, those fields come from
+    contract.buyer_* fields. Without a contract, they fall back to
+    Reytech identity (legacy path; preserves the pre-#1053 shape so
+    tests + fixtures keep passing).
+    """
     if len(quote.line_items) > _MAX_LINE_ITEMS:
         raise SpineFormFillError(
             f"704B fill: quote has {len(quote.line_items)} line items, "
@@ -99,33 +113,64 @@ def _field_map(quote: "Quote", identity: ReytechIdentity, today: datetime) -> di
             "rather than silently truncating."
         )
 
+    # State-official block: who at CCHCS requested this bid?
+    if contract is not None:
+        requestor_name = contract.buyer_name or ""
+        requestor_phone = contract.buyer_phone or ""
+        requestor_email = contract.buyer_email or ""
+    else:
+        # Legacy fallback — no contract bound. Render Reytech as
+        # requestor (matches pre-#1053 behavior). Operator must
+        # hand-correct on the rare contract-less render.
+        requestor_name = identity.contact_person
+        requestor_phone = identity.phone
+        requestor_email = identity.email
+
+    phone_email_parts = [p for p in (requestor_phone, requestor_email) if p]
+    phone_email = " / ".join(phone_email_parts)
+
     values: dict[str, str] = {
         # Page-1 header / identity block.
         "COMPANY NAME": identity.business_name,
         "DEPARTMENT": quote.agency,
         "SOLICITATION": quote.solicitation_number,
-        "REQUESTOR": identity.contact_person,
+        # State official (buyer-side) — comes from contract.buyer_*.
+        "REQUESTOR": requestor_name,
+        "PHONEEMAIL": phone_email,
+        # PERSON PROVIDING QUOTE is the Reytech-side rep (the bidder).
         "PERSON PROVIDING QUOTE": identity.contact_person,
-        "PHONEEMAIL": f"{identity.phone} / {identity.email}",
         "Date1_af_date": today.strftime("%m/%d/%Y"),
     }
 
+    merchandise_subtotal_cents = 0
     for li in quote.line_items:
         suffix, row_no = _row_assignment(li.line_no)
         def k(prefix: str) -> str:
             return f"{prefix}Row{row_no}{suffix}"
 
-        values[k(_ITEM_NUMBER_PREFIX)] = str(li.line_no)
+        # ITEM NUMBER column = buyer's MFG / catalog #, not the row#.
+        # Mirrors PR #1045 (parser fix); 704B writer was missed in
+        # that PR. Caught 5/18 on R26Q40 vision-walk — 704B showed
+        # "1" / "2" instead of "503-0142-01" / "008-0869-00", which
+        # would fail CCHCS responsiveness because the agency cross-
+        # checks ITEM NUMBER against the manufacturer's catalog.
+        # Fallback to row# only when mfg_number is blank.
+        values[k(_ITEM_NUMBER_PREFIX)] = li.mfg_number or str(li.line_no)
         values[k(_DESCRIPTION_PREFIX)] = li.description
         # UNSPSC isn't tracked in the Spine model yet — leave blank.
-        # When/if the Quote model grows a `unspsc` field, fill here.
         values[k(_UNSPSC_PREFIX)] = ""
         values[k(_QTY_PREFIX)] = str(li.qty)
         values[k(_UOM_PREFIX)] = li.uom
-        values[k(_QTY_PER_UOM_PREFIX)] = "1"  # Spine treats qty as
-                                              # already in UOM units.
+        values[k(_QTY_PER_UOM_PREFIX)] = "1"
         values[k(_PRICE_PER_UNIT_PREFIX)] = _dollars(li.unit_price_cents)
         values[k(_SUBTOTAL_PREFIX)] = _dollars(li.extension_cents)
+        merchandise_subtotal_cents += li.extension_cents
+
+    # MERCHANDISE SUBTOTAL — bottom-of-page grand-total field on the
+    # 704B template (field name `fill_154`). Required by CCHCS for the
+    # bid responsiveness check; left blank pre-#1053 → reviewer cannot
+    # verify line-sum without hand math, blocks award.
+    values["fill_154"] = _dollars(merchandise_subtotal_cents)
 
     return values
 
@@ -141,6 +186,7 @@ def fill_704b_pdf(
     *,
     today: datetime | None = None,
     flatten: bool = True,
+    contract: "EmailContract | None" = None,
 ) -> bytes:
     """Fill the CCHCS 704B line-item form and return bytes.
 
@@ -167,7 +213,7 @@ def fill_704b_pdf(
             "Re-copy from parent repo data/templates/704b_blank.pdf."
         )
 
-    field_values = _field_map(quote, identity, today)
+    field_values = _field_map(quote, identity, today, contract=contract)
 
     reader = pypdf.PdfReader(str(_BLANK_TEMPLATE))
     writer = pypdf.PdfWriter(clone_from=reader)
