@@ -659,3 +659,48 @@ def test_partial_post_does_not_mutate_existing_state(client, db_path):
     assert after is not None
     # The stored state must be unchanged.
     assert after.to_persisted_dict() == before_dump
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Regression: POST /state must strip server-computed fields the editor
+# template echoed back (display_number leaked from PR #1040 → HTTP 422
+# at first prod test 2026-05-17).
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_post_state_strips_display_number_from_body(client):
+    """Editor template surfaces display_number to render R{yy}Q####;
+    the default Save round-trips the same dict back. Quote uses
+    extra='forbid' so the round-trip would 422 unless the route
+    strips computed fields at the trust boundary.
+
+    Regression test for the prod 422 Mike hit on 2026-05-17 first
+    Save after PR #1040 went live."""
+    qid = "Q-display-strip-001"
+    q = _ok_quote(qid)
+    # Seed via POST.
+    seed = client.post(f"/spine/quotes/{qid}/state", json=q.to_persisted_dict())
+    assert seed.status_code == 200
+
+    # Mimic the editor's Save: pull state, splice in the computed
+    # fields the template sees, POST back. Without the route's
+    # computed-field strip, this would 422.
+    body = client.get(f"/spine/quotes/{qid}").json
+    body["display_number"] = "R26Q0001"
+    body["subtotal_cents"] = 999_999
+    body["tax_cents"] = 12_345
+    body["total_cents"] = 1_012_344
+    for li in body["line_items"]:
+        li["extension_cents"] = 99_999
+        li["markup_pct_display"] = 42.0
+
+    r = client.post(f"/spine/quotes/{qid}/state", json=body)
+    assert r.status_code == 200, (
+        f"POST /state must strip computed fields and accept the body. "
+        f"Got {r.status_code}: {r.json}"
+    )
+    # Server must NOT have stored the lies — computed fields are
+    # re-derived on read.
+    reread = client.get(f"/spine/quotes/{qid}").json
+    assert "display_number" not in reread
+    assert "subtotal_cents" not in reread
