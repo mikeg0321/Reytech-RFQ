@@ -574,12 +574,34 @@ def make_spine_blueprint(
         # to the template as a separate kwarg alongside the money strings.
         quote_dict = quote.to_persisted_dict()
         quote_dict["display_number"] = quote.display_number
+
+        # Surface ship-to + tax provenance from the EmailContract so
+        # the operator can visually confirm "this 7.75% is right for
+        # this address" instead of trusting a number. Closes Mike's
+        # 5/18 feedback: "7.75 is cdtfa confirmed, but theres not
+        # logic or qa visual its good".
+        contract = find_contract_for_quote(db_path, quote_id)
+        ship_to_address = contract.ship_to_address if contract else None
+        ship_to_facility = contract.ship_to_facility if contract else None
+        # CDTFA verify URL pre-fills the address as best we can — the
+        # CDTFA lookup form expects a single address string; operator
+        # pastes if the deep link doesn't carry over.
+        from urllib.parse import quote_plus
+        cdtfa_verify_url = (
+            f"https://maps.cdtfa.ca.gov/?address={quote_plus(ship_to_address or '')}"
+            if ship_to_address
+            else "https://maps.cdtfa.ca.gov/"
+        )
+
         return render_template(
             "spine_pc_detail.html",
             quote=quote_dict,
             latest_snap=snap,
             snap_matches_current=snap_matches_current,
             supported_uom=SUPPORTED_UOM,
+            ship_to_address=ship_to_address,
+            ship_to_facility=ship_to_facility,
+            cdtfa_verify_url=cdtfa_verify_url,
             # Pre-formatted computed fields for display (model still
             # owns the math; template just shows the values).
             subtotal_display=f"${quote.subtotal_cents/100:,.2f}",

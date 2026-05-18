@@ -156,6 +156,14 @@
         &nbsp; Facility: <strong>{{ quote.facility }}</strong>
         &nbsp; Solicitation: <strong>{{ quote.solicitation_number }}</strong>
       </div>
+      {% if ship_to_address %}
+      <div class="meta" style="margin-top:4px">
+        🚚 Ship-to: <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#333">{{ ship_to_address }}</span>
+        {% if ship_to_facility and ship_to_facility != quote.facility %}
+          <span style="color:#888">({{ ship_to_facility }})</span>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
   </div>
 
@@ -209,7 +217,19 @@
 
   <div class="spine-kpi">
     <div class="kpi-cell"><span class="lbl">Subtotal</span><span class="val" data-kpi="subtotal">{{ subtotal_display }}</span></div>
-    <div class="kpi-cell"><span class="lbl">Tax (<span data-kpi="tax-rate">{{ tax_rate_pct }}</span>%)</span><span class="val" data-kpi="tax">{{ tax_display }}</span></div>
+    <div class="kpi-cell">
+      <span class="lbl">
+        Tax (<span data-kpi="tax-rate">{{ tax_rate_pct }}</span>%)
+        {% if cdtfa_verify_url %}
+          <a href="{{ cdtfa_verify_url }}" target="_blank" rel="noopener noreferrer"
+             style="font-size:10px;color:#0969da;text-decoration:none;margin-left:4px"
+             title="{% if ship_to_address %}Resolved by CDTFA for {{ ship_to_address }}. Click to verify.{% else %}Open CDTFA lookup{% endif %}">
+            🔍 verify
+          </a>
+        {% endif %}
+      </span>
+      <span class="val" data-kpi="tax">{{ tax_display }}</span>
+    </div>
     <div class="kpi-cell"><span class="lbl">Shipping</span><span class="val">$0.00</span></div>
     <div class="kpi-cell"><span class="lbl">Total</span><span class="val" data-kpi="total">{{ total_display }}</span></div>
   </div>
