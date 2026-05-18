@@ -40,6 +40,7 @@ from src.spine import (
     contract_vs_quote,
     find_contract_for_quote,
     init_db,
+    iter_quote_ids,
     iter_snapshots,
     latest_rejections,
     latest_snapshot,
@@ -80,6 +81,58 @@ def make_spine_blueprint(
 
     def _wrap(f: Callable) -> Callable:
         return auth_decorator(f) if auth_decorator else f
+
+    # ─── GET /spine/quotes/ (index) ───────────────────────────────────
+    # Operator entry point — every Spine quote in this DB as a clickable
+    # link to the editor. Added 2026-05-17 because navigating to
+    # /spine/quotes/ used to 404 with no way to discover IDs.
+
+    @spine_bp.route("/spine/quotes/", methods=["GET"])
+    @spine_bp.route("/spine/quotes", methods=["GET"])
+    @_wrap
+    def list_quotes():
+        try:
+            from flask import render_template
+        except Exception:
+            return jsonify({"error": "template_engine_unavailable"}), 500
+
+        rows: list[dict] = []
+        for qid in iter_quote_ids(db_path):
+            q = read_quote(db_path, qid)
+            if q is None:
+                continue
+            # Pull the link + carry hint so the operator can see at a
+            # glance "this RFQ is linked to PC R26PC####".
+            links = []
+            try:
+                from src.spine import find_links_from as _fl
+                links = _fl(db_path, qid)
+            except Exception:
+                links = []
+            top_link = links[0] if links else None
+            rows.append({
+                "quote_id": qid,
+                "display_number": q.display_number,
+                "agency": q.agency,
+                "facility": q.facility,
+                "solicitation_number": q.solicitation_number,
+                "status": q.status.value,
+                "line_count": len(q.line_items),
+                "subtotal_display": f"${q.subtotal_cents / 100:,.2f}",
+                "total_display": f"${q.total_cents / 100:,.2f}",
+                "updated_at": q.updated_at.isoformat() if q.updated_at else "",
+                "linked_to": top_link["to_quote_id"] if top_link else None,
+                "link_confidence": top_link["confidence"] if top_link else None,
+            })
+
+        # Sort newest-first by updated_at.
+        rows.sort(key=lambda r: r["updated_at"], reverse=True)
+
+        # JSON shortcut for ops tools / smoke checks.
+        if request.args.get("format") == "json":
+            return jsonify({"count": len(rows), "quotes": rows})
+
+        return render_template("spine_quotes_index.html", quotes=rows)
 
     # ─── GET /spine/quotes/<quote_id> ─────────────────────────────────
 
