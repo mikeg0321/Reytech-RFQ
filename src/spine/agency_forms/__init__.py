@@ -73,14 +73,16 @@ def _render_quote_pdf_adapter(
     *,
     today: Optional[datetime] = None,
     flatten: bool = True,
+    contract=None,
 ) -> bytes:
     """Adapter so render_quote_pdf can sit in FORM_REGISTRY beside the
-    fill_*_pdf functions. identity/today/flatten are accepted-and-ignored
-    — the Quote PDF derives everything from the Quote model alone, has
-    no AcroForm to flatten, and uses datetime.now() for any timestamps
-    it cares about (which the matching gate doesn't compare against)."""
+    fill_*_pdf functions. identity/flatten are accepted-and-ignored —
+    the Quote PDF derives identity from its own constants and has no
+    AcroForm to flatten. `today` and `contract` ARE passed through:
+    `today` for deterministic test rendering, `contract` for buyer-side
+    Bill-to / Ship-to / RFQ-title (template-match PR #1052)."""
     from src.spine.quote_pdf import render_quote_pdf
-    return render_quote_pdf(quote)
+    return render_quote_pdf(quote, contract=contract, today=today)
 
 
 # ──────────────────────────────────────────────────────────────────────
