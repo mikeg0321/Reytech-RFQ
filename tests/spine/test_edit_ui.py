@@ -283,3 +283,70 @@ def test_edit_page_has_pdf_and_event_log_links(client_with_seeded):
     text = client_with_seeded.get("/spine/quotes/Q-edit-001/edit").data.decode("utf-8")
     assert '/spine/quotes/Q-edit-001/pdf' in text
     assert '/spine/quotes/Q-edit-001/events' in text
+
+
+# ──────────────────────────────────────────────────────────────────────
+# /spine/quotes/ index page
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_index_page_renders_seeded_quote(client_with_seeded):
+    """The index page lists the seeded quote with its display_number
+    and a click-through link to the editor."""
+    r = client_with_seeded.get("/spine/quotes/")
+    assert r.status_code == 200
+    assert r.mimetype == "text/html"
+    text = r.data.decode("utf-8")
+    # Display number shows.
+    import re
+    assert re.search(r"R\d{2}Q\d{4}", text)
+    # Internal id is the click target.
+    assert 'href="/spine/quotes/Q-edit-001/edit"' in text
+    # Heading is correct.
+    assert "Spine Quotes" in text
+
+
+def test_index_page_json_shortcut(client_with_seeded):
+    """?format=json returns structured data — useful for ops smoke."""
+    r = client_with_seeded.get("/spine/quotes/?format=json")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["count"] >= 1
+    quotes = body["quotes"]
+    assert any(q["quote_id"] == "Q-edit-001" for q in quotes)
+    target = next(q for q in quotes if q["quote_id"] == "Q-edit-001")
+    assert target["display_number"]  # auto-assigned by write_quote
+    assert target["agency"] == "CCHCS"
+
+
+def test_index_page_no_trailing_slash_also_works(client_with_seeded):
+    r = client_with_seeded.get("/spine/quotes")
+    assert r.status_code == 200
+
+
+def test_index_page_empty_db_renders_empty_state(tmp_path):
+    """Fresh DB with zero quotes shows the empty-state message, not 404."""
+    import os
+    from flask import Flask
+    from src.spine import init_db
+    from src.api.modules.routes_spine import make_spine_blueprint
+
+    db = tmp_path / "empty_spine.db"
+    init_db(str(db))
+    template_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "src", "templates",
+    )
+    app = Flask(__name__, template_folder=template_dir)
+    app.testing = True
+
+    @app.context_processor
+    def _ctx():
+        return {"csrf_token_value": "test-csrf"}
+
+    app.register_blueprint(make_spine_blueprint(str(db), auth_decorator=None))
+    client = app.test_client()
+    r = client.get("/spine/quotes/")
+    assert r.status_code == 200
+    text = r.data.decode("utf-8")
+    assert "No Spine quotes yet" in text

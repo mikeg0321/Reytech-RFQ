@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Spine — All Quotes{% endblock %}
+
+{% block head_extra %}
+<style>
+  .spine-index { padding: 20px 32px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .spine-index h1 { font-size: 22px; margin: 0 0 6px; }
+  .spine-index .sub { color: #666; margin: 0 0 14px; font-size: 13px; }
+  .spine-index table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .spine-index th, .spine-index td {
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid #e6e6e6;
+    vertical-align: top; white-space: nowrap;
+  }
+  .spine-index th { background: #f7f7f7; font-weight: 600; }
+  .spine-index tr:hover { background: #fafafa; }
+  .spine-index .pill {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+  }
+  .spine-index .pill.parsed    { background: #fff4d6; color: #7a5500; }
+  .spine-index .pill.priced    { background: #d8ebff; color: #114b85; }
+  .spine-index .pill.finalized { background: #e0f7e0; color: #1e6a1e; }
+  .spine-index .pill.sent      { background: #e0e0e0; color: #555; }
+  .spine-index .display-num { font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-weight: 600; color: #114b85; }
+  .spine-index .quote-id { font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: #888; font-size: 11px; }
+  .spine-index .link-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    background: #f0e8ff; color: #4a2e8e; font-size: 11px; font-weight: 600;
+  }
+  .spine-index .empty {
+    padding: 40px; text-align: center; color: #888; font-size: 14px;
+    background: #fafafa; border-radius: 8px;
+  }
+  .spine-index a.edit-link { color: inherit; text-decoration: none; }
+  .spine-index a.edit-link:hover { text-decoration: underline; }
+  .spine-index .toolbar { margin-bottom: 8px; font-size: 12px; color: #888; }
+  .spine-index .toolbar a { color: #114b85; margin-left: 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="spine-index">
+  <h1>Spine Quotes</h1>
+  <p class="sub">All {{ quotes|length }} quote(s) in the Spine substrate. Click a row to open the editor.</p>
+  <div class="toolbar">
+    <a href="/spine/quotes/?format=json">JSON</a>
+    <a href="/spine/queue/rejected">Ingest Rejections →</a>
+  </div>
+
+  {% if not quotes %}
+    <div class="empty">
+      <strong>No Spine quotes yet.</strong><br/>
+      Trigger a shadow ingest (SPINE_SHADOW_INGEST_ENABLED=1 + an inbound RFQ)
+      and refresh.
+    </div>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Quote #</th>
+          <th>Status</th>
+          <th>Facility</th>
+          <th>Solicitation</th>
+          <th>Lines</th>
+          <th>Subtotal</th>
+          <th>Total</th>
+          <th>Linked PC</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in quotes %}
+        <tr>
+          <td>
+            <a class="edit-link" href="/spine/quotes/{{ q.quote_id }}/edit">
+              <span class="display-num">{{ q.display_number or '—' }}</span><br/>
+              <span class="quote-id">{{ q.quote_id }}</span>
+            </a>
+          </td>
+          <td><span class="pill {{ q.status }}">{{ q.status }}</span></td>
+          <td>{{ q.facility }}</td>
+          <td>{{ q.solicitation_number }}</td>
+          <td>{{ q.line_count }}</td>
+          <td>{{ q.subtotal_display }}</td>
+          <td>{{ q.total_display }}</td>
+          <td>
+            {% if q.linked_to %}
+              <a class="link-badge" href="/spine/quotes/{{ q.linked_to }}/edit"
+                 title="confidence {{ q.link_confidence }}">→ {{ q.linked_to[:14] }}…</a>
+            {% else %}
+              <span style="color:#bbb">—</span>
+            {% endif %}
+          </td>
+          <td><span style="color:#888;font-size:11px">{{ q.updated_at[:19] if q.updated_at else '' }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}
