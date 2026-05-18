@@ -208,10 +208,10 @@
   <div class="spine-pane-form">
 
   <div class="spine-kpi">
-    <div class="kpi-cell"><span class="lbl">Subtotal</span><span class="val">{{ subtotal_display }}</span></div>
-    <div class="kpi-cell"><span class="lbl">Tax ({{ tax_rate_pct }}%)</span><span class="val">{{ tax_display }}</span></div>
+    <div class="kpi-cell"><span class="lbl">Subtotal</span><span class="val" data-kpi="subtotal">{{ subtotal_display }}</span></div>
+    <div class="kpi-cell"><span class="lbl">Tax (<span data-kpi="tax-rate">{{ tax_rate_pct }}</span>%)</span><span class="val" data-kpi="tax">{{ tax_display }}</span></div>
     <div class="kpi-cell"><span class="lbl">Shipping</span><span class="val">$0.00</span></div>
-    <div class="kpi-cell"><span class="lbl">Total</span><span class="val">{{ total_display }}</span></div>
+    <div class="kpi-cell"><span class="lbl">Total</span><span class="val" data-kpi="total">{{ total_display }}</span></div>
   </div>
 
   <form id="spine-form" onsubmit="return false;">
@@ -572,6 +572,72 @@
       }
     });
   });
+
+  // ── Live KPI + extension recompute ─────────────────────────────────
+  //
+  // After PR #1040 the operator typed values and saw $0.00 KPIs until
+  // Save reloaded the page; combined with the Save 422 bug that meant
+  // every typing session looked dead. This recomputer mirrors the
+  // server-side derivation client-side as the operator types — pure
+  // DOM, no POST. The substrate is still the source of truth (Save
+  // is the only writer), so a mid-edit reload still shows last-saved
+  // values.
+  //
+  // Tax math mirrors src/spine/model.py::Quote.tax_cents — integer
+  // bps with banker's rounding. The integer math here matches the
+  // server's `total = subtotal * bps` then divmod 10000 + tie-to-even
+  // rule used in the model. A mismatch between this preview and the
+  // post-save server value would be a substrate bug.
+  function recomputeKpis() {
+    var subtotalCents = 0;
+    document.querySelectorAll('tr[data-line-no]').forEach(function(row){
+      var lineNo = row.dataset.lineNo;
+      var qtyEl = row.querySelector('input[name="qty-' + lineNo + '"]');
+      var priceEl = row.querySelector('input[name="price-' + lineNo + '"]');
+      if (!qtyEl || !priceEl) return;
+      var qty = Math.max(0, parseInt(qtyEl.value, 10) || 0);
+      var priceCents = dollarsToCents(priceEl.value);
+      var extCents = qty * priceCents;
+      subtotalCents += extCents;
+      var extCell = row.querySelector('[data-extension-cell="' + lineNo + '"]');
+      if (extCell) extCell.textContent = fmtMoney(extCents);
+    });
+    // Tax: banker's-rounded integer bps math — mirror of Quote.tax_cents.
+    var bps = (typeof window.SPINE_TAX_RATE_BPS === 'number')
+              ? window.SPINE_TAX_RATE_BPS
+              : (initialQuote && initialQuote.tax_rate_bps) || 0;
+    var taxCents = 0;
+    if (bps > 0 && subtotalCents > 0) {
+      var total = subtotalCents * bps;
+      var quotient = Math.floor(total / 10000);
+      var remainder = total - quotient * 10000;
+      var double_rem = remainder * 2;
+      if (double_rem > 10000) {
+        taxCents = quotient + 1;
+      } else if (double_rem < 10000) {
+        taxCents = quotient;
+      } else {
+        taxCents = (quotient % 2) ? quotient + 1 : quotient;
+      }
+    }
+    var totalCents = subtotalCents + taxCents;
+    var subEl = document.querySelector('[data-kpi="subtotal"]');
+    var taxEl = document.querySelector('[data-kpi="tax"]');
+    var totEl = document.querySelector('[data-kpi="total"]');
+    if (subEl) subEl.textContent = fmtMoney(subtotalCents);
+    if (taxEl) taxEl.textContent = fmtMoney(taxCents);
+    if (totEl) totEl.textContent = fmtMoney(totalCents);
+  }
+  // Wire to every cost / qty / price / markup input (markup updates
+  // unit_price which feeds the recompute via the existing listener).
+  document.querySelectorAll(
+    'input[name^="qty-"], input[name^="price-"], input[name^="cost-"], input[name^="markup-"]'
+  ).forEach(function(el){
+    el.addEventListener('input', recomputeKpis);
+    el.addEventListener('change', recomputeKpis);
+  });
+  // Initial pass so cached values from autofill etc. show through.
+  recomputeKpis();
 
   // ── Send-prep panel — Gmail compose URL + PDF download.
   //
