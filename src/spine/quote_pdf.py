@@ -103,12 +103,12 @@ REYTECH_EMAIL = "sales@reytechinc.com"
 REYTECH_WEBSITE = "www.reytechinc.com"
 REYTECH_SELLERS_PERMIT = "CA Sellers Permit: 245652416-00001"
 
-# Buyer-facing default constants. Mike's R26Q39 reference shows
-# "Net 30" terms and a 45-day expiration window. These are the
-# documented Reytech defaults; an EmailContract may override per bid
-# in a future PR (`contract.payment_terms` / `contract.expiration_date`)
-# without changing this renderer.
-TERMS_DEFAULT = "Net 30"
+# Buyer-facing default constants. Mike 5/18: "quotes are always
+# Net 45". The CCHCS 703B page-3 General Provisions Paragraph 30
+# already specifies Net 45, and CalVet's R26Q39 invoice terms match;
+# Reytech's standard bid terms are Net 45 across agencies. The 45-day
+# expiration window mirrors the 703B bid-validity declaration.
+TERMS_DEFAULT = "Net 45"
 EXPIRATION_DAYS = 45
 
 # Reytech brand accent — soft, readable blue (matches the black/blue
@@ -466,19 +466,17 @@ def _identity_and_quote_box(quote: "Quote", today: datetime) -> Table:
     ]
 
     quote_label = quote.display_number or quote.quote_id
-    # QUOTE big header on top, then the 3-row Q# / DATE / SOL# box.
-    # SOL# is the buyer's solicitation identifier (PREQ-####, 10847262,
-    # etc.) — included here unconditionally so the gate's identity
-    # check is satisfied AND every buyer-side PDF carries the bid
-    # reference government procurement systems index by.
+    # QUOTE big header on top, then the 2-row Q# / DATE box. SOL # is
+    # NOT in the box anymore (5/18 Mike: "RFQ Number = Sol # should be
+    # the same, and the SOL number in upper right hand corner can be
+    # removed"). It now appears once, in the Salesperson / RFQ Number
+    # strip below, sourced directly from quote.solicitation_number.
     qbox = Table(
         [
             [Paragraph("QUOTE #", s["qbox_label"]),
              Paragraph(quote_label, s["qbox_value"])],
             [Paragraph("DATE", s["qbox_label"]),
              Paragraph(today.strftime("%b %d, %Y"), s["qbox_value"])],
-            [Paragraph("SOL #", s["qbox_label"]),
-             Paragraph(_escape_pdf_text(quote.solicitation_number), s["qbox_value"])],
         ],
         colWidths=[0.9 * inch, 1.7 * inch],
     )
@@ -529,35 +527,55 @@ def _addresses_block(
 ) -> Table:
     """Bill to / To / Ship to Location — three address blocks.
 
-    Pulls from EmailContract when provided. Without a contract, falls
-    back to quote.facility for both To and Ship-to (legacy path).
+    SUBSTRATE RULES (5/18 close):
+      * Bill-to is structurally separate from the procurement officer.
+        Reads contract.bill_to_name / bill_to_address / bill_to_email.
+        Pre-#1057 it incorrectly used buyer_email (the procurement
+        officer who CAN'T pay invoices) — that patch class is closed.
+      * To: and Ship-to: render the SAME data from the SAME source so
+        font, case, and content are byte-identical between them. Both
+        pull `contract.ship_to_facility` for the facility name and
+        `contract.ship_to_address` for the address; quote.facility is
+        only a fallback when no contract.
+
+    The "To:" and "Ship to Location:" blocks are equivalent on every
+    Reytech quote (ship-to IS the delivery destination) — the
+    redundant rendering matches procurement-side expectations on the
+    R26Q39 template but the data must be one source of truth.
     """
     s = _styles()
 
-    # Bill-to defaults to the agency invoice contact when a contract
-    # exists. Without contract, render an empty Bill-to (the agency
-    # name from quote.agency is the only fallback we can derive).
     if contract is not None:
-        bill_to_lines = []
-        # Agency name as bill-to header (CalVet, CCHCS, etc. — Mike's
-        # operator workflow keys "Bill to" by the agency's invoicing
-        # entity, which for state agencies is the department name).
-        bill_to_lines.append(_escape_pdf_text(contract.agency))
-        if contract.buyer_email:
-            bill_to_lines.append(_escape_pdf_text(contract.buyer_email))
-        bill_to_html = "<br/>".join(bill_to_lines)
+        # Bill-to — uses dedicated contract fields, NEVER buyer_email.
+        # When the parser missed Bill-to, operator fills via
+        # /contract-override (PR #1055) and the new contract revision
+        # is what shows here on the next render.
+        bill_to_lines: list[str] = []
+        if contract.bill_to_name:
+            bill_to_lines.append(_escape_pdf_text(contract.bill_to_name))
+        else:
+            # No bill_to_name on the contract → fall back to agency.
+            bill_to_lines.append(_escape_pdf_text(contract.agency))
+        if contract.bill_to_email:
+            bill_to_lines.append(_escape_pdf_text(contract.bill_to_email))
+        if contract.bill_to_address:
+            bill_to_lines.append(_address_to_html(contract.bill_to_address))
+        bill_to_html = "<br/>".join(line for line in bill_to_lines if line)
 
-        to_block = (
-            _escape_pdf_text(contract.facility)
+        # To: + Ship-to: render the SAME data from one source. Falls
+        # back to contract.facility if ship_to_facility wasn't captured.
+        facility_label = contract.ship_to_facility or contract.facility
+        address_block = (
+            _escape_pdf_text(facility_label)
             + (("<br/>" + _address_to_html(contract.ship_to_address))
                if contract.ship_to_address else "")
         )
-        ship_to_block = (
-            _escape_pdf_text(contract.ship_to_facility or contract.facility)
-            + (("<br/>" + _address_to_html(contract.ship_to_address))
-               if contract.ship_to_address else "")
-        )
+        to_block = address_block
+        ship_to_block = address_block
     else:
+        # Legacy / contract-less path. Render bare facility for both
+        # To and Ship-to (no bill-to surface — operator must use
+        # /contract-override or attach a contract before send).
         bill_to_html = _escape_pdf_text(quote.agency)
         to_block = _escape_pdf_text(quote.facility)
         ship_to_block = _escape_pdf_text(quote.facility)
@@ -606,13 +624,13 @@ def _buyer_terms_strip(
     s = _styles()
     salesperson = REYTECH_OWNER.split(",")[0].strip()  # "Michael Guadan"
 
-    # RFQ Number = the buyer's RFQ title / solicitation# (NOT the
-    # Reytech Quote #). Per Mike's R26Q39 reference: "RFQ-Auralis"
-    # came from the contract.rfq_title; sol# is its own field below.
-    if contract is not None and contract.rfq_title:
-        rfq_label = contract.rfq_title
-    else:
-        rfq_label = quote.solicitation_number
+    # RFQ Number = the buyer's solicitation #. 5/18 Mike: "RFQ number =
+    # Sol # should be the same". Pre-#1057 we sometimes rendered the
+    # email subject line here (long, hard to scan, didn't match what
+    # CCHCS / DGS index by). Now always sol#; the email subject is no
+    # longer surfaced on the buyer-facing PDF (it lives on the contract
+    # for internal audit only).
+    rfq_label = quote.solicitation_number
 
     expiration = today + timedelta(days=EXPIRATION_DAYS)
     expiration_str = expiration.strftime("%b %d, %Y")

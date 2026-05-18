@@ -317,3 +317,75 @@ def test_write_quote_uses_existing_counter_value(db_path: Path):
         set_counter(db_path, f"quote_{year}", v, actor="operator")
     written = write_quote(db_path, _quote(quote_id="Q-after-seed"), actor="ingest")
     assert written.quote_seq == 6
+
+
+# ──────────────────────────────────────────────────────────────────────
+# PR #1057 — quote_seq + quote_year are IDENTITY (immutable once stamped)
+#
+# 5/18 regression: editor Save dropped quote_seq from the round-trip
+# dict, the POST /state handler validated a Quote(quote_seq=None), and
+# write_quote silently persisted the null. R26Q40 → pc_e96e0408 on
+# every subsequent render — buyer-facing identity vanished.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_write_quote_preserves_quote_seq_when_subsequent_write_omits_it(db_path: Path):
+    """Editor Save that doesn't echo quote_seq must NOT strip it.
+    Substrate guarantees identity persistence across writes."""
+    first = write_quote(db_path, _quote(quote_id="Q-preserve-001"), actor="ingest")
+    assert first.quote_seq is not None
+    original_seq = first.quote_seq
+    original_year = first.quote_year
+
+    # Simulate editor Save round-trip — quote_seq/year missing from
+    # the payload (model_dump excludes None or client strips it).
+    # The new Quote object naturally has quote_seq=None on validation.
+    edited = first.model_copy(update={
+        "facility": "CCWF",
+        "quote_seq": None,
+        "quote_year": None,
+    })
+    second = write_quote(db_path, edited, actor="operator")
+    # Identity preserved.
+    assert second.quote_seq == original_seq
+    assert second.quote_year == original_year
+    assert second.display_number == first.display_number
+    assert second.facility == "CCWF"
+
+    # And on read.
+    reloaded = read_quote(db_path, "Q-preserve-001")
+    assert reloaded.quote_seq == original_seq
+
+
+def test_write_quote_rejects_quote_seq_mutation(db_path: Path):
+    """If caller tries to OVERWRITE a stamped seq with a different value
+    (rather than just omit it), write_quote MUST refuse. Identity is
+    immutable. Closes the audit-chain-corruption class."""
+    first = write_quote(db_path, _quote(quote_id="Q-immut-001"), actor="ingest")
+    assert first.quote_seq is not None
+
+    # Try to mutate the seq.
+    tampered = first.model_copy(update={"quote_seq": first.quote_seq + 100})
+    with pytest.raises(SpineValidationError, match="immutable"):
+        write_quote(db_path, tampered, actor="operator")
+
+
+def test_write_quote_rejects_quote_year_mutation(db_path: Path):
+    """Same immutability guard on quote_year."""
+    first = write_quote(db_path, _quote(quote_id="Q-immut-year-001"), actor="ingest")
+    tampered = first.model_copy(update={"quote_year": first.quote_year - 1})
+    with pytest.raises(SpineValidationError, match="immutable"):
+        write_quote(db_path, tampered, actor="operator")
+
+
+def test_write_quote_accepts_echo_back_of_same_quote_seq(db_path: Path):
+    """A subsequent write that echoes back the SAME quote_seq (well-
+    behaved client) is a no-op preservation, not a mutation. Must NOT
+    raise."""
+    first = write_quote(db_path, _quote(quote_id="Q-echo-001"), actor="ingest")
+    # Client echoes seq + year unchanged (the well-behaved Save path).
+    echoed = first.model_copy(update={"facility": "ASP"})
+    second = write_quote(db_path, echoed, actor="operator")
+    assert second.quote_seq == first.quote_seq
+    assert second.quote_year == first.quote_year
+    assert second.facility == "ASP"

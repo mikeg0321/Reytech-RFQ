@@ -183,6 +183,35 @@ class EmailContract(BaseModel):
         ),
     )
 
+    # Bill-to (invoicing) block. STRUCTURALLY separate from the
+    # buyer-side procurement officer (buyer_*) — the requesting
+    # officer is NOT who pays the invoice. CalVet bills go to
+    # APinvoices@calvet.ca.gov / 1227 "O" Street Sacramento; CDCR
+    # bills go to the agency AP inbox, not the unit's procurement
+    # analyst. The Quote PDF's "Bill to:" block reads these fields;
+    # pre-5/18 it incorrectly used buyer_email for Bill-to → quotes
+    # got addressed to the procurement officer (who can't pay them).
+    # Operator can fill via /contract-override when ingest misses.
+    bill_to_name: str | None = Field(default=None, max_length=200,
+        description=(
+            "Legal entity name on the invoice (e.g., 'California "
+            "Department of Veterans Affairs', 'California Correctional "
+            "Health Care Services')."
+        ),
+    )
+    bill_to_address: str | None = Field(default=None, max_length=500,
+        description=(
+            "Full Bill-to address as printed on the invoice. Multi-line "
+            "newline-separated."
+        ),
+    )
+    bill_to_email: str | None = Field(default=None, max_length=128,
+        description=(
+            "AP invoicing email at the agency (e.g., "
+            "'APinvoices@calvet.ca.gov'). NOT the procurement officer."
+        ),
+    )
+
     # The buyer's line items — descriptions, quantities, UOMs.
     line_items: list[ContractLineItem] = Field(min_length=1)
 

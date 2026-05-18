@@ -720,7 +720,9 @@ def test_pdf_renders_salesperson_terms_strip():
     assert "Michael Guadan" in text
     assert "RFQ Number" in text
     assert "Terms" in text
-    assert "Net 30" in text
+    # PR #1057: Reytech default terms = Net 45 (not Net 30). Matches
+    # CCHCS 703B General Provisions Paragraph 30 + R26Q39 reference.
+    assert "Net 45" in text
     assert "Expiration Date" in text
 
 
@@ -740,34 +742,104 @@ def test_pdf_uses_total_price_column_header_not_extension():
 
 
 def test_pdf_contract_drives_bill_to_and_ship_to():
+    """PR #1057: Bill-to reads contract.bill_to_* fields (NOT buyer_email).
+    Ship-to reads contract.ship_to_facility + contract.ship_to_address."""
     q = Quote(
         quote_id="Q-contract-001", agency="CCHCS", facility="SATF",
         solicitation_number="10847262", line_items=[_ok_line(1)],
         tax_rate_bps=825, status=QuoteStatus.PRICED,
     )
     contract = _ok_contract(
-        buyer_email="APinvoices@cchcs.example.gov",
+        bill_to_name="California Correctional Health Care Services",
+        bill_to_email="AP-CCHCS@cdcr.ca.gov",
+        bill_to_address="1500 Capitol Ave\nSacramento, CA 95814",
         ship_to_facility="SATF Corcoran Receiving",
         ship_to_address="900 Quebec Ave\nCorcoran, CA 93212",
     )
     text = _extract_text(render_quote_pdf(q, contract=contract))
     assert "Bill to:" in text
-    assert "APinvoices@cchcs.example.gov" in text
+    # Bill-to uses bill_to_*, not buyer_email.
+    assert "California Correctional Health Care Services" in text
+    assert "AP-CCHCS@cdcr.ca.gov" in text
+    assert "1500 Capitol Ave" in text
+    # Ship-to uses ship_to_facility + ship_to_address.
     assert "Ship to Location:" in text
     assert "SATF Corcoran Receiving" in text
     assert "900 Quebec Ave" in text
     assert "Corcoran, CA 93212" in text
 
 
-def test_pdf_contract_rfq_title_appears_in_strip():
+def test_pdf_bill_to_does_not_leak_procurement_officer_email():
+    """PR #1057: Pre-fix Bill-to wrongly used buyer_email (procurement
+    officer who can't pay invoices). Bill-to must come from the
+    dedicated bill_to_* contract fields only."""
     q = Quote(
-        quote_id="Q-contract-rfq-001", agency="CCHCS", facility="SATF",
+        quote_id="Q-bill-isolation", agency="CCHCS", facility="SATF",
         solicitation_number="10847262", line_items=[_ok_line(1)],
         tax_rate_bps=825, status=QuoteStatus.PRICED,
     )
-    contract = _ok_contract(rfq_title="RFQ-Auralis")
+    contract = _ok_contract(
+        buyer_email="procurement.officer@example.gov",
+        # Note: no bill_to_email — should NOT leak from buyer_email.
+    )
     text = _extract_text(render_quote_pdf(q, contract=contract))
-    assert "RFQ-Auralis" in text
+    assert "procurement.officer@example.gov" not in text
+
+
+def test_pdf_rfq_number_cell_uses_solicitation_number():
+    """PR #1057 (5/18 Mike: 'RFQ Number = Sol # should be the same').
+    Strip's RFQ Number cell shows the solicitation #, NOT the email
+    subject. Pre-fix the cell sometimes showed verbose rfq_title."""
+    q = Quote(
+        quote_id="Q-rfq-as-sol", agency="CCHCS", facility="SATF",
+        solicitation_number="PREQ-10847262", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    contract = _ok_contract(rfq_title="Verbose Email Subject That Should Not Appear")
+    text = _extract_text(render_quote_pdf(q, contract=contract))
+    assert "PREQ-10847262" in text
+    assert "Verbose Email Subject" not in text
+
+
+def test_pdf_no_sol_row_in_quote_box():
+    """PR #1057 (5/18 Mike: 'SOL number in upper right hand corner can
+    be removed'). The QUOTE# / DATE box has exactly 2 rows; the sol#
+    appears once on the page (in the strip), not twice."""
+    q = Quote(
+        quote_id="Q-no-sol-row", agency="CCHCS", facility="SATF",
+        solicitation_number="UNIQUESOL999", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    text = _extract_text(render_quote_pdf(q))
+    flat = "".join(text.split())
+    # SOL # label must NOT be in the box.
+    assert "SOL#" not in flat
+    # Solicitation # itself appears exactly once (in the strip).
+    assert flat.count("UNIQUESOL999") == 1
+
+
+def test_pdf_to_and_ship_to_use_identical_data():
+    """PR #1057 (5/18 Mike: 'to/Ship to uses different Font for the
+    same data'). To: and Ship-to: blocks must render byte-identical
+    text because they describe the SAME destination. Pre-fix To: used
+    UPPER-CASE quote.facility while Ship-to used mixed-case
+    contract.ship_to_facility."""
+    q = Quote(
+        quote_id="Q-to-shipto-same", agency="CCHCS", facility="SATF",
+        solicitation_number="10847262", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    contract = _ok_contract(
+        ship_to_facility="CA State Prison Sacramento",
+        ship_to_address="100 Prison Road\nFolsom, CA 95671",
+    )
+    text = _extract_text(render_quote_pdf(q, contract=contract))
+    # The mixed-case ship_to_facility appears (both To: and Ship-to:
+    # use it). Pre-fix the UPPER quote.facility would have appeared
+    # in the To: block — that must NOT happen now.
+    assert "CA State Prison Sacramento" in text
+    # The address line appears twice (once for To, once for Ship-to).
+    assert text.count("100 Prison Road") == 2
 
 
 def test_pdf_no_contract_falls_back_gracefully():
