@@ -575,7 +575,7 @@ def test_pdf_renders_display_number_when_assigned():
     )
     pdf_bytes = render_quote_pdf(q)
     text = _extract_text(pdf_bytes)
-    assert "R26Q0347" in text
+    assert "R26Q347" in text
     # The label string is split across columns by pdfplumber's layout
     # scan, so a literal "QUOTE NUMBER:" substring check is too brittle.
     # The substantive thing is that the OLD "QUOTE ID:" label is gone —
@@ -644,4 +644,4 @@ def test_pdf_title_metadata_uses_display_number():
     reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
     title = reader.metadata.title if reader.metadata else ""
     assert title is not None
-    assert "R26Q0005" in title
+    assert "R26Q5" in title

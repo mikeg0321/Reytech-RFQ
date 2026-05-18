@@ -245,7 +245,7 @@ def test_write_quote_assigns_seq_on_first_persist(db_path: Path):
 
     assert written.quote_seq == 1
     assert written.quote_year == _dt.now(_tz.utc).year
-    assert written.display_number == f"R{written.quote_year % 100:02d}Q0001"
+    assert written.display_number == f"R{written.quote_year % 100:02d}Q1"
 
 
 def test_write_quote_does_not_reassign_on_subsequent_writes(db_path: Path):

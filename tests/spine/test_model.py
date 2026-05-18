@@ -559,10 +559,12 @@ def test_display_number_renders_when_both_set():
         quote_seq=347,
         quote_year=2026,
     )
-    assert q.display_number == "R26Q0347"
+    assert q.display_number == "R26Q347"
 
 
-def test_display_number_zero_pads_to_4_digits():
+def test_display_number_no_zero_padding_low_seq():
+    """Format mirrors Mike's prior buyer-facing convention (R26Q39,
+    R25Q161): no zero-padding. Width grows naturally as seq grows."""
     q = Quote(
         quote_id="Q-test-001",
         agency="CCHCS",
@@ -573,12 +575,11 @@ def test_display_number_zero_pads_to_4_digits():
         quote_seq=1,
         quote_year=2026,
     )
-    assert q.display_number == "R26Q0001"
+    assert q.display_number == "R26Q1"
 
 
-def test_display_number_widens_past_9999_without_truncating():
-    """Format guard: if the year ever crosses 9999 quotes, the rendered
-    string widens naturally. Number stays correct — no silent truncation."""
+def test_display_number_widens_naturally_at_any_seq():
+    """No truncation at any width. seq=10001 → R26Q10001."""
     q = Quote(
         quote_id="Q-test-001",
         agency="CCHCS",
@@ -678,4 +679,4 @@ def test_century_rollover_via_year_2099_renders_99():
         quote_seq=12,
         quote_year=2099,
     )
-    assert q.display_number == "R99Q0012"
+    assert q.display_number == "R99Q12"

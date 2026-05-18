@@ -384,7 +384,7 @@ class Quote(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def display_number(self) -> str | None:
-        """Buyer-facing identifier — `R26Q####` (and R26Q00347 etc.).
+        """Buyer-facing identifier — `R26Q40`, `R25Q161`, etc.
 
         Computed from quote_seq + quote_year so the rendered string is
         always consistent with the stored integers. Returns None when
@@ -392,14 +392,14 @@ class Quote(BaseModel):
         sequential-numbering substrate landed (PR #1040) won't have
         an assignment; renderers fall back to quote_id in that case.
 
-        The format mirrors Mike's verbal spec (2026-05-17): R + 2-digit
-        year + Q + 4-digit zero-padded sequence. If quote_seq crosses
-        9999 the width widens naturally (Python `{n:04d}` already does
-        this — `{10001:04d}` is `"10001"`, not truncated).
+        Format: `R{yy}Q{seq}` — NO zero-padding, mirrors Mike's prior
+        buyer-facing convention (R25Q161, R26Q39). The substrate
+        stores quote_seq as an integer so the rendered width grows
+        naturally from `R26Q1` through `R26Q9999`+ without truncating.
         """
         if self.quote_seq is None or self.quote_year is None:
             return None
-        return f"R{self.quote_year % 100:02d}Q{self.quote_seq:04d}"
+        return f"R{self.quote_year % 100:02d}Q{self.quote_seq}"
 
     # ──────────────────────────────────────────────────────────────
     # State machine
