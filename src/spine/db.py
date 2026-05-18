@@ -402,6 +402,60 @@ def write_quote(
                         f"quote_id={quote.quote_id!r} is already sent — terminal. "
                         "Sent quotes are immutable in v1."
                     )
+
+                # IDENTITY IMMUTABILITY GUARD — closes the 5/18 regression
+                # where the editor JS Save dropped quote_seq from the
+                # round-trip dict, the POST handler validated a new Quote
+                # with quote_seq=None, write_quote silently persisted the
+                # null, and R26Q40 → pc_e96e0408 on every subsequent
+                # render. quote_seq + quote_year + quote_id are IDENTITY
+                # fields: stamped once, immutable forever.
+                #
+                # Behavior:
+                #   - prior stamped, new=None → PRESERVE from prior (the
+                #     common case — editor Save that didn't echo seq).
+                #   - prior stamped, new=different → REJECT (mutation
+                #     attempt; identity changes corrupt the audit chain
+                #     because every snapshot/render refers to display_number).
+                #   - prior unstamped, new=None → fall through to the
+                #     first-write block above (but `prior is not None`
+                #     here, so this is dead — see the `prior is None`
+                #     guard at the top).
+                if prior_quote.quote_seq is not None:
+                    if quote.quote_seq is None:
+                        # Editor JS round-trip without quote_seq —
+                        # preserve identity from disk.
+                        quote = quote.model_copy(update={
+                            "quote_seq": prior_quote.quote_seq,
+                            "quote_year": prior_quote.quote_year,
+                        })
+                    elif (
+                        quote.quote_seq != prior_quote.quote_seq
+                        or quote.quote_year != prior_quote.quote_year
+                    ):
+                        raise SpineValidationError(
+                            f"quote_id={quote.quote_id!r}: identity is "
+                            f"immutable. prior stamped "
+                            f"quote_seq={prior_quote.quote_seq} "
+                            f"quote_year={prior_quote.quote_year}; "
+                            f"write attempted "
+                            f"quote_seq={quote.quote_seq} "
+                            f"quote_year={quote.quote_year}. "
+                            "Identity (quote_seq, quote_year) is "
+                            "stamped once and is the buyer-facing "
+                            "reference for every snapshot, render, "
+                            "and send. Mutation is rejected. If the "
+                            "operator needs to re-number, use the "
+                            "admin counter/backfill endpoints on a "
+                            "rolled-back row, not an in-place edit. "
+                            "5/18 regression class — substrate gate."
+                        )
+                    # else: client echoed back the same stamped value —
+                    # OK, no-op preservation.
+                # Re-snapshot the event payload with the (possibly
+                # re-stamped) quote so the event-log state matches what
+                # we're about to persist.
+                new_event["state"] = _quote_to_persisted_dict(quote)
                 events = json.loads(prior["event_log"])
                 events.append(new_event)
                 created_at = prior["created_at"]
