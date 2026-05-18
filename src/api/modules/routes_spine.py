@@ -415,10 +415,16 @@ def make_spine_blueprint(
 
         fillable = request.args.get("fillable", "0") == "1"
         try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception("spine.get_703b: contract lookup failed for %s", quote_id)
+            contract = None
+        try:
             pdf_bytes = fill_703b_pdf(
                 quote,
                 ReytechIdentity.from_env(),
                 flatten=not fillable,
+                contract=contract,
             )
         except SpineFormFillError as e:
             log.error("spine.get_703b: fill gate caught divergence for %s: %s",
@@ -468,11 +474,21 @@ def make_spine_blueprint(
             return jsonify({"error": "not_found", "quote_id": quote_id}), 404
 
         fillable = request.args.get("fillable", "0") == "1"
+        # State-official REQUESTOR / PHONE / EMAIL on the 704B come from
+        # the EmailContract that drove ingest. Lookup is best-effort:
+        # missing contract → fill_704b_pdf falls back to Reytech identity
+        # (legacy behavior), but real bids should always have a contract.
+        try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception("spine.get_704b: contract lookup failed for %s", quote_id)
+            contract = None
         try:
             pdf_bytes = fill_704b_pdf(
                 quote,
                 ReytechIdentity.from_env(),
                 flatten=not fillable,
+                contract=contract,
             )
         except SpineFormFillError as e:
             log.error("spine.get_704b: fill gate caught divergence for %s: %s",

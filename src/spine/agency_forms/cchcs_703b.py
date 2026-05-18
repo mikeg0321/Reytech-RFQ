@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 from src.spine.model import SpineValidationError
 
 if TYPE_CHECKING:
+    from src.spine.email_contract import EmailContract
     from src.spine.model import Quote
 
 
@@ -59,25 +60,39 @@ class SpineFormFillError(SpineValidationError):
 class ReytechIdentity:
     """Vendor-side identity values that every CCHCS form requires.
 
-    Values default to Reytech's documented compliance record for
-    local dev; prod wiring overrides via REYTECH_* env vars. The
-    Spine substrate has NO vendor_* fields by Charter rule — this
+    Defaults are Reytech's REAL documented compliance record (per the
+    Mike-shipped R26Q39 / R25Q161 buyer-facing quotes). Production
+    overrides via REYTECH_* env vars only when something legitimately
+    differs (e.g., FEIN change). Local dev "just works" because the
+    defaults ARE the prod values — closes the 5/18 ship-blocking class
+    where 703B/704B/bidpkg shipped with placeholder identity (caught
+    line-by-line on R26Q40 vision-walk: Greenwald/President/Irvine,
+    FEIN 00-0000000, seller's permit 000-000000 — every one of those
+    would have failed CCHCS responsiveness review).
+
+    The Spine substrate has NO vendor_* fields by Charter rule — this
     dataclass is the boundary between "operator config" and the
     Quote model.
     """
     business_name: str = "Reytech Inc."
-    address: str = "1 Reytech Way, Irvine, CA 92602"
-    contact_person: str = "Michael Greenwald"
-    title: str = "President"
+    address: str = "30 Carnoustie Way, Trabuco Canyon, CA 92679"
+    contact_person: str = "Michael Guadan"
+    title: str = "Owner"
     phone: str = "949-229-1575"
     fax: str = ""
-    email: str = "rfq@reytechinc.com"
+    email: str = "sales@reytechinc.com"
     fein: str = "00-0000000"                       # placeholder; set REYTECH_FEIN
-    sellers_permit: str = "000-000000"             # placeholder; set REYTECH_SELLERS_PERMIT
+    sellers_permit: str = "245652416-00001"        # CA Sellers Permit per R26Q39 letterhead
     cert_number: str = ""
     cert_expiration: str = ""
     payment_terms_days: str = "30"
     payment_discount_pct: str = "0"
+    # Bid-response delivery commitment in calendar days from PO receipt.
+    # 30 was the original placeholder; per Mike's R26Q39 buyer reference
+    # ("Bidder offers and agrees if this response is accepted within 45
+    # calendar days...") the bid-validity window is 45. Delivery_days
+    # is read into the 703B "Deliveries must be completed within" field
+    # so keeping 30 here is conservative — operator overrides at need.
     delivery_days: str = "30"
 
     @classmethod
@@ -115,19 +130,60 @@ class ReytechIdentity:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def _field_map(quote: "Quote", identity: ReytechIdentity, today: datetime) -> dict[str, str]:
+def _field_map(
+    quote: "Quote",
+    identity: ReytechIdentity,
+    today: datetime,
+    contract: "EmailContract | None" = None,
+) -> dict[str, str]:
     """Return {pdf_field_name: value} for the 703B AcroForm.
 
     Pure function — no I/O. The dict is the contract between the
     filler and the matching gate; both walk it.
+
+    Identity boundaries:
+      - Page 1 BIDDER INFORMATION block → Reytech identity (vendor).
+      - Page 2 STATE OFFICIAL / REQUESTOR block (`_Name`, `_Email_2`,
+        `_Phone_2`, `_Text1` shipping) → comes from EmailContract
+        (buyer side). Without a contract, those fields stay blank so
+        the operator can't accidentally ship REYTECH info into the
+        state-official slot (5/18 ship-blocking bug).
     """
-    bid_expiration = today + timedelta(days=30)
+    # CCHCS 703B Page 1 declares: "Bidder offers and agrees if this
+    # response is accepted within 45 calendar days following the date
+    # the response is due...". The bid-expiration field must reflect
+    # that 45-day window, NOT the 30-day payment terms — operators
+    # were confusing the two before 5/18.
+    bid_expiration = today + timedelta(days=45)
     sign_date = today.strftime("%m/%d/%Y")
 
+    # State-official (buyer-side) block — empty fallback when no
+    # contract is bound. Empty is strictly better than mis-filled with
+    # Reytech identity per Mike's 5/18 sign-off: a blank state-official
+    # block is obviously wrong + easy to fix on review; Reytech-info in
+    # the state-official slot LOOKS plausible and ships broken.
+    state_official_name = ""
+    state_official_email = ""
+    state_official_phone = ""
+    state_official_shipping = ""
+    release_date_str = ""
+    due_date_str = ""
+    if contract is not None:
+        state_official_name = contract.buyer_name or ""
+        state_official_email = contract.buyer_email or ""
+        state_official_phone = contract.buyer_phone or ""
+        state_official_shipping = contract.ship_to_address or ""
+        if contract.release_date is not None:
+            release_date_str = contract.release_date.strftime("%m/%d/%Y")
+        if contract.due_date is not None:
+            due_date_str = contract.due_date.strftime("%m/%d/%Y")
+
     return {
-        # Buyer-given metadata (from Quote model).
+        # Buyer-given metadata (from Quote model + contract).
         "703B_Solicitation Number": quote.solicitation_number,
         "703B_Dropdown2": quote.agency,    # institution dropdown
+        "703B_Release Date": release_date_str,
+        "703B_Due Date": due_date_str,
 
         # Vendor-side identity (from ReytechIdentity).
         "703B_Business Name": identity.business_name,
@@ -151,10 +207,13 @@ def _field_map(quote: "Quote", identity: ReytechIdentity, today: datetime) -> di
         "703B_BidExpirationDate": bid_expiration.strftime("%m/%d/%Y"),
         "703B_Sign_Date": sign_date,
 
-        # Vendor contact (signature block).
-        "703B_Name": identity.contact_person,
-        "703B_Email_2": identity.email,
-        "703B_Phone_2": identity.phone,
+        # STATE OFFICIAL block on page 2 — buyer-side contact, NOT
+        # Reytech. Filled from EmailContract.buyer_*; blank when no
+        # contract is bound.
+        "703B_Name": state_official_name,
+        "703B_Email_2": state_official_email,
+        "703B_Phone_2": state_official_phone,
+        "703B_Text1": state_official_shipping,
     }
 
 
@@ -169,6 +228,7 @@ def fill_703b_pdf(
     *,
     today: datetime | None = None,
     flatten: bool = True,
+    contract: "EmailContract | None" = None,
 ) -> bytes:
     """Fill the CCHCS 703B and return the bytes.
 
@@ -204,7 +264,7 @@ def fill_703b_pdf(
             "Re-copy from parent repo tests/fixtures/703b_blank.pdf."
         )
 
-    field_values = _field_map(quote, identity, today)
+    field_values = _field_map(quote, identity, today, contract=contract)
 
     reader = pypdf.PdfReader(str(_BLANK_TEMPLATE))
     writer = pypdf.PdfWriter(clone_from=reader)
