@@ -289,8 +289,18 @@ def make_spine_blueprint(
         if quote is None:
             return jsonify({"error": "not_found", "quote_id": quote_id}), 404
 
+        # Buyer-facing Bill-to / Ship-to / RFQ-title come from the
+        # EmailContract that drove ingest. A missing contract is the
+        # legacy path — renderer falls back to quote.facility/agency
+        # for both To and Ship-to so legacy quotes still render.
         try:
-            pdf_bytes = render_quote_pdf(quote)
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception("spine.get_quote_pdf: contract lookup failed for %s", quote_id)
+            contract = None
+
+        try:
+            pdf_bytes = render_quote_pdf(quote, contract=contract)
         except Exception as e:
             log.exception("spine.get_quote_pdf: render failed for %s", quote_id)
             return jsonify({"error": "render_failed", "detail": str(e)}), 500

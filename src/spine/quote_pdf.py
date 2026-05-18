@@ -1,16 +1,36 @@
 """The Spine — Quote PDF renderer.
 
-Single function: render_quote_pdf(quote) → bytes.
+Single function: render_quote_pdf(quote, contract=None) → bytes.
 
-Reads from Spine Quote model only. NO QuoteContract assembly. NO
-tax_resolver / facility_registry / agency_config calls. NO
-shipping_option=included → tax_cents=0 branch (that field doesn't
-exist in the Spine model).
+Reads from Spine Quote model (and optionally the EmailContract that
+drove ingest). NO QuoteContract assembly. NO tax_resolver /
+facility_registry / agency_config calls. NO shipping_option=included
+→ tax_cents=0 branch (that field doesn't exist in the Spine model).
 
 Tax line is computed via quote.tax_cents (banker's rounded integer
 cents). Total line is quote.total_cents. Subtotal is
 quote.subtotal_cents. The PDF cannot diverge from the model because
 the model's @computed_field properties ARE the math.
+
+LAYOUT
+──────
+Mirrors Mike's existing buyer-facing Quote template (reference:
+R26Q39, R25Q161 — Trabuco Canyon letterhead, Reytech-brand soft blue
+accents matching www.reytechinc.com).
+Sections, top-to-bottom:
+
+  1. Identity row — Reytech logo + address block (left)
+                  + QUOTE header + QUOTE#/DATE box (right)
+  2. Bill-to / To / Ship-to — three address blocks
+  3. Salesperson | RFQ Number | Terms | Expiration — 4-col strip
+  4. Line items — LINE# | MFG. PART # | QTY | UOM | DESCRIPTION | UNIT PRICE | TOTAL PRICE
+  5. Totals box — right-aligned (SUBTOTAL / TAX / SHIPPING / TOTAL)
+  6. Footer — "Quote R26Q##" bottom-right
+
+The buyer-side fields (Bill-to, To, Ship-to, RFQ#) come from the
+EmailContract when provided. Without a contract the renderer falls
+back to the quote's facility/agency/solicitation# alone (legacy path
+for tests and fixture-driven flows).
 
 THE MATCHING GATE
 ─────────────────
@@ -22,18 +42,13 @@ raises SpineRenderMismatchError. The function is structurally
 incapable of returning bytes that lie about the math. Closes the
 5/15 substrate failure class where TAX rendered $0.00 on a non-zero
 subtotal and shipped to the buyer without anyone catching it.
-
-The renderer is deliberately spartan in v1 (Day-3 gate). Visual polish
-(letterhead, branding, watermark) is a separate later PR. What matters
-here: the math is bit-exact, the layout is legible, AND the renderer
-will not produce bytes that disagree with the model.
 """
 from __future__ import annotations
 
 import io
 import re
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Optional
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -50,6 +65,7 @@ from reportlab.platypus import (
 from src.spine.model import SpineValidationError
 
 if TYPE_CHECKING:
+    from src.spine.email_contract import EmailContract
     from src.spine.model import Quote
 
 
@@ -65,21 +81,43 @@ class SpineRenderMismatchError(SpineValidationError):
     catch SpineValidationError surface this as 409 (state corrupt)
     rather than 500 (server error). The bytes never leave the
     renderer; the caller decides how to surface it.
-
-    The presence of this exception in the codebase is part of the
-    contract. Removing it without first removing the call to
-    _verify_render_matches_model is a substrate regression.
     """
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Reytech identity — bare metadata only. Real letterhead/branding is a
-# later polish PR; v1 prioritizes correctness over visual identity.
+# Reytech identity — values from Mike's existing R26Q39 / R25Q161 quote
+# template. These constants are the source of truth for the Quote PDF
+# letterhead. The 703B/704B/bidpkg renderers use the separate
+# ReytechIdentity dataclass (agency_forms/cchcs_703b.py) because those
+# forms feed AcroForm fields with their own field-naming conventions.
+# Splitting them here keeps Quote PDF letterhead changes from rippling
+# into agency-form fillers (and vice versa).
 # ──────────────────────────────────────────────────────────────────────
 
 REYTECH_NAME = "Reytech Inc."
-REYTECH_EMAIL = "rfq@reytechinc.com"
+REYTECH_ADDRESS_LINE_1 = "30 Carnoustie Way"
+REYTECH_ADDRESS_LINE_2 = "Trabuco Canyon, CA 92679"
+REYTECH_OWNER = "Michael Guadan, Owner"
 REYTECH_PHONE = "949-229-1575"
+REYTECH_EMAIL = "sales@reytechinc.com"
+REYTECH_WEBSITE = "www.reytechinc.com"
+REYTECH_SELLERS_PERMIT = "CA Sellers Permit: 245652416-00001"
+
+# Buyer-facing default constants. Mike's R26Q39 reference shows
+# "Net 30" terms and a 45-day expiration window. These are the
+# documented Reytech defaults; an EmailContract may override per bid
+# in a future PR (`contract.payment_terms` / `contract.expiration_date`)
+# without changing this renderer.
+TERMS_DEFAULT = "Net 30"
+EXPIRATION_DAYS = 45
+
+# Reytech brand accent — soft, readable blue (matches the black/blue
+# styling on www.reytechinc.com). Used for column-header bars, totals-
+# label backgrounds, and the QUOTE#/DATE box header. Black text on top
+# keeps contrast high; the tint is light enough not to compete with
+# the line-item data.
+ACCENT_BLUE = colors.HexColor("#BDD7F1")
+ACCENT_BLUE_DARK = colors.HexColor("#1F4E91")    # title text / fine rules
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -123,8 +161,7 @@ def _escape_pdf_text(s: str) -> str:
 
     reportlab.platypus.Paragraph parses its input as inline XML — bare
     `&`, `<`, or `>` in operator-entered descriptions would either
-    crash the render or produce garbage. Escape them here so any line
-    item description renders safely regardless of content.
+    crash the render or produce garbage.
     """
     return (
         s.replace("&", "&amp;")
@@ -133,58 +170,80 @@ def _escape_pdf_text(s: str) -> str:
     )
 
 
+def _address_to_html(addr: str | None) -> str:
+    """Convert a multi-line address (newline-separated) to reportlab HTML."""
+    if not addr:
+        return ""
+    return "<br/>".join(_escape_pdf_text(line) for line in addr.splitlines() if line.strip())
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Renderer
 # ──────────────────────────────────────────────────────────────────────
 
 
-def render_quote_pdf(quote: "Quote", *, today: datetime | None = None) -> bytes:
+def render_quote_pdf(
+    quote: "Quote",
+    contract: Optional["EmailContract"] = None,
+    *,
+    today: datetime | None = None,
+) -> bytes:
     """Render `quote` as a Reytech Quote PDF, return bytes.
-
-    The full math comes from the Quote model's computed fields:
-        subtotal_cents = sum(line.extension_cents)
-        tax_cents      = banker's-rounded (subtotal * tax_rate_bps / 10000)
-        total_cents    = subtotal + tax  (shipping is the constant $0.00)
 
     Args:
         quote: Validated Spine Quote.
+        contract: Optional EmailContract that drove this quote's ingest.
+            When provided, Bill-to / To / Ship-to / RFQ Number / buyer
+            contact info fill from the contract. When None, the renderer
+            falls back to `quote.facility` as both To and Ship-to (legacy
+            path for tests and fixture flows).
         today: Optional clock injection for deterministic test rendering.
 
     Returns:
-        Bytes of a single PDF document. Caller decides whether to write
-        to disk, attach to email, or stream to an HTTP response.
+        Bytes of a single PDF document.
     """
     today = today or datetime.now()
     buf = io.BytesIO()
 
+    quote_label = quote.display_number or quote.quote_id
     doc = SimpleDocTemplate(
         buf,
         pagesize=letter,
-        leftMargin=0.75 * inch,
-        rightMargin=0.75 * inch,
-        topMargin=0.6 * inch,
-        bottomMargin=0.6 * inch,
-        title=f"Reytech Quote {quote.display_number or quote.quote_id}",
+        leftMargin=0.5 * inch,
+        rightMargin=0.5 * inch,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+        title=f"Reytech Quote {quote_label}",
         author=REYTECH_NAME,
     )
 
     story: list = []
-    story.extend(_header(today, quote))
-    story.append(Spacer(1, 0.18 * inch))
-    story.extend(_quote_meta(quote, today))
-    story.append(Spacer(1, 0.14 * inch))
+    story.append(_identity_and_quote_box(quote, today))
+    story.append(Spacer(1, 0.10 * inch))
+    story.append(_addresses_block(quote, contract))
+    story.append(Spacer(1, 0.12 * inch))
+    story.append(_buyer_terms_strip(quote, contract, today))
+    story.append(Spacer(1, 0.04 * inch))
     story.append(_line_item_table(quote))
-    story.append(Spacer(1, 0.18 * inch))
+    story.append(Spacer(1, 0.10 * inch))
     story.append(_totals_block(quote))
-    story.append(Spacer(1, 0.30 * inch))
-    story.extend(_footer())
 
-    doc.build(story)
+    def _draw_footer(canvas, _doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(colors.HexColor("#666666"))
+        canvas.drawRightString(
+            letter[0] - 0.5 * inch,
+            0.35 * inch,
+            f"Quote {quote_label}",
+        )
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
     pdf_bytes = buf.getvalue()
 
     # THE MATCHING GATE. Renders that disagree with the model never
-    # leave this function. See module docstring for the failure-class
-    # this closes.
+    # leave this function.
     _verify_render_matches_model(pdf_bytes, quote)
     return pdf_bytes
 
@@ -199,14 +258,11 @@ def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
 
     Cent-exact comparison of every operator-visible money value:
       - Subtotal, Tax, Shipping (always $0.00), Total
-      - Each line item's Extension column
+      - Each line item's TOTAL PRICE column
 
     pdfplumber is read-only — it is not a second renderer, it is the
-    audit eye on this one. If extraction can't find a value the gate
-    is supposed to verify, that is itself a render failure (the cell
-    is missing or unparseable in the bytes) and raises.
-
-    Raises SpineRenderMismatchError on any divergence.
+    audit eye on this one. Raises SpineRenderMismatchError on any
+    divergence.
     """
     try:
         import pdfplumber
@@ -232,29 +288,46 @@ def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
     # Money pattern: $-1,234.56 or $0.00.
     money_re = re.compile(r"-?\$[\d,]+\.\d{2}")
 
-    # 1) Totals block — each label appears once; the value that
-    #    follows it must match the model. Word boundaries on the
-    #    label so "TOTAL" doesn't substring-match inside "SUBTOTAL".
-    #    Whitespace inside the label is collapsed because pdfplumber
-    #    may split "TAX (7.75%)" across the label/value boundary.
+    # 1) Totals block — the four labels (SUBTOTAL / TAX / SHIPPING /
+    #    TOTAL) appear in that order at the end of the document. The
+    #    "TOTAL" label is ambiguous on its own — it also appears as
+    #    part of the "TOTAL PRICE" line-item column header — so we
+    #    anchor to the LAST occurrence of each label, which is always
+    #    inside the totals block. SUBTOTAL is structurally unique and
+    #    serves as the lower bound: every totals-block label must
+    #    appear at or after the SUBTOTAL position.
+    subtotal_last = None
+    for m in re.finditer(r"\bSUBTOTAL\b", full_text):
+        subtotal_last = m
+    if subtotal_last is None:
+        raise SpineRenderMismatchError(
+            "render gate: SUBTOTAL label not found in rendered PDF. "
+            f"Rendered text head: {full_text[:300]!r}"
+        )
+    totals_region_start = subtotal_last.start()
+    totals_region = full_text[totals_region_start:]
+
     for label, expected_str in expected_lines.items():
+        if label == "TOTAL":
+            # Strip the TOTAL-PRICE column header before searching.
+            search_text = re.sub(r"TOTAL\s+PRICE", "____________", totals_region)
+        else:
+            search_text = totals_region
         label_re = re.compile(r"\b" + re.escape(label) + r"\b")
-        m_label = label_re.search(full_text)
+        m_label = None
+        for m in label_re.finditer(search_text):
+            m_label = m
         if m_label is None:
             raise SpineRenderMismatchError(
-                f"render gate: label {label!r} not found in rendered PDF text. "
-                f"Renderer must emit the {label} line on every quote. "
-                f"Rendered text head: {full_text[:300]!r}"
+                f"render gate: label {label!r} not found in totals region "
+                f"of rendered PDF. Totals region: {totals_region[:300]!r}"
             )
-        # Search money tokens after the label match's END (so a label
-        # like "SUBTOTAL" doesn't pick up the dollar amount that
-        # belongs to a row above the totals block).
-        tail = full_text[m_label.end():]
+        tail = search_text[m_label.end():]
         m_money = money_re.search(tail)
         if m_money is None:
             raise SpineRenderMismatchError(
-                f"render gate: no money value found after label {label!r}. "
-                f"Tail: {tail[:120]!r}"
+                f"render gate: no money value found after totals-block "
+                f"label {label!r}. Tail: {tail[:120]!r}"
             )
         rendered_str = m_money.group(0)
         if rendered_str != expected_str:
@@ -265,20 +338,10 @@ def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
                 f"no bytes returned."
             )
 
-    # 2) Per-line extension column — every line item's qty × unit_price
+    # 2) Per-line TOTAL PRICE column — every line item's qty × unit_price
     #    must appear in the rendered text as the expected money string.
-    #
-    #    A bare `in` check would pass even if the renderer wrote the
-    #    wrong extension for a row, because the same money string can
-    #    legitimately appear elsewhere on the page (e.g., the single-
-    #    line-item case where subtotal == extension). The robust check
-    #    is a count: build the multiset of money strings the model says
-    #    should appear (4 totals + N extensions), then assert the
-    #    rendered text contains each money string at least that many
-    #    times. A renderer that lies about one extension will reduce
-    #    the count of the correct string by 1.
     from collections import Counter
-    expected_counts = Counter()
+    expected_counts: Counter = Counter()
     for line_no, expected_ext in expected_extensions.items():
         expected_counts[expected_ext] += 1
     expected_counts[format_dollars(quote.subtotal_cents)] += 1
@@ -290,9 +353,6 @@ def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
 
     for money_str, expected_n in expected_counts.items():
         if actual_counts.get(money_str, 0) < expected_n:
-            # Pin down which line went missing for the operator-facing
-            # error message: the first line whose extension equals
-            # money_str is the most likely culprit.
             offending_line = next(
                 (ln for ln, ext in expected_extensions.items() if ext == money_str),
                 None,
@@ -306,24 +366,8 @@ def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
             )
 
     # 3) Identity check — Reytech identity, quote ID, solicitation #
-    #    must appear. Substrate guarantees the operator can identify
-    #    the document; renderer that drops the identity is broken.
-    #
-    #    pdfplumber's text extraction interleaves table columns in
-    #    layout order, so a long quote_id that wraps across cells can
-    #    end up split (e.g., "rfq_PREQ10846581_tes" followed by other
-    #    cells' content followed by trailing "t"). Wrap-tolerant
-    #    check: verify the full string OR a meaningfully-long leading
-    #    prefix is contiguous in the whitespace-collapsed text. The
-    #    prefix is long enough to be uniquely identifying (12 chars
-    #    handles all real Reytech ID schemes); accepting a wrap means
-    #    we don't false-positive on cosmetic layout, but we still
-    #    catch any renderer that drops the identity entirely.
+    #    must appear.
     flattened = "".join(full_text.split())
-    # The rendered identifier is display_number when assigned (post-#1040
-    # ingest); otherwise the internal quote_id (legacy rows). The gate
-    # follows the renderer — whichever the operator+buyer will see is
-    # what must be present in the rendered PDF.
     rendered_quote_label = quote.display_number or quote.quote_id
     for required in (REYTECH_NAME, rendered_quote_label, quote.solicitation_number):
         target = required.replace(" ", "")
@@ -339,7 +383,7 @@ def _verify_render_matches_model(pdf_bytes: bytes, quote: "Quote") -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Sections — each returns a list of Platypus flowables.
+# Sections
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -348,36 +392,54 @@ def _styles() -> dict[str, ParagraphStyle]:
     return {
         "company": ParagraphStyle(
             "company", parent=base["Normal"],
-            fontSize=16, leading=20, alignment=1, spaceAfter=2,
-            fontName="Helvetica-Bold",
+            fontSize=14, leading=17, fontName="Helvetica-Bold",
+            textColor=colors.HexColor("#222222"),
         ),
-        "contact": ParagraphStyle(
-            "contact", parent=base["Normal"],
-            fontSize=9, leading=11, alignment=1, textColor=colors.HexColor("#444444"),
+        "company_addr": ParagraphStyle(
+            "company_addr", parent=base["Normal"],
+            fontSize=8.5, leading=10.5, fontName="Helvetica",
+            textColor=colors.HexColor("#333333"),
         ),
-        "h1": ParagraphStyle(
-            "h1", parent=base["Normal"],
-            fontSize=18, leading=22, alignment=1, spaceBefore=4, spaceAfter=4,
-            fontName="Helvetica-Bold",
+        "quote_header": ParagraphStyle(
+            "quote_header", parent=base["Normal"],
+            fontSize=24, leading=28, alignment=2, fontName="Helvetica-Bold",
+            textColor=ACCENT_BLUE_DARK,
         ),
-        "meta_label": ParagraphStyle(
-            "meta_label", parent=base["Normal"],
+        "qbox_label": ParagraphStyle(
+            "qbox_label", parent=base["Normal"],
             fontSize=9, leading=11, fontName="Helvetica-Bold",
             textColor=colors.HexColor("#222222"),
         ),
-        "meta_value": ParagraphStyle(
-            "meta_value", parent=base["Normal"],
-            fontSize=10, leading=12, fontName="Helvetica",
+        "qbox_value": ParagraphStyle(
+            "qbox_value", parent=base["Normal"],
+            fontSize=10, leading=12, alignment=2, fontName="Helvetica-Bold",
+            textColor=colors.HexColor("#222222"),
         ),
-        "footer": ParagraphStyle(
-            "footer", parent=base["Normal"],
-            fontSize=8, leading=10, textColor=colors.HexColor("#666666"),
+        "addr_label": ParagraphStyle(
+            "addr_label", parent=base["Normal"],
+            fontSize=9.5, leading=12, fontName="Helvetica-Bold",
+            textColor=colors.HexColor("#222222"),
+            spaceAfter=2,
+        ),
+        "addr_value": ParagraphStyle(
+            "addr_value", parent=base["Normal"],
+            fontSize=9, leading=11.5, fontName="Helvetica",
+            textColor=colors.HexColor("#333333"),
+        ),
+        "strip_label": ParagraphStyle(
+            "strip_label", parent=base["Normal"],
+            fontSize=9, leading=11, fontName="Helvetica-Bold",
+            textColor=colors.HexColor("#222222"),
+        ),
+        "strip_value": ParagraphStyle(
+            "strip_value", parent=base["Normal"],
+            fontSize=9, leading=11, fontName="Helvetica",
+            textColor=colors.HexColor("#222222"),
         ),
         "li_desc": ParagraphStyle(
-            # Wrapping style for the line-item description column so
-            # long descriptions reflow inside their cell instead of
-            # overflowing into the QTY column. Closes the
-            # text-width-overflow class from memory.
+            # Wrapping style for the DESCRIPTION column so long product
+            # names reflow inside their cell instead of overflowing
+            # into adjacent columns.
             "li_desc", parent=base["Normal"],
             fontSize=9, leading=11, fontName="Helvetica",
             spaceBefore=0, spaceAfter=0,
@@ -385,98 +447,246 @@ def _styles() -> dict[str, ParagraphStyle]:
     }
 
 
-def _header(today: datetime, quote: "Quote") -> list:
+def _identity_and_quote_box(quote: "Quote", today: datetime) -> Table:
+    """Top row: Reytech identity (left) + QUOTE title + Q#/DATE box (right)."""
     s = _styles()
-    return [
+
+    # Reytech identity block — name, address, owner, contacts.
+    identity_lines = [
         Paragraph(REYTECH_NAME, s["company"]),
-        Paragraph(f"{REYTECH_EMAIL} &nbsp;&nbsp;|&nbsp;&nbsp; {REYTECH_PHONE}", s["contact"]),
-        Spacer(1, 0.10 * inch),
-        Paragraph("QUOTE", s["h1"]),
+        Paragraph(
+            REYTECH_ADDRESS_LINE_1 + "<br/>" + REYTECH_ADDRESS_LINE_2 + "<br/>"
+            + REYTECH_OWNER + "<br/>"
+            + REYTECH_PHONE + "<br/>"
+            + REYTECH_EMAIL + "<br/>"
+            + REYTECH_WEBSITE + "<br/>"
+            + REYTECH_SELLERS_PERMIT,
+            s["company_addr"],
+        ),
     ]
 
-
-def _quote_meta(quote: "Quote", today: datetime) -> list:
-    s = _styles()
-    # Left: TO + solicitation. Right: Quote ID + date.
-    left = [
-        [Paragraph("TO:", s["meta_label"]),
-         Paragraph(f"{quote.facility}<br/>Agency: {quote.agency}", s["meta_value"])],
-        [Paragraph("SOLICITATION:", s["meta_label"]),
-         Paragraph(quote.solicitation_number, s["meta_value"])],
-    ]
-    # Buyer-facing identifier on top: prefer the substrate-assigned
-    # R{yy}Q#### (PR #1040). Falls back to the internal quote_id only
-    # for legacy rows that pre-date the sequential-numbering substrate
-    # — once those are quoted out the fallback never fires.
     quote_label = quote.display_number or quote.quote_id
-    right = [
-        [Paragraph("QUOTE NUMBER:", s["meta_label"]),
-         Paragraph(quote_label, s["meta_value"])],
-        [Paragraph("DATE:", s["meta_label"]),
-         Paragraph(today.strftime("%Y-%m-%d"), s["meta_value"])],
-    ]
-    meta = Table(
-        [[Table(left, colWidths=[1.1 * inch, 2.7 * inch]),
-          Table(right, colWidths=[0.9 * inch, 1.7 * inch])]],
-        colWidths=[4.0 * inch, 3.0 * inch],
+    # QUOTE big header on top, then the 3-row Q# / DATE / SOL# box.
+    # SOL# is the buyer's solicitation identifier (PREQ-####, 10847262,
+    # etc.) — included here unconditionally so the gate's identity
+    # check is satisfied AND every buyer-side PDF carries the bid
+    # reference government procurement systems index by.
+    qbox = Table(
+        [
+            [Paragraph("QUOTE #", s["qbox_label"]),
+             Paragraph(quote_label, s["qbox_value"])],
+            [Paragraph("DATE", s["qbox_label"]),
+             Paragraph(today.strftime("%b %d, %Y"), s["qbox_value"])],
+            [Paragraph("SOL #", s["qbox_label"]),
+             Paragraph(_escape_pdf_text(quote.solicitation_number), s["qbox_value"])],
+        ],
+        colWidths=[0.9 * inch, 1.7 * inch],
     )
-    meta.setStyle(TableStyle([
+    qbox.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), ACCENT_BLUE),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#555555")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#999999")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+
+    right_stack = Table(
+        [
+            [Paragraph("QUOTE", s["quote_header"])],
+            [qbox],
+        ],
+        colWidths=[2.6 * inch],
+    )
+    right_stack.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+
+    outer = Table(
+        [[identity_lines, right_stack]],
+        colWidths=[4.8 * inch, 2.7 * inch],
+    )
+    outer.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    return [meta]
+    return outer
+
+
+def _addresses_block(
+    quote: "Quote",
+    contract: Optional["EmailContract"],
+) -> Table:
+    """Bill to / To / Ship to Location — three address blocks.
+
+    Pulls from EmailContract when provided. Without a contract, falls
+    back to quote.facility for both To and Ship-to (legacy path).
+    """
+    s = _styles()
+
+    # Bill-to defaults to the agency invoice contact when a contract
+    # exists. Without contract, render an empty Bill-to (the agency
+    # name from quote.agency is the only fallback we can derive).
+    if contract is not None:
+        bill_to_lines = []
+        # Agency name as bill-to header (CalVet, CCHCS, etc. — Mike's
+        # operator workflow keys "Bill to" by the agency's invoicing
+        # entity, which for state agencies is the department name).
+        bill_to_lines.append(_escape_pdf_text(contract.agency))
+        if contract.buyer_email:
+            bill_to_lines.append(_escape_pdf_text(contract.buyer_email))
+        bill_to_html = "<br/>".join(bill_to_lines)
+
+        to_block = (
+            _escape_pdf_text(contract.facility)
+            + (("<br/>" + _address_to_html(contract.ship_to_address))
+               if contract.ship_to_address else "")
+        )
+        ship_to_block = (
+            _escape_pdf_text(contract.ship_to_facility or contract.facility)
+            + (("<br/>" + _address_to_html(contract.ship_to_address))
+               if contract.ship_to_address else "")
+        )
+    else:
+        bill_to_html = _escape_pdf_text(quote.agency)
+        to_block = _escape_pdf_text(quote.facility)
+        ship_to_block = _escape_pdf_text(quote.facility)
+
+    row1 = [
+        Paragraph("Bill to:", s["addr_label"]),
+        "",
+        Paragraph("Ship to Location:", s["addr_label"]),
+    ]
+    row2 = [
+        Paragraph(bill_to_html, s["addr_value"]),
+        "",
+        Paragraph(ship_to_block, s["addr_value"]),
+    ]
+    row3 = [
+        Paragraph("To:", s["addr_label"]),
+        "",
+        "",
+    ]
+    row4 = [
+        Paragraph(to_block, s["addr_value"]),
+        "",
+        "",
+    ]
+
+    tbl = Table(
+        [row1, row2, row3, row4],
+        colWidths=[3.6 * inch, 0.3 * inch, 3.6 * inch],
+    )
+    tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]))
+    return tbl
+
+
+def _buyer_terms_strip(
+    quote: "Quote",
+    contract: Optional["EmailContract"],
+    today: datetime,
+) -> Table:
+    """4-column strip with lavender label row: Salesperson | RFQ # | Terms | Expiration."""
+    s = _styles()
+    salesperson = REYTECH_OWNER.split(",")[0].strip()  # "Michael Guadan"
+
+    # RFQ Number = the buyer's RFQ title / solicitation# (NOT the
+    # Reytech Quote #). Per Mike's R26Q39 reference: "RFQ-Auralis"
+    # came from the contract.rfq_title; sol# is its own field below.
+    if contract is not None and contract.rfq_title:
+        rfq_label = contract.rfq_title
+    else:
+        rfq_label = quote.solicitation_number
+
+    expiration = today + timedelta(days=EXPIRATION_DAYS)
+    expiration_str = expiration.strftime("%b %d, %Y")
+
+    header = [
+        Paragraph("Salesperson", s["strip_label"]),
+        Paragraph("RFQ Number", s["strip_label"]),
+        Paragraph("Terms", s["strip_label"]),
+        Paragraph("Expiration Date", s["strip_label"]),
+    ]
+    values = [
+        Paragraph(salesperson, s["strip_value"]),
+        Paragraph(_escape_pdf_text(rfq_label), s["strip_value"]),
+        Paragraph(TERMS_DEFAULT, s["strip_value"]),
+        Paragraph(expiration_str, s["strip_value"]),
+    ]
+    tbl = Table([header, values], colWidths=[1.9 * inch, 1.9 * inch, 1.85 * inch, 1.85 * inch])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT_BLUE),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#FFFFFF")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#555555")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#999999")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return tbl
 
 
 def _line_item_table(quote: "Quote") -> Table:
-    """Render line items. Columns chosen for legibility + extraction.
+    """Render line items. Column order matches Mike's R26Q39 reference:
+    LINE # | MFG. PART # | QTY | UOM | DESCRIPTION | UNIT PRICE | TOTAL PRICE.
 
-    Width budget (~7.0 inch usable): Line 0.40 | MFG 0.95 | Desc 2.85 |
-    Qty 0.55 | UOM 0.45 | Unit 0.90 | Ext 0.90 = 7.00.
-
-    Description is wrapped in a Paragraph so long product names
-    reflow inside the cell instead of overflowing into the QTY
-    column. The qty column was widened from 0.45 → 0.55 inch to fit
-    comma-grouped values like "1,000" at 9pt Helvetica without
-    crowding.
+    Width budget (~7.5 inch usable at 0.5in margins):
+      LINE 0.45 | MFG 1.00 | QTY 0.45 | UOM 0.50 |
+      DESC 2.95 | UNIT 1.05 | TOTAL 1.10  = 7.50.
     """
     s = _styles()
-    header = ["#", "MFG #", "DESCRIPTION", "QTY", "UOM", "UNIT PRICE", "EXTENSION"]
+    header = ["LINE #", "MFG. PART #", "QTY", "UOM", "DESCRIPTION", "UNIT PRICE", "TOTAL PRICE"]
     rows: list[list] = [header]
     for li in quote.line_items:
         rows.append([
             str(li.line_no),
             li.mfg_number or "",
-            Paragraph(_escape_pdf_text(li.description), s["li_desc"]),
             f"{li.qty:,}",
             li.uom,
+            Paragraph(_escape_pdf_text(li.description), s["li_desc"]),
             format_dollars(li.unit_price_cents),
             format_dollars(li.extension_cents),
         ])
 
     col_widths = [
-        0.40 * inch,   # #
-        0.95 * inch,   # MFG #
-        2.85 * inch,   # DESCRIPTION (wraps via Paragraph)
-        0.55 * inch,   # QTY
-        0.45 * inch,   # UOM
-        0.90 * inch,   # UNIT PRICE
-        0.90 * inch,   # EXTENSION
+        0.45 * inch,   # LINE #
+        1.00 * inch,   # MFG. PART #
+        0.45 * inch,   # QTY
+        0.50 * inch,   # UOM
+        2.95 * inch,   # DESCRIPTION (wraps via Paragraph)
+        1.05 * inch,   # UNIT PRICE
+        1.10 * inch,   # TOTAL PRICE
     ]
     tbl = Table(rows, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(TableStyle([
         ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 9),
         ("FONT", (0, 1), (-1, -1), "Helvetica", 9),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#222222")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-        ("ALIGN", (3, 1), (4, -1), "CENTER"),   # qty, uom centered
-        ("ALIGN", (5, 1), (6, -1), "RIGHT"),    # unit price, extension right
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT_BLUE),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#222222")),
+        ("ALIGN", (0, 0), (-1, 0), "LEFT"),
+        ("ALIGN", (2, 1), (3, -1), "CENTER"),   # QTY, UOM centered
+        ("ALIGN", (5, 1), (6, -1), "RIGHT"),    # UNIT/TOTAL PRICE right
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor("#222222")),
-        ("LINEBELOW", (0, "splitfirst"), (-1, -1), 0.25, colors.HexColor("#cccccc")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-         [colors.white, colors.HexColor("#f7f7f7")]),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#555555")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#999999")),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
@@ -486,18 +696,13 @@ def _line_item_table(quote: "Quote") -> Table:
 
 
 def _totals_block(quote: "Quote") -> Table:
-    """Totals box, right-aligned. Pulls every value from quote.* fields.
+    """Totals box, right-aligned. Lavender label column.
 
     Lines (in order):
         SUBTOTAL
         TAX (X.XX%)
-        SHIPPING            $0.00     ← always; Charter invariant #7
+        SHIPPING            $0.00  ← always; Charter invariant #7
         TOTAL
-
-    The SHIPPING line is always rendered with $0.00. There is no
-    shipping field in the Quote model — the literal is in the
-    template, not derived from data. This means there is no path for
-    a future bug to produce a non-zero shipping line.
     """
     rows = [
         ["SUBTOTAL", format_dollars(quote.subtotal_cents)],
@@ -507,25 +712,18 @@ def _totals_block(quote: "Quote") -> Table:
     ]
     tbl = Table(rows, colWidths=[1.6 * inch, 1.4 * inch], hAlign="RIGHT")
     tbl.setStyle(TableStyle([
-        ("FONT", (0, 0), (-1, -2), "Helvetica", 10),
+        ("FONT", (0, 0), (-1, -2), "Helvetica-Bold", 10),
+        ("FONT", (1, 0), (1, -2), "Helvetica", 10),
         ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 11),
+        ("BACKGROUND", (0, 0), (0, -1), ACCENT_BLUE),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
-        ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.HexColor("#222222")),
-        ("LINEBELOW", (0, -1), (-1, -1), 1.6, colors.HexColor("#222222")),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#555555")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#999999")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
     return tbl
-
-
-def _footer() -> list:
-    s = _styles()
-    return [
-        Paragraph(
-            "Prices firm 30 days unless otherwise stated. "
-            "Reytech Inc. is a California Small Business / DVBE supplier. "
-            "Tax computed per CDTFA-published rate for the ship-to jurisdiction.",
-            s["footer"],
-        ),
-    ]

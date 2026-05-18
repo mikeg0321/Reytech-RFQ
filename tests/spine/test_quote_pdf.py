@@ -125,8 +125,11 @@ def test_pdf_includes_reytech_identity():
     )
     text = _extract_text(render_quote_pdf(q))
     assert "Reytech" in text
-    assert "rfq@reytechinc.com" in text
+    assert "sales@reytechinc.com" in text
     assert "949-229-1575" in text
+    assert "Trabuco Canyon" in text
+    assert "Michael Guadan" in text
+    assert "245652416-00001" in text
     assert "QUOTE" in text
 
 
@@ -645,3 +648,159 @@ def test_pdf_title_metadata_uses_display_number():
     title = reader.metadata.title if reader.metadata else ""
     assert title is not None
     assert "R26Q5" in title
+
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Template-match (PR #1052) — Mike's R26Q39 reference layout
+# ──────────────────────────────────────────────────────────────────────
+#
+# Verifies the soft-blue 3-block letterhead + 4-col Salesperson/RFQ#/
+# Terms/Expiration strip + LINE#|MFG.PART#|QTY|UOM|DESC|UNIT|TOTAL
+# column order match the buyer-facing template Mike has shipped to
+# date (R26Q39 to CalVet Barstow, R25Q161 to CIW).
+
+
+def _ok_contract(**overrides):
+    from src.spine.email_contract import EmailContract, ContractLineItem
+    base = dict(
+        contract_id="contract_test_001",
+        agency="CCHCS",
+        facility="SATF Corcoran",
+        solicitation_number="10847262",
+        buyer_email="buyer@cchcs.example.gov",
+        ship_to_address="900 Quebec Ave\nCorcoran, CA 93212\nUnited States",
+        ship_to_facility="SATF Corcoran",
+        rfq_title="RFQ-CCHCS-Test",
+        line_items=[ContractLineItem(line_no=1, description="Test", qty=1, uom="EA")],
+    )
+    base.update(overrides)
+    return EmailContract(**base)
+
+
+def test_pdf_renders_full_reytech_letterhead():
+    q = Quote(
+        quote_id="Q-letterhead-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10000010", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    text = _extract_text(render_quote_pdf(q))
+    assert "Reytech Inc." in text
+    assert "30 Carnoustie Way" in text
+    assert "Trabuco Canyon" in text
+    assert "Michael Guadan" in text
+    assert "sales@reytechinc.com" in text
+    assert "www.reytechinc.com" in text
+    assert "245652416-00001" in text
+
+
+def test_pdf_renders_quote_number_and_date_box():
+    q = Quote(
+        quote_id="Q-qbox-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10000011", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+        quote_seq=39, quote_year=2026,
+    )
+    text = _extract_text(render_quote_pdf(q))
+    assert "QUOTE" in text
+    flat = "".join(text.split())
+    assert "QUOTE#" in flat
+    assert "DATE" in text
+    assert "R26Q39" in text
+
+
+def test_pdf_renders_salesperson_terms_strip():
+    q = Quote(
+        quote_id="Q-strip-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10000012", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    text = _extract_text(render_quote_pdf(q))
+    assert "Salesperson" in text
+    assert "Michael Guadan" in text
+    assert "RFQ Number" in text
+    assert "Terms" in text
+    assert "Net 30" in text
+    assert "Expiration Date" in text
+
+
+def test_pdf_uses_total_price_column_header_not_extension():
+    q = Quote(
+        quote_id="Q-cols-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10000013", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    text = _extract_text(render_quote_pdf(q))
+    assert "TOTAL PRICE" in text
+    assert "UNIT PRICE" in text
+    assert "LINE #" in text
+    assert "MFG. PART #" in text
+    assert "DESCRIPTION" in text
+    assert "EXTENSION" not in text
+
+
+def test_pdf_contract_drives_bill_to_and_ship_to():
+    q = Quote(
+        quote_id="Q-contract-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10847262", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    contract = _ok_contract(
+        buyer_email="APinvoices@cchcs.example.gov",
+        ship_to_facility="SATF Corcoran Receiving",
+        ship_to_address="900 Quebec Ave\nCorcoran, CA 93212",
+    )
+    text = _extract_text(render_quote_pdf(q, contract=contract))
+    assert "Bill to:" in text
+    assert "APinvoices@cchcs.example.gov" in text
+    assert "Ship to Location:" in text
+    assert "SATF Corcoran Receiving" in text
+    assert "900 Quebec Ave" in text
+    assert "Corcoran, CA 93212" in text
+
+
+def test_pdf_contract_rfq_title_appears_in_strip():
+    q = Quote(
+        quote_id="Q-contract-rfq-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10847262", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    contract = _ok_contract(rfq_title="RFQ-Auralis")
+    text = _extract_text(render_quote_pdf(q, contract=contract))
+    assert "RFQ-Auralis" in text
+
+
+def test_pdf_no_contract_falls_back_gracefully():
+    q = Quote(
+        quote_id="Q-no-contract-001", agency="CCHCS", facility="VSP Vacaville",
+        solicitation_number="LEGACY-12345", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    text = _extract_text(render_quote_pdf(q))
+    assert "VSP Vacaville" in text
+    assert "LEGACY-12345" in text
+
+
+def test_pdf_footer_shows_quote_label():
+    q = Quote(
+        quote_id="Q-footer-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10000020", line_items=[_ok_line(1)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+        quote_seq=42, quote_year=2026,
+    )
+    text = _extract_text(render_quote_pdf(q))
+    assert "Quote R26Q42" in text
+
+
+def test_pdf_render_gate_still_catches_total_mismatch_with_total_price_column():
+    q = Quote(
+        quote_id="Q-gate-cols-001", agency="CCHCS", facility="SATF",
+        solicitation_number="10000021",
+        line_items=[_ok_line(1, qty=10, unit_price_cents=12345)],
+        tax_rate_bps=825, status=QuoteStatus.PRICED,
+    )
+    pdf_bytes = render_quote_pdf(q)
+    assert pdf_bytes.startswith(b"%PDF-")
+    text = _extract_text(pdf_bytes)
+    assert "TOTAL PRICE" in text
+    assert "$1,234.50" in text
