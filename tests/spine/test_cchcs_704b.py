@@ -206,7 +206,11 @@ def test_704b_gate_raises_in_fillable_mode_when_acroform_fill_noop(monkeypatch):
             today=datetime(2026, 5, 16),
             flatten=False,
         )
-    assert "fillable" in str(excinfo.value)
+    # Gate is now unified for flat + fillable (PR #1057: reads /V values
+    # regardless of flatten mode, since the gate runs against fillable
+    # bytes before flatten). Error message no longer contains "fillable".
+    assert "704B fill gate" in str(excinfo.value)
+    assert "substrate regression" in str(excinfo.value)
 
 
 # ──────────────────────────────────────────────────────────────────────

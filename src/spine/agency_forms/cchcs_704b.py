@@ -225,18 +225,35 @@ def fill_704b_pdf(
     intermediate = io.BytesIO()
     writer.write(intermediate)
 
+    # Build the FILLABLE bytes first (with appearance streams) and gate
+    # them — /V is intact at this stage. Then optionally flatten and
+    # return. Pre-#1057 the gate ran AFTER flatten, which destroyed the
+    # AcroForm /V values, so the gate could only inspect rendered text
+    # via pdfplumber — and that's brittle (different pikepdf/OS versions
+    # produce different text extractions, e.g. local Windows rendered
+    # "5.40" cleanly while Linux prod's appearance-stream split the
+    # cell and pdfplumber missed it → gate 409'd a correct PDF).
     with pikepdf.open(io.BytesIO(intermediate.getvalue())) as pdf:
         pdf.generate_appearance_streams()
-        if flatten:
-            pdf.flatten_annotations(mode="all")
-        out = io.BytesIO()
-        pdf.save(out)
-        pdf_bytes = out.getvalue()
+        fillable_buf = io.BytesIO()
+        pdf.save(fillable_buf)
+        fillable_bytes = fillable_buf.getvalue()
 
     _verify_704b_matches_model(
-        pdf_bytes, quote, identity, field_values, flatten=flatten,
+        fillable_bytes, quote, identity, field_values, flatten=False,
     )
-    return pdf_bytes
+
+    if not flatten:
+        return fillable_bytes
+
+    # Flatten for delivery — appearance is baked into page content,
+    # AcroForm widgets removed. Government convention; ?fillable=1
+    # returns the pre-flatten bytes already gated above.
+    with pikepdf.open(io.BytesIO(fillable_bytes)) as pdf:
+        pdf.flatten_annotations(mode="all")
+        out = io.BytesIO()
+        pdf.save(out)
+        return out.getvalue()
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -261,84 +278,79 @@ def _verify_704b_matches_model(
     *,
     flatten: bool,
 ) -> None:
-    """Re-extract and assert every line item + header identifier is
-    present. Same two-path pattern as cchcs_703b's gate."""
+    """Verify every required line item + header is correctly stamped.
+
+    SUBSTRATE GATE — reads /V values from the AcroForm directly, NOT
+    pdfplumber rendered text. /V is what every PDF consumer
+    (Acrobat, government doc viewers, downstream parsers) actually
+    reads. Rendered text via pdfplumber depends on the appearance-
+    stream generator's font + layout decisions which differ across
+    pikepdf/pypdf versions and OS (5/18: Windows local rendered
+    "5.40" cleanly while Linux prod's appearance stream split the
+    cell text differently and pdfplumber missed it — gate 409'd a
+    correct PDF).
+
+    The right invariant: every required `/V` is set on the AcroForm
+    to the expected value. Appearance is a renderer property,
+    correctness is a substrate property — gate the substrate, not
+    the renderer.
+
+    Same gate runs for flat and fillable bytes (flatten only changes
+    whether widgets are baked into the page content, NOT the /V).
+    """
     import pypdf
 
-    if flatten:
-        try:
-            import pdfplumber
-        except ImportError as e:
-            raise SpineFormFillError(
-                "pdfplumber required to verify flat 704B output."
-            ) from e
-
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-        flattened_text = "".join(full_text.split())
-
-        # 1. Header identifiers.
-        for field_name in _REQUIRED_HEADER_FIELDS:
-            expected = field_values.get(field_name, "").strip()
-            if not expected:
-                continue
-            target = expected.replace(" ", "")
-            if target in flattened_text:
-                continue
-            # Loose match for long header values.
-            if len(target) >= 8 and target[:8] in flattened_text:
-                continue
-            raise SpineFormFillError(
-                f"704B fill gate (flat): header field {field_name!r} "
-                f"expected to contain {expected!r} but not found in "
-                f"rendered PDF text."
-            )
-
-        # 2. Per-line: every description AND every subtotal money
-        # string must appear at least once. The Counter-based check
-        # used by quote_pdf is overkill here (the 704B has one
-        # subtotal per line, distinct values likely); substring
-        # check per line is enough for the gate.
-        for li in quote.line_items:
-            desc_target = "".join(li.description[:12].split())
-            if len(desc_target) >= 6 and desc_target not in flattened_text:
-                raise SpineFormFillError(
-                    f"704B fill gate (flat): line {li.line_no} description "
-                    f"prefix {desc_target!r} not found in rendered PDF text. "
-                    "AcroForm fill failed silently or template lacks the row."
-                )
-            sub_target = _dollars(li.extension_cents).replace(",", "")
-            # Comma-stripped form for the substring check (extracted
-            # PDF text may collapse or preserve commas inconsistently).
-            if sub_target not in flattened_text.replace(",", ""):
-                raise SpineFormFillError(
-                    f"704B fill gate (flat): line {li.line_no} subtotal "
-                    f"{sub_target!r} not found in rendered PDF text."
-                )
-        return
-
-    # Fillable: check field /V values directly via pypdf.
     reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
     fields = reader.get_fields() or {}
+
+    # 1. Header identifiers.
     for field_name in _REQUIRED_HEADER_FIELDS:
         expected = field_values.get(field_name, "").strip()
         if not expected:
             continue
         f = fields.get(field_name)
-        actual = f.get("/V") if f else None
-        if actual is None or str(actual).strip() != expected:
+        actual = (f.get("/V") if f else None)
+        actual_str = "" if actual is None else str(actual).strip()
+        if actual_str != expected:
             raise SpineFormFillError(
-                f"704B fill gate (fillable): header field {field_name!r} "
-                f"expected /V {expected!r} but got {actual!r}."
+                f"704B fill gate: header field {field_name!r} "
+                f"/V expected {expected!r} but got {actual_str!r}. "
+                f"pypdf write didn't land — substrate regression."
             )
+
+    # 2. Per-line: description + subtotal /V must equal expected value.
     for li in quote.line_items:
         suffix, row_no = _row_assignment(li.line_no)
         desc_field = f"{_DESCRIPTION_PREFIX}Row{row_no}{suffix}"
-        f = fields.get(desc_field)
-        actual = f.get("/V") if f else None
-        if actual is None or str(actual).strip() != li.description.strip():
+        sub_field = f"{_SUBTOTAL_PREFIX}Row{row_no}{suffix}"
+
+        desc_f = fields.get(desc_field)
+        desc_actual = "" if desc_f is None else str(desc_f.get("/V") or "").strip()
+        if desc_actual != li.description.strip():
             raise SpineFormFillError(
-                f"704B fill gate (fillable): line {li.line_no} description "
-                f"field {desc_field!r} expected /V {li.description!r} but "
-                f"got {actual!r}."
+                f"704B fill gate: line {li.line_no} description field "
+                f"{desc_field!r} /V expected {li.description!r} but got "
+                f"{desc_actual!r}."
             )
+
+        expected_sub = _dollars(li.extension_cents)
+        sub_f = fields.get(sub_field)
+        sub_actual = "" if sub_f is None else str(sub_f.get("/V") or "").strip()
+        if sub_actual != expected_sub:
+            raise SpineFormFillError(
+                f"704B fill gate: line {li.line_no} subtotal field "
+                f"{sub_field!r} /V expected {expected_sub!r} but got "
+                f"{sub_actual!r}."
+            )
+
+    # 3. Merchandise grand total — fill_154 must equal sum of line
+    # extensions. Pre-#1057 this field was unwritten; now part of the
+    # substrate contract.
+    expected_total = _dollars(sum(li.extension_cents for li in quote.line_items))
+    grand_f = fields.get("fill_154")
+    grand_actual = "" if grand_f is None else str(grand_f.get("/V") or "").strip()
+    if grand_actual != expected_total:
+        raise SpineFormFillError(
+            f"704B fill gate: MERCHANDISE SUBTOTAL field 'fill_154' "
+            f"/V expected {expected_total!r} but got {grand_actual!r}."
+        )
