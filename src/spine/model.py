@@ -69,6 +69,8 @@ SUPPORTED_UOM = (
     "ST",   # set
     "BG",   # bag
     "BT",   # bottle
+    "KIT",  # kit — assembled bundle sold as a single procurement unit
+            # (e.g. CHCF wheel/tire/handrim kit for INVACARE 9000XT).
 )
 
 
