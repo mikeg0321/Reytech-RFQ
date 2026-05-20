@@ -82,6 +82,27 @@ def test_703b_fills_and_passes_matching_gate():
     assert "99-1234567" in txt
 
 
+def test_703b_bidder_checkboxes_and_payment_discount():
+    """Reytech is an SB/DVBE reseller, not a manufacturer and not a
+    non-small business: both page-1 bidder questions answer 'No'
+    (Check Box2 + Check Box4 ticked). Reytech offers no early-payment
+    discount, so both blanks on the payment-discount line read 'N/A'.
+
+    Closes the 5/18 SAC hand-fill class — pre-fill left the
+    checkboxes empty and rendered '30 days = 0%', which a CCHCS
+    reviewer reads as a real 0%-discount offer.
+    """
+    from src.spine.agency_forms.cchcs_703b import _field_map
+
+    fm = _field_map(_quote(), _identity(), datetime(2026, 5, 16))
+    assert fm["703B_Check Box2"] == "/Yes"   # manufacturer? No
+    assert fm["703B_Check Box4"] == "/Yes"   # non-small business? No
+    assert "703B_Check Box1" not in fm       # manufacturer Yes — untouched
+    assert "703B_Check Box3" not in fm       # non-small-biz Yes — untouched
+    assert fm["703B_days of receipt"] == "N/A"
+    assert fm["703B_Payment discount offered on invoices to be paid within"] == "N/A"
+
+
 def test_703b_loads_identity_from_env_when_none(monkeypatch):
     monkeypatch.setenv("REYTECH_FEIN", "11-2222222")
     monkeypatch.setenv("REYTECH_SELLERS_PERMIT", "XYZ-999")

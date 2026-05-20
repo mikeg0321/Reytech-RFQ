@@ -200,12 +200,27 @@ def _field_map(
 
         # Vendor-side bid terms.
         "703B_Deliveries must be completed within": identity.delivery_days,
-        "703B_days of receipt": identity.payment_terms_days,
-        "703B_Payment discount offered on invoices to be paid within": (
-            identity.payment_discount_pct
-        ),
+        # Payment-discount line ("...offered on invoices to be paid
+        # within ___ days of receipt = ___%"). Reytech offers no
+        # early-payment discount, so BOTH blanks read "N/A". Pre-fill
+        # rendered "30 days = 0%", which a CCHCS reviewer reads as a
+        # real 0%-discount offer — corrected by hand on the 5/18 SAC
+        # bid; this closes the class.
+        "703B_days of receipt": "N/A",
+        "703B_Payment discount offered on invoices to be paid within": "N/A",
         "703B_BidExpirationDate": bid_expiration.strftime("%m/%d/%Y"),
         "703B_Sign_Date": sign_date,
+
+        # Bidder-information checkboxes (page 1). Reytech is an
+        # SB/DVBE reseller: NOT the product manufacturer, and NOT a
+        # "non-small business" claiming 25% SB-subcontractor
+        # preference — so both questions answer "No". Box2 = the "No"
+        # widget of "Are you the manufacturer?"; Box4 = the "No"
+        # widget of the non-small-business question. Box1/Box3 are
+        # the matching "Yes" widgets, left unchecked. Widget geometry
+        # verified against 703b_blank.pdf 2026-05-19; on-state /Yes.
+        "703B_Check Box2": "/Yes",
+        "703B_Check Box4": "/Yes",
 
         # STATE OFFICIAL block on page 2 — buyer-side contact, NOT
         # Reytech. Filled from EmailContract.buyer_*; blank when no
