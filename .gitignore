@@ -74,6 +74,8 @@ data/*.migrated
 # ── Claude Code (ignore settings, keep shared coordination files) ───────────
 .claude/*
 !.claude/WORKSTREAMS.md
+!.claude/agents/
+!.claude/agents/**
 
 # ── GitHub (ignore IDE config, keep workflows) ─────────────────────────────
 .github/*
