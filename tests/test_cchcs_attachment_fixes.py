@@ -143,3 +143,41 @@ def test_signature_draw_box_caps_height_on_wide_field():
     x, y, w, h = _signature_draw_box((0.0, 0.0, 500.0, 14.0), img_aspect=3.0)
     assert h <= 30.0 + 0.01
     assert abs(w / h - 3.0) < 0.05
+
+
+# ── Signature overlay actually lands ──────────────────────────────────
+
+
+def test_packet_signatures_actually_land(tmp_path):
+    """fill_cchcs_packet must report drawn signatures.
+
+    The signature overlay catches its own exceptions, so a crash inside
+    it ships an UNSIGNED packet with no test failure (exactly how the
+    2026-05-21 `fl` unbound-variable bug slipped through). This asserts
+    the overlay reported at least one drawn signature target.
+    """
+    import os
+
+    from src.forms.cchcs_packet_filler import fill_cchcs_packet
+    from src.forms.cchcs_packet_parser import parse_cchcs_packet
+
+    fixture = os.path.join(
+        os.path.dirname(__file__),
+        "fixtures", "unified_ingest", "cchcs_packet_preq.pdf",
+    )
+    if not os.path.exists(fixture):
+        pytest.skip("cchcs packet fixture not available")
+
+    parsed = parse_cchcs_packet(fixture)
+    if not parsed.get("ok"):
+        pytest.skip(f"fixture parse failed: {parsed.get('error')}")
+
+    result = fill_cchcs_packet(
+        source_pdf=fixture, parsed=parsed,
+        output_dir=str(tmp_path), strict=False,
+    )
+    overlaid = (result.get("signature_log") or {}).get("overlaid") or []
+    assert overlaid, (
+        "signature overlay drew nothing — it failed silently and the "
+        "packet would ship unsigned"
+    )
