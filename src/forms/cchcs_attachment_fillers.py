@@ -125,11 +125,29 @@ def _best_on_state(annot: Any) -> Optional[str]:
 
 
 def _apply_checkbox_updates(writer: "PdfWriter", updates: Dict[str, Any]) -> int:
-    """Walk every page's annotations and tick/untick checkbox widgets
-    whose full name matches an update key."""
+    """Walk every page's annotations and set checkbox / radio widgets
+    whose full name matches an update key.
+
+    Update values:
+      - truthy (True / "/Yes" / 1 / ...) → tick the box (single checkbox).
+      - falsy  (False / "/Off" / "" / ...) → untick.
+      - a specific export string ("/0", "/1", ...) → RADIO choice: only
+        the widget whose own on-state equals the string is ticked, every
+        sibling is set /Off. This is the ONLY correct way to drive a
+        one-of-N radio (e.g. DVBE 843 Section 2 broker declaration). A
+        generic truthy ticks every widget AND lets the parent /V end up
+        whichever sibling was iterated last — that is the bug that
+        rendered "DVBE is a broker" instead of "is not a broker".
+
+    The radio group's /V is written ONCE per parent, after the widget
+    loop, to the chosen value — never flip-flopped per sibling.
+    """
     if not updates:
         return 0
     written = 0
+    parent_choice: Dict[int, str] = {}
+    parent_objs: Dict[int, Any] = {}
+    _ON = (True, "/Yes", "Yes", "yes", 1, "1", "/On", "On")
     for page in writer.pages:
         annots = page.get("/Annots")
         if annots is None:
@@ -145,10 +163,19 @@ def _apply_checkbox_updates(writer: "PdfWriter", updates: Dict[str, Any]) -> int
                 if not name or name not in updates:
                     continue
                 desired = updates[name]
-                if desired in (True, "/Yes", "Yes", "yes", 1, "1", "/On", "On"):
-                    export_name = _best_on_state(annot) or "/Yes"
+                widget_on = _best_on_state(annot)  # this widget's own on-state
+                if (isinstance(desired, str) and desired.startswith("/")
+                        and desired not in ("/Off", "/On", "/Yes")):
+                    # Specific radio export value — tick only the matching
+                    # sibling; the group's /V is the chosen value.
+                    export_name = desired if widget_on == desired else "/Off"
+                    chosen = desired
+                elif desired in _ON:
+                    export_name = widget_on or "/Yes"
+                    chosen = export_name
                 else:
                     export_name = "/Off"
+                    chosen = "/Off"
                 export = NameObject(export_name)
                 annot[NameObject("/V")] = export
                 annot[NameObject("/AS")] = export
@@ -156,13 +183,53 @@ def _apply_checkbox_updates(writer: "PdfWriter", updates: Dict[str, Any]) -> int
                     parent = annot.get("/Parent")
                     if parent is not None:
                         pobj = parent.get_object()
-                        pobj[NameObject("/V")] = export
+                        pkey = id(pobj)
+                        parent_objs[pkey] = pobj
+                        parent_choice[pkey] = chosen
                 except Exception as _e:
                     log.debug('suppressed in _apply_checkbox_updates: %s', _e)
                 written += 1
             except Exception:
                 continue
+    # One resolved /V per parent. For a radio every sibling agreed on
+    # `chosen`, so this is deterministic regardless of widget order.
+    for pkey, pobj in parent_objs.items():
+        try:
+            pobj[NameObject("/V")] = NameObject(parent_choice[pkey])
+        except Exception as _e:
+            log.debug('suppressed parent /V write: %s', _e)
     return written
+
+
+# Target on-page height for an overlaid signature image, in PDF points.
+# Signature widget rects on government forms are often very thin (8-14pt
+# tall); fitting an image INTO that height with preserveAspectRatio
+# shrinks it to a micro mark. We instead size the signature off the
+# field WIDTH and cap the height here, letting it sit on the field's
+# baseline and rise above a thin rect — the real-world ink convention.
+_SIGNATURE_MAX_HEIGHT = 30.0
+_SIGNATURE_PAD = 2.0
+
+
+def _signature_draw_box(field_rect: tuple, img_aspect: float) -> tuple:
+    """Given a signature widget /Rect and the signature image's aspect
+    ratio (width / height), return the (x, y, w, h) to draw the image at.
+
+    Drives size off the field WIDTH (not the often-thin field height) so
+    the signature renders at a consistent, legible size everywhere —
+    closes the "micro-sized signatures throughout the document" defect.
+    Single source of truth: the packet-filler signature overlays import
+    this so flat/attachment signatures never diverge.
+    """
+    fl, fb, fr, ft = field_rect
+    fw = fr - fl
+    aspect = img_aspect if img_aspect and img_aspect > 0 else 3.2
+    draw_w = max(fw - _SIGNATURE_PAD * 2, 1.0)
+    draw_h = draw_w / aspect
+    if draw_h > _SIGNATURE_MAX_HEIGHT:
+        draw_h = _SIGNATURE_MAX_HEIGHT
+        draw_w = draw_h * aspect
+    return fl + _SIGNATURE_PAD, fb + _SIGNATURE_PAD, draw_w, draw_h
 
 
 def _overlay_signature_on_widgets(
@@ -182,6 +249,13 @@ def _overlay_signature_on_widgets(
         from reportlab.lib.utils import ImageReader
     except ImportError:
         return 0
+
+    img = ImageReader(sig_path)
+    try:
+        _iw, _ih = img.getSize()
+        img_aspect = (_iw / _ih) if _ih else 3.2
+    except Exception:
+        img_aspect = 3.2
 
     drawn = 0
     for page_idx, page in enumerate(writer.pages):
@@ -213,19 +287,12 @@ def _overlay_signature_on_widgets(
                     page_w, page_h = float(mb.width), float(mb.height)
                 except Exception as _e:
                     log.debug('suppressed in _overlay_signature_on_widgets: %s', _e)
-                fl, fb, fr, ft = sig_rect
-                pad = 2.0
+                x, y, w, h = _signature_draw_box(sig_rect, img_aspect)
                 buf = io.BytesIO()
                 c = rl_canvas.Canvas(buf, pagesize=(page_w, page_h))
                 c.drawImage(
-                    ImageReader(sig_path),
-                    fl + pad,
-                    fb + pad,
-                    width=(fr - fl) - pad * 2,
-                    height=(ft - fb) - pad * 2,
-                    mask="auto",
-                    preserveAspectRatio=True,
-                    anchor="sw",
+                    img, x, y, width=w, height=h,
+                    mask="auto", preserveAspectRatio=True, anchor="sw",
                 )
                 c.save()
                 buf.seek(0)
@@ -370,30 +437,43 @@ def fill_dvbe_843(
         "DVBEname": firm,
         "DVBErefno": cert,
         "description": goods,
-        "SCno": sol or "RFQ",
+        # Section 1: the solicitation # goes in Solicitation/Contract
+        # Number. SCPRS Reference Number is "FOR STATE USE ONLY" — the
+        # state fills it; Reytech leaves it blank.
+        "SCno": sol,
+        "SCPRS Reference Number": "",
         "DVBEowner1": owner,
         "DVBEowner1date": today,
-        "DVBEowner2": "N/A",
+        # Reytech has a single 100%-DV owner. The 2nd-owner / manager
+        # lines stay BLANK — not "N/A". An empty line reads correctly as
+        # "no second owner"; "N/A" is gratuitous filler (Mike, 2026-05-21).
+        "DVBEowner2": "",
         "DVBEowner2date": "",
-        "Principal": "N/A",
-        "PrincipalPhone": phone,
-        "PrincipalAddress": address,
+        # The Firm/Principal block applies ONLY when the DVBE is acting
+        # as a broker/agent. Reytech declares it is NOT a broker
+        # (Section 2) → the entire principal block stays blank.
+        "Principal": "",
+        "PrincipalPhone": "",
+        "PrincipalAddress": "",
         "DVBEowner3": "",
         "DVBEowner3Date": "",
         "DVBEowner3Address": "",
         "DVBEowner3Phone": "",
         "DVBEowner3TaxID": "",
-        "DVBEmgr": "N/A",
+        "DVBEmgr": "",
         "DVBEmanagerDate": "",
         "PageNo": "1",
         "TotalPages": "1",
-        "SCPRS Reference Number": sol or "",
     }
-    # YNagent is a 2-widget radio — ticking "Yes" = owner of record
+    # Section 2 — "Check only ONE box." YNagent is a one-of-two radio:
+    #   /1 = top box   = "the DVBE is NOT a broker or agent"  ← Reytech
+    #   /0 = lower box = "the DVBE IS a broker or agent"
+    # (/1 vs /0 → position confirmed from the template widget rects: the
+    # /1 widget sits higher on the page.) Section 3 applies only to DVBEs
+    # that RENT equipment; Reytech is a supply reseller, so OwnBusiness /
+    # OwnEquipment are left UNCHECKED.
     checkbox_updates = {
-        "YNagent": True,
-        "OwnBusiness": True,
-        "OwnEquipment": True,
+        "YNagent": "/1",
     }
     return _fill_and_serialize(
         path,
@@ -474,9 +554,13 @@ def fill_std204(
     city_state_zip = f"{city} {state} {zip_code}".strip()
     email = reytech_info.get("email", "")
     fein = reytech_info.get("fein", "")
+    # STD 204 Section 3 FEIN is a 9-cell comb field — the "##-#######"
+    # form mask provides 9 digit cells, so the dash is NOT a cell.
+    # Passing "47-4588061" (10 chars) overflows and the LAST digit is
+    # silently dropped ("47-458806"). Strip non-digits → 9 digits, all
+    # retained, dash supplied by the pre-printed form mask.
+    fein_digits = "".join(c for c in fein if c.isdigit())
     phone = reytech_info.get("phone", "")
-    compliance = reytech_info.get("compliance", {}) or {}
-    unit = compliance.get("unit_section", "Procurement")
     today = _today_mmddyyyy()
 
     text_updates = {
@@ -485,13 +569,15 @@ def fill_std204(
         "MAILING ADDRESS (number, street, apt. or suite no.) (See instructions on Page 2)": street,
         "CITY STATE ZIP CODE": city_state_zip,
         "EMAIL ADDRESS": email,
-        "Federal Employer Identification Number (FEIN)": fein,
+        "Federal Employer Identification Number (FEIN)": fein_digits,
         "NAME OF AUTHORIZED PAYEE REPRESENTATIVE": owner,
         "TITLE": title,
         "EMAIL ADDRESS_2": email,
         "DATE": today,
         "TELEPHONE include area code": phone,
-        "UNITSECTION": unit,
+        # Section 6 ("Paying State Agency", incl. UNIT/SECTION) is FOR
+        # STATE USE ONLY — the paying agency completes it. Reytech
+        # writes nothing there; the field stays blank.
     }
     # corpOthers = "Corporation: Other" (Reytech Inc. is a C-corp, not
     # medical/legal/exempt). calRes = CA Resident Yes.

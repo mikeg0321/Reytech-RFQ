@@ -1087,20 +1087,24 @@ def _overlay_civil_rights_signature(writer: "PdfWriter", page_index: int) -> boo
         page_w, page_h = float(mb.width), float(mb.height)
     except Exception as _e:
         log.debug('suppressed in _overlay_civil_rights_signature: %s', _e)
-    fl, fb, fr, ft = sig_rect
-    pad = 2.0
+    _sig_img = ImageReader(sig_path)
+    try:
+        _iw, _ih = _sig_img.getSize()
+        _aspect = (_iw / _ih) if _ih else 3.2
+    except Exception:
+        _aspect = 3.2
+    try:
+        from src.forms.cchcs_attachment_fillers import _signature_draw_box
+        x, y, sig_w, sig_h = _signature_draw_box(tuple(sig_rect), _aspect)
+    except Exception:
+        fl, fb, fr, ft = sig_rect
+        x, y, sig_w, sig_h = fl + 2.0, fb + 2.0, (fr - fl) - 4.0, (ft - fb) - 4.0
     try:
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(page_w, page_h))
         c.drawImage(
-            ImageReader(sig_path),
-            fl + pad,
-            fb + pad,
-            width=(fr - fl) - pad * 2,
-            height=(ft - fb) - pad * 2,
-            mask="auto",
-            preserveAspectRatio=True,
-            anchor="sw",
+            _sig_img, x, y, width=sig_w, height=sig_h,
+            mask="auto", preserveAspectRatio=True, anchor="sw",
         )
         c.save()
         buf.seek(0)
@@ -1225,6 +1229,18 @@ def _overlay_signature_png(
 
     drawn = 0
     img = ImageReader(sig_path)
+    # Shared signature sizing — drives off the field WIDTH with a capped
+    # height so thin signature widgets don't shrink the image to a micro
+    # mark (Mike 2026-05-21: "many look micro sized throughout").
+    try:
+        from src.forms.cchcs_attachment_fillers import _signature_draw_box
+    except Exception:
+        _signature_draw_box = None
+    try:
+        _iw, _ih = img.getSize()
+        img_aspect = (_iw / _ih) if _ih else 3.2
+    except Exception:
+        img_aspect = 3.2
     for page_idx, rect, _annot, matched_target in hits:
         page = writer.pages[page_idx]
         page_w, page_h = 612.0, 792.0
@@ -1233,24 +1249,17 @@ def _overlay_signature_png(
             page_w, page_h = float(mb.width), float(mb.height)
         except Exception as _e:
             log.debug('suppressed in _overlay_signature_png: %s', _e)
-        fl, fb, fr, ft = rect
-        fw = fr - fl
-        fh = ft - fb
-        pad = 2.0
-        img_w = fw - pad * 2
-        img_h = fh - pad * 2
+        fl, fb, fr, ft = rect  # also used by the post-draw log line below
+        if _signature_draw_box is not None:
+            x, y, img_w, img_h = _signature_draw_box(tuple(rect), img_aspect)
+        else:
+            x, y, img_w, img_h = fl + 2.0, fb + 2.0, (fr - fl) - 4.0, (ft - fb) - 4.0
         try:
             buf = io.BytesIO()
             c = rl_canvas.Canvas(buf, pagesize=(page_w, page_h))
             c.drawImage(
-                img,
-                fl + pad,
-                fb + pad,
-                width=img_w,
-                height=img_h,
-                mask="auto",
-                preserveAspectRatio=True,
-                anchor="sw",
+                img, x, y, width=img_w, height=img_h,
+                mask="auto", preserveAspectRatio=True, anchor="sw",
             )
             c.save()
             buf.seek(0)
