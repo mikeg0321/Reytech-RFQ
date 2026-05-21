@@ -32,6 +32,7 @@ try:
         BooleanObject,
         DictionaryObject,
         NameObject,
+        NumberObject,
         TextStringObject,
     )
     HAS_PYPDF = True
@@ -232,6 +233,40 @@ def _signature_draw_box(field_rect: tuple, img_aspect: float) -> tuple:
     return fl + _SIGNATURE_PAD, fb + _SIGNATURE_PAD, draw_w, draw_h
 
 
+def _neutralize_signature_widget(annot: Any) -> None:
+    """Fully neutralize a signature widget so nothing it carries renders
+    over the drawn signature PNG.
+
+    A widget annotation paints ON TOP of page content, so a "sign here"
+    / e-sign tab on the source template's signature field renders OVER
+    the signature PNG the overlay merges into the page content stream.
+    The CCHCS AMS 708 /Sig field's red "SIGN" tab comes from its /MK
+    appearance-characteristics dict (/BG red background + /CA "SIGN"
+    caption) — and with /NeedAppearances set a viewer REGENERATES that
+    tab from /MK even after /AP is removed. So strip /V, /AP, /AS AND
+    /MK, and set the Hidden flag. The merged page-content PNG is then
+    the sole visible signature.
+    """
+    try:
+        annot[NameObject("/V")] = TextStringObject("")
+    except Exception as _e:
+        log.debug('sig widget /V clear: %s', _e)
+    for _k in ("/AP", "/AS", "/MK"):
+        try:
+            if _k in annot:
+                del annot[NameObject(_k)]
+        except Exception as _e:
+            log.debug('sig widget %s strip: %s', _k, _e)
+    # Hidden flag (bit 2 → value 2): no regenerated appearance can
+    # render. The signature PNG lives in the page content stream and
+    # is unaffected.
+    try:
+        cur = annot.get("/F", 0)
+        annot[NameObject("/F")] = NumberObject(int(cur) | 2)
+    except Exception as _e:
+        log.debug('sig widget /F hidden: %s', _e)
+
+
 def _overlay_signature_on_widgets(
     writer: "PdfWriter",
     target_field_names: tuple,
@@ -276,10 +311,7 @@ def _overlay_signature_on_widgets(
                 if rect is None:
                     continue
                 sig_rect = tuple(float(x) for x in rect)
-                try:
-                    annot[NameObject("/V")] = TextStringObject("")
-                except Exception as _e:
-                    log.debug('suppressed in _overlay_signature_on_widgets: %s', _e)
+                _neutralize_signature_widget(annot)
 
                 page_w, page_h = 612.0, 792.0
                 try:

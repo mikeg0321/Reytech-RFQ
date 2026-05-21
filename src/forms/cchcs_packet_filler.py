@@ -1071,9 +1071,16 @@ def _overlay_civil_rights_signature(writer: "PdfWriter", page_index: int) -> boo
                     continue
                 sig_rect = tuple(float(x) for x in rect)
                 try:
-                    annot[NameObject("/V")] = TextStringObject("")
+                    from src.forms.cchcs_attachment_fillers import (
+                        _neutralize_signature_widget,
+                    )
+                    _neutralize_signature_widget(annot)
                 except Exception as _e:
                     log.debug('suppressed in _overlay_civil_rights_signature: %s', _e)
+                    try:
+                        annot[NameObject("/V")] = TextStringObject("")
+                    except Exception as _e2:
+                        log.debug('cr sig /V fallback: %s', _e2)
                 break
         except Exception:
             continue
@@ -1200,11 +1207,20 @@ def _overlay_signature_png(
                     continue
                 r = tuple(float(x) for x in rect)
                 hits.append((page_idx, r, annot, matched_target))
-                # Clear any typed value so it doesn't underlay the PNG
+                # Strip the widget's value + appearance so a baked-in
+                # "sign here" / e-sign tab (the red AMS 708 "SIGN" tab)
+                # can't render OVER the drawn signature PNG.
                 try:
-                    annot[NameObject("/V")] = TextStringObject("")
+                    from src.forms.cchcs_attachment_fillers import (
+                        _neutralize_signature_widget,
+                    )
+                    _neutralize_signature_widget(annot)
                 except Exception as _e:
                     log.debug('suppressed in _overlay_signature_png: %s', _e)
+                    try:
+                        annot[NameObject("/V")] = TextStringObject("")
+                    except Exception as _e2:
+                        log.debug('sig /V fallback: %s', _e2)
             except Exception:
                 continue
 
