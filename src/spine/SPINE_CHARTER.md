@@ -90,7 +90,56 @@ failure is contained and legacy keeps shipping.
     `test_no_legacy_imports.py`. The Spine's correctness must not
     depend on legacy code being correct. The only whitelisted external
     deps are 3 leaf utilities (Vision parser, CDTFA client, PDF
-    writer) — and even those are wrapped at the boundary.
+    writer) — and even those are wrapped at the boundary. The **one
+    file-scoped exception** is the CCHCS packet adapter — see the
+    section below.
+
+---
+
+## Sanctioned Boundary — The CCHCS Packet Adapter
+
+> Added 2026-05-20. Memory: `handoff-2026-05-20-legacy-adapter-build`.
+
+Invariant 11 forbids legacy imports so the Spine's correctness does not
+depend on legacy correctness. There is **exactly one sanctioned, file-
+scoped exception**: `src/spine/packet_render.py`.
+
+**Why it exists.** The CCHCS Non-Cloud RFQ Packet is a single buyer-
+supplied PDF that already bundles the 703B cover, the 704B line-item
+table, and the bid-package attachments. The correct way to respond is to
+fill *that* document (Path B: `PdfReader(buyer_pdf) → PdfWriter(clone)`).
+The legacy filler `src/forms/cchcs_packet_filler.py` (shipped 2026-04-13,
+verified 2026-05-20) already does this correctly.
+
+As the Spine was built out it grew its OWN from-scratch agency-form
+renderers (`src/spine/agency_forms/cchcs_{703b,704b,bidpkg}.py`). They
+re-implemented document filling from blank templates and produced
+packets that failed CCHCS responsiveness review (the 2026-05-18 "trash"
+output + a 21-minute operator hand-finish). Re-implementing a verified
+renderer to satisfy a purity rule would be **the rule defeating its own
+purpose** — the Spine would depend on a *worse, unverified* renderer
+instead of `None`.
+
+**The decision.** `packet_render.py` is an adapter, not a renderer. It
+maps a Spine `Quote` + `EmailContract` onto the legacy filler's call
+shape and delegates. It is permitted to import exactly:
+
+- `src.forms.cchcs_packet_parser` — parse the buyer's packet PDF.
+- `src.forms.cchcs_packet_filler` — fill the buyer's packet PDF.
+- `src.core.paths` — `DATA_DIR` / `OUTPUT_DIR` path constants only.
+
+**Containment.** The exception is enforced *file-scoped* in
+`test_no_legacy_imports` (`_FILE_SCOPED_LEGACY_IMPORTS`): only
+`packet_render.py` may import those three modules; every other Spine
+file still gets zero legacy imports. The Spine substrate proper —
+`model.py`, `email_contract.py`, `db.py`, the counters — remains
+import-clean. The adapter is a leaf at the edge of the Spine, not a
+dependency of its core.
+
+The Spine's own `agency_forms/` renderers are **retired**: every
+operator-facing `/forms/{703b,704b,bidpkg,packet}/pdf` route serves the
+adapter's output. They are kept on disk only until a follow-up deletes
+them and their tests.
 
 ---
 

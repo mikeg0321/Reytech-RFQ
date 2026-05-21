@@ -186,6 +186,13 @@ def test_703b_gate_raises_in_fillable_mode_when_acroform_fill_noop(monkeypatch):
 
 # ──────────────────────────────────────────────────────────────────────
 # Route integration
+#
+# The /forms/703b/pdf route was repointed to the legacy-filler packet
+# adapter on 2026-05-20 (handoff-2026-05-20-legacy-adapter-build) — it no
+# longer calls fill_703b_pdf. Route-layer coverage now lives in
+# tests/spine/test_routes_packet.py. The not-found path is kept here as a
+# smoke check; the per-form-renderer route tests (returns_pdf / fillable /
+# attachment) were retired with the renderer.
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -205,35 +212,9 @@ def client(db_path: str) -> FlaskClient:
     return app.test_client()
 
 
-def test_route_703b_returns_pdf(client, db_path):
-    write_quote(db_path, _quote("Q-rt-001"), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-001/forms/703b/pdf")
-    assert r.status_code == 200
-    assert r.mimetype == "application/pdf"
-    assert r.data.startswith(b"%PDF-")
-    assert "inline" in r.headers["Content-Disposition"]
-
-
 def test_route_703b_404_for_unknown_quote(client):
     r = client.get("/spine/quotes/Q-no-such-thing/forms/703b/pdf")
     assert r.status_code == 404
-
-
-def test_route_703b_fillable_query_param(client, db_path):
-    write_quote(db_path, _quote("Q-rt-fill"), actor="seed")
-    r_flat = client.get("/spine/quotes/Q-rt-fill/forms/703b/pdf")
-    r_fill = client.get("/spine/quotes/Q-rt-fill/forms/703b/pdf?fillable=1")
-    assert r_flat.status_code == r_fill.status_code == 200
-    # Both produce valid PDFs; the fillable variant retains widgets.
-    fields_fill = pypdf.PdfReader(io.BytesIO(r_fill.data)).get_fields() or {}
-    assert len(fields_fill) >= 40
-
-
-def test_route_703b_attachment_mode(client, db_path):
-    write_quote(db_path, _quote("Q-rt-att"), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-att/forms/703b/pdf?inline=0")
-    assert r.status_code == 200
-    assert "attachment" in r.headers["Content-Disposition"]
 
 
 # ──────────────────────────────────────────────────────────────────────

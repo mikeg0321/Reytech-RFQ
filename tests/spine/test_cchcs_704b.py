@@ -215,6 +215,13 @@ def test_704b_gate_raises_in_fillable_mode_when_acroform_fill_noop(monkeypatch):
 
 # ──────────────────────────────────────────────────────────────────────
 # Route integration
+#
+# The /forms/704b/pdf route was repointed to the legacy-filler packet
+# adapter on 2026-05-20 (handoff-2026-05-20-legacy-adapter-build) — it no
+# longer calls fill_704b_pdf. Route-layer coverage now lives in
+# tests/spine/test_routes_packet.py. The not-found path is kept here as a
+# smoke check; the per-form-renderer route tests (returns_pdf / fillable /
+# over-capacity) were retired with the renderer.
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -234,34 +241,9 @@ def client(db_path: str) -> FlaskClient:
     return app.test_client()
 
 
-def test_route_704b_returns_pdf(client, db_path):
-    write_quote(db_path, _quote("Q-rt-704-001", n_items=5), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-704-001/forms/704b/pdf")
-    assert r.status_code == 200
-    assert r.mimetype == "application/pdf"
-    assert r.data.startswith(b"%PDF-")
-    assert "inline" in r.headers["Content-Disposition"]
-
-
 def test_route_704b_404_for_unknown_quote(client):
     r = client.get("/spine/quotes/Q-no-such/forms/704b/pdf")
     assert r.status_code == 404
-
-
-def test_route_704b_fillable_query_param(client, db_path):
-    write_quote(db_path, _quote("Q-rt-704-fill", n_items=3), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-704-fill/forms/704b/pdf?fillable=1")
-    assert r.status_code == 200
-    fields = pypdf.PdfReader(io.BytesIO(r.data)).get_fields() or {}
-    assert len(fields) >= 300
-
-
-def test_route_704b_returns_409_when_over_capacity(client, db_path):
-    write_quote(db_path, _quote("Q-rt-704-over", n_items=40), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-704-over/forms/704b/pdf")
-    assert r.status_code == 409
-    body = r.get_json()
-    assert body["error"] == "form_fill_mismatch"
 
 
 # ──────────────────────────────────────────────────────────────────────

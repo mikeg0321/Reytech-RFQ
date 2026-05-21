@@ -96,6 +96,9 @@ data/verify_*.png
 data/tax_rates_cache.json
 scripts/_prod_orphan_triage.py
 scripts/schedule/
+# Per-bid one-off renderer escape-hatch scripts (operator-local; never
+# committed — they bypass the spine ingest path by design).
+scripts/gen_chcf_*.py
 
 # ── Old audit doc variants (superseded by docs/AUDIT_DEEP_E2E_2026_05_07_v2.md) ──
 # Future audit work should overwrite the canonical v2 doc; these stale
