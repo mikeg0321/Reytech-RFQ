@@ -48,6 +48,24 @@ _EXTERNAL_WHITELIST: set[str] = {
     # (empty in foundation PR — leaf utils wire in later PRs)
 }
 
+# Per-FILE sanctioned legacy imports. Scoped to a single Spine file so
+# the exception cannot leak into the rest of the substrate — every other
+# Spine file still gets zero legacy imports.
+#
+# packet_render.py is the Spine→legacy CCHCS packet adapter. It is BY
+# DESIGN a boundary-crosser: rather than re-implement document filling
+# (the Spine's own from-scratch agency_forms renderers produced the
+# 2026-05-18 "trash" output), it delegates to the verified legacy filler
+# that fills the buyer's actual packet PDF. Documented in SPINE_CHARTER.md
+# §"Sanctioned Boundary — The CCHCS Packet Adapter".
+_FILE_SCOPED_LEGACY_IMPORTS: dict[str, set[str]] = {
+    "packet_render.py": {
+        "src.core.paths",                  # DATA_DIR/OUTPUT_DIR — path constants
+        "src.forms.cchcs_packet_parser",   # parse the buyer's packet
+        "src.forms.cchcs_packet_filler",   # fill the buyer's packet
+    },
+}
+
 # Stdlib + well-known third-party packages always OK.
 _ALWAYS_OK_PREFIXES = (
     "pydantic",
@@ -112,13 +130,19 @@ def test_no_legacy_imports():
         except SyntaxError as e:
             pytest.fail(f"{fp.relative_to(SPINE_DIR.parent.parent)}: SyntaxError: {e}")
 
+        allowed = _FILE_SCOPED_LEGACY_IMPORTS.get(fp.name, frozenset())
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if _is_legacy_import(alias.name):
+                    if _is_legacy_import(alias.name) and alias.name not in allowed:
                         offenders.append((str(fp), node.lineno, f"import {alias.name}"))
             elif isinstance(node, ast.ImportFrom):
-                if node.module and _is_legacy_import(node.module):
+                if (
+                    node.module
+                    and _is_legacy_import(node.module)
+                    and node.module not in allowed
+                ):
                     names = ", ".join(a.name for a in node.names)
                     offenders.append(
                         (str(fp), node.lineno, f"from {node.module} import {names}")

@@ -182,6 +182,13 @@ def test_bidpkg_gate_raises_in_fillable_mode_when_fill_noop(monkeypatch):
 
 # ──────────────────────────────────────────────────────────────────────
 # Route integration
+#
+# The /forms/bidpkg/pdf route was repointed to the legacy-filler packet
+# adapter on 2026-05-20 (handoff-2026-05-20-legacy-adapter-build) — it no
+# longer calls fill_bidpkg_pdf. Route-layer coverage now lives in
+# tests/spine/test_routes_packet.py. The not-found path is kept here as a
+# smoke check; the per-form-renderer route tests (returns_pdf / fillable /
+# attachment) were retired with the renderer.
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -201,30 +208,6 @@ def client(db_path: str) -> FlaskClient:
     return app.test_client()
 
 
-def test_route_bidpkg_returns_pdf(client, db_path):
-    write_quote(db_path, _quote("Q-rt-bidpkg-001"), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-bidpkg-001/forms/bidpkg/pdf")
-    assert r.status_code == 200
-    assert r.mimetype == "application/pdf"
-    assert r.data.startswith(b"%PDF-")
-    assert "inline" in r.headers["Content-Disposition"]
-
-
 def test_route_bidpkg_404_for_unknown_quote(client):
     r = client.get("/spine/quotes/Q-no-such/forms/bidpkg/pdf")
     assert r.status_code == 404
-
-
-def test_route_bidpkg_fillable_query_param(client, db_path):
-    write_quote(db_path, _quote("Q-rt-bidpkg-fill"), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-bidpkg-fill/forms/bidpkg/pdf?fillable=1")
-    assert r.status_code == 200
-    fields = pypdf.PdfReader(io.BytesIO(r.data)).get_fields() or {}
-    assert len(fields) >= 200
-
-
-def test_route_bidpkg_attachment_mode(client, db_path):
-    write_quote(db_path, _quote("Q-rt-bidpkg-att"), actor="seed")
-    r = client.get("/spine/quotes/Q-rt-bidpkg-att/forms/bidpkg/pdf?inline=0")
-    assert r.status_code == 200
-    assert "attachment" in r.headers["Content-Disposition"]

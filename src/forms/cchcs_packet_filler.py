@@ -179,6 +179,7 @@ def _build_field_updates(
     price_overrides: Optional[Dict[int, Dict[str, float]]] = None,
     quote_number: str = "",
     notes: str = "",
+    tax_rate: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Return a {field_name: value} dict for every field we intend to
     write. Never mutates the parsed input.
@@ -186,6 +187,12 @@ def _build_field_updates(
     price_overrides shape: {row_index: {"unit_cost": X, "unit_price": Y}}
     — if a row has an override, use that price. Otherwise skip the row
     (leave unfilled so the human can see gaps before sending).
+
+    tax_rate: optional caller-supplied sales-tax rate as a fraction
+    (0.0875 == 8.75%). When provided it is used verbatim — this is the
+    Spine path, where the operator-validated tax rate is the substrate
+    source of truth. When None, the rate is looked up from the packet
+    header zip via CDTFA (the legacy PC flow).
     """
     updates: Dict[str, Any] = {}
 
@@ -244,10 +251,13 @@ def _build_field_updates(
         filled_rows += 1
 
     # ── Totals ──
-    # Tax: CA state sales tax lookup would be nicer but we don't have
-    # the buyer's zip-resolved rate in scope here. Default to the header
-    # zip_code → CDTFA rate via existing helper, falling back to 0.
-    tax_rate = _lookup_tax_rate(parsed.get("header", {}).get("zip_code", ""))
+    # Tax: prefer the caller-supplied operator-validated rate (the Spine
+    # substrate's source of truth — flowed in so the packet totals page
+    # cannot drift to a different rate than the rest of the response).
+    # Fall back to the header zip_code → CDTFA lookup for the legacy PC
+    # flow, which has no operator-validated rate in hand.
+    if tax_rate is None:
+        tax_rate = _lookup_tax_rate(parsed.get("header", {}).get("zip_code", ""))
     subtotal = round(running_subtotal, 2)
     freight = 0.0  # included per Reytech terms
     sales_tax = round(subtotal * tax_rate, 2)
@@ -353,10 +363,16 @@ def fill_cchcs_packet(
     price_overrides: Optional[Dict[int, Dict[str, float]]] = None,
     quote_number: str = "",
     notes: str = "",
+    tax_rate: Optional[float] = None,
     strict: bool = True,
 ) -> Dict[str, Any]:
     """Fill the CCHCS packet with Reytech supplier info + prices and
     save as <basename>_Reytech.pdf.
+
+    tax_rate (optional, fraction e.g. 0.0875): caller-supplied sales-tax
+    rate. The Spine adapter passes the quote's operator-validated rate so
+    the packet totals match the rest of the response; when omitted the
+    rate is looked up from the packet header zip (legacy PC flow).
 
     Returns:
         {
@@ -414,6 +430,7 @@ def fill_cchcs_packet(
         price_overrides=price_overrides,
         quote_number=quote_number,
         notes=notes,
+        tax_rate=tax_rate,
     )
 
     # Open source, write output. Use `clone_from` so pypdf preserves

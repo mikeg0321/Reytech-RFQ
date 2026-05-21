@@ -388,14 +388,91 @@ def make_spine_blueprint(
             "clean": len(deltas) == 0,
         })
 
+    # ─── CCHCS packet rendering — shared by every /forms/*/pdf route ──
+    #
+    # The CCHCS Non-Cloud RFQ Packet is ONE buyer-supplied PDF that
+    # already bundles the 703B cover sheet, the 704B line-item table, and
+    # the bid-package attachments (CUF / Darfur / AMS 708 / Civil Rights
+    # / Seller's Permit). Reytech fills THAT document — it does not
+    # generate three separate forms.
+    #
+    # The Spine's own from-scratch per-form renderers
+    # (src/spine/agency_forms/cchcs_{703b,704b,bidpkg}) produced packets
+    # that failed CCHCS responsiveness review (the 2026-05-18 "trash"
+    # output). They are RETIRED at this route layer: every
+    # /forms/{703b,704b,bidpkg,packet}/pdf endpoint now serves the output
+    # of the legacy-filler adapter (src/spine/packet_render.py), which
+    # fills the buyer's actual packet PDF — verified-correct since
+    # 2026-04-13. See handoff-2026-05-20-legacy-adapter-build.
+
+    def _serve_cchcs_packet(quote_id: str):
+        """Render + stream the filled CCHCS Non-Cloud RFQ packet.
+
+        Preview render — strict=False so a gate-flagged packet is still
+        shown to the operator (the hard gate lives at snapshot/send).
+        Gate state is surfaced in X-Spine-Packet-* response headers.
+        """
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.packet: load failed for %s", quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception("spine.packet: contract lookup failed for %s", quote_id)
+            contract = None
+
+        from src.spine.packet_render import render_cchcs_packet_via_legacy
+        res = render_cchcs_packet_via_legacy(quote, contract, strict=False)
+
+        if not res.get("pdf_bytes"):
+            # No bytes at all — no contract bound, the buyer's packet PDF
+            # could not be located, or the parse failed. Actionable 409.
+            return jsonify({
+                "error": "packet_render_failed",
+                "detail": res.get("error") or "packet could not be rendered",
+            }), 409
+
+        gate = (res.get("fill_result") or {}).get("gate") or {}
+        inline = request.args.get("inline", "1") != "0"
+        disposition = (
+            f'inline; filename="cchcs_packet_{quote_id}.pdf"'
+            if inline else
+            f'attachment; filename="cchcs_packet_{quote_id}.pdf"'
+        )
+        return Response(
+            res["pdf_bytes"],
+            mimetype="application/pdf",
+            headers={
+                "Content-Disposition": disposition,
+                "X-Spine-Packet-Gate-Passed": str(bool(gate.get("passed", False))),
+                "X-Spine-Packet-Gate-Issues": str(
+                    len(gate.get("critical_issues", []) or [])
+                ),
+                "X-Spine-Packet-Source": os.path.basename(res.get("source_pdf", "")),
+            },
+        )
+
+    # ─── GET /spine/quotes/<quote_id>/forms/packet/pdf ────────────────
+    #
+    # Canonical route for the filled CCHCS Non-Cloud RFQ packet.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/packet/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_packet_pdf(quote_id: str):
+        return _serve_cchcs_packet(quote_id)
+
     # ─── GET /spine/quotes/<quote_id>/forms/703b/pdf ──────────────────
     #
-    # CCHCS 703B — RFQ Informal Competitive cover sheet. Fills the
-    # vendor identity + solicitation # from the Quote + ReytechIdentity
-    # env config, runs the matching gate (SpineFormFillError on any
-    # divergence), returns the bytes. ?fillable=1 leaves form widgets
-    # for last-minute operator edits in Adobe; default is flat per
-    # government convention.
+    # Compatibility alias — the 703B cover sheet is page 1 of the packet.
+    # Serves the same combined packet as /forms/packet/pdf.
 
     @spine_bp.route(
         "/spine/quotes/<quote_id>/forms/703b/pdf",
@@ -403,59 +480,12 @@ def make_spine_blueprint(
     )
     @_wrap
     def get_703b_pdf(quote_id: str):
-        from src.spine.agency_forms import (
-            ReytechIdentity, fill_703b_pdf, SpineFormFillError,
-        )
-
-        try:
-            quote = read_quote(db_path, quote_id)
-        except Exception as e:
-            return jsonify({"error": "load_failed", "detail": str(e)}), 500
-        if quote is None:
-            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
-
-        fillable = request.args.get("fillable", "0") == "1"
-        try:
-            contract = find_contract_for_quote(db_path, quote_id)
-        except Exception:
-            log.exception("spine.get_703b: contract lookup failed for %s", quote_id)
-            contract = None
-        try:
-            pdf_bytes = fill_703b_pdf(
-                quote,
-                ReytechIdentity.from_env(),
-                flatten=not fillable,
-                contract=contract,
-            )
-        except SpineFormFillError as e:
-            log.error("spine.get_703b: fill gate caught divergence for %s: %s",
-                      quote_id, e)
-            return jsonify({"error": "form_fill_mismatch", "detail": str(e)}), 409
-        except FileNotFoundError as e:
-            return jsonify({"error": "template_missing", "detail": str(e)}), 500
-        except Exception as e:
-            log.exception("spine.get_703b: fill failed for %s", quote_id)
-            return jsonify({"error": "fill_failed", "detail": str(e)}), 500
-
-        inline = request.args.get("inline", "1") != "0"
-        disposition = (
-            f'inline; filename="703b_{quote_id}.pdf"'
-            if inline else
-            f'attachment; filename="703b_{quote_id}.pdf"'
-        )
-        return Response(
-            pdf_bytes,
-            mimetype="application/pdf",
-            headers={"Content-Disposition": disposition},
-        )
+        return _serve_cchcs_packet(quote_id)
 
     # ─── GET /spine/quotes/<quote_id>/forms/704b/pdf ──────────────────
     #
-    # CCHCS 704B — line-item RFQ response (39-row capacity across two
-    # pages). Same shape as 703B: pypdf /V writes + pikepdf appearance
-    # streams + (default) flatten, two-path matching gate, ?fillable=1
-    # escape hatch. Refuses Quotes with >39 line items until overflow
-    # rendering ships (parent's reportlab pattern, follow-up PR).
+    # Compatibility alias — the 704B line-item table lives inside the
+    # packet. Serves the same combined packet as /forms/packet/pdf.
 
     @spine_bp.route(
         "/spine/quotes/<quote_id>/forms/704b/pdf",
@@ -463,61 +493,13 @@ def make_spine_blueprint(
     )
     @_wrap
     def get_704b_pdf(quote_id: str):
-        from src.spine.agency_forms import (
-            ReytechIdentity, fill_704b_pdf, SpineFormFillError,
-        )
-
-        try:
-            quote = read_quote(db_path, quote_id)
-        except Exception as e:
-            return jsonify({"error": "load_failed", "detail": str(e)}), 500
-        if quote is None:
-            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
-
-        fillable = request.args.get("fillable", "0") == "1"
-        # State-official REQUESTOR / PHONE / EMAIL on the 704B come from
-        # the EmailContract that drove ingest. Lookup is best-effort:
-        # missing contract → fill_704b_pdf falls back to Reytech identity
-        # (legacy behavior), but real bids should always have a contract.
-        try:
-            contract = find_contract_for_quote(db_path, quote_id)
-        except Exception:
-            log.exception("spine.get_704b: contract lookup failed for %s", quote_id)
-            contract = None
-        try:
-            pdf_bytes = fill_704b_pdf(
-                quote,
-                ReytechIdentity.from_env(),
-                flatten=not fillable,
-                contract=contract,
-            )
-        except SpineFormFillError as e:
-            log.error("spine.get_704b: fill gate caught divergence for %s: %s",
-                      quote_id, e)
-            return jsonify({"error": "form_fill_mismatch", "detail": str(e)}), 409
-        except FileNotFoundError as e:
-            return jsonify({"error": "template_missing", "detail": str(e)}), 500
-        except Exception as e:
-            log.exception("spine.get_704b: fill failed for %s", quote_id)
-            return jsonify({"error": "fill_failed", "detail": str(e)}), 500
-
-        inline = request.args.get("inline", "1") != "0"
-        disposition = (
-            f'inline; filename="704b_{quote_id}.pdf"'
-            if inline else
-            f'attachment; filename="704b_{quote_id}.pdf"'
-        )
-        return Response(
-            pdf_bytes,
-            mimetype="application/pdf",
-            headers={"Content-Disposition": disposition},
-        )
+        return _serve_cchcs_packet(quote_id)
 
     # ─── GET /spine/quotes/<quote_id>/forms/bidpkg/pdf ────────────────
     #
-    # CCHCS Bid Package — multi-form identity bundle (CUF, Darfur,
-    # Bidder Decl 105, DVBE 843, STD 21). Same fill pipeline + gate as
-    # 703B/704B. ?fillable=1 escape hatch retained for last-mile edits.
+    # Compatibility alias — the bid-package attachments (CUF, Darfur,
+    # AMS 708, Civil Rights, Seller's Permit) are spliced inside the
+    # packet. Serves the same combined packet as /forms/packet/pdf.
 
     @spine_bp.route(
         "/spine/quotes/<quote_id>/forms/bidpkg/pdf",
@@ -525,45 +507,7 @@ def make_spine_blueprint(
     )
     @_wrap
     def get_bidpkg_pdf(quote_id: str):
-        from src.spine.agency_forms import (
-            ReytechIdentity, fill_bidpkg_pdf, SpineFormFillError,
-        )
-
-        try:
-            quote = read_quote(db_path, quote_id)
-        except Exception as e:
-            return jsonify({"error": "load_failed", "detail": str(e)}), 500
-        if quote is None:
-            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
-
-        fillable = request.args.get("fillable", "0") == "1"
-        try:
-            pdf_bytes = fill_bidpkg_pdf(
-                quote,
-                ReytechIdentity.from_env(),
-                flatten=not fillable,
-            )
-        except SpineFormFillError as e:
-            log.error("spine.get_bidpkg: fill gate caught divergence for %s: %s",
-                      quote_id, e)
-            return jsonify({"error": "form_fill_mismatch", "detail": str(e)}), 409
-        except FileNotFoundError as e:
-            return jsonify({"error": "template_missing", "detail": str(e)}), 500
-        except Exception as e:
-            log.exception("spine.get_bidpkg: fill failed for %s", quote_id)
-            return jsonify({"error": "fill_failed", "detail": str(e)}), 500
-
-        inline = request.args.get("inline", "1") != "0"
-        disposition = (
-            f'inline; filename="bidpkg_{quote_id}.pdf"'
-            if inline else
-            f'attachment; filename="bidpkg_{quote_id}.pdf"'
-        )
-        return Response(
-            pdf_bytes,
-            mimetype="application/pdf",
-            headers={"Content-Disposition": disposition},
-        )
+        return _serve_cchcs_packet(quote_id)
 
     # ─── GET /spine/quotes/<quote_id>/edit (operator UI) ──────────────
 
