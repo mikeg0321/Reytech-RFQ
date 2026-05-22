@@ -1,10 +1,15 @@
 """GET /spine/quotes/<id>/forms/{packet,703b,704b,bidpkg}/pdf.
 
-Every /forms/*/pdf route serves the SAME filled CCHCS Non-Cloud RFQ
+These tests cover the SINGLE-PDF (Non-Cloud Packet) format: the buyer's
+one bundled PDF, where every /forms/*/pdf route serves the SAME filled
 packet via the legacy-filler adapter (src/spine/packet_render.py). The
-Spine's own per-form renderers are retired — these routes prove the
-operator now gets the verified packet, and that the route fails 409
-(never a blank document) when the buyer's packet PDF can't be located.
+contract therefore declares `response_packaging="single_pdf"`.
+
+The Spine's own per-form renderers are retired — these routes prove the
+operator gets the verified packet, and that the route fails 409 (never a
+blank document) when the buyer's packet PDF can't be located. The
+SEPARATE-PDFS format (the standalone 703B/703C + 704B + Bid Package set)
+is exercised in tests/spine/test_forms_render.py.
 """
 from __future__ import annotations
 
@@ -83,6 +88,10 @@ def _contract(quote_id="Q-route-pkt", attachment_refs=(_FIXTURE_REL,)) -> EmailC
             )
         ],
         attachment_refs=list(attachment_refs),
+        # cchcs_packet_preq.pdf is the buyer's bundled Non-Cloud Packet —
+        # the single-PDF format. The format-aware /forms routes dispatch
+        # on this field; single_pdf keeps every route on the packet adapter.
+        response_packaging="single_pdf",
     )
 
 

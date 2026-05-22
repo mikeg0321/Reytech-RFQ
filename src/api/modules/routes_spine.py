@@ -457,9 +457,90 @@ def make_spine_blueprint(
             },
         )
 
+    # ─── Format-aware standalone-form rendering ───────────────────────
+    #
+    # The CCHCS Non-Cloud Packet (above) is the MINORITY format — one
+    # bundled buyer PDF. The COMMON format is the standalone set: AMS
+    # 703B *or* 703C + AMS 704B + the CDCR Bid Package, as three separate
+    # buyer template PDFs. Which format applies is declared by the
+    # EmailContract's `response_packaging` (LAW 6) — never guessed:
+    #   single_pdf            → the packet bundles every form; serve the
+    #                           packet adapter (src/spine/packet_render.py).
+    #   separate_pdfs / either → the standalone-form adapter
+    #                           (src/spine/forms_render.py), which fills
+    #                           the buyer's separate template PDFs.
+
+    def _serve_cchcs_form(quote_id: str, which: str):
+        """Render + stream one form of the CCHCS standalone set.
+
+        `which` is one of "703" / "704b" / "bidpkg". Dispatches by the
+        contract's declared packaging; a single_pdf quote has no separate
+        templates, so its 703/704b/bidpkg all resolve to the bundled
+        packet. Fails 409 (never a blank document) when the format is
+        separate but the buyer's template PDFs can't be located.
+        """
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.forms: load failed for %s", quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception("spine.forms: contract lookup failed for %s", quote_id)
+            contract = None
+
+        packaging = (
+            getattr(contract, "response_packaging", "separate_pdfs")
+            if contract is not None else "separate_pdfs"
+        )
+        # single_pdf: the buyer's Non-Cloud Packet bundles all three
+        # forms — there are no separate templates; serve the packet.
+        if packaging == "single_pdf":
+            return _serve_cchcs_packet(quote_id)
+
+        from src.spine.forms_render import render_cchcs_forms_via_legacy
+
+        # Preview render — surface a flagged form rather than hide it;
+        # the hard gate lives at snapshot/send.
+        res = render_cchcs_forms_via_legacy(quote, contract, strict=False)
+        sub = (res.get("forms") or {}).get(which) or {}
+        pdf_bytes = sub.get("pdf_bytes") or b""
+        if not pdf_bytes:
+            # No bytes — no contract bound, a template PDF could not be
+            # located, or the filler crashed. Actionable 409.
+            return jsonify({
+                "error": "form_render_failed",
+                "detail": (sub.get("error") or res.get("error")
+                           or f"{which} could not be rendered"),
+            }), 409
+
+        inline = request.args.get("inline", "1") != "0"
+        fname = f"cchcs_{which}_{quote_id}.pdf"
+        disposition = (
+            f'inline; filename="{fname}"' if inline
+            else f'attachment; filename="{fname}"'
+        )
+        return Response(
+            pdf_bytes,
+            mimetype="application/pdf",
+            headers={
+                "Content-Disposition": disposition,
+                "X-Spine-Form-Code": str(sub.get("form_code", which)),
+                "X-Spine-Form-Ok": str(bool(sub.get("ok", False))),
+                "X-Spine-Form-Template": os.path.basename(
+                    sub.get("template", "") or ""
+                ),
+            },
+        )
+
     # ─── GET /spine/quotes/<quote_id>/forms/packet/pdf ────────────────
     #
-    # Canonical route for the filled CCHCS Non-Cloud RFQ packet.
+    # Canonical route for the filled CCHCS Non-Cloud RFQ packet. Always
+    # the packet adapter — packet is the bundled single-PDF format.
 
     @spine_bp.route(
         "/spine/quotes/<quote_id>/forms/packet/pdf",
@@ -471,8 +552,10 @@ def make_spine_blueprint(
 
     # ─── GET /spine/quotes/<quote_id>/forms/703b/pdf ──────────────────
     #
-    # Compatibility alias — the 703B cover sheet is page 1 of the packet.
-    # Serves the same combined packet as /forms/packet/pdf.
+    # The 703 cover sheet. Format-aware: single_pdf → the packet (the
+    # 703B is page 1 of it); separate_pdfs → the standalone 703B/703C
+    # filled by forms_render (the contract's required_forms picks the
+    # variant).
 
     @spine_bp.route(
         "/spine/quotes/<quote_id>/forms/703b/pdf",
@@ -480,12 +563,12 @@ def make_spine_blueprint(
     )
     @_wrap
     def get_703b_pdf(quote_id: str):
-        return _serve_cchcs_packet(quote_id)
+        return _serve_cchcs_form(quote_id, "703")
 
     # ─── GET /spine/quotes/<quote_id>/forms/704b/pdf ──────────────────
     #
-    # Compatibility alias — the 704B line-item table lives inside the
-    # packet. Serves the same combined packet as /forms/packet/pdf.
+    # The 704B quote worksheet. Format-aware: single_pdf → the packet;
+    # separate_pdfs → the standalone 704B filled by forms_render.
 
     @spine_bp.route(
         "/spine/quotes/<quote_id>/forms/704b/pdf",
@@ -493,13 +576,13 @@ def make_spine_blueprint(
     )
     @_wrap
     def get_704b_pdf(quote_id: str):
-        return _serve_cchcs_packet(quote_id)
+        return _serve_cchcs_form(quote_id, "704b")
 
     # ─── GET /spine/quotes/<quote_id>/forms/bidpkg/pdf ────────────────
     #
-    # Compatibility alias — the bid-package attachments (CUF, Darfur,
-    # AMS 708, Civil Rights, Seller's Permit) are spliced inside the
-    # packet. Serves the same combined packet as /forms/packet/pdf.
+    # The CDCR Bid Package. Format-aware: single_pdf → the packet (the
+    # bid-package attachments are spliced inside it); separate_pdfs →
+    # the standalone Bid Package filled by forms_render.
 
     @spine_bp.route(
         "/spine/quotes/<quote_id>/forms/bidpkg/pdf",
@@ -507,7 +590,7 @@ def make_spine_blueprint(
     )
     @_wrap
     def get_bidpkg_pdf(quote_id: str):
-        return _serve_cchcs_packet(quote_id)
+        return _serve_cchcs_form(quote_id, "bidpkg")
 
     # ─── GET /spine/quotes/<quote_id>/edit (operator UI) ──────────────
 
