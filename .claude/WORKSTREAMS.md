@@ -21,8 +21,7 @@ Only the Architect authorizes substrate / schema / migration changes (LAW 4).
 | Branch | Status | Notes |
 |--------|--------|-------|
 | `main` | canonical | Never pushed to directly. |
-| `feat/wolfpack-operating-model` | PR #1061 | CLAUDE.md §0 + the four pack agents. |
-| `feat/job0-convergence-ratchet` | Job #0 ship | convergence_baseline.json + LAW 3 ratchet tests + this file. |
+| `feat/job1-pr3-forms-render` | Job #1 PR-3 | `src/spine/forms_render.py` — the Format-B CCHCS adapter (703B/703C + 704B + Bid Package) + format-aware /forms routes. |
 
 ## Preserved branches — await Closer triage
 

@@ -213,6 +213,7 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
     for page in writer.pages:
         if "/Annots" not in page:
             continue
+        page_rotate = int(page.get("/Rotate", 0) or 0) % 360
         for annot in page["/Annots"]:
             obj = annot.get_object()
             ft = obj.get("/FT")
@@ -225,7 +226,15 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
 
             content = str(field_values.get(name, ""))
             rect = obj.get("/Rect")
-            field_w = float(rect[2]) - float(rect[0]) if rect else 100
+            if rect:
+                _rw = float(rect[2]) - float(rect[0])
+                _rh = float(rect[3]) - float(rect[1])
+                # On a /Rotate 90/270 page (e.g. GSPD-05-105) the field's
+                # text runs along its native HEIGHT, not its width — sizing
+                # by the narrow width over-shrinks the value to ~5pt.
+                field_w = _rh if page_rotate in (90, 270) else _rw
+            else:
+                field_w = 100
             usable_w = field_w - PAD
 
             default_w = _helv_string_width(content, default_size) if content else 0
@@ -303,11 +312,47 @@ def _ensure_helv_font_on_pages(writer):
             font_dict[NameObject("/Helv")] = helv_ref
 
 
-def create_signature_overlay(sig_entries, page_width, page_height, sig_image_path, sign_date=None):
+def _draw_rotated_signature(c, rect, img_reader, aspect, sign_date, page_rotate):
+    """Draw a signature image + date onto a /Rotate'd page so they read
+    upright in the displayed (landscape) page.
+
+    Used for the GSPD-05-105 Bidder Declaration, whose page is /Rotate=90
+    and whose Signature29 field is a tall narrow native rect. A normally-
+    drawn overlay would render sideways once the page /Rotate is applied;
+    rotating the canvas frame counter to /Rotate lands it upright.
+    """
+    rx0, ry0, rx1, ry1 = rect[0], rect[1], rect[2], rect[3]
+    fw = rx1 - rx0          # native width  (narrow)
+    fh = ry1 - ry0          # native height (long — the displayed width)
+    rot = int(page_rotate) % 360
+    c.saveState()
+    if rot == 270:
+        c.translate(rx0, ry1)
+        c.rotate(-90)
+    else:  # 90 (the GSPD-05-105 case) — also the default for any rotation
+        c.translate(rx1, ry0)
+        c.rotate(90)
+    # Local frame: the field reads as fh wide x fw tall.
+    sig_h = min(fw - 4, 30)
+    sig_w = min(sig_h * aspect, fh * 0.6)
+    sig_h = sig_w / aspect
+    c.drawImage(img_reader, 4, (fw - sig_h) / 2.0, sig_w, sig_h, mask="auto")
+    if sign_date:
+        c.setFont("Helvetica", 10)
+        c.setFillColorRGB(0, 0, 0)
+        c.drawString(4 + sig_w + 14, fw / 2.0 - 4, str(sign_date))
+    c.restoreState()
+
+
+def create_signature_overlay(sig_entries, page_width, page_height, sig_image_path,
+                              sign_date=None, page_rotate=0):
     """
     Create PDF overlay with signature images.
     sig_entries: list of (name, [left, bottom, right, top], is_sig_field)
     /Sig fields always get signed; text fields need SIGN_FIELDS whitelist.
+    page_rotate: the page's /Rotate value — non-zero pages (e.g. the
+        GSPD-05-105 Bidder Declaration at /Rotate=90) get a rotation-aware
+        signature so it reads upright in the displayed landscape page.
     """
     packet = io.BytesIO()
     c = rl_canvas.Canvas(packet, pagesize=(page_width, page_height))
@@ -329,6 +374,12 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
             is_sig_field = False
         # Text fields need whitelist; /Sig fields always sign
         if not is_sig_field and name not in SIGN_FIELDS:
+            continue
+
+        # Rotated page (e.g. GSPD-05-105 Bidder Declaration, /Rotate=90):
+        # draw the signature + date rotated so they read upright.
+        if int(page_rotate) % 360 != 0:
+            _draw_rotated_signature(c, rect, img_reader, aspect, sign_date, page_rotate)
             continue
 
         field_w = rect[2] - rect[0]
@@ -460,14 +511,18 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 
     for page in writer.pages:
         try:
-            # Rotated pages (e.g. GSPD-05-105 Bidder Declaration with /Rotate=90):
-            # auto_regenerate=True generates appearance streams in pre-rotation space,
-            # causing text to render at wrong angles and bleed through page content.
-            # Use auto_regenerate=False — PDF viewers apply /Rotate uniformly and
-            # will render field values correctly from the /V entry.
-            page_rotate = int(page.get("/Rotate", 0))
-            use_auto_regen = (page_rotate == 0)
-            writer.update_page_form_field_values(page, clean_values, auto_regenerate=use_auto_regen)
+            # auto_regenerate=True regenerates each filled field's /AP
+            # appearance stream from /V + /DA. pypdf >= 6 honors the widget
+            # rotation (/MK /R) and the page /Rotate when it does so, so
+            # rotated pages — e.g. the GSPD-05-105 Bidder Declaration's
+            # /Rotate=90 landscape page — render upright and correctly
+            # positioned. An OLDER pypdf mis-rotated those (text drew
+            # sideways and bled through the page), which is why this used
+            # to branch to auto_regenerate=False for /Rotate != 0 pages;
+            # that branch left a naive un-rotated /AP and was the actual
+            # cause of the sideways text. Verified 2026-05-22 against the
+            # CCHCS bid package with pypdf 6.10.2.
+            writer.update_page_form_field_values(page, clean_values, auto_regenerate=True)
         except Exception:
             try:
                 writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
@@ -504,21 +559,29 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             # For generic field names (Signature1, Signature), only sign if
             # the field is in the lower 40% of the page — signature lines
             # are always near the bottom, never in the header/body area.
-            # Skip Signature29 (Bidder Declaration GSPD-05-105) — rotated form,
-            # coordinates don't map correctly. The 703C signature covers this.
-            if name == "Signature29":
-                continue
+            # (Signature29, the GSPD-05-105 Bidder Declaration, IS signed:
+            # it lands in create_signature_overlay's rotated-page branch so
+            # it renders upright on the /Rotate=90 page. CalVet et al. want
+            # that form signed + dated; it is harmless on any agency.)
             if name in ("Signature1", "Signature"):
                 field_y = r[1]  # bottom of field rect
                 if field_y > _page_h * 0.4:
                     continue
             is_sig = ft == "/Sig"
+            # Signature29 (GSPD-05-105) ships an orange "Sign Here" /AP on
+            # its /Sig widget. We stamp our own signature image overlay, so
+            # strip that built-in tab — otherwise it bleeds through next to
+            # the overlaid signature on the rendered Bidder Declaration.
+            if name == "Signature29" and "/AP" in obj:
+                del obj[NameObject("/AP")]
             sig_entries.append((name, r, is_sig))
 
         if sig_entries:
             mediabox = page.get("/MediaBox", [0, 0, 612, 792])
             pw, ph = float(mediabox[2]), float(mediabox[3])
-            overlay_buf = create_signature_overlay(sig_entries, pw, ph, sig_path, sign_date)
+            _pg_rotate = int(page.get("/Rotate", 0) or 0)
+            overlay_buf = create_signature_overlay(
+                sig_entries, pw, ph, sig_path, sign_date, page_rotate=_pg_rotate)
             overlay_reader = PdfReader(overlay_buf)
             if overlay_reader.pages:
                 page.merge_page(overlay_reader.pages[0])
@@ -896,8 +959,12 @@ def fill_704b(input_path, rfq_data, config, output_path):
         values[f"Vendor Name{sfx}"] = company["name"]
         values[f"PERSON PROVIDING QUOTE{sfx}"] = company["owner"]
         values[f"Person Providing Quote{sfx}"] = company["owner"]
-        # Contract reference (vendor's contract number)
-        values[f"Contract_Number{sfx}"] = _sol_display(rfq_data.get("solicitation_number", ""))
+        # "Contract Number (must be included if providing State Contracted
+        # Pricing)" — this is the STATE-contract number, not the
+        # solicitation #. Reytech never bids off a state contract, so it is
+        # always N/A. (Was wrongly set to the solicitation number, which
+        # reads as a false claim of state-contracted pricing.)
+        values[f"Contract_Number{sfx}"] = "N/A"
         # Vendor signature date (NOT the buyer's DATE field)
         values[f"SIGNATURE DATE{sfx}"] = sign_date
         values[f"Signature Date{sfx}"] = sign_date
@@ -1541,35 +1608,62 @@ def fill_obs1600_fields(rfq_data, config, food_items=None):
     return values
 
 
-def _overlay_obs1600_header(writer, solicitation_number, vendor_name="Reytech Inc.", page_index=3):
-    """Overlay Vendor Name and Solicitation # onto OBS 1600 page header.
-    
-    These are static labels on the form (not fillable fields), so we overlay text.
-    Coordinates measured from pdfplumber: Vendor Name label ends at x≈124, y≈201;
-    Solicitation # label ends at x≈120, y≈216 (from top). 
+def _overlay_obs1600_header(writer, solicitation_number, vendor_name="Reytech Inc.", page_index=None):
+    """Overlay Vendor Name and Solicitation # onto the OBS 1600 page header.
+
+    These are static labels on the OBS 1600 Food Service certification
+    form (not fillable fields), so the values are overlaid as text.
+    Coordinates measured from pdfplumber: Vendor Name label ends at
+    x≈124, y≈201; Solicitation # label ends at x≈120, y≈216 (from top).
     ReportLab uses y-from-bottom, so y_rl = 792 - y_top.
+
+    The OBS 1600 page is LOCATED BY CONTENT (the "OBS 1600" marker),
+    never assumed at a fixed index: bid-package templates vary in page
+    order, and many — every non-food general bid package — have no
+    OBS 1600 page at all. When none is found the overlay is SKIPPED. A
+    hardcoded `page_index` would otherwise stamp the vendor/solicitation
+    text onto whatever page sits at that index; on a /Rotate'd page that
+    text renders sideways and bleeds through the form (the 2026-05-22
+    Bidder-Declaration bleed-through, fixed here). `page_index` is honored
+    only as an explicit override (the standalone `fill_obs1600` passes 0).
     """
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas as rl_canvas
     import io
-    
+
+    target = page_index
+    if target is None:
+        for _i, _pg in enumerate(writer.pages):
+            try:
+                _txt = (_pg.extract_text() or "").upper()
+            except Exception:
+                continue
+            if "OBS 1600" in _txt or "OBS1600" in _txt:
+                target = _i
+                break
+    if target is None or target >= len(writer.pages):
+        return  # no OBS 1600 page in this template — nothing to overlay
+    # The header coordinates assume an un-rotated US-letter page.
+    if int(writer.pages[target].get("/Rotate", 0) or 0) % 360 != 0:
+        return
+
     W, H = letter  # 612 x 792
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=letter)
     c.setFont("Helvetica", 10)
-    
+
     # Vendor Name: after "Vendor Name :" label — x≈128, top≈201 → rl_y = 792-201-4 = 587
     c.drawString(128, H - 205, vendor_name)
-    
+
     # Solicitation #: after "Solicitation # :" label — x≈124, top≈216 → rl_y = 792-216-4 = 572
     c.drawString(124, H - 220, str(solicitation_number))
-    
+
     c.save()
     buf.seek(0)
-    
+
     overlay_reader = PdfReader(buf)
-    if overlay_reader.pages and page_index < len(writer.pages):
-        writer.pages[page_index].merge_page(overlay_reader.pages[0])
+    if overlay_reader.pages:
+        writer.pages[target].merge_page(overlay_reader.pages[0])
 
 
 def fill_obs1600(input_path, rfq_data, config, output_path, food_items=None):
@@ -3425,6 +3519,11 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         "Text3_PD843": company.get("description_of_goods", "Medical/Office supplies"),
         "Text4_PD843": sol, "Check1_PD843": "/Yes",
         "Text6_PD843": company["name"], "Date1_PD843": sign_date,
+        # Firm/Principal Phone + Address (red-outlined required fields on the
+        # PD843 page just above SECTION 3) — fill with Reytech's standard
+        # phone + address so the required boxes don't ship blank.
+        "Text9_PD843": company["phone"],
+        "Text10_PD843": company["address"],
         "Text11_PD843": "N/A",
 
         # STD 21 (Drug-Free)
@@ -3533,11 +3632,14 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         print(f"  ⚠ CalRecycle date fix skipped: {_crd_e}")
 
     # ── OBS 1600 Header: Overlay Vendor Name + Solicitation # (not fillable fields) ──
+    # The OBS 1600 page is located by content inside _overlay_obs1600_header;
+    # no page_index is passed — bid-package templates vary in page order and
+    # most have no OBS 1600 page, in which case the overlay is skipped.
     try:
         reader = PdfReader(output_path)
         writer = PdfWriter()
         writer.append(reader)
-        _overlay_obs1600_header(writer, sol, vendor_name="Reytech Inc.", page_index=3)
+        _overlay_obs1600_header(writer, sol, vendor_name="Reytech Inc.")
         with open(output_path, "wb") as f:
             writer.write(f)
     except Exception as _e:
@@ -3591,9 +3693,94 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     except Exception as _te:
         print(f"  ⚠ BidPackage page trim failed (using full output): {_te}")
 
+    # ── Darfur Option #1 — yellow-highlight the certification paragraph ──
+    # Reytech's standard practice on bid packages: certification paragraphs
+    # get a yellow highlighter pass so the reviewing buyer sees the cert at
+    # a glance. The paragraph being highlighted is "I, the official named
+    # below, CERTIFY UNDER PENALTY OF PERJURY ... laws of the State of
+    # California." on the Darfur Option #1 page.
+    try:
+        _highlight_darfur_option1(output_path)
+    except Exception as _hl_e:
+        print(f"  ⚠ Darfur Option#1 highlight skipped: {_hl_e}")
+
+    # ── Append Reytech's CA seller's permit (every package includes it) ──
+    try:
+        _append_sellers_permit(output_path)
+    except Exception as _sp_e:
+        print(f"  ⚠ sellers permit append skipped: {_sp_e}")
+
     food_count = len([k for k in obs1600_values if 'FOOD PROD' in k and obs1600_values[k]])
     extra = f", {food_count} food items" if food_count else ""
     print(f"  ✓ Bid Package filled + signed ({sol}{extra})")
+
+
+def _highlight_darfur_option1(pdf_path):
+    """Yellow-highlight the Darfur Option #1 certification paragraph.
+
+    Locates the page by content (the unique 10476 Public Contract Code +
+    PERJURY markers on the Darfur certification page) so it works on any
+    page ordering — the bid-package trim can move pages around. Overlays a
+    semi-transparent yellow rectangle over the certification paragraph,
+    matching Reytech's standard highlighter pass.
+    """
+    import io as _io_hl
+    reader = PdfReader(pdf_path)
+    target = None
+    for i, pg in enumerate(reader.pages):
+        try:
+            t = (pg.extract_text() or "").upper()
+        except Exception:
+            continue
+        if "10476" in t and ("CERTIFY UNDER PENALTY" in t or "PERJURY" in t) and "OPTION #1" in t:
+            target = i
+            break
+    if target is None:
+        return
+    pg = reader.pages[target]
+    mb = pg.get("/MediaBox", [0, 0, 612, 792])
+    pw, ph = float(mb[2]), float(mb[3])
+    buf = _io_hl.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+    c.setFillColorRGB(1, 0.95, 0.2)
+    c.setFillAlpha(0.40)
+    # Bbox covers the certification paragraph ("I, the official named below,
+    # CERTIFY UNDER PENALTY OF PERJURY ... laws of the State of California.").
+    # Measured 2026-05-22 on the genuine 16-page CCHCS bid package; y is
+    # reportlab (origin bottom-left) on the 792-tall letter page.
+    c.rect(60, 378, 520, 80, stroke=0, fill=1)
+    c.save()
+    buf.seek(0)
+    overlay = PdfReader(buf)
+    writer = PdfWriter()
+    writer.append(reader)
+    writer.pages[target].merge_page(overlay.pages[0])
+    with open(pdf_path, "wb") as f:
+        writer.write(f)
+
+
+def _append_sellers_permit(pdf_path):
+    """Append Reytech's CA seller's permit copy as a final page.
+
+    Mike's standard practice on every agency bid package — "doesnt hurt to
+    include." Looks for ``data/templates/sellers_permit_reytech.pdf``
+    relative to the repo root; skips silently when the file is not present
+    (e.g. an environment that hasn't bundled the permit copy).
+    """
+    import os as _os_sp
+    here = _os_sp.path.dirname(_os_sp.path.abspath(__file__))
+    permit_path = _os_sp.path.normpath(
+        _os_sp.path.join(here, "..", "..", "data", "templates",
+                          "sellers_permit_reytech.pdf")
+    )
+    if not _os_sp.path.isfile(permit_path):
+        return
+    reader = PdfReader(pdf_path)
+    writer = PdfWriter()
+    writer.append(reader)
+    writer.append(permit_path)
+    with open(pdf_path, "wb") as f:
+        writer.write(f)
 
 
 # ═══════════════════════════════════════════════════════════════════════

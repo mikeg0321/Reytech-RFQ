@@ -65,6 +65,14 @@ _FILE_SCOPED_LEGACY_IMPORTS: dict[str, set[str]] = {
         "src.forms.cchcs_packet_parser",   # parse the buyer's packet
         "src.forms.cchcs_packet_filler",   # fill the buyer's packet
     },
+    # Second sanctioned adapter (Job #1 PR-3) — the CCHCS standalone
+    # form-set adapter. Delegates 703B/703C + 704B + Bid Package to the
+    # verified legacy fillers. See SPINE_CHARTER.md "Second adapter —
+    # forms_render.py".
+    "forms_render.py": {
+        "src.core.paths",                  # DATA_DIR/OUTPUT_DIR — path constants
+        "src.forms.reytech_filler_v4",     # the verified 703B/703C/704B/bidpkg fillers
+    },
 }
 
 # Stdlib + well-known third-party packages always OK.
