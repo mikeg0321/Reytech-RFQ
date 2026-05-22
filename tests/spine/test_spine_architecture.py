@@ -12,6 +12,7 @@ charter.
 from __future__ import annotations
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -405,4 +406,106 @@ def test_charter_document_present():
         assert keyword.lower() in text_lower, (
             f"SPINE_CHARTER.md does not mention {keyword!r} — has the "
             "charter drifted from the invariants?"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 6. The LAW 3 convergence ratchet.
+# ──────────────────────────────────────────────────────────────────────
+#
+# CLAUDE.md §0 LAW 3: convergence is measured by COUNT, not lines. The
+# count of quote-write paths and quote substrates may only ratchet DOWN.
+# A rise fails the build. The baseline lives in convergence_baseline.json
+# and is lowered only by a deletion commit.
+
+_BASELINE_PATH = Path(__file__).resolve().parent / "convergence_baseline.json"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SPINE_WRITER_COUNT = 1
+
+# Legacy quote-write paths in the four named directories. Deleting one of
+# these functions (a LAW 2 migration) mechanically lowers the live count.
+_LEGACY_WRITE_PATHS = (
+    ("src/core/db.py", "upsert_quote"),
+    ("src/forms/quote_generator.py", "_log_quote"),
+    ("src/forms/quote_generator.py", "update_quote_status"),
+    ("src/core/quote_lifecycle_shared.py", "set_quote_status_atomic"),
+    ("src/api/data_layer.py", "save_rfqs"),
+    ("src/api/data_layer.py", "_save_single_rfq"),
+    ("src/api/data_layer.py", "_save_price_checks"),
+    ("src/api/data_layer.py", "_save_single_pc"),
+)
+
+
+def _load_baseline() -> dict:
+    assert _BASELINE_PATH.exists(), (
+        "tests/spine/convergence_baseline.json is missing — the LAW 3 "
+        "ratchet has no grounding. See CLAUDE.md §0."
+    )
+    return json.loads(_BASELINE_PATH.read_text(encoding="utf-8"))
+
+
+def _count_live_write_paths() -> int:
+    """Count quote-write paths that still exist on disk (LAW 3a)."""
+    live = _SPINE_WRITER_COUNT
+    for rel, func in _LEGACY_WRITE_PATHS:
+        fp = _REPO_ROOT / rel
+        if not fp.exists():
+            continue
+        tree = ast.parse(fp.read_text(encoding="utf-8"))
+        if any(
+            isinstance(n, ast.FunctionDef) and n.name == func
+            for n in ast.walk(tree)
+        ):
+            live += 1
+    return live
+
+
+def _count_substrates() -> int:
+    """Count distinct quote substrates still present in the tree (LAW 3b)."""
+    n = 1 if (SPINE_DIR / "model.py").exists() else 0
+    if (_REPO_ROOT / "src/core/quote_contract.py").exists():
+        n += 1
+    if (_REPO_ROOT / "src/api/data_layer.py").exists():
+        n += 1
+    return n
+
+
+def test_convergence_ratchet_write_paths():
+    """Quote-write paths must not exceed the baseline (LAW 3)."""
+    baseline = _load_baseline()
+    current = _count_live_write_paths()
+    assert current <= baseline["quote_write_paths"], (
+        f"Quote-write paths rose to {current}, baseline is "
+        f"{baseline['quote_write_paths']}. CLAUDE.md §0 LAW 3: this number "
+        f"may only go DOWN. A new write path was added without a deletion."
+    )
+
+
+def test_convergence_ratchet_substrates():
+    """Quote substrates must not exceed the baseline (LAW 3)."""
+    baseline = _load_baseline()
+    current = _count_substrates()
+    assert current <= baseline["quote_substrates"], (
+        f"Quote substrates rose to {current}, baseline is "
+        f"{baseline['quote_substrates']}. A fourth substrate requires "
+        f"Architect AND Closer sign-off (CLAUDE.md §0 LAW 1/4)."
+    )
+
+
+def test_convergence_baseline_not_silently_raised():
+    """The baseline file itself may only ratchet DOWN.
+
+    Guards the ratchet against the obvious cheat: editing the JSON
+    numbers upward instead of deleting code.
+    """
+    baseline = _load_baseline()
+    ceiling = {
+        "quote_write_paths": 9,
+        "quote_substrates": 3,
+        "tracked_working_directories": 138,
+    }
+    for key, cap in ceiling.items():
+        assert baseline[key] <= cap, (
+            f"convergence_baseline.json[{key}] = {baseline[key]} exceeds the "
+            f"2026-05-21 ceiling of {cap}. The baseline only ratchets DOWN."
         )
