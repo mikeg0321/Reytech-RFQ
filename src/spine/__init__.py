@@ -76,6 +76,12 @@ __all__ = [
     "format_dollars",
     "format_tax_rate",
     "SpineRenderMismatchError",
+    # Inspector gate — math + identity + coverage + cost-basis reconcile
+    "InspectorIssue",
+    "InspectorReport",
+    "reconcile_format_a",
+    "reconcile_format_b",
+    "reconcile_quote_to_package",
 ]
 
 from src.spine.model import (
@@ -150,4 +156,11 @@ from src.spine.quote_pdf import (
     format_dollars,
     format_tax_rate,
     SpineRenderMismatchError,
+)
+from src.spine.inspector import (
+    InspectorIssue,
+    InspectorReport,
+    reconcile_format_a,
+    reconcile_format_b,
+    reconcile_quote_to_package,
 )
