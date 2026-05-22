@@ -1,0 +1,13 @@
+{
+  "_comment": "LAW 3 convergence ratchet. These numbers may only go DOWN. Lowering one requires a deletion commit; raising one fails the build. Baseline measured 2026-05-21 (Job #0). See CLAUDE.md section 0 LAW 3.",
+  "measured_at": "2026-05-21",
+  "measured_by": "architect",
+  "quote_write_paths": 9,
+  "quote_substrates": 3,
+  "tracked_working_directories": 2,
+  "notes": {
+    "quote_write_paths": "1 Spine (db._persist_state) + 8 legacy: core.db.upsert_quote, quote_generator._log_quote, quote_generator.update_quote_status, quote_lifecycle_shared.set_quote_status_atomic, data_layer.save_rfqs, data_layer._save_single_rfq, data_layer._save_price_checks, data_layer._save_single_pc.",
+    "quote_substrates": "legacy dict path (data_layer JSON), src/core/quote_contract.py QuoteContract, src/spine/.",
+    "tracked_working_directories": "git worktrees of the canonical repo. Job #0 collapsed 138 (121 worktrees + 17 non-git scratch dirs) to 2 (canonical repo + Reytech-RFQ)."
+  }
+}
