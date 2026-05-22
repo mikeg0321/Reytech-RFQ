@@ -76,6 +76,41 @@ def _spine_db_path() -> str:
         return os.path.join(os.getcwd(), "data", "spine.db")
 
 
+def classify_cchcs_response_format(
+    classification: Any,
+    files: list[str] | None,
+) -> tuple[str, list[str]]:
+    """Decide the CCHCS response format from the buyer's attachments.
+
+    Returns (response_packaging, required_forms):
+
+    - Format A — the CCHCS Non-Cloud Packet: one buyer-issued bundled
+      PDF (classifier shape == 'cchcs_packet'); delivered as a single
+      filled PDF -> response_packaging='single_pdf'.
+    - Format B — the standalone set: separate AMS 703B/703C, AMS 704B,
+      and the CDCR Bid Package PDFs (the common format) ->
+      'separate_pdfs'. The 703 variant (703B vs 703C) is read from the
+      buyer's attachment filenames — never guessed (LAW 6).
+
+    Pure function — no I/O, no side effects, directly unit-testable.
+    """
+    shape = ""
+    if classification is not None:
+        if isinstance(classification, dict):
+            shape = str(classification.get("shape") or "")
+        else:
+            shape = str(getattr(classification, "shape", "") or "")
+
+    # Format A — the Non-Cloud Packet.
+    if shape == "cchcs_packet":
+        return "single_pdf", ["703b", "704b", "bidpkg", "quote"]
+
+    # Format B — the standalone form set. 703B vs 703C from filenames.
+    basenames = [os.path.basename(str(f)).lower() for f in (files or [])]
+    seven_oh_three = "703c" if any("703c" in b for b in basenames) else "703b"
+    return "separate_pdfs", [seven_oh_three, "704b", "bidpkg", "quote"]
+
+
 def _build_contract_dict(
     *,
     record_id: str,
@@ -88,6 +123,7 @@ def _build_contract_dict(
     gmail_thread_id: str,
     gmail_message_id: str,
     email_received_at: str,
+    files: list[str] | None = None,
 ) -> dict:
     """Project the legacy ingest state into the Spine contract dict
     shape ingest_email_contract expects."""
@@ -144,6 +180,15 @@ def _build_contract_dict(
             ),
         })
 
+    # ── Response-format classification (PR-2, Job #1) ────────────────
+    # attachment_refs lets packet_render / forms_render locate the
+    # buyer's source documents; required_forms + response_packaging
+    # tell the renderer which adapter and which forms to produce.
+    response_packaging, required_forms = classify_cchcs_response_format(
+        classification, files,
+    )
+    attachment_refs = [str(f) for f in (files or []) if str(f).strip()]
+
     return {
         "rfq_id": record_id,
         "agency": agency,
@@ -161,6 +206,9 @@ def _build_contract_dict(
         "source_thread_id": gmail_thread_id or "",
         "pc_id": record_id if record_type == "pc" else "",
         "parser_version": _c("producer_signature") or "ingest_pipeline",
+        "attachment_refs": attachment_refs,
+        "required_forms": required_forms,
+        "response_packaging": response_packaging,
     }
 
 
@@ -176,6 +224,7 @@ def shadow_ingest_to_spine(
     gmail_thread_id: str = "",
     gmail_message_id: str = "",
     email_received_at: str = "",
+    files: list[str] | None = None,
     db_path: str | None = None,
 ) -> dict:
     """Best-effort write of one inbound RFQ into the Spine substrate.
@@ -210,6 +259,7 @@ def shadow_ingest_to_spine(
             classification=classification,
             header=header,
             items=items,
+            files=files,
             email_subject=email_subject,
             email_sender=email_sender,
             gmail_thread_id=gmail_thread_id,
