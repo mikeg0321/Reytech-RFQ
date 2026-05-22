@@ -132,18 +132,33 @@ ratchet test green.
 ### Job #1 — CCHCS migration, with deletion  (owner: Architect | due 2026-06-18)
 
 Make the Spine the ONLY CCHCS quote path, then delete the legacy one.
-**Acceptance — all countable, all required:**
+
+The Spine must render BOTH CCHCS response formats: the Non-Cloud Packet
+(the buyer's single bundled PDF — already covered by `packet_render.py`)
+AND the standalone set — AMS 703B *or* 703C, AMS 704B, the CDCR Bid
+Package, plus the Reytech Quote (the common format, not yet covered).
+Which 703 and which format applies is declared by the email contract
+(LAW 6) — never guessed.
+
+**Acceptance — all required:**
 - 0 imports from `src/core/` in the CCHCS quote path (extend
   `test_no_legacy_imports` to cover the CCHCS routes).
-- Exactly 1 function writes a CCHCS quote (extend
-  `test_exactly_one_writer`).
-- `src/core/quote_contract.py`'s CCHCS branch DELETED — commit in `git log`.
+- CCHCS routes to ZERO legacy quote-write paths — provable by code path.
+  The numeric LAW 3 ratchet (writers 9→8, substrates 3→2) is DEFERRED to
+  the CalVet/DSH/DGS migrations: the 8 legacy writers and the shared
+  files `data_layer.py` / `quote_generator.py` survive Job #1. (The
+  Architect's 2026-05-21 Job #1 plan established this — do not re-litigate.)
+- The `AGENCY_CONFIGS["CCHCS"]` entry (`src/forms/quote_generator.py`)
+  and the `"cchcs"` entry (`src/core/agency_config.py`) DELETED — commit
+  in `git log`. (There is no literal "CCHCS branch" in
+  `src/core/quote_contract.py`; that file is agency-agnostic — the
+  original wording was corrected by the 2026-05-21 plan.)
 - Legacy CCHCS quote/package routes DELETED — commit in `git log`.
 - The retired `src/spine/agency_forms/` renderers DELETED (already
   retired per `SPINE_CHARTER.md` "Sanctioned Boundary" — just remove them).
-- `convergence_baseline.json`: quote substrates 3→2, CCHCS writers →1.
-- 3 consecutive CCHCS quotes shipped through the Spine, each with a
-  clean Inspector report (walkthrough + math reconcile).
+- 3 consecutive CCHCS quotes shipped through the Spine — covering BOTH
+  formats — each with a clean Inspector report (walkthrough + math
+  reconcile).
 
 Only when ALL are true does CalVet begin. Same pattern. Same gate.
 
