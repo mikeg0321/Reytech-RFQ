@@ -383,6 +383,26 @@ def _build_email_contract(
             buyer_hints=_opt_str("buyer_hints", "hints", "notes", src=raw),
         ))
 
+    # required_forms + response_packaging — PR-2 (Job #1). The shadow-
+    # ingest classifier emits these; validate FormCodes here and fall
+    # back to the CCHCS default on anything unrecognized.
+    from src.spine.email_contract import ALL_FORM_CODES, CCHCS_DEFAULT_REQUIRED_FORMS
+    _raw_forms = contract.get("required_forms")
+    if (
+        isinstance(_raw_forms, list)
+        and _raw_forms
+        and all(f in ALL_FORM_CODES for f in _raw_forms)
+    ):
+        _required_forms = list(_raw_forms)
+    else:
+        _required_forms = list(CCHCS_DEFAULT_REQUIRED_FORMS)
+    _raw_packaging = contract.get("response_packaging")
+    _response_packaging = (
+        _raw_packaging
+        if _raw_packaging in ("single_pdf", "separate_pdfs", "either")
+        else "separate_pdfs"
+    )
+
     return EmailContract(
         contract_id=contract_id,
         rfq_id=rfq_id,
@@ -408,6 +428,8 @@ def _build_email_contract(
             str(a) for a in (contract.get("attachment_refs") or [])
             if str(a).strip()
         ],
+        required_forms=_required_forms,  # type: ignore[arg-type]
+        response_packaging=_response_packaging,  # type: ignore[arg-type]
         ingest_parser_version=_opt_str("parser_version", "ingest_parser_version") or "unknown",
         ingested_at=ingest_ts,
     )

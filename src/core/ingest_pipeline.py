@@ -633,6 +633,7 @@ def process_buyer_request(
             classification=classification,
             header=header,
             items=items,
+            files=files,
             email_subject=email_subject,
             email_sender=email_sender,
             gmail_thread_id=gmail_thread_id,
