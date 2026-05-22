@@ -90,19 +90,22 @@ failure is contained and legacy keeps shipping.
     `test_no_legacy_imports.py`. The Spine's correctness must not
     depend on legacy code being correct. The only whitelisted external
     deps are 3 leaf utilities (Vision parser, CDTFA client, PDF
-    writer) — and even those are wrapped at the boundary. The **one
-    file-scoped exception** is the CCHCS packet adapter — see the
+    writer) — and even those are wrapped at the boundary. The **two
+    file-scoped exceptions** are the CCHCS document adapters — see the
     section below.
 
 ---
 
-## Sanctioned Boundary — The CCHCS Packet Adapter
+## Sanctioned Boundary — The CCHCS Document Adapters
 
-> Added 2026-05-20. Memory: `handoff-2026-05-20-legacy-adapter-build`.
+> Added 2026-05-20; second adapter added 2026-05-21 (Job #1 PR-1).
+> Memory: `handoff-2026-05-20-legacy-adapter-build`,
+> `rfqapp-crossroads-verdict-2026-05-21`.
 
 Invariant 11 forbids legacy imports so the Spine's correctness does not
-depend on legacy correctness. There is **exactly one sanctioned, file-
-scoped exception**: `src/spine/packet_render.py`.
+depend on legacy correctness. There are **two sanctioned, file-scoped
+exceptions** — both CCHCS document adapters: `src/spine/packet_render.py`
+(below) and `src/spine/forms_render.py` (the "Second adapter" section).
 
 **Why it exists.** The CCHCS Non-Cloud RFQ Packet is a single buyer-
 supplied PDF that already bundles the 703B cover, the 704B line-item
@@ -140,6 +143,39 @@ The Spine's own `agency_forms/` renderers are **retired**: every
 operator-facing `/forms/{703b,704b,bidpkg,packet}/pdf` route serves the
 adapter's output. They are kept on disk only until a follow-up deletes
 them and their tests.
+
+### Second adapter — `forms_render.py` (the standalone form set)
+
+> Added 2026-05-21 (Job #1 PR-1). Memory:
+> `rfqapp-crossroads-verdict-2026-05-21`.
+
+The Non-Cloud Packet (above) is the MINORITY CCHCS format. The COMMON
+format is a set of separate buyer forms: AMS 703B **or** 703C, AMS 704B,
+and the CDCR Bid Package. The from-scratch `agency_forms/` renderers
+were built for these and produced the 2026-05-18 "trash" output.
+
+The 2026-05-21 research established cause and fix. **Cause:** the
+from-scratch renderers filled *blank templates*. **Fix:** the verified
+legacy fillers in `src/forms/reytech_filler_v4.py` (`fill_703b`,
+`fill_703c`, `fill_704b`, `fill_bid_package`, et al.) — a 4-month,
+120-commit, audited code path that Reytech has shipped real bids on —
+fill the buyer's actual documents. The fix-rate on that file dropped
+~70% after late April and stayed down. Re-implementing it would discard
+that track record to re-attempt the failure.
+
+`src/spine/forms_render.py` is therefore the **second sanctioned
+adapter** — the exact sibling of `packet_render.py`. It maps a Spine
+`Quote` + `EmailContract` onto the legacy fillers' call shape and
+delegates. It is permitted to import only the verified `src.forms`
+fillers it delegates to (`reytech_filler_v4` and the helpers those
+call) plus `src.core.paths`. Enforced file-scoped in
+`test_no_legacy_imports` (`_FILE_SCOPED_LEGACY_IMPORTS`); every other
+Spine file still gets zero legacy imports.
+
+Which adapter serves a quote — `packet_render` (Non-Cloud Packet) or
+`forms_render` (standalone set), and 703B vs 703C — is decided by the
+`EmailContract`, never guessed (LAW 6). The retired `agency_forms/`
+renderers are deleted by Job #1.
 
 ---
 
