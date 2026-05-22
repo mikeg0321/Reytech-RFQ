@@ -1,6 +1,177 @@
 # CLAUDE.md — Reytech RFQ Project Rules
 
+## §0 — THE WOLFPACK OPERATING MODEL (READ FIRST — GOVERNS EVERYTHING BELOW)
+
+> Added 2026-05-21 after the crossroads review. This section is the
+> operating model. Every rule below §0 — the Prime Directive, the guard
+> rails, the incident rules — is SUBJECT to it. Memory:
+> `project_rfqapp_crossroads_verdict_2026_05_21`.
+
+### The diagnosis — why this section exists
+
+The code is ~80% sound. The Spine data model fixed the quoting math.
+The disease is the **operating model**, measured 2026-05-21:
+
+- 140 working directories, 121 git worktrees, 1,665 branches — no
+  canonical home.
+- 717 commits/30d, 47 reverts — 1 in 15 commits undoes another. The
+  rate did not drop after the Spine shipped.
+- **Three** quote substrates coexist: the legacy dict path,
+  `src/core/quote_contract.py` (`QuoteContract`), and `src/spine/`
+  (the Spine). Each "fix" added a layer; none deleted the prior one.
+
+A migration that never deletes what it replaces is not a migration.
+That single behavior is what this section exists to stop.
+
+### The cure — six laws
+
+**LAW 1 — One substrate.** The Spine (`src/spine/`) is the canonical
+quote path. `QuoteContract` and the legacy dict path are on a
+**deletion schedule, not a coexistence schedule**. No fourth substrate
+is ever created without Architect AND Closer sign-off (LAW 4);
+disagreement defaults to NO.
+
+**LAW 2 — A migration is DONE only when the replaced legacy code is
+DELETED** and the deletion commit is visible in `git log`. "Shadow
+mode works" is not done. "Routes repointed" is not done. The legacy
+file is gone, or it is not done. No new agency starts until the prior
+one is done by this definition. (The Migration Completion Gate.)
+
+**LAW 3 — Convergence is measured by COUNT, not lines.** Net-negative
+LOC is banned as a metric — it is gameable (delete 500 legacy lines,
+add 480 of a new substrate, "pass"). The real metric is a ratchet:
+`tests/spine/convergence_baseline.json` holds the current count of
+(a) code paths that can write a quote, (b) distinct quote substrates,
+(c) tracked working directories. A test asserts current ≤ baseline.
+These numbers may only go DOWN. Lowering one requires a deletion
+commit; raising one fails the build.
+
+**LAW 4 — Architecture is authorized, never assumed.** Any change to
+`src/spine/model.py`, any DB schema, `SPINE_CHARTER.md`, or the
+creation of any new `src/spine/` module requires the Architect's
+approval recorded in the PR. A new substrate / agency / migration
+requires Architect AND Closer; if they disagree, the answer is NO.
+Implementers may not make these changes. Enforced at the boundary by
+`tests/spine/test_spine_architecture.py`.
+
+**LAW 5 — One repo, one main.** Worktrees only (never new clones),
+capped at 10 live, tracked in `.claude/WORKSTREAMS.md`. The
+140-directory sprawl is archived and removed in Job #0.
+
+**LAW 6 — The email contract is the engine.** The inbound RFQ email
+and its attachments are the COMPLETE and ONLY specification of the
+response. At ingest — once, not incrementally — the `EmailContract`
+must resolve **every answer the response needs**: required forms, due
+date, solicitation number, buyer and ship-to, delivery and packaging
+instructions, every line item with qty / UOM / MFG#, and tax
+jurisdiction. Nothing required is discovered later by heuristic, by
+operator memory, or by a renderer default. Renderers iterate
+`contract.required_forms`; the send-gate refuses when the rendered set
+≠ the contract. The single thing the email does NOT carry is **price**
+— and price is resolved **catalog-first** (catalog cost is the basis;
+SCPRS is a ceiling, Amazon is reference, never cost). When the email is
+ambiguous, ingest records the gap as a contract field and **blocks the
+quote** — it never papers over it. Every agency migration (Job #1
+onward) must prove its `EmailContract` carries that agency's full
+requirement set before that agency's legacy path is deleted.
+
+### The pack — four roles, mission-scoped
+
+Definitions in `.claude/agents/`. The pack exists to converge the
+substrate and migrate every agency with deletion — then it shrinks.
+It is not a standing committee.
+
+- **Architect** (`architect.md`) — singular. Sole authorizer of
+  substrate/schema/migration. Owns convergence. Only role that
+  dispatches the pack.
+- **Implementer** (`implementer.md`) — 2-3 instances. Scoped tickets,
+  worktree + branch each. Forbidden: `model.py`, schema, new
+  `src/spine/` modules, new substrates.
+- **Inspector** (`inspector.md`) — owns BOTH gates: the Chrome
+  walkthrough AND the math reconciliation (every quote's
+  subtotal/tax/total/cost-basis verified against source before
+  render). No Edit/Write tools — verifies and reports, cannot "fix it."
+  Veto: nothing ships without sign-off.
+- **Closer** (`closer.md`) — the "no." Kills scope, enforces
+  delete-before-add, co-authorizes new substrates. No Edit/Write tools.
+
+### The mandatory reporting block
+
+Every pack task ends its final message with EXACTLY this block:
+
+```
+WOLFPACK REPORT
+- Task: <ticket id + one line>
+- Files changed: <count>  | LOC +<n>/-<n>
+- Legacy deleted: <yes: path(s) | no — why>
+- Convergence: writers <before>→<after> | substrates <b>→<a> | dirs <b>→<a>
+- Tests: <suite> <pass/fail counts>
+- Inspector: <walkthrough verdict + math-reconcile verdict | N/A>
+- Charter/schema touched: <yes — Architect approval ref | no>
+```
+
+On a migration ticket, a report that cannot fill "Legacy deleted" with
+a path is not complete.
+
+### Job #0 — Collapse the den  (owner: Architect | due 2026-05-28)
+
+You cannot run a disciplined migration from 140 directories.
+1. Designate this repo (`rfq-spine-sequential-numbering`) the canonical
+   checkout. One main.
+2. Prune merged/dead branches (1,665 → live work only). `git worktree
+   prune` + `make worktree-remove` for stale worktrees.
+3. Archive the 140 `rfq-*` dirs: no unmerged commits → delete; unmerged
+   work → branch it, then delete the directory.
+4. Cap live worktrees at 10, tracked in `WORKSTREAMS.md`.
+5. Build the LAW 3 ratchet: measure the three counts, commit
+   `tests/spine/convergence_baseline.json` + a test in
+   `test_spine_architecture.py` asserting current ≤ baseline.
+**Acceptance:** branch count < 50, worktrees ≤ 10, baseline committed,
+ratchet test green.
+
+### Job #1 — CCHCS migration, with deletion  (owner: Architect | due 2026-06-18)
+
+Make the Spine the ONLY CCHCS quote path, then delete the legacy one.
+**Acceptance — all countable, all required:**
+- 0 imports from `src/core/` in the CCHCS quote path (extend
+  `test_no_legacy_imports` to cover the CCHCS routes).
+- Exactly 1 function writes a CCHCS quote (extend
+  `test_exactly_one_writer`).
+- `src/core/quote_contract.py`'s CCHCS branch DELETED — commit in `git log`.
+- Legacy CCHCS quote/package routes DELETED — commit in `git log`.
+- The retired `src/spine/agency_forms/` renderers DELETED (already
+  retired per `SPINE_CHARTER.md` "Sanctioned Boundary" — just remove them).
+- `convergence_baseline.json`: quote substrates 3→2, CCHCS writers →1.
+- 3 consecutive CCHCS quotes shipped through the Spine, each with a
+  clean Inspector report (walkthrough + math reconcile).
+
+Only when ALL are true does CalVet begin. Same pattern. Same gate.
+
+### Pack checkpoint — 2026-06-20
+
+If, by 2026-06-20, the substrate count and the tracked-directory count
+have not DROPPED from the 2026-05-21 baseline, the pack model has
+failed. Stop, do not start CalVet, re-assess with Mike. The pack is
+not exempt from its own completion gate.
+
+### How §0 relates to the rest of this file
+
+The Prime Directive and the guard rails below remain in force **for the
+legacy path** until Job #1 deletes it. Where §0 and a rule below
+conflict, §0 wins, and the conflicting rule is rewritten or deleted in
+the same PR — the governance does not get to have two sources of truth
+either.
+
+---
+
 ## Prime Directive (READ BEFORE ANY QUOTE-GEN EDIT)
+
+> ⚠️ **CONTESTED — see §0.** This directive names `QuoteContract` as
+> canonical. `src/spine/SPINE_CHARTER.md` names `src/spine/model.py` as
+> canonical for CCHCS. **Two canonical sources coexisting is the
+> disease itself.** Until Job #1 (§0) deletes the legacy CCHCS path,
+> this directive governs the **legacy path only**; the Spine governs
+> CCHCS. Job #1 ends this contradiction by deletion, not by edit.
 
 The canonical source of truth for any Quote PDF / Package PDF / form
 fill is `src/core/quote_contract.py` :: `QuoteContract`. It is FROZEN.
