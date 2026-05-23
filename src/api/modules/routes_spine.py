@@ -439,13 +439,21 @@ def make_spine_blueprint(
 
         gate = (res.get("fill_result") or {}).get("gate") or {}
         inline = request.args.get("inline", "1") != "0"
+        # ?flatten=1 — bake form widgets into static page content for the
+        # buyer-bound copy. Off by default so the preview render keeps
+        # editable fields for the Inspector + Chrome walkthrough.
+        flatten_requested = request.args.get("flatten", "0") == "1"
+        pdf_bytes = res["pdf_bytes"]
+        if flatten_requested:
+            from src.spine.flatten import flatten_pdf_bytes
+            pdf_bytes = flatten_pdf_bytes(pdf_bytes)
         disposition = (
             f'inline; filename="cchcs_packet_{quote_id}.pdf"'
             if inline else
             f'attachment; filename="cchcs_packet_{quote_id}.pdf"'
         )
         return Response(
-            res["pdf_bytes"],
+            pdf_bytes,
             mimetype="application/pdf",
             headers={
                 "Content-Disposition": disposition,
@@ -454,6 +462,7 @@ def make_spine_blueprint(
                     len(gate.get("critical_issues", []) or [])
                 ),
                 "X-Spine-Packet-Source": os.path.basename(res.get("source_pdf", "")),
+                "X-Spine-Flattened": "1" if flatten_requested else "0",
             },
         )
 
@@ -519,6 +528,13 @@ def make_spine_blueprint(
             }), 409
 
         inline = request.args.get("inline", "1") != "0"
+        # ?flatten=1 — bake form widgets into static page content for the
+        # buyer-bound copy. Off by default so the preview render keeps
+        # editable fields for the Inspector + Chrome walkthrough.
+        flatten_requested = request.args.get("flatten", "0") == "1"
+        if flatten_requested:
+            from src.spine.flatten import flatten_pdf_bytes
+            pdf_bytes = flatten_pdf_bytes(pdf_bytes)
         fname = f"cchcs_{which}_{quote_id}.pdf"
         disposition = (
             f'inline; filename="{fname}"' if inline
@@ -534,6 +550,7 @@ def make_spine_blueprint(
                 "X-Spine-Form-Template": os.path.basename(
                     sub.get("template", "") or ""
                 ),
+                "X-Spine-Flattened": "1" if flatten_requested else "0",
             },
         )
 
@@ -591,6 +608,42 @@ def make_spine_blueprint(
     @_wrap
     def get_bidpkg_pdf(quote_id: str):
         return _serve_cchcs_form(quote_id, "bidpkg")
+
+    # ─── GET /spine/quotes/<quote_id>/inspector ───────────────────────
+    #
+    # The Inspector gate's JSON report — math + identity + coverage +
+    # cost-basis reconcile against the SAME bytes the buyer will see.
+    # `ok=True` is the send-gate value (the future /send-prep gating
+    # in PR-6 calls this and refuses on non-clean). Operator UI can
+    # poll this for the pre-send checklist.
+    #
+    # The report is RECONSTRUCTED per request — there is no
+    # stored InspectorReport; the source of truth is the Spine quote
+    # state + the contract. Two consecutive calls with the same state
+    # produce identical reports (the Inspector is deterministic).
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/inspector",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_inspector_report(quote_id: str):
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.inspector: load failed for %s", quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+        try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception("spine.inspector: contract lookup failed for %s", quote_id)
+            contract = None
+        from src.spine.inspector import reconcile_quote_to_package
+
+        report = reconcile_quote_to_package(quote, contract)
+        return jsonify(report.model_dump()), 200
 
     # ─── GET /spine/quotes/<quote_id>/edit (operator UI) ──────────────
 
