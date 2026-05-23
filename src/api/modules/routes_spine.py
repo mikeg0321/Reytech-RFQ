@@ -1235,6 +1235,43 @@ def make_spine_blueprint(
                 ),
             }), 409
 
+        # ── Inspector gate ────────────────────────────────────────
+        # Job #1 §0 acceptance: every send through the 3-quote gate
+        # must carry a clean InspectorReport. Run it here before the
+        # operator gets the Gmail compose URL — a non-clean report
+        # blocks 409 with the full report attached so the UI can
+        # show the operator exactly what to fix.
+        #
+        # The gate runs only when an EmailContract is bound. Legacy
+        # quotes that predate the contract substrate keep working
+        # (envelope is marked `inspector_skipped` so the operator knows
+        # the math-reconcile wasn't run); CCHCS quotes in Job #1 always
+        # ingest through the contract path (LAW 6) and so always gate.
+        try:
+            contract_for_inspector = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            contract_for_inspector = None
+        inspector_report = None
+        inspector_skipped_reason: str | None = None
+        if contract_for_inspector is None:
+            inspector_skipped_reason = (
+                "no EmailContract bound — Inspector math-reconcile skipped"
+            )
+        else:
+            from src.spine.inspector import reconcile_quote_to_package
+
+            inspector_report = reconcile_quote_to_package(
+                quote, contract_for_inspector)
+            if not inspector_report.ok:
+                return jsonify({
+                    "error": "inspector_blocked",
+                    "detail": (
+                        f"Inspector report has {inspector_report.blocking_count} "
+                        f"blocking issue(s); resolve before send."
+                    ),
+                    "report": inspector_report.model_dump(),
+                }), 409
+
         # Build the envelope. Subject and body are deterministic from
         # the quote state — same inputs → same envelope, so two preps
         # for the same quote produce the same email shape.
@@ -1285,6 +1322,52 @@ def make_spine_blueprint(
             f"{quote.quote_id}.pdf"
         )
 
+        # ── Form attachments — every required_form beyond the quote ───
+        # The Reytech Quote PDF is already covered by snapshot_pdf_url.
+        # Format-B (separate_pdfs) needs the operator to also attach the
+        # 703B + 704B + Bid Package; Format-A (single_pdf) needs only the
+        # bundled packet. Each URL is flatten-on by default so the bytes
+        # the buyer receives are non-editable.
+        required_forms = list(
+            getattr(contract_for_inspector, "required_forms", None) or []
+        )
+        packaging = getattr(
+            contract_for_inspector, "response_packaging", "separate_pdfs")
+        form_attachments: list[dict] = []
+        if packaging == "single_pdf":
+            # The packet bundles every form. Single attachment.
+            if any(f != "quote" for f in required_forms):
+                form_attachments.append({
+                    "form_code": "packet",
+                    "url": f"/spine/quotes/{quote_id}/forms/packet/pdf?flatten=1",
+                    "filename": (
+                        f"Reytech_Packet_{quote.solicitation_number}_"
+                        f"{quote.quote_id}.pdf"
+                    ),
+                })
+        else:
+            # Separate-PDFs — one attachment per non-quote required form.
+            _route_map = {
+                "703b": "703b", "703c": "703b",   # both 703 variants → 703b route
+                "704b": "704b", "bidpkg": "bidpkg",
+            }
+            seen_routes: set[str] = set()
+            for f in required_forms:
+                if f == "quote":
+                    continue
+                route_form = _route_map.get(f)
+                if route_form is None or route_form in seen_routes:
+                    continue
+                seen_routes.add(route_form)
+                form_attachments.append({
+                    "form_code": f,
+                    "url": f"/spine/quotes/{quote_id}/forms/{route_form}/pdf?flatten=1",
+                    "filename": (
+                        f"Reytech_{f.upper()}_{quote.solicitation_number}_"
+                        f"{quote.quote_id}.pdf"
+                    ),
+                })
+
         envelope = {
             "snapshot_id": snap["snapshot_id"],
             "snapshot_pdf_url": snapshot_url_path,
@@ -1295,6 +1378,18 @@ def make_spine_blueprint(
             "subject": subject,
             "body": body_text,
             "gmail_compose_url": gmail_compose_url,
+            # PR-6 additions — Inspector verdict + per-form attachments.
+            "inspector_ok": (inspector_report.ok
+                             if inspector_report is not None else None),
+            "inspector_blocking_count": (
+                inspector_report.blocking_count
+                if inspector_report is not None else 0),
+            "inspector_warning_count": (
+                inspector_report.warning_count
+                if inspector_report is not None else 0),
+            "inspector_skipped": inspector_skipped_reason,
+            "form_attachments": form_attachments,
+            "response_packaging": packaging,
         }
 
         # Record the prep in the event log so the audit chain shows
