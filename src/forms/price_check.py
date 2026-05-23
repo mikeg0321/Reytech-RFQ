@@ -5078,13 +5078,7 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
     fw = fr - fl
     fh = ft - fb
 
-    # Layout: signature image takes left 60%, date in right 20%
-    sig_w = min(fw * 0.60, 220)
-    sig_h = fh - 6  # fit WITHIN cell (leave 3pt padding top + bottom)
-    date_x = fr - fw * 0.22  # right quarter
-    date_y = fb + (fh - 9) / 2  # vertically centered for ~9pt font
-
-    # Find signature image
+    # Find signature image first — the layout below sizes from its aspect.
     sig_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "signature_transparent.png"),
         "/app/signature_transparent.png",
@@ -5096,6 +5090,36 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
             sig_path = p
             break
 
+    # Layout: signature uses (a) full cell height minus tiny padding,
+    # (b) width derived from the signature image's actual aspect ratio
+    # so it never distorts, capped at the available left-of-date region.
+    # 2026-05-23: the prior sizing (sig_h = fh - 6, sig_w = fw*0.60 with
+    # preserveAspectRatio=True) height-locked at ~70×15pt on the standard
+    # PC 704 cell (323×23.5pt) — Mike: "the signature isn't optimized for
+    # the space that it's in." We now claim ~95% of cell height and let
+    # the signature width follow aspect. Discover the aspect from the
+    # actual PNG at runtime so a signature swap doesn't silently distort.
+    _SIG_ASPECT = 4.50  # default — width / height of signature_transparent.png (499x111)
+    try:
+        if sig_path:
+            from PIL import Image as _PILImage
+            with _PILImage.open(sig_path) as _spim:
+                _sw, _sh = _spim.size
+                if _sh > 0:
+                    _SIG_ASPECT = _sw / _sh
+    except Exception as _e:
+        log.debug("sig aspect detect failed (%s) — using default %.2f",
+                  _e, _SIG_ASPECT)
+
+    _DATE_RESERVE = max(fw * 0.22, 70)  # right region reserved for date
+    sig_h = fh - 2                       # 1pt padding top + bottom
+    sig_w = sig_h * _SIG_ASPECT
+    if sig_w > fw - _DATE_RESERVE - 4:   # leave 4pt gap before date column
+        sig_w = fw - _DATE_RESERVE - 4
+        sig_h = sig_w / _SIG_ASPECT
+    date_x = fr - fw * 0.22              # right quarter (unchanged anchor)
+    date_y = fb + (fh - 9) / 2           # vertically centered for ~9pt font
+
     try:
         from reportlab.pdfgen import canvas as rl_canvas
         from reportlab.lib.utils import ImageReader
@@ -5106,14 +5130,22 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
         # ── Draw signature directly — NO white mask ──
         # The signature PNG is transparent, so just overlay it on the form.
         # This preserves the "Signature and Date" label completely.
-        _SP = 4
         c.saveState()
 
-        # Draw signature image (left 60% of cell, full height)
+        # Draw signature image at the precise (sig_w, sig_h) computed
+        # above from the image's actual aspect ratio. Anchor 'sw' places
+        # the image flush with the cell's bottom-left after a tiny inset.
+        # preserveAspectRatio is harmless here because (sig_w, sig_h)
+        # already matches the image aspect, and it guards against any
+        # signature swap that changes aspect.
         if sig_path:
             try:
                 img = ImageReader(sig_path)
-                c.drawImage(img, fl + _SP, fb + _SP, width=sig_w, height=fh - _SP * 2,
+                # Vertically center within the cell (cell may be slightly
+                # taller than sig_h when width-constrained).
+                _sig_y_off = max(0, (fh - sig_h) / 2)
+                c.drawImage(img, fl + 1, fb + _sig_y_off,
+                           width=sig_w, height=sig_h,
                            mask='auto', preserveAspectRatio=True, anchor='sw')
             except Exception as e:
                 log.warning("Could not draw signature image: %s", e)
