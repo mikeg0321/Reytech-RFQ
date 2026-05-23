@@ -143,3 +143,23 @@ def test_flatten_rendered_704b_keeps_values_visible(tmp_path):
     finally:
         doc.close()
     assert "10848901" in text_all
+
+
+# NOTE — visual-fidelity regression deferred to the Vision-pass gate.
+#
+# A regression that catches the 2026-05-23 stale-/AP bug end-to-end
+# (Demidenko PC flattened with comb-spacing + clipping) needs to
+# reproduce the exact /AP shape that fill_ams704 (legacy) writes,
+# which in turn requires a clean 704 fixture (the current
+# tests/fixtures/ams_704_blank.pdf is contaminated — separate cleanup).
+# A short-value pypdf path on the 704B blank does NOT reproduce the
+# class because pypdf's writer regenerates a usable /AP for short
+# values; the bug only surfaces with the longer fill_ams704 path.
+#
+# The right home for this regression is the Vision-pass document-ship
+# gate (task #20): rasterize each page of the flattened PDF, run a
+# vision model classifier (clipping / comb-spacing / overlapping /
+# missing-signature / blank-required-field), fail the gate or surface
+# findings. Until that gate lands, the existing
+# test_flatten_rendered_704b_keeps_values_visible above proves values
+# survive the bake; visual-fidelity proof is operator+vision review.

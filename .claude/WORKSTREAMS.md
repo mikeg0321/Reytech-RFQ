@@ -22,6 +22,7 @@ Only the Architect authorizes substrate / schema / migration changes (LAW 4).
 |--------|--------|-------|
 | `main` | canonical | Never pushed to directly. |
 | `feat/job1-pr3-forms-render` | Job #1 PR-3 | `src/spine/forms_render.py` — the Format-B CCHCS adapter (703B/703C + 704B + Bid Package) + format-aware /forms routes. |
+| `fix/flatten-regen-appearance-before-bake` | PR-10, shipping | `src/spine/flatten.py` — regenerate widget appearances (`fitz.Widget.update()`) BEFORE `bake()`. Fixes Demidenko PC comb-spacing + clipping caught 2026-05-23. Worktree: `rfq-spine-sequential-numbering`. |
 
 ## Preserved branches — await Closer triage
 

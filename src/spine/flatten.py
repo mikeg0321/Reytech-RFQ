@@ -26,6 +26,23 @@ quirks. ``pypdf.PdfWriter`` 6.x lacks a public ``flatten`` method
 handles both annots and widgets in a single deterministic pass.
 Verified 2026-05-22 on the 30-item 704B: 362 fields → 0 fields, every
 value still visible.
+
+CRITICAL: regenerate widget appearances BEFORE baking
+-----------------------------------------------------
+pypdf writes field values + flips ``/NeedAppearances True`` on the
+AcroForm dict — viewers like Adobe / Chrome regenerate appearance
+streams at display time. ``fitz.bake()`` does NOT regenerate; it
+flattens whatever ``/AP`` stream is already present, falling back to
+a default Helv encoding with wide letter-spacing + clipping when the
+appearance is stale or missing. The visible failure on a Demidenko
+PC 2026-05-23 was ``30 Carnoustie Way Trabuco Ca`` (full address
+clipped) + ``s a l e s @ r e y t e c h i n c .`` (comb-like spacing
++ clipped ``.com``) despite the field /V containing the full string.
+Fix: call ``widget.update()`` on every widget on every page before
+``bake()`` so fitz computes a fresh appearance stream from the
+filled value, then bake from those fresh streams. This is the SOLE
+defense against the comb-render class; do not remove without a
+replacement gate.
 """
 from __future__ import annotations
 
@@ -50,6 +67,20 @@ def flatten_pdf_bytes(data: bytes) -> bytes:
 
         doc = fitz.open(stream=data, filetype="pdf")
         try:
+            # Regenerate appearance streams BEFORE bake. See module docstring:
+            # pypdf relies on /NeedAppearances; fitz.bake does not honor it
+            # and will flatten stale/missing /AP, producing wide-spaced and
+            # clipped text. widget.update() rebuilds /AP from the current /V
+            # using fitz's font metrics. Per-widget try/except: a single
+            # exotic widget (e.g. unusual /Q or signature) must not abort
+            # the whole flatten.
+            for page in doc:
+                for w in page.widgets() or []:
+                    try:
+                        w.update()
+                    except Exception as we:  # pragma: no cover - defensive
+                        log.debug("flatten: widget.update skipped on %r: %s",
+                                  getattr(w, "field_name", "?"), we)
             doc.bake(annots=True, widgets=True)
             buf = io.BytesIO()
             doc.save(buf)
