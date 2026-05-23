@@ -680,3 +680,122 @@ def test_century_rollover_via_year_2099_renders_99():
         quote_year=2099,
     )
     assert q.display_number == "R99Q12"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# sign_date_pst — frozen-at-finalize PST sign date.
+#
+# Closes the cross-midnight render drift class identified at
+# src/spine/forms_render.py: a get_pst_date() injection re-derives
+# today's date on every adapter call, so a Quote finalized at 23:55
+# and rendered again at 00:05 would silently produce different bytes.
+# Stamping the date into the Quote at the first PARSED/PRICED →
+# FINALIZED transition (and never re-stamping) makes the rendered
+# bytes deterministic from approved Spine state.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_fresh_parsed_quote_has_no_sign_date_pst():
+    """A freshly-parsed Quote has no PST sign date until it finalizes."""
+    q = _ok_quote(status=QuoteStatus.PARSED)
+    assert q.sign_date_pst is None
+
+
+def test_finalize_stamps_sign_date_pst_to_pst_today():
+    """The first PRICED → FINALIZED hop stamps PST today's date."""
+    from datetime import date
+    from zoneinfo import ZoneInfo
+
+    q_priced = _ok_quote(status=QuoteStatus.PRICED)
+    assert q_priced.sign_date_pst is None
+
+    q_final = q_priced.with_status(QuoteStatus.FINALIZED)
+    expected = datetime.now(ZoneInfo("America/Los_Angeles")).date()
+    assert isinstance(q_final.sign_date_pst, date)
+    assert q_final.sign_date_pst == expected
+
+
+def test_finalize_to_sent_preserves_frozen_sign_date_pst():
+    """FINALIZED → SENT must NOT re-stamp the frozen date."""
+    q_priced = _ok_quote(status=QuoteStatus.PRICED)
+    q_final = q_priced.with_status(QuoteStatus.FINALIZED)
+    frozen = q_final.sign_date_pst
+    assert frozen is not None
+
+    q_sent = q_final.with_status(QuoteStatus.SENT)
+    assert q_sent.sign_date_pst == frozen  # identical, byte for byte.
+
+
+def test_finalize_to_priced_and_back_preserves_frozen_sign_date_pst():
+    """Rebid arc: FINALIZED → PRICED → FINALIZED keeps the original stamp.
+
+    The first finalize stamped sign_date_pst. The PRICED → FINALIZED
+    re-finalize sees sign_date_pst is already set and MUST leave it
+    alone — so a buyer who saw the first-finalize date in a render
+    cannot receive a quote dated differently after a rebid.
+    """
+    q_priced = _ok_quote(status=QuoteStatus.PRICED)
+    q_final_v1 = q_priced.with_status(QuoteStatus.FINALIZED)
+    frozen = q_final_v1.sign_date_pst
+    assert frozen is not None
+
+    q_priced_again = q_final_v1.with_status(QuoteStatus.PRICED)
+    # PRICED state retains the stamp — it lives on the Quote, not on
+    # the status — so a re-finalize after rebid finds it already set.
+    assert q_priced_again.sign_date_pst == frozen
+
+    q_final_v2 = q_priced_again.with_status(QuoteStatus.FINALIZED)
+    assert q_final_v2.sign_date_pst == frozen
+
+
+def test_explicit_sign_date_pst_is_preserved_through_finalize():
+    """An explicitly-constructed sign_date_pst is NEVER clobbered.
+
+    The replay / fixture / backfill path: construct a Quote with a
+    historical sign date, transition it into FINALIZED, and confirm
+    the explicit date wins over PST today.
+    """
+    from datetime import date
+
+    explicit = date(2026, 5, 18)
+    q_priced = Quote(
+        quote_id="Q-test-explicit",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1), _ok_line(2)],
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+        sign_date_pst=explicit,
+    )
+    assert q_priced.sign_date_pst == explicit
+
+    q_final = q_priced.with_status(QuoteStatus.FINALIZED)
+    assert q_final.sign_date_pst == explicit  # explicit value wins.
+
+
+def test_sign_date_pst_round_trips_through_to_persisted_dict():
+    """sign_date_pst is a stored field — must serialize + deserialize.
+
+    This is the substrate-bytes guarantee: a Quote written to the DB
+    and read back reconstructs with the same frozen sign_date_pst, so
+    the snapshot Inspector verifies the same date the renderer reads.
+    """
+    from datetime import date
+
+    explicit = date(2026, 5, 18)
+    q = Quote(
+        quote_id="Q-test-roundtrip",
+        agency="CCHCS",
+        facility="SATF",
+        solicitation_number="10847262",
+        line_items=[_ok_line(1), _ok_line(2)],
+        tax_rate_bps=825,
+        status=QuoteStatus.PRICED,
+        sign_date_pst=explicit,
+    )
+    persisted = q.to_persisted_dict()
+    # The field is present in persisted form and round-trips losslessly.
+    assert "sign_date_pst" in persisted
+    q2 = Quote.model_validate(persisted)
+    assert q2.sign_date_pst == explicit

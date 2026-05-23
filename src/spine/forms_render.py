@@ -266,9 +266,21 @@ def _build_legacy_rfq_dict(quote: "Quote", contract: "EmailContract") -> dict:
 
     sol = quote.solicitation_number or contract.solicitation_number
 
+    # Sign date — the frozen PST date stamped into the Quote at first
+    # FINALIZED (model.py with_status). Falls back to today's PST date
+    # only when the Quote has not yet been finalized (parsed/priced
+    # render paths), so the adapter behavior is unchanged for the
+    # pre-finalize editor preview; once finalized, every subsequent
+    # render reads the same frozen value and the bytes the buyer
+    # receives are deterministic even when the render crosses midnight.
+    if quote.sign_date_pst is not None:
+        sign_date_str = quote.sign_date_pst.strftime("%m/%d/%Y")
+    else:
+        sign_date_str = get_pst_date()
+
     r: dict[str, Any] = {
         "solicitation_number": sol,
-        "sign_date": get_pst_date(),
+        "sign_date": sign_date_str,
         "release_date": _fmt_date(getattr(contract, "release_date", None)),
         "due_date": _fmt_date(
             getattr(contract, "due_date", None)

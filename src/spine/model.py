@@ -18,9 +18,10 @@ Hard rules (enforced by Pydantic, not by review-time discipline):
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import (
     BaseModel,
@@ -30,6 +31,25 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Time helpers — encoded once, here, so the substrate has a single PST
+# clock instead of every renderer recomputing one.
+# ──────────────────────────────────────────────────────────────────────
+
+_PST_ZONE = ZoneInfo("America/Los_Angeles")
+
+
+def _pst_today() -> date:
+    """Today's date in America/Los_Angeles (PST/PDT-aware).
+
+    The Spine substrate's single source of operator-local "today."
+    Encoded in model.py so the freeze-at-finalize stamp and any future
+    PST-anchored field share one clock — eliminating the cross-midnight
+    drift class where a date-derived field re-evaluates per render.
+    """
+    return datetime.now(_PST_ZONE).date()
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -287,6 +307,29 @@ class Quote(BaseModel):
         ),
     )
 
+    # Frozen PST sign date — stamped exactly once, when the Quote first
+    # transitions into FINALIZED, and preserved across every subsequent
+    # render. Closes the cross-midnight drift class identified at
+    # forms_render.py: a get_pst_date() injection re-derives today's date
+    # on every adapter call, so a Quote finalized at 23:55 and rendered
+    # again at 00:05 would silently change the bytes the buyer receives.
+    # Pydantic validates the type; the freeze rule is enforced by
+    # with_status (stamp on the first PARSED/PRICED → FINALIZED hop;
+    # subsequent transitions must NOT re-stamp). Operators can also
+    # construct a Quote with an explicit sign_date_pst (replay / fixture
+    # path) — the explicit value wins and never gets clobbered.
+    sign_date_pst: date | None = Field(
+        default=None,
+        description=(
+            "Frozen Pacific-time (America/Los_Angeles) sign date. None "
+            "until the first transition into status=finalized, at which "
+            "point with_status stamps PST today. Renderers MUST use this "
+            "in preference to today's date so the rendered bytes are "
+            "deterministic from approved Spine state — independent of "
+            "when the render happens to be executed."
+        ),
+    )
+
     # Provenance (immutable after first write).
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -443,6 +486,16 @@ class Quote(BaseModel):
         new_state = self.model_dump(mode="python", exclude=_COMPUTED_FIELD_NAMES)
         new_state["status"] = new_status.value
         new_state["updated_at"] = datetime.now(timezone.utc)
+        # Freeze the PST sign date the FIRST time the Quote enters
+        # FINALIZED. Stamping here (not on every transition) means
+        # FINALIZED → SENT and PRICED ↔ FINALIZED rebid arcs preserve
+        # the original frozen date — the bytes the buyer eventually
+        # receives match the date displayed at first finalize.
+        if (
+            new_status == QuoteStatus.FINALIZED
+            and new_state.get("sign_date_pst") is None
+        ):
+            new_state["sign_date_pst"] = _pst_today()
         try:
             return Quote.model_validate(new_state)
         except Exception as e:
