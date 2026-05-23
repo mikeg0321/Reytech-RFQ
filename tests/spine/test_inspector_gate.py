@@ -325,3 +325,145 @@ def test_cost_basis_skips_low_cost_lines():
     # cost_basis path inside is exercised before that check returns.
     from src.spine.inspector import _check_cost_basis
     assert _check_cost_basis(q) == []
+
+
+# ── _to_cents safety rails — parser bound + ceiling ──────────────────
+
+
+def test_to_cents_accepts_normal_us_format():
+    """US format — grouping commas, decimal point, bare integers — must
+    keep working exactly as today (no regression in the happy path)."""
+    from src.spine.inspector import _to_cents
+
+    assert _to_cents("1,060.00") == 106000
+    assert _to_cents("684") == 68400
+    assert _to_cents("0.05") == 5
+    assert _to_cents(" 5955.25") == 595525
+    assert _to_cents("$1,234.56") == 123456
+    assert _to_cents("0") == 0
+    assert _to_cents("0.00") == 0
+
+
+def test_to_cents_rejects_eu_format():
+    """``_to_cents("1234,56")`` must return None — NOT 12345600 cents
+    ($123,456). Stripping commas before checking for ``.`` decimal would
+    100x the value. US-only today; this closes the class before a non-US
+    buyer template ever lands."""
+    from src.spine.inspector import _to_cents
+
+    assert _to_cents("1234,56") is None
+    assert _to_cents("12,5") is None
+    assert _to_cents("0,99") is None
+    # Edge: trailing zeros — still EU format, still rejected.
+    assert _to_cents("100,00") is None
+
+
+def test_to_cents_rejects_implausible_ceiling():
+    """A cell value over $10B is almost certainly a parse artifact
+    (concatenated sol#, mangled scrape). Return None so the caller flags
+    it as a math issue rather than computing off junk."""
+    from src.spine.inspector import _to_cents
+
+    # 10 trillion dollars + change — way past any realistic line item.
+    assert _to_cents("99999999999999.99") is None
+    # Just over $10B.
+    assert _to_cents("10000000000.01") is None
+    # Just under $10B — accepted (still implausible but the ceiling is
+    # for catching mangled bytes, not for editorializing on real prices).
+    assert _to_cents("9999999999.99") == 999999999999
+
+
+def test_to_cents_handles_garbage_input():
+    """Empty / whitespace / non-numeric still returns None (no regression)."""
+    from src.spine.inspector import _to_cents
+
+    assert _to_cents(None) is None
+    assert _to_cents("") is None
+    assert _to_cents("   ") is None
+    assert _to_cents("not a number") is None
+    assert _to_cents("$") is None
+
+
+# ── 704B page-mapping discovery — survives 15 vs 23 page-1 capacity ──
+
+
+@_needs_b
+def test_reconcile_format_b_handles_15_items_page1_only(tmp_path):
+    """Fifteen items — fills page 1 (current filler capacity), no page 2.
+    Discovery must find every QTYRow* the filler populated and reconcile
+    each line clean."""
+    items = [
+        _line(i, f"Item {i}", mfg=f"MFG-{i}",
+              qty=2 + (i % 3),
+              unit_price_cents=10000 + i * 250,
+              cost_cents=5000 + i * 100)
+        for i in range(1, 16)  # 15 items
+    ]
+    q = _quote(line_items=items)
+    contract = _contract_b()
+    rep = reconcile_format_b(q, contract, output_dir=str(tmp_path))
+    assert rep.ok, [(i.kind, i.location, i.detail) for i in rep.issues]
+    assert rep.line_items_checked == 15
+
+
+@_needs_b
+def test_reconcile_format_b_handles_30_items_across_two_pages(tmp_path):
+    """Thirty items — 15 on page 1 + 15 on page 2 (filled into Row1_2..).
+    Discovery must walk page 1 then page 2 in order and reconcile every
+    line. This is the case the hardcoded ``page_size = 15`` got right by
+    coincidence; the discovery rewrite must match that behavior AND
+    survive a future filler change to 23-row page-1 capacity."""
+    items = [
+        _line(i, f"Item {i}", mfg=f"MFG-{i}",
+              qty=1 + (i % 5),
+              unit_price_cents=5000 + i * 100,
+              cost_cents=2500 + i * 50)
+        for i in range(1, 31)  # 30 items
+    ]
+    q = _quote(line_items=items)
+    contract = _contract_b()
+    rep = reconcile_format_b(q, contract, output_dir=str(tmp_path))
+    # Filler capacity on the standard 704B template is 15 page-1 + 16
+    # page-2 = 31 form-field slots. 30 items fits without overflow, so
+    # every line should be field-level checked + clean.
+    assert rep.ok, [(i.kind, i.location, i.detail) for i in rep.issues]
+    assert rep.line_items_checked == 30
+
+
+@_needs_b
+def test_reconcile_format_b_discovery_flags_page2_drift(tmp_path):
+    """Render 30 items with real prices; reconcile the SAME output against
+    a drift quote whose page-2 line prices differ. Discovery must walk
+    into the ``_2``-suffixed rows and surface the per-line math drift
+    (the old hardcoded mapping happened to do this too; the new
+    discovery code must preserve it)."""
+    items = [
+        _line(i, f"Item {i}", mfg=f"MFG-{i}",
+              qty=2, unit_price_cents=10000 + i * 100,
+              cost_cents=5000)
+        for i in range(1, 31)
+    ]
+    real_q = _quote(line_items=items)
+    contract = _contract_b()
+    paths = _render_b_and_collect(real_q, contract, tmp_path)
+    # Drift only on the page-2 lines (16+).
+    drift_items = [
+        _line(i, f"Item {i}", mfg=f"MFG-{i}",
+              qty=2,
+              unit_price_cents=(10000 + i * 100) if i <= 15 else 77700,
+              cost_cents=5000)
+        for i in range(1, 31)
+    ]
+    drift_q = _quote(line_items=drift_items)
+    rep = reconcile_format_b(drift_q, contract, forms_paths=paths)
+    assert rep.ok is False
+    math = [i for i in rep.issues if i.kind == "math"]
+    # Every page-2 line should flag PRICE PER UNIT*_2 + SUBTOTAL*_2 mismatch.
+    page2_price_issues = [
+        i for i in math
+        if "PRICE PER UNIT" in i.location and i.location.endswith("_2")
+    ]
+    assert page2_price_issues, (
+        "expected per-line page-2 (_2 suffix) PRICE PER UNIT drift, "
+        f"got {[i.location for i in math]}"
+    )
