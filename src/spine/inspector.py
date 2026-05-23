@@ -123,28 +123,60 @@ class InspectorReport(BaseModel):
 
 
 _PRICE_PAT = re.compile(r"[\d,]+\.\d{1,2}")
+# EU-format decimal: digits, comma, 1-2 trailing digits, end of string. The
+# US grouping form (`1,234` / `1,234.56`) has either 3-digit groups or a
+# `.` decimal — both fall through to the accept branch. Reject anything that
+# uses `,` as the decimal separator: stripping commas would silently 100x
+# the value (``_to_cents("1234,56")`` → ``12345600`` = $123,456 instead of
+# ``None``). US-only today; this closes the class before it ever matters.
+_EU_DECIMAL_PAT = re.compile(r"^\d+,\d{1,2}$")
+# Cell-level sanity ceiling — $10B per cell. Above this, the parser is
+# almost certainly being fed mangled bytes (a sol# concatenated to a
+# price, a multi-row scrape, an unstripped grouping artifact). Returning
+# ``None`` lets the caller flag it as a math issue instead of computing
+# off junk.
+_TO_CENTS_CEILING = 1_000_000_000_000  # 1e12 cents = $10B
 
 
 def _to_cents(value: Any) -> int | None:
     """Parse a rendered currency cell — ``'1,060.00'``, ``' 5955.25'``,
     ``684`` — into integer cents. Returns ``None`` when not parseable
     (so the caller can flag rather than silently treat as zero).
+
+    Safety rails:
+
+    * EU-format strings (``"1234,56"`` — comma as decimal separator) are
+      rejected. The naive ``replace(",", "")`` would 100x the value.
+    * Results above the ``_TO_CENTS_CEILING`` ($10B/cell) are rejected;
+      any line item that high is almost certainly a parse artifact, not
+      a real price. The caller treats ``None`` as "flag math issue."
     """
     if value is None:
         return None
-    s = str(value).strip().replace("$", "").replace(",", "").replace(" ", "")
+    raw = str(value).strip().replace("$", "").replace(" ", "")
+    if not raw:
+        return None
+    # Reject EU-format BEFORE stripping commas — comma-as-decimal would
+    # silently 100x the value once commas are stripped.
+    if _EU_DECIMAL_PAT.match(raw):
+        return None
+    s = raw.replace(",", "")
     if not s:
         return None
     # Bare integer ("684") — treat as dollars.
     if "." not in s:
         try:
-            return int(s) * 100
+            result = int(s) * 100
         except ValueError:
             return None
-    try:
-        return int(round(float(s) * 100))
-    except ValueError:
+    else:
+        try:
+            result = int(round(float(s) * 100))
+        except ValueError:
+            return None
+    if result > _TO_CENTS_CEILING or result < -_TO_CENTS_CEILING:
         return None
+    return result
 
 
 def _date_iso(value: Any) -> str:
@@ -252,31 +284,72 @@ def _check_cost_basis(quote: "Quote") -> list[InspectorIssue]:
 # ──────────────────────────────────────────────────────────────────────
 
 
+def _row_sort_key(field_name: str) -> tuple[int, int]:
+    """Sort 704B row field names — page 1 (``Row7``) before page 2 (``Row7_2``).
+
+    Mirrors the same helper in ``src/spine/forms_render.py``. Kept local
+    so the Inspector has no cross-substrate import and stays inside the
+    Spine boundary.
+    """
+    page = 2 if field_name.endswith("_2") else 1
+    digits = "".join(c for c in field_name if c.isdigit())
+    return (page, int(digits) if digits else 0)
+
+
+def _filled_qty_rows_in_order(fields: dict[str, str]) -> list[str]:
+    """Return the QTY row field names that the filler actually wrote a value
+    into, sorted page 1 → page 2 then by row number.
+
+    This is the row-mapping discovery primitive: rather than hardcode
+    ``page_size = 15`` (which silently skipped rows 16-23 if a future
+    filler honored the YAML ``page_row_capacities: [23, 16]``), we ask
+    the rendered output which rows got populated. ``forms_render.py``
+    uses the same pattern when post-filling the ``#`` / ITEM NUMBER
+    columns (see ``_complete_704b_form``) — keeping the two in lockstep
+    means the Inspector measures the SAME rows the renderer wrote to.
+    """
+    return sorted(
+        (
+            name for name, v in fields.items()
+            if name.startswith("QTYRow") and (v or "").strip()
+        ),
+        key=_row_sort_key,
+    )
+
+
 def _reconcile_704b(quote: "Quote", fields: dict[str, str]) -> tuple[list[InspectorIssue], int]:
     """Reconcile a filled 704B's field values against the Spine quote.
 
     Returns ``(issues, lines_checked)``. Per-line: quantity, unit price,
     and subtotal each compared. Plus the merchandise-subtotal field
     (``fill_154``) vs ``quote.subtotal_cents``.
+
+    Row mapping is **discovered from the rendered output**, not derived
+    from a hardcoded ``page_size``. We enumerate every QTYRow* field
+    the filler populated, in page+row order, and match by index to
+    ``quote.line_items`` — the same ordering ``fill_704b`` processes
+    items in. This survives a future filler change (e.g. YAML
+    ``page_row_capacities: [23, 16]`` over the current 15-row page-1
+    behavior) without code edit, and on today's 15-row page-1 filler
+    behaves identically to the prior hardcoded constant.
     """
     issues: list[InspectorIssue] = []
     lines_checked = 0
-    for idx, li in enumerate(quote.line_items, start=1):
-        # 704B row suffixes: page 1 = "Row1".."Row15"; page 2 = "Row1_2"+.
-        # Map by sequential index — fill_704b processes line_items in order.
-        page_size = 15  # this 704B template's page-1 capacity
-        if idx <= page_size:
-            suffix = f"Row{idx}"
-        else:
-            suffix = f"Row{idx - page_size}_2"
-        qty_field = f"QTY{suffix}"
-        price_field = f"PRICE PER UNIT{suffix}"
-        sub_field = f"SUBTOTAL{suffix}"
-        if qty_field not in fields:
-            # Row beyond template capacity — overflow path; legacy
-            # _append_overflow_pages handles it. Not in scope for the
-            # Inspector's field-level check.
+
+    qty_rows_in_order = _filled_qty_rows_in_order(fields)
+
+    for idx, li in enumerate(quote.line_items):
+        if idx >= len(qty_rows_in_order):
+            # Row beyond what the filler populated — overflow path;
+            # legacy ``_append_overflow_pages`` handles it via reportlab
+            # overlay. Not in scope for the Inspector's field-level
+            # check (no AcroForm field to read back).
             continue
+        qty_field = qty_rows_in_order[idx]
+        token = qty_field[len("QTY"):]          # "QTYRow3" -> "Row3"
+        price_field = f"PRICE PER UNIT{token}"
+        sub_field = f"SUBTOTAL{token}"
+
         lines_checked += 1
         # Qty
         try:
