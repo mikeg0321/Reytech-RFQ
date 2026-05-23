@@ -82,6 +82,9 @@ __all__ = [
     "reconcile_format_a",
     "reconcile_format_b",
     "reconcile_quote_to_package",
+    # Flatten — bake form widgets into static page content (send/preview-of-send)
+    "flatten_pdf_bytes",
+    "flatten_pdf_file",
 ]
 
 from src.spine.model import (
@@ -163,4 +166,8 @@ from src.spine.inspector import (
     reconcile_format_a,
     reconcile_format_b,
     reconcile_quote_to_package,
+)
+from src.spine.flatten import (
+    flatten_pdf_bytes,
+    flatten_pdf_file,
 )
