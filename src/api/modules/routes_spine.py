@@ -645,6 +645,117 @@ def make_spine_blueprint(
         report = reconcile_quote_to_package(quote, contract)
         return jsonify(report.model_dump()), 200
 
+    # ─── GET /spine/quotes/<quote_id>/visual-qa ───────────────────────
+    #
+    # The visual-fidelity gate (task #20, shipped as PR-12). Peer to
+    # /inspector — same shape (ok + issues), different concern. Inspector
+    # verifies VALUES (math/identity/coverage); Visual-QA verifies the
+    # rendered page LOOKS right (no comb-spacing, no clipping, no
+    # (cid:N) glyph artifacts from stale appearance streams).
+    #
+    # Built after the 2026-05-23 Demidenko PC near-miss: the math
+    # Inspector passed clean on flat output that visually shipped
+    # `30 Carnoustie Way Trabuco Ca` (clipped) and
+    # `s a l e s @ r e y t e c h i n c .` (comb-spaced). The math
+    # was right; the bytes were wrong. This gate catches that class.
+    #
+    # Severity in v1: every finding is `warning`. The send-prep route
+    # surfaces these alongside the math Inspector but does NOT yet
+    # block on a warning. Flip-to-blocking is a separate PR after Mike's
+    # first week of operator feedback.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/visual-qa",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_visual_qa_report(quote_id: str):
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.visual-qa: load failed for %s", quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+        try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception("spine.visual-qa: contract lookup failed for %s", quote_id)
+            contract = None
+
+        # Build the bytes the buyer would see, FLAT (via the PR-10
+        # appearance-regen path). Format-aware so single_pdf gets the
+        # packet and separate_pdfs gets each of 703B/704B/bidpkg.
+        from src.spine.flatten import flatten_pdf_bytes
+        from src.spine.visual_qa import VisualQAReport, inspect_pdf_visual
+
+        artifacts: list[dict[str, Any]] = []  # {form_code, flat_pdf_bytes}
+        packaging = (
+            contract.response_packaging if contract else "single_pdf"
+        )
+        try:
+            if packaging == "single_pdf":
+                from src.spine.packet_render import render_cchcs_packet_via_legacy
+                import tempfile
+
+                with tempfile.TemporaryDirectory() as td:
+                    res = render_cchcs_packet_via_legacy(
+                        quote, contract, output_dir=td, strict=False)
+                if res.get("ok") and res.get("pdf_bytes"):
+                    artifacts.append({
+                        "form_code": "packet",
+                        "flat_pdf_bytes": flatten_pdf_bytes(res["pdf_bytes"]),
+                    })
+            else:
+                from src.spine.forms_render import render_cchcs_forms_via_legacy
+                import tempfile
+
+                with tempfile.TemporaryDirectory() as td:
+                    res = render_cchcs_forms_via_legacy(
+                        quote, contract, output_dir=td, strict=False)
+                if res.get("ok"):
+                    # forms_render returns key "703" (the form letter is
+                    # decided at render time — 703B vs 703C); the
+                    # consumer-facing form_code in this report is "703b"
+                    # to match the send-prep envelope's vocabulary.
+                    _key_to_label = {"703": "703b", "704b": "704b",
+                                     "bidpkg": "bidpkg"}
+                    for key, label in _key_to_label.items():
+                        sub = (res.get("forms") or {}).get(key) or {}
+                        if sub.get("pdf_bytes"):
+                            artifacts.append({
+                                "form_code": label,
+                                "flat_pdf_bytes": flatten_pdf_bytes(sub["pdf_bytes"]),
+                            })
+        except Exception as e:
+            log.exception("spine.visual-qa: render failed for %s", quote_id)
+            return jsonify({
+                "error": "render_failed", "detail": str(e),
+                "quote_id": quote_id,
+            }), 500
+
+        # Run the Tier-1 detectors per artifact, aggregate.
+        per_form: list[dict[str, Any]] = []
+        all_blocking = 0
+        all_warnings = 0
+        for art in artifacts:
+            r = inspect_pdf_visual(art["flat_pdf_bytes"])
+            per_form.append({
+                "form_code": art["form_code"],
+                "report": r.model_dump(),
+            })
+            all_blocking += r.blocking_count
+            all_warnings += r.warning_count
+
+        return jsonify({
+            "quote_id": quote_id,
+            "response_packaging": packaging,
+            "ok": all_blocking == 0,
+            "total_blocking": all_blocking,
+            "total_warnings": all_warnings,
+            "per_form": per_form,
+        }), 200
+
     # ─── GET /spine/quotes/<quote_id>/edit (operator UI) ──────────────
 
     @spine_bp.route("/spine/quotes/<quote_id>/edit", methods=["GET"])
