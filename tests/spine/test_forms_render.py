@@ -240,6 +240,85 @@ def test_704b_header_completed_from_contract(tmp_path):
     assert _v("Row2") == "2"
 
 
+def test_legacy_rfq_dict_uses_frozen_sign_date_pst_when_present():
+    """Renderer reads Quote.sign_date_pst in preference to today's date.
+
+    Closes the cross-midnight render drift class. A Quote that froze
+    its sign date at 2026-05-18 must render with that date no matter
+    what `today` happens to be when the adapter runs.
+    """
+    from datetime import date
+
+    quote = Quote(
+        quote_id="Q-sign-date-frozen",
+        agency="CCHCS",
+        facility="SAC",
+        solicitation_number="10848888",
+        line_items=[
+            _line(1, "Frozen-date item", mfg="FD-1"),
+            _line(2, "Frozen-date item 2", mfg="FD-2", qty=10),
+        ],
+        tax_rate_bps=775,
+        sign_date_pst=date(2026, 5, 18),
+    )
+    r = _build_legacy_rfq_dict(quote, _contract())
+    assert r["sign_date"] == "05/18/2026"
+
+
+def test_legacy_rfq_dict_falls_back_to_pst_today_when_unfrozen():
+    """A Quote not yet finalized (no sign_date_pst) keeps today's PST date.
+
+    Pre-finalize editor preview behavior must be unchanged: the only
+    determinism guarantee is that approved (FINALIZED+) state renders
+    the frozen date.
+    """
+    from src.forms.reytech_filler_v4 import get_pst_date
+
+    quote = _quote()
+    assert quote.sign_date_pst is None  # parsed-state quote.
+    r = _build_legacy_rfq_dict(quote, _contract())
+    assert r["sign_date"] == get_pst_date()
+
+
+@_needs_fixtures
+def test_703b_sign_date_frozen_from_quote_state(tmp_path):
+    """The rendered 703B PDF carries the Quote's frozen PST sign date.
+
+    Build a Quote with sign_date_pst=2026-05-18, render via the
+    standalone form-set adapter, open the 703B PDF, assert the
+    703B_Sign_Date field reads ``05/18/2026`` — regardless of the
+    machine clock when the render executed.
+    """
+    from datetime import date
+
+    from pypdf import PdfReader
+
+    quote = Quote(
+        quote_id="Q-sign-date-703b",
+        agency="CCHCS",
+        facility="SAC",
+        solicitation_number="10848888",
+        line_items=[
+            _line(1, "Frozen 703B item", mfg="FD-703B-1"),
+            _line(2, "Frozen 703B item 2", mfg="FD-703B-2", qty=10),
+        ],
+        tax_rate_bps=775,
+        sign_date_pst=date(2026, 5, 18),
+    )
+    res = render_cchcs_forms_via_legacy(
+        quote, _contract(), output_dir=str(tmp_path), strict=False
+    )
+    assert res["ok"], res["error"]
+    pdf_path = res["forms"]["703"]["output_path"]
+    fields = PdfReader(pdf_path).get_fields() or {}
+    sign_date_value = str((fields.get("703B_Sign_Date") or {}).get("/V") or "")
+    assert sign_date_value == "05/18/2026", (
+        f"Expected frozen 05/18/2026, got {sign_date_value!r}. "
+        "If this fails on today's date, the adapter is re-deriving "
+        "the PST date instead of reading quote.sign_date_pst."
+    )
+
+
 @_needs_fixtures
 def test_merged_pdf_spans_all_three_forms(tmp_path):
     """The merged PDF page count == sum of the per-form page counts."""
