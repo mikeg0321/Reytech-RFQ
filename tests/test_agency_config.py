@@ -171,3 +171,119 @@ class TestEdgeCases:
         configs = load()
         assert "other" in configs
         assert "required_forms" in configs["other"]
+
+
+# ── CDCR ↔ DSH PARENT/CHILD HIERARCHY (2026-05-25) ──────────────────────────
+#
+# Mike's 2026-05-25 directive: CCHCS and DSH are sibling child agencies under
+# a CDCR-family parent. They share buyers + facility locations (Coalinga has
+# both PVSP/CCHCS AND Coalinga State Hospital/DSH) but each carries its OWN
+# addresses, processes, forms, bill-to.
+#
+# Pre-fix bug: PVSP (Pleasant Valley State Prison, CCHCS) in COALINGA, CA
+# matched DSH because the legacy resolver iterated [calvet_barstow, dsh]
+# BEFORE checking cchcs, and DSH's match_patterns included "COALINGA". The
+# Fill Plan rendered "DSH — State Hospitals" with NO PROFILE for CCHCS Bid
+# Package — a structural send blocker for every CCHCS quote shipping to PVSP.
+#
+# The substrate fix (PARENT_AGENCIES registry + OVERLAP_PATTERNS + scoped
+# child matching): patterns ambiguous across parents (COALINGA) never fire
+# without a parent signal.
+
+class TestCdcrDshHierarchy:
+    """Two-tier resolver: parent → scoped child. No overlap pattern fires
+    without parent context."""
+
+    def test_pvsp_coalinga_cchcs_does_not_match_dsh(self):
+        """THE bug. PVSP in Coalinga, CCHCS buyer at cdcr.ca.gov.
+        Pre-fix returned 'dsh' because 'COALINGA' is in DSH's patterns
+        and DSH was prioritized over cchcs in the legacy loop. Now must
+        return 'cchcs' because the cdcr.ca.gov email domain pins parent=CDCR."""
+        match, _, _, _ = _import_agency_config()
+        key, cfg = match({
+            "agency": "cchcs",
+            "requestor_email": "Mohammad.Chechi@cdcr.ca.gov",
+            "institution": "cchcs",
+            "ship_to": "Pleasant Valley State Prison, 24863 West Jayne Avenue, Coalinga, CA 93210",
+            "solicitation_number": "10846357",
+        })
+        assert key == "cchcs", (
+            f"Expected cchcs for PVSP/Coalinga CCHCS quote, got {key!r}. "
+            "If this fails again, the COALINGA-as-DSH overlap regressed."
+        )
+
+    def test_bare_coalinga_without_parent_falls_to_other(self):
+        """No parent signal + only the ambiguous 'COALINGA' token in text
+        must not fire DSH. Returns 'other' instead — operator-visible
+        prompt to clarify which org."""
+        match, _, _, _ = _import_agency_config()
+        key, _ = match({
+            "institution": "unclear facility",
+            "ship_to": "somewhere in Coalinga",
+        })
+        assert key == "other", (
+            f"Bare 'Coalinga' without parent should be ambiguous → other; got {key!r}"
+        )
+
+    def test_dsh_coalinga_with_dsh_domain_resolves_dsh(self):
+        """Coalinga State Hospital with an @dsh.ca.gov sender DOES resolve
+        DSH — the parent signal lifts the overlap."""
+        match, _, _, _ = _import_agency_config()
+        key, _ = match({
+            "requestor_email": "foo@dsh.ca.gov",
+            "institution": "Coalinga State Hospital",
+            "ship_to": "Coalinga, CA",
+        })
+        assert key == "dsh"
+
+    def test_dsh_atascadero_still_resolves(self):
+        """Atascadero is DSH-only (no CCHCS facility there). Parent
+        detection via 'STATE HOSPITAL' or 'DSH' should still pick dsh."""
+        match, _, _, _ = _import_agency_config()
+        key, _ = match({
+            "agency": "DSH",
+            "institution": "Atascadero State Hospital",
+            "ship_to": "Atascadero, CA",
+        })
+        assert key == "dsh"
+
+    def test_chcf_stockton_cchcs(self):
+        """CHCF Stockton is CCHCS. Stockton isn't a DSH city — no overlap."""
+        match, _, _, _ = _import_agency_config()
+        key, _ = match({
+            "requestor_email": "Marc.Argarin@cdcr.ca.gov",
+            "ship_to": "CHCF - California Health Care Facility, 7707 Austin Road, Stockton, CA 95215",
+            "solicitation_number": "10843811",
+        })
+        assert key == "cchcs"
+
+    def test_vsp_chowchilla_cchcs(self):
+        """VSP Chowchilla is CCHCS. Chowchilla isn't a DSH city."""
+        match, _, _, _ = _import_agency_config()
+        key, _ = match({
+            "requestor_email": "Marc.Argarin@cdcr.ca.gov",
+            "ship_to": "VSP - Valley State Prison, 21633 Avenue 24, Chowchilla, CA 93610",
+            "solicitation_number": "10847776",
+        })
+        assert key == "cchcs"
+
+    def test_parent_registry_shape(self):
+        """PARENT_AGENCIES exports the expected parent ids and shapes."""
+        from src.core.agency_config import PARENT_AGENCIES, OVERLAP_PATTERNS
+        assert set(PARENT_AGENCIES) >= {"CDCR", "DSH", "CALVET", "DGS", "CALFIRE"}
+        for parent_id, info in PARENT_AGENCIES.items():
+            assert "strong_patterns" in info
+            assert "domains" in info
+            assert "children" in info
+            assert isinstance(info["children"], list) and info["children"]
+        assert "COALINGA" in OVERLAP_PATTERNS
+
+    def test_detect_parent_helper(self):
+        """The _detect_parent helper is the substrate primitive — pure
+        function on (search_text, email_domain)."""
+        from src.core.agency_config import _detect_parent
+        assert _detect_parent("PLEASANT VALLEY STATE PRISON COALINGA", "cdcr.ca.gov") == "CDCR"
+        assert _detect_parent("ATASCADERO STATE HOSPITAL", None) == "DSH"
+        assert _detect_parent("DEPARTMENT OF VETERANS AFFAIRS", None) == "CALVET"
+        assert _detect_parent("just coalinga, nothing else", None) is None
+        assert _detect_parent("", None) is None

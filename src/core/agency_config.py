@@ -128,6 +128,117 @@ def _agency_from_email_domain(email):
     return None
 
 
+# ── PARENT AGENCY REGISTRY (2026-05-25) ────────────────────────────────────
+# Two-tier agency model. Each parent has strong signals (unambiguous patterns
+# / domains that prove this parent) and a children list (the legacy agency
+# config keys that live under this parent). Parent resolution happens FIRST;
+# child matching is then SCOPED to the parent's children only — preventing
+# cross-parent conflation.
+#
+# The bug this fixes (Mike's 2026-05-25 directive):
+#   PVSP (Pleasant Valley State Prison) is a CCHCS facility in COALINGA, CA.
+#   DSH's match_patterns include "COALINGA" because Coalinga State Hospital
+#   is also in Coalinga. The pre-2026-05-25 `match_agency()` loop checked
+#   DSH BEFORE CCHCS and returned DSH for any quote shipping to PVSP,
+#   producing the wrong Fill Plan with NO PROFILE for CCHCS Bid Package.
+#
+# The substrate fix:
+#   1. Detect parent via email domain (deterministic) OR strong textual
+#      patterns ("CCHCS", "STATE HOSPITAL", etc.).
+#   2. Once parent is known, match only the parent's children.
+#   3. Patterns flagged as OVERLAP (e.g. "COALINGA") never fire without a
+#      parent context — they need parent disambiguation first.
+#   4. Mike's mental model: CCHCS and DSH are sibling child branches of the
+#      correctional/healthcare CDCR-family parent, each with its own
+#      addresses, processes, forms, bill-to. See [[architectural-cdcr-hierarchy]].
+PARENT_AGENCIES = {
+    "CDCR": {
+        "name": "California Department of Corrections and Rehabilitation",
+        "strong_patterns": [
+            "CCHCS", "CDCR", "CDCR.CA.GOV", "CCHCS.CA.GOV",
+            "CORRECTIONAL HEALTH CARE",
+            "CALIFORNIA CORRECTIONAL",
+            "STATE PRISON",  # CCHCS prison naming; DSH doesn't use "State Prison"
+        ],
+        "domains": ["cdcr.ca.gov", "cchcs.ca.gov"],
+        "children": ["cchcs"],
+    },
+    "DSH": {
+        "name": "Department of State Hospitals",
+        "strong_patterns": [
+            "DSH", "DSH.CA.GOV",
+            "STATE HOSPITAL", "DEPARTMENT OF STATE HOSPITALS",
+            "ATASCADERO STATE", "NAPA STATE", "METROPOLITAN STATE", "PATTON STATE",
+        ],
+        "domains": ["dsh.ca.gov"],
+        "children": ["dsh"],
+    },
+    "CALVET": {
+        "name": "California Department of Veterans Affairs",
+        "strong_patterns": [
+            "CALVET", "CAL VET", "CVA",
+            "VETERANS HOME", "VETERANS AFFAIRS",
+            "VHC", "CALVET.CA.GOV",
+        ],
+        "domains": ["calvet.ca.gov"],
+        # Order matters: calvet_barstow is more specific; checked first.
+        "children": ["calvet_barstow", "calvet"],
+    },
+    "DGS": {
+        "name": "Department of General Services",
+        "strong_patterns": ["DGS", "GENERAL SERVICES", "DGS.CA.GOV"],
+        "domains": ["dgs.ca.gov"],
+        "children": ["dgs"],
+    },
+    "CALFIRE": {
+        "name": "California Department of Forestry and Fire Protection",
+        "strong_patterns": ["CALFIRE", "CAL FIRE", "FORESTRY", "FIRE PROTECTION"],
+        "domains": ["fire.ca.gov", "calfire.ca.gov"],
+        "children": ["calfire"],
+    },
+}
+
+# Patterns that previously lived in agency `match_patterns` lists but are
+# AMBIGUOUS — they appear in multiple parents' facility universes and must
+# not fire without a parent signal. The canonical example: "COALINGA"
+# matches both PVSP (CCHCS) and Coalinga State Hospital (DSH).
+#
+# Patterns listed here are SKIPPED during the no-parent fallback scan.
+# Parent-scoped matching ignores this list (the parent context resolves
+# the ambiguity).
+OVERLAP_PATTERNS = {
+    "COALINGA",  # PVSP (cchcs) + Coalinga State Hospital (dsh)
+}
+
+
+def _detect_parent(search_text: str, email_domain: str | None = None) -> str | None:
+    """Detect parent organization from strong signals.
+
+    Order: email domain (deterministic) → strong text patterns. Returns
+    parent_id ("CDCR", "DSH", "CALVET", "DGS", "CALFIRE") or None.
+
+    Pure helper — no side effects.
+    """
+    text = (search_text or "").upper()
+    # Domain signal wins.
+    if email_domain:
+        d = email_domain.lower().strip().rstrip(">").rstrip(".")
+        for parent_id, info in PARENT_AGENCIES.items():
+            for known in sorted(info.get("domains", []), key=lambda x: -len(x)):
+                if d == known or d.endswith("." + known):
+                    return parent_id
+    # Strong text patterns — longest pattern wins to favor specificity.
+    candidates = []
+    for parent_id, info in PARENT_AGENCIES.items():
+        for pattern in info.get("strong_patterns", []):
+            if pattern.upper() in text:
+                candidates.append((len(pattern), parent_id, pattern))
+    if candidates:
+        candidates.sort(reverse=True)  # longest first
+        return candidates[0][1]
+    return None
+
+
 DEFAULT_AGENCY_CONFIGS = {
     "calvet": {
         "name": "Cal Vet / DVA",
@@ -426,10 +537,17 @@ def match_agency(rfq_data):
     Returns: (agency_key, agency_config_dict)
     The config dict includes 'matched_by' with the pattern/source that triggered the match.
 
-    Email domain wins (added 2026-05-01): a buyer at *@calvet.ca.gov is
-    canonically CalVet even if the body text contains "CCHCS" keywords or vice
-    versa. See EMAIL_DOMAIN_AGENCY_MAP. Falls through to keyword + history
-    matching when no domain hit.
+    Resolution order (2026-05-25 two-tier substrate):
+      1. Email-domain → child agency mapping (deterministic, wins over text).
+         Mike's 2026-05-01 directive — preserved verbatim.
+      2. PARENT detection from email domain or strong text signals.
+         If a parent is found, child matching is SCOPED to that parent's
+         children only — preventing cross-parent conflation (the
+         COALINGA-as-DSH bug Mike caught 2026-05-25 on PC pc_5728f934).
+      3. No-parent fallback: legacy pattern loop with OVERLAP_PATTERNS
+         skipped (so an ambiguous facility name like COALINGA never wins
+         a match without parent context).
+      4. Buyer-history fallback (unchanged).
     """
     configs = load_agency_configs()
 
@@ -449,11 +567,14 @@ def match_agency(rfq_data):
                  key, source, pattern, cfg.get("required_forms", []))
         return key, cfg
 
-    # Domain-first: a buyer at *@calvet.ca.gov is canonically CalVet even if
-    # the body text contains "CCHCS" keywords, and vice versa. Wins over
-    # keyword scoring + history. (Mike's 2026-05-01 directive.)
+    # ── Step 1: Direct email-domain → child mapping (unchanged) ──────────
+    # A buyer at *@calvet.ca.gov is canonically CalVet even if the body
+    # contains "CCHCS" keywords, and vice versa.
+    direct_email = ""
     for _ek in ("requestor_email", "email_sender", "original_sender"):
         _ek_val = rfq_data.get(_ek, "")
+        if _ek_val and not direct_email:
+            direct_email = _ek_val
         _domain_key = _agency_from_email_domain(_ek_val)
         if _domain_key and _domain_key in configs:
             return _matched_via_domain(_domain_key, configs[_domain_key],
@@ -471,21 +592,50 @@ def match_agency(rfq_data):
         str(rfq_data.get("email_subject", "")),
     ]).upper()
 
-    # Check Barstow before general CalVet (more specific first)
-    for key in ["calvet_barstow", "dsh"]:
+    # ── Step 2: Parent detection + scoped child matching ─────────────────
+    email_domain = None
+    if direct_email and "@" in str(direct_email):
+        email_domain = str(direct_email).split("@", 1)[1].lower().strip().rstrip(">").rstrip(".")
+    parent_id = _detect_parent(search_text, email_domain)
+    if parent_id:
+        parent_info = PARENT_AGENCIES[parent_id]
+        # Scoped child match — overlap patterns are FINE here because the
+        # parent context already resolves the ambiguity.
+        for child_key in parent_info.get("children", []):
+            cfg = configs.get(child_key, {})
+            for pattern in cfg.get("match_patterns", []):
+                if pattern.upper() in search_text:
+                    return _matched(child_key, cfg, pattern,
+                                    source=f"parent={parent_id};child_pattern")
+        # Parent known but no child-specific pattern hit — default to the
+        # parent's first child (most common case for that org).
+        default_child = parent_info["children"][0]
+        if default_child in configs:
+            return _matched(default_child, configs[default_child],
+                            parent_id, source="parent_default")
+
+    # ── Step 3: No-parent fallback (overlap patterns excluded) ──────────
+    # Pre-2026-05-25 priority loop kept for Barstow specificity. DSH is
+    # NOT in this priority loop anymore — DSH only wins via parent
+    # detection in Step 2.
+    for key in ["calvet_barstow"]:
         cfg = configs.get(key, {})
         for pattern in cfg.get("match_patterns", []):
+            if pattern.upper() in OVERLAP_PATTERNS:
+                continue
             if pattern in search_text:
                 return _matched(key, cfg, pattern)
 
     for key, cfg in configs.items():
-        if key in ("other", "calvet_barstow", "dsh"):
+        if key in ("other", "calvet_barstow"):
             continue
         for pattern in cfg.get("match_patterns", []):
+            if pattern.upper() in OVERLAP_PATTERNS:
+                continue
             if pattern in search_text:
                 return _matched(key, cfg, pattern)
 
-    # Check buyer history — what agency did this buyer's past RFQs match?
+    # ── Step 4: Buyer history fallback (unchanged) ──────────────────────
     buyer_email = (rfq_data.get("requestor_email") or rfq_data.get("email_sender") or "").lower()
     if buyer_email:
         try:
