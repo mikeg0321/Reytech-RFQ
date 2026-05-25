@@ -490,6 +490,29 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notif_unread ON notifications(is_read, created_at);
 CREATE INDEX IF NOT EXISTS idx_notif_type ON notifications(event_type);
 
+-- Telegram message lifecycle (2026-05-25 ack/auto-delete substrate).
+-- Each row tracks one bot-sent Telegram message: when sent, when (if)
+-- the user tapped the [✓ Got it] button, when to auto-delete (24h
+-- after ack, trimmed to Telegram's 48h deleteMessage window), and
+-- when the delete actually fired. NULL acked_at = unread (never
+-- deletes — Mike's "save by not acknowledging" semantics).
+CREATE TABLE IF NOT EXISTS telegram_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id      INTEGER NOT NULL,
+    chat_id         TEXT NOT NULL,
+    event_type      TEXT,
+    title           TEXT,
+    sent_at         TEXT NOT NULL,
+    acked_at        TEXT,
+    expires_at      TEXT,
+    deleted_at      TEXT,
+    delete_error    TEXT,
+    UNIQUE(message_id, chat_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_msg_expires ON telegram_messages(expires_at)
+    WHERE deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS email_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     logged_at       TEXT NOT NULL,

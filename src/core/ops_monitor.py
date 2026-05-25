@@ -873,6 +873,16 @@ def start_ops_monitor():
                 except Exception as _le:
                     log.warning("liveness sweep failed: %s", _le)
 
+                # 2026-05-25 Telegram cleanup — auto-delete acked messages
+                # whose 24h countdown expired. Hourly is fine because the
+                # expires_at trim to 47h (1h buffer under Telegram's 48h
+                # deleteMessage hard wall) absorbs cron-cadence jitter.
+                try:
+                    from src.api.modules.routes_telegram import run_telegram_cleanup_sweep
+                    run_telegram_cleanup_sweep()
+                except Exception as _tc:
+                    log.warning("telegram cleanup sweep failed: %s", _tc)
+
                 try:
                     heartbeat("ops-monitor", success=True)
                 except Exception as _e:

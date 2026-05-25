@@ -48,7 +48,7 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 log = logging.getLogger("notify")
@@ -568,8 +568,52 @@ def _send_telegram(event_type: str, title: str, body: str, urgency: str,
     return _telegram_post(text, event_type, title)
 
 
+def _ack_keyboard(state: str = "unread") -> dict:
+    """Inline keyboard JSON for the [✓ Got it] / [↩️ Keep it] toggle.
+
+    state="unread" → "[✓ Got it]" with callback_data "tg_ack"
+    state="acked"  → "[↩️ Keep it]" with callback_data "tg_unack"
+
+    Webhook handler reads callback_data prefix, toggles DB state, edits
+    the message's reply_markup to flip the button label.
+    """
+    if state == "acked":
+        return {
+            "inline_keyboard": [[
+                {"text": "↩️ Keep it", "callback_data": "tg_unack"}
+            ]]
+        }
+    return {
+        "inline_keyboard": [[
+            {"text": "✓ Got it", "callback_data": "tg_ack"}
+        ]]
+    }
+
+
+def _record_telegram_send(message_id: int, event_type: str, title: str) -> None:
+    """Write a row to telegram_messages so the cleanup cron + webhook
+    handler can find this message later. Best-effort — a write failure
+    must not undo the Telegram send."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO telegram_messages "
+                "(message_id, chat_id, event_type, title, sent_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (int(message_id), str(TELEGRAM_CHAT_ID),
+                 event_type or "", (title or "")[:200],
+                 datetime.now(timezone.utc).isoformat()),
+            )
+    except Exception as e:
+        log.warning("telegram_messages insert failed: %s", e)
+
+
 def _telegram_post(text: str, event_type: str, title: str) -> dict:
-    """POST a pre-built MarkdownV2 payload to the Telegram Bot API.
+    """POST a pre-built MarkdownV2 payload to the Telegram Bot API with
+    the [✓ Got it] inline keyboard attached. Records the resulting
+    message_id in telegram_messages so the cleanup cron can find it.
+
     Used by both the standard escape-and-send path and the pre-formatted
     short-circuit so error handling stays in one place.
     """
@@ -582,6 +626,7 @@ def _telegram_post(text: str, event_type: str, title: str) -> dict:
             "text": text,
             "parse_mode": "MarkdownV2",
             "disable_web_page_preview": "true",
+            "reply_markup": _json.dumps(_ack_keyboard("unread")),
         }).encode("utf-8")
         req = urllib.request.Request(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -591,8 +636,12 @@ def _telegram_post(text: str, event_type: str, title: str) -> dict:
         with urllib.request.urlopen(req, timeout=10) as resp:
             payload = _json.loads(resp.read().decode("utf-8") or "{}")
         if payload.get("ok"):
-            log.info("Telegram sent: %s [%s]", title[:60], event_type)
-            return {"ok": True, "message_id": payload.get("result", {}).get("message_id")}
+            message_id = payload.get("result", {}).get("message_id")
+            log.info("Telegram sent: %s [%s] msg_id=%s",
+                     title[:60], event_type, message_id)
+            if message_id:
+                _record_telegram_send(message_id, event_type, title)
+            return {"ok": True, "message_id": message_id}
         log.warning("Telegram API rejected: %s", payload)
         return {"ok": False, "error": payload.get("description", "unknown")}
     except Exception as e:
