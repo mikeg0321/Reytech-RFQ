@@ -517,14 +517,22 @@ def _store_results(batch, seen_pos):
             screenshot_path = r.get("screenshot_path", "")
 
             # LAYER 1: Raw FI$Cal
+            # Write BOTH timestamp columns: `scraped_at` is the historical
+            # column this writer has always set; `pulled_at` is the column
+            # the manual/API pullers (scprs_universal_pull etc.) set and the
+            # column the liveness check reads. Setting both keeps every
+            # downstream consumer pointing at one substrate event-time per
+            # §0 LAW 1 — see feedback_kpi_substrate_singleness.
             try:
                 db.execute("""
                     INSERT OR REPLACE INTO scprs_po_master
                     (po_number, dept_code, dept_name, status, start_date,
                      end_date, supplier, supplier_id, acq_type, acq_method,
                      merch_amount, grand_total, buyer_name, buyer_email,
-                     buyer_phone, source_system, screenshot_path, scraped_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                     buyer_phone, source_system, screenshot_path,
+                     scraped_at, pulled_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                            datetime('now'), datetime('now'))
                 """, (
                     po, header.get("dept_code", ""), header.get("dept_name", ""),
                     header.get("status", ""), header.get("start_date", ""),

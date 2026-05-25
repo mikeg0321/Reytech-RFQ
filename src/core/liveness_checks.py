@@ -78,6 +78,64 @@ def _table_freshness(table: str, ts_col: str) -> Callable:
     return _check
 
 
+def _multi_source_freshness(*sources: tuple) -> Callable:
+    """Take freshness across multiple (table, ts_col) sources — youngest wins.
+
+    Use this when a single conceptual event is recorded across more than one
+    column or table, e.g. SCPRS PO ingest writes `pulled_at` from one writer
+    path and `scraped_at` from another. Reading only one column makes the
+    check fire false alarms while the other writer is current.
+
+    The 2026-05-25 silent-failure sweep surfaced this as the SCPRS "24-day
+    silent" alert: the liveness check read `scprs_po_master.pulled_at` only
+    (4 manual/API writers), but the lone *scheduled* writer
+    (`scprs_browser._store_results`) wrote `scraped_at`. Same shape as the
+    empty oracle bug (PR #1076) — KPI sourcing wrong substrate column.
+    See [[feedback_kpi_substrate_singleness]] and
+    [[feedback_audit_all_seams_before_fix]].
+
+    Args:
+        *sources: (table, ts_col) pairs to combine, e.g.
+            ("scprs_po_master", "pulled_at"),
+            ("scprs_po_master", "scraped_at")
+
+    Returns:
+        (ok, age_seconds, detail) — age is the SMALLEST across sources that
+        returned a value. Sources that error or are empty are noted in
+        detail but don't fail the check unless ALL sources are empty/erroring.
+    """
+    def _check():
+        from src.core.db import get_db
+        per_source = []
+        best_age = 10**9
+        best_label = None
+        with get_db() as conn:
+            for table, col in sources:
+                try:
+                    row = conn.execute(
+                        f"SELECT MAX({col}) FROM {table}"
+                    ).fetchone()
+                    last = row[0] if row else None
+                except Exception as e:
+                    per_source.append(f"{table}.{col}: query failed ({e})")
+                    continue
+                if not last:
+                    per_source.append(f"{table}.{col}: empty")
+                    continue
+                age = _seconds_since_iso(str(last))
+                per_source.append(f"{table}.{col}: {age // 60}min")
+                if age < best_age:
+                    best_age = age
+                    best_label = f"{table}.{col}"
+        if best_age >= 10**9:
+            return (False, 10**9,
+                    "no source had data — " + "; ".join(per_source))
+        return (True, best_age,
+                f"newest write {best_age // 60} min ago from {best_label} "
+                f"({'; '.join(per_source)})")
+    return _check
+
+
 def _backup_file_freshness(rel_subdir: str, prefix: str) -> Callable:
     """Check filesystem mtime of the newest file under DATA_DIR/<rel_subdir>
     matching prefix. Reports age of newest file."""
@@ -160,7 +218,16 @@ CHECKS = [
 
     ("SCPRS award scrape",
      "scprs_pull_failed_persistent",
-     _table_freshness("scprs_po_master", "pulled_at"),
+     # Two writer paths feed scprs_po_master: the manual/API pullers
+     # (scprs_universal_pull, pull_orchestrator, cchcs_intel_puller,
+     # scprs_intelligence_engine) write `pulled_at`; the scheduled browser
+     # scrape (scprs_browser._store_results, via schedule_full_fiscal_scrape
+     # at 2 AM PST) writes `scraped_at`. Read both so this check reflects
+     # whichever path is current. See feedback_kpi_substrate_singleness.
+     _multi_source_freshness(
+         ("scprs_po_master", "pulled_at"),
+         ("scprs_po_master", "scraped_at"),
+     ),
      48 * 3600),
 
     ("Award tracker cycle",

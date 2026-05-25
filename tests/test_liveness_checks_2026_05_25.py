@@ -32,7 +32,8 @@ def sweep_conn():
             id INTEGER PRIMARY KEY, logged_at TEXT, direction TEXT
         );
         CREATE TABLE IF NOT EXISTS scprs_po_master (
-            id INTEGER PRIMARY KEY, pulled_at TEXT, po_number TEXT
+            id INTEGER PRIMARY KEY, pulled_at TEXT, scraped_at TEXT,
+            po_number TEXT
         );
         CREATE TABLE IF NOT EXISTS award_tracker_log (
             id INTEGER PRIMARY KEY, checked_at TEXT, quote_number TEXT
@@ -274,6 +275,219 @@ def test_check_registry_shape_stable():
         assert isinstance(event, str) and event
         assert callable(fn)
         assert isinstance(max_age, int) and max_age > 0
+
+
+def test_scprs_check_passes_when_only_scraped_at_is_fresh(sweep_conn):
+    """Reproduces the 2026-05-25 false-alarm: pulled_at empty/stale but
+    scraped_at fresh from the scheduled browser scrape. The check must
+    NOT fire — newest write wins across both columns. See
+    feedback_kpi_substrate_singleness."""
+    # Fresh scraped_at, no pulled_at row at all.
+    now = datetime.now(timezone.utc) - timedelta(minutes=10)
+    sweep_conn.execute("DELETE FROM scprs_po_master")
+    sweep_conn.execute(
+        "INSERT INTO scprs_po_master (scraped_at, po_number) VALUES (?, 'PO-X')",
+        (now.isoformat(),),
+    )
+    # Other tables fresh so they don't pollute the alert list.
+    _fresh(sweep_conn)
+    sweep_conn.execute("DELETE FROM scprs_po_master")
+    sweep_conn.execute(
+        "INSERT INTO scprs_po_master (scraped_at, po_number) VALUES (?, 'PO-X')",
+        (now.isoformat(),),
+    )
+    sweep_conn.commit()
+
+    sent = []
+    with _patch_db(sweep_conn), \
+         patch("src.agents.notify_agent.send_alert",
+               side_effect=lambda **kw: sent.append(kw) or {"ok": True}):
+        import importlib
+        import src.core.liveness_checks as lc
+        importlib.reload(lc)
+        lc.run_liveness_sweep()
+
+    scprs = [s for s in sent if "SCPRS" in s.get("title", "")]
+    assert scprs == [], (
+        f"SCPRS alert fired even though scraped_at is fresh: {scprs}. "
+        f"The check must read both pulled_at AND scraped_at — the "
+        f"scheduled browser scrape writes scraped_at."
+    )
+
+
+def test_scprs_check_fires_when_both_columns_stale(sweep_conn):
+    """Belt-and-suspenders: when BOTH writer paths are silent past
+    threshold, the alert must still fire. Catches the inverse regression
+    of the fix (don't paper over a real outage)."""
+    old = (datetime.now(timezone.utc) - timedelta(days=4)).isoformat()
+    sweep_conn.execute("DELETE FROM scprs_po_master")
+    sweep_conn.execute(
+        "INSERT INTO scprs_po_master (pulled_at, scraped_at, po_number) "
+        "VALUES (?, ?, 'PO-Y')",
+        (old, old),
+    )
+    # Other tables fresh.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    sweep_conn.execute("DELETE FROM email_log")
+    sweep_conn.execute("INSERT INTO email_log (logged_at, direction) VALUES (?, 'in')", (now_iso,))
+    sweep_conn.execute("DELETE FROM award_tracker_log")
+    sweep_conn.execute("INSERT INTO award_tracker_log (checked_at, quote_number) VALUES (?, 'R26Q1')", (now_iso,))
+    sweep_conn.execute("DELETE FROM competitor_intel")
+    sweep_conn.execute("INSERT INTO competitor_intel (found_at, outcome) VALUES (?, 'lost')", (now_iso,))
+    sweep_conn.execute("DELETE FROM oracle_calibration")
+    sweep_conn.execute("INSERT INTO oracle_calibration (category, last_updated) VALUES ('general', ?)", (now_iso,))
+    sweep_conn.execute("DELETE FROM quotes")
+    sweep_conn.execute("INSERT INTO quotes (quote_number, created_at, status) VALUES ('R26Q1', ?, 'sent')", (now_iso,))
+    sweep_conn.commit()
+
+    sent = []
+    with _patch_db(sweep_conn), \
+         patch("src.agents.notify_agent.send_alert",
+               side_effect=lambda **kw: sent.append(kw) or {"ok": True}):
+        import importlib
+        import src.core.liveness_checks as lc
+        importlib.reload(lc)
+        lc.run_liveness_sweep()
+
+    scprs = [s for s in sent if "SCPRS" in s.get("title", "")]
+    assert len(scprs) == 1, (
+        f"SCPRS alert did not fire even though BOTH columns are 4d stale "
+        f"(threshold 48h). The multi-source primitive must not mask real "
+        f"outages. Sent: {[s.get('title') for s in sent]}"
+    )
+
+
+def test_multi_source_freshness_picks_youngest():
+    """Direct unit test of the primitive — youngest across sources wins,
+    empty/erroring sources don't fail the check unless ALL fail."""
+    import sqlite3
+    from datetime import datetime, timezone, timedelta
+    from src.core.liveness_checks import _multi_source_freshness
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE t1 (col_a TEXT);
+        CREATE TABLE t2 (col_b TEXT);
+    """)
+    # t1.col_a = 10 days ago (stale); t2.col_b = 5 min ago (fresh)
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    new = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    conn.execute("INSERT INTO t1 (col_a) VALUES (?)", (old,))
+    conn.execute("INSERT INTO t2 (col_b) VALUES (?)", (new,))
+    conn.commit()
+
+    class _Ctx:
+        def __enter__(_self): return conn
+        def __exit__(_self, *a): return None
+
+    with patch("src.core.db.get_db", return_value=_Ctx()):
+        check = _multi_source_freshness(("t1", "col_a"), ("t2", "col_b"))
+        ok, age, detail = check()
+
+    assert ok is True
+    assert age < 600, f"expected ~5 min, got {age}s — youngest source didn't win"
+    assert "t2.col_b" in detail
+
+
+def test_multi_source_freshness_all_empty_fails():
+    """All sources empty → check reports failure. No silent OK on a
+    completely-empty substrate."""
+    import sqlite3
+    from src.core.liveness_checks import _multi_source_freshness
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("CREATE TABLE t1 (col_a TEXT); CREATE TABLE t2 (col_b TEXT);")
+
+    class _Ctx:
+        def __enter__(_self): return conn
+        def __exit__(_self, *a): return None
+
+    with patch("src.core.db.get_db", return_value=_Ctx()):
+        check = _multi_source_freshness(("t1", "col_a"), ("t2", "col_b"))
+        ok, age, detail = check()
+
+    assert ok is False
+    assert age >= 10**9
+    assert "empty" in detail
+
+
+def test_scprs_browser_store_writes_both_timestamp_columns(tmp_path, monkeypatch):
+    """The scheduled browser scrape MUST write `pulled_at` along with
+    `scraped_at` so the liveness check (which has historically read
+    `pulled_at`) and all the API pullers see one substrate event-time.
+    This locks the substrate-consolidation half of the 2026-05-25 fix."""
+    import sqlite3
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE scprs_po_master (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_number TEXT UNIQUE, dept_code TEXT, dept_name TEXT,
+            status TEXT, start_date TEXT, end_date TEXT,
+            supplier TEXT, supplier_id TEXT, acq_type TEXT, acq_method TEXT,
+            merch_amount TEXT, grand_total TEXT, buyer_name TEXT,
+            buyer_email TEXT, buyer_phone TEXT, source_system TEXT,
+            screenshot_path TEXT, scraped_at TEXT, pulled_at TEXT
+        );
+        CREATE TABLE scprs_po_lines (
+            po_number TEXT, line_num INTEGER, item_id TEXT, description TEXT,
+            unspsc TEXT, uom TEXT, quantity REAL, unit_price REAL,
+            line_total REAL, line_status TEXT, category TEXT
+        );
+        CREATE TABLE scprs_catalog (
+            description TEXT PRIMARY KEY, unspsc TEXT, last_unit_price REAL,
+            last_quantity REAL, last_uom TEXT, last_supplier TEXT,
+            last_department TEXT, last_po_number TEXT, last_date TEXT,
+            times_seen INTEGER DEFAULT 0, updated_at TEXT
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+    # Point both DB paths the function reaches for at our temp DB.
+    monkeypatch.setattr("src.core.db.DB_PATH", str(db_path))
+    # Stub out the downstream calls _store_results makes after writing
+    # (won_quotes ingest, buyer refresh) — irrelevant to this assertion.
+    monkeypatch.setattr(
+        "src.knowledge.won_quotes_db.ingest_scprs_result",
+        lambda **kw: None,
+    )
+    monkeypatch.setattr(
+        "src.agents.buyer_intelligence.refresh_buyer_profiles",
+        lambda: None,
+    )
+
+    from src.agents.scprs_browser import _store_results
+    batch = [{
+        "header": {
+            "po_number": "PO-TEST-1", "dept_code": "5225",
+            "dept_name": "CDCR", "status": "Active",
+            "start_date": "05/01/2026", "end_date": "06/01/2026",
+            "supplier": "Reytech Inc.", "supplier_id": "S1",
+            "acq_type": "RFQ", "acq_method": "Open",
+            "merch_amount": "100", "grand_total": "100",
+            "buyer_name": "Buyer", "buyer_email": "b@x.gov",
+            "buyer_phone": "555-0100",
+        },
+        "line_items": [],
+    }]
+    _store_results(batch, set())
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        "SELECT pulled_at, scraped_at FROM scprs_po_master "
+        "WHERE po_number = 'PO-TEST-1'"
+    ).fetchone()
+    conn.close()
+
+    assert row is not None, "row not inserted"
+    pulled_at, scraped_at = row
+    assert pulled_at, (
+        "pulled_at is empty — the writer-side substrate fix regressed. "
+        "scprs_browser._store_results must write pulled_at so the "
+        "liveness check + the API pullers see one event-time."
+    )
+    assert scraped_at, "scraped_at also expected (historical column)"
 
 
 def test_check_events_route_to_telegram_via_channel_map():
