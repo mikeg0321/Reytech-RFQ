@@ -323,27 +323,26 @@ def send_weekly_email(week_end: datetime | None = None,
         return {"ok": True, "dry_run": True, "subject": report["subject"],
                 "body": report["body"]}
 
-    import os
-    notify_email = (to_override or os.environ.get("NOTIFY_EMAIL", "")
-                    or os.environ.get("GMAIL_ADDRESS", ""))
-    if not notify_email:
-        return {"ok": False, "error": "NOTIFY_EMAIL or GMAIL_ADDRESS not set"}
-
+    # 2026-05-25 substrate: route through notify_agent so CHANNEL_MAP
+    # decides where this lands. The `oracle_weekly` event_type is
+    # ["telegram", "bell"] per Mike's directive — single channel, no
+    # email duplicate. The to_override kwarg is kept for back-compat
+    # callers (manual /api/oracle/weekly-email with ?to=x@y.com).
     try:
-        from src.core import gmail_api
-        if not gmail_api.is_configured():
-            return {"ok": False, "error": "gmail_api not configured"}
-        service = gmail_api.get_send_service()
-        gmail_api.send_message(
-            service,
-            to=notify_email,
-            subject=report["subject"],
-            body_plain=report["body"],
+        from src.agents.notify_agent import send_alert
+        result = send_alert(
+            event_type="oracle_weekly",
+            title=report["subject"],
+            body=report["body"],
+            urgency="info",
+            cooldown_key="oracle_weekly_email",  # IN-12: dedupe on retry
+            run_async=False,
         )
     except Exception as e:
         log.error("oracle_weekly send failed: %s", e, exc_info=True)
         return {"ok": False, "error": str(e)}
 
-    log.info("Oracle weekly sent to %s — subject: %s",
-             notify_email, report["subject"])
-    return {"ok": True, "to": notify_email, "subject": report["subject"]}
+    log.info("Oracle weekly dispatched via notify_agent — subject: %s",
+             report["subject"])
+    return {"ok": bool(result.get("ok")), "subject": report["subject"],
+            "channels": result.get("results", {})}
