@@ -184,13 +184,15 @@ def test_catastrophic_events_include_sms(event_type, monkeypatch):
 # ── Deploy-window suppression ──────────────────────────────────────────────
 
 
-def test_deploy_window_degrades_telegram_to_bell(monkeypatch):
-    """A worthy event firing in the first 10 min after boot must
-    degrade to bell-only — the deploy is the cause, pinging is noise."""
+def test_deploy_window_degrades_deploy_health_to_bell(monkeypatch):
+    """`deploy_health_failed` firing in the deploy window MUST degrade
+    to bell-only — that's the canonical noise pattern: a health check
+    transiently failing on every boot until the underlying bug is fixed.
+    """
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "T")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "1")
     monkeypatch.setenv("TELEGRAM_ENABLED", "true")
-    monkeypatch.setenv("NOTIFY_DEPLOY_WINDOW_S", "9999")  # always in window
+    monkeypatch.setenv("NOTIFY_DEPLOY_WINDOW_S", "9999")
 
     import importlib
     import src.agents.notify_agent as na
@@ -205,15 +207,65 @@ def test_deploy_window_degrades_telegram_to_bell(monkeypatch):
          patch.object(na, "_send_sms", return_value={"ok": True}), \
          patch.object(na, "_log_alert", return_value=None):
         na._dispatch_alert(
-            event_type="oracle_weekly",
-            title="t", body="b", urgency="info",
+            event_type="deploy_health_failed",
+            title="t", body="b", urgency="warning",
             context={}, channels_override=None,
         )
 
+    # deploy_health_failed is bell-only by default in CHANNEL_MAP, but
+    # this test exercises the suppression path — confirm Telegram stays
+    # silent even if a future PR routed deploy_health_failed to Telegram.
     assert fired["telegram"] == 0, (
-        "telegram fired during deploy window — suppression is broken"
+        "telegram fired during deploy window for deploy_health_failed"
     )
-    assert fired["bell"] == 1, "bell archive must still fire during deploy window"
+    assert fired["bell"] == 1, "bell archive must fire"
+
+
+def test_deploy_window_does_NOT_suppress_liveness_alerts(monkeypatch):
+    """Real-data alerts (external_service_disconnected, scprs_pull_*,
+    gmail_oauth_expired, oracle_weekly, award_tracker_idle) describe
+    OUTPUT state — they don't become noise because we redeployed.
+    A 'Gmail silent 4 days' alert is just as true the second after a
+    deploy as the minute before.
+
+    2026-05-25 v2: this regression-test pins the scoping fix after the
+    initial liveness sweep got incorrectly suppressed inside the deploy
+    window.
+    """
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "T")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "1")
+    monkeypatch.setenv("TELEGRAM_ENABLED", "true")
+    monkeypatch.setenv("NOTIFY_DEPLOY_WINDOW_S", "9999")  # always in window
+
+    import importlib
+    import src.agents.notify_agent as na
+    importlib.reload(na)
+
+    real_data_events = [
+        "external_service_disconnected",
+        "scprs_pull_failed_persistent",
+        "gmail_oauth_expired",
+        "oracle_weekly",
+        "award_tracker_idle",
+        "loss_pattern_detected",
+    ]
+    for ev in real_data_events:
+        fired = {"telegram": False}
+        with patch.object(na, "_send_telegram",
+                          side_effect=lambda *a, **kw: fired.__setitem__("telegram", True) or {"ok": True}), \
+             patch.object(na, "_push_bell", return_value={"ok": True}), \
+             patch.object(na, "_send_alert_email", return_value={"ok": True}), \
+             patch.object(na, "_send_sms", return_value={"ok": True}), \
+             patch.object(na, "_log_alert", return_value=None):
+            na._dispatch_alert(
+                event_type=ev,
+                title="t", body="b", urgency="warning",
+                context={}, channels_override=None,
+            )
+        assert fired["telegram"], (
+            f"{ev}: deploy-window incorrectly suppressed a real-data alert. "
+            f"Deploy doesn't make stale output suddenly fresh."
+        )
 
 
 def test_deploy_window_does_not_suppress_urgent(monkeypatch):

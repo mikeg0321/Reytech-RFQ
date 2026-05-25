@@ -314,11 +314,26 @@ def _dispatch_alert(event_type, title, body, urgency, context, channels_override
     }
     channels = channels_override or CHANNEL_MAP.get(event_type, ["bell"])
 
-    # ── Deploy-window suppression ────────────────────────────────────
-    # In the first 10 min after boot, suppress every non-urgent ping;
-    # bell still fires so the event lands in the audit log. CATASTROPHIC
-    # (urgency='urgent') bypasses — Mike has to be paged regardless.
-    if _in_deploy_window() and urgency != "urgent":
+    # ── Deploy-window suppression — SCOPED to deploy-caused events ──
+    # In the first DEPLOY_WINDOW_S seconds after boot, suppress alerts
+    # whose ROOT CAUSE is the deploy itself: deploy_health_failed (a
+    # check transiently failing during startup), server_error (some
+    # init code raising before the app warms up). These would re-fire
+    # on every Railway restart if not suppressed.
+    #
+    # Real-data alerts (external_service_disconnected, scprs_pull_*,
+    # gmail_oauth_expired, oracle_weekly, award_tracker_idle) describe
+    # state of the OUTPUT — they don't become noise because we
+    # redeployed. A "Gmail silent 4 days" alert is just as true the
+    # second after a deploy as the minute before.
+    #
+    # 2026-05-25 v2: tightened from "all non-urgent" to "deploy-caused
+    # only" after the liveness sweep (PR #1081) ran inside the window
+    # and got incorrectly degraded to bell-only.
+    _DEPLOY_NOISE_EVENTS = {"deploy_health_failed", "server_error"}
+    if (_in_deploy_window()
+            and urgency != "urgent"
+            and event_type in _DEPLOY_NOISE_EVENTS):
         if any(ch in channels for ch in ("telegram", "email", "sms")):
             log.info(
                 "Alert suppressed (deploy window, %ds remaining): %s | "
