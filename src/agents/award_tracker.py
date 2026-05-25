@@ -248,6 +248,53 @@ def run_award_check(force: bool = False) -> dict:
     sent_quotes = list(sent_quotes) + list(sent_rfqs)
 
     if not sent_quotes:
+        # ── Idle-scanner alarm (2026-05-25) ──────────────────────────
+        # Stage A of the oracle feedback loop is `status='sent'`. If the
+        # scanner finds 0 eligible quotes despite recent activity in the
+        # quotes/rfqs tables, the Mark-Sent path is silently broken and
+        # the entire loss-detection pipeline is paused. The weekly oracle
+        # email shows "0 wins / 0 losses" with no visible cause — that
+        # was the 2026-05-25 inbox screenshot.
+        #
+        # Fire `award_tracker_idle` (Telegram, daily-bucketed) so the
+        # silence is loud. Threshold: ≥1 quote created in the last 30
+        # days. Below that, the system is genuinely quiet and we don't
+        # want to alert on a new install / staging instance.
+        try:
+            recent_window = (now - timedelta(days=30)).isoformat()
+            recent_count = conn.execute(
+                "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_at > ?",
+                (recent_window,)
+            ).fetchone()[0] or 0
+            recent_rfq_count = 0
+            try:
+                recent_rfq_count = conn.execute(
+                    "SELECT COUNT(*) FROM rfqs WHERE COALESCE(received_at,'') > ?",
+                    (recent_window,)
+                ).fetchone()[0] or 0
+            except Exception as _re:
+                log.debug("rfq recent-count: %s", _re)
+            if (recent_count + recent_rfq_count) > 0:
+                from src.agents.notify_agent import send_alert
+                send_alert(
+                    event_type="award_tracker_idle",
+                    title="Award scanner: 0 eligible quotes",
+                    body=(
+                        f"award_tracker found 0 quotes in status='sent' "
+                        f"despite {recent_count} quote(s) + "
+                        f"{recent_rfq_count} RFQ(s) created in the last "
+                        f"30 days. The Mark-Sent path may be broken — "
+                        f"loss detection is currently silent. Check the "
+                        f"/send-prep gate + dashboard Mark-Sent buttons."
+                    ),
+                    urgency="warning",
+                    cooldown_key="award_tracker_idle",
+                    cooldown_seconds=86400,  # daily bucket per IN-14
+                    run_async=False,
+                )
+        except Exception as _ie:
+            log.debug("idle-scanner alarm: %s", _ie)
+
         conn.close()
         result = {"ok": True, "message": "No sent quotes/RFQs ready for award check",
                   "eligible": 0, "checked": 0, "matches": 0, "losses": 0}

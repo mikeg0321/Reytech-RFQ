@@ -68,6 +68,16 @@ TWILIO_SID     = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN   = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM    = os.environ.get("TWILIO_FROM_NUMBER", "")
 
+# Telegram is the "reports" channel for non-actionable digests
+# (oracle_weekly, order_digest, scprs_pull_done, award_tracker_idle).
+# Operator-actionable events stay on sms/email/bell.
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
+TELEGRAM_ENABLED   = (
+    os.environ.get("TELEGRAM_ENABLED", "true").lower() not in ("false","0","off","no","disabled")
+    and bool(TELEGRAM_BOT_TOKEN) and bool(TELEGRAM_CHAT_ID)
+)
+
 SMS_ENABLED    = os.environ.get("NOTIFY_SMS", "false").lower() not in ("false","0","off","no","disabled")
 EMAIL_ENABLED  = os.environ.get("NOTIFY_EMAIL_ALERTS", "true").lower() not in ("false","0","off")
 COOLDOWN_MIN   = int(os.environ.get("ALERT_COOLDOWN_MIN", "15"))
@@ -200,9 +210,20 @@ def _log_alert(event_type, title, body, urgency, context, channels, results):
 
 
 def _dispatch_alert(event_type, title, body, urgency, context, channels_override):
-    """Actually send the alert across all appropriate channels."""
-    # Determine channels
+    """Actually send the alert across all appropriate channels.
+
+    Routing tiers:
+      - ACTIONABLE (sms/email/bell): operator must see immediately —
+        new RFQ, CS draft, PO received, quote won, server error,
+        email permanent failure, urgent loss signals.
+      - REPORTS (telegram/bell): non-actionable status — oracle weekly
+        digest, order digest, scprs pull done, scanner-idle alarm.
+        Telegram is read-when-you-want; bell is the in-app archive.
+      - INTELLIGENCE (telegram+email/bell): loss-pattern hits ride both
+        rails so a real trend doesn't get lost in a Telegram scroll.
+    """
     CHANNEL_MAP = {
+        # ── ACTIONABLE ────────────────────────────────────────────────
         "cs_draft_ready":   ["sms", "email", "bell"],
         "rfq_arrived":      ["sms", "email", "bell"],
         "quote_won":        ["sms", "email", "bell"],
@@ -211,21 +232,29 @@ def _dispatch_alert(event_type, title, body, urgency, context, channels_override
         "all_delivered":     ["sms", "email", "bell"],
         "line_shipped":      ["sms", "bell"],
         "line_delivered":    ["sms", "bell"],
-        "order_digest":      ["sms", "email", "bell"],
         "auto_draft_ready": ["sms", "email", "bell"],
         "outbox_stale":     ["email", "bell"],
-        "scprs_pull_done":  ["bell"],
         "voice_call_placed":["bell"],
-        "quote_lost_signal":["email", "bell"],
         "cs_call_placed":   ["bell"],
         "invoice_unpaid":   ["email", "bell"],
         "delivery_confirmed":["bell"],
-        # Award intelligence events
         "award_loss_detected":       ["sms", "email", "bell"],
         "award_loss_margin_too_high":["sms", "email", "bell"],
         "server_error":              ["email", "bell"],
         "email_permanent_failure":   ["email", "bell"],
-        "loss_pattern_detected":     ["email", "bell"],
+        # ── REPORTS (Telegram) ────────────────────────────────────────
+        "oracle_weekly":          ["telegram", "bell"],
+        "cross_sell_weekly":      ["telegram", "bell"],
+        "order_digest":           ["telegram", "bell"],
+        "scprs_pull_done":        ["telegram"],
+        "quote_lost_signal":      ["telegram", "bell"],
+        "award_tracker_idle":     ["telegram", "bell"],
+        # ── INTELLIGENCE (Telegram + email backup) ────────────────────
+        "loss_pattern_detected":     ["telegram", "email", "bell"],
+        "oracle_weekly_failed":      ["telegram", "email", "bell"],
+        "oracle_weekly_never_sent":  ["telegram", "email", "bell"],
+        "oracle_weekly_overdue":     ["telegram", "email", "bell"],
+        "oracle_weekly_crash":       ["telegram", "email", "bell"],
     }
     channels = channels_override or CHANNEL_MAP.get(event_type, ["bell"])
 
@@ -233,9 +262,12 @@ def _dispatch_alert(event_type, title, body, urgency, context, channels_override
 
     if "sms" in channels and SMS_ENABLED and NOTIFY_PHONE:
         results["sms"] = _send_sms(title, body, context)
-    
+
     if "email" in channels and EMAIL_ENABLED and NOTIFY_EMAIL:
         results["email"] = _send_alert_email(event_type, title, body, context)
+
+    if "telegram" in channels and TELEGRAM_ENABLED:
+        results["telegram"] = _send_telegram(event_type, title, body, urgency, context)
 
     if "bell" in channels:
         results["bell"] = _push_bell(event_type, title, body, urgency, context)
@@ -356,6 +388,112 @@ def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> 
         return {"ok": True, "to": NOTIFY_EMAIL}
     except Exception as e:
         log.warning("Alert email failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TELEGRAM (reports / non-actionable status — read-when-you-want)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Telegram MarkdownV2 reserves these characters — escape with leading backslash.
+_TELEGRAM_MD_RESERVED = r"_*[]()~`>#+-=|{}.!"
+
+
+def _escape_markdown_v2(text: str) -> str:
+    """Escape Telegram MarkdownV2 reserved chars in body text.
+
+    Bold/italic markers in the title are emitted unescaped by the caller;
+    everything else (body, context values) flows through here so a stray
+    underscore in a quote number doesn't blow up the message.
+    """
+    if not text:
+        return ""
+    out = []
+    for ch in text:
+        if ch in _TELEGRAM_MD_RESERVED:
+            out.append("\\")
+        out.append(ch)
+    return "".join(out)
+
+
+# Telegram caps a sendMessage at 4096 chars. Reserve headroom for the title,
+# context block, and our trailing footer.
+_TELEGRAM_BODY_LIMIT = 3500
+
+
+def _send_telegram(event_type: str, title: str, body: str, urgency: str,
+                   context: dict) -> dict:
+    """POST one Telegram message via the Bot API to TELEGRAM_CHAT_ID.
+
+    Returns {"ok": True/False, ...}. Never raises — Telegram failure
+    must not break the alert pipeline.
+    """
+    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        return {"ok": False, "reason": "Telegram not configured"}
+
+    _URGENCY_EMOJI = {
+        "urgent": "🚨",
+        "warning": "⚠️",
+        "deal": "💰",
+        "draft": "📝",
+        "info": "📊",
+    }
+    emoji = _URGENCY_EMOJI.get(urgency, "🔔")
+
+    # Title is bold, free-form. Body and context values are escaped to
+    # survive MarkdownV2 parsing.
+    safe_title = _escape_markdown_v2(title)
+    truncated = (body or "")[:_TELEGRAM_BODY_LIMIT]
+    safe_body = _escape_markdown_v2(truncated)
+    text_parts = [f"*{emoji} {safe_title}*", safe_body]
+
+    ctx_lines = []
+    for key, label in (
+        ("quote_number", "Quote"),
+        ("po_number",    "PO"),
+        ("rfq_id",       "RFQ"),
+        ("agency",       "Agency"),
+        ("contact",      "Contact"),
+    ):
+        val = context.get(key) if context else None
+        if val:
+            ctx_lines.append(f"{label}: `{_escape_markdown_v2(str(val))}`")
+    if context and "amount" in context:
+        try:
+            amount_str = "${:,.2f}".format(float(context["amount"]))
+            ctx_lines.append("Amount: `" + _escape_markdown_v2(amount_str) + "`")
+        except (TypeError, ValueError):
+            pass
+
+    if ctx_lines:
+        text_parts.append("\n" + "\n".join(ctx_lines))
+
+    text = "\n\n".join(p for p in text_parts if p)
+
+    try:
+        import urllib.request
+        import urllib.parse
+        import json as _json
+        data = urllib.parse.urlencode({
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": text,
+            "parse_mode": "MarkdownV2",
+            "disable_web_page_preview": "true",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            data=data,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = _json.loads(resp.read().decode("utf-8") or "{}")
+        if payload.get("ok"):
+            log.info("Telegram sent: %s [%s]", title[:60], event_type)
+            return {"ok": True, "message_id": payload.get("result", {}).get("message_id")}
+        log.warning("Telegram API rejected: %s", payload)
+        return {"ok": False, "error": payload.get("description", "unknown")}
+    except Exception as e:
+        log.warning("Telegram send failed: %s", e)
         return {"ok": False, "error": str(e)}
 
 

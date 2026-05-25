@@ -252,6 +252,8 @@ def send_weekly_digest(window_days: int = 90, top_n: int = 10) -> dict:
 
     try:
         from src.agents.notify_agent import send_alert
+        # 2026-05-25: dropped explicit channels=["email"] so routing
+        # follows CHANNEL_MAP["cross_sell_weekly"] = ["telegram", "bell"].
         result = send_alert(
             event_type="cross_sell_weekly",
             title=(
@@ -260,7 +262,6 @@ def send_weekly_digest(window_days: int = 90, top_n: int = 10) -> dict:
             ),
             body=digest["plain"],
             urgency="info",
-            channels=["email"],
             context={"html_body": digest["html"]},
             cooldown_key="cross_sell_weekly",
             run_async=False,
