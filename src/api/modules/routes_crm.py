@@ -1600,6 +1600,25 @@ def start_polling(app=None):
         watchdog_thread = threading.Thread(
             target=email_poll_watchdog, daemon=True, name="email-poller-watchdog")
         watchdog_thread.start()
+        # Register with the job watchdog so a dead poll thread gets
+        # revived. Before 2026-05-25 the poller was started here once
+        # and never auto-restarted — when the thread died (uncaught
+        # exception past the try/except, OS thread death, OAuth refresh
+        # deadlock), no automation brought it back. The 2026-05-25
+        # liveness sweep caught the symptom (4d silent inbound, 3 unread
+        # CDCR RFQs in the sales inbox); this registration closes the
+        # silent-death class for this daemon. See the 4 daemons in
+        # dashboard.py that already use this pattern (follow-up-engine,
+        # award-tracker, oracle-weekly-report, cross-sell-weekly-digest).
+        try:
+            import sys
+            from src.core.scheduler import register_restartable
+            interval = email_cfg.get("poll_interval_seconds", 120)
+            _self_mod = sys.modules[__name__]
+            register_restartable("email-poller", interval, _self_mod,
+                                 "_poll_started", start_polling)
+        except Exception as _e:
+            log.warning("email-poller restartable registration failed: %s", _e)
         log.info("Email polling started (account: %s)",
                  email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "?"))
     else:
