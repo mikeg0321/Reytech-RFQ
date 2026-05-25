@@ -423,6 +423,30 @@ def test_unknown_uom_raises():
         )
 
 
+@pytest.mark.parametrize(
+    "uom",
+    [
+        "EA", "PK", "PAC", "BX", "CS", "CT", "DZ",
+        "RL", "PR", "ST", "BG", "BT", "KIT",
+    ],
+)
+def test_supported_uom_round_trips(uom):
+    # Regression — every UOM advertised by SUPPORTED_UOM must validate
+    # without raising. The KIT entry was added 2026-05-19 after CHCF
+    # 10843811 shipped a "WHEEL, TIRE & HANDRIM KIT" line that the
+    # allowlist had been silently rejecting.
+    li = LineItem(
+        line_no=1,
+        description="x",
+        qty=1,
+        uom=uom,
+        cost_cents=100,
+        cost_validated_at=_fresh_validation_ts(),
+        unit_price_cents=200,
+    )
+    assert li.uom == uom
+
+
 def test_url_shape_validated():
     with pytest.raises(ValidationError, match="http"):
         LineItem(
