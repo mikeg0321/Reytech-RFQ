@@ -861,6 +861,18 @@ def start_ops_monitor():
                     except Exception as _pe:
                         log.error("Daily retention purge failed: %s", _pe)
 
+                # 2026-05-25 liveness sweep — silent-failure detector.
+                # Reads OUTPUT tables for freshness (truth lives there,
+                # not in agent self-reports) + credential presence.
+                # Stale connections fire `external_service_disconnected`
+                # (or specific events like gmail_oauth_expired) via
+                # CHANNEL_MAP → Telegram. Daily-bucketed cooldown.
+                try:
+                    from src.core.liveness_checks import run_liveness_sweep
+                    run_liveness_sweep()
+                except Exception as _le:
+                    log.warning("liveness sweep failed: %s", _le)
+
                 try:
                     heartbeat("ops-monitor", success=True)
                 except Exception as _e:
