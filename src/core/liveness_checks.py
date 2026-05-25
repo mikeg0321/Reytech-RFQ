@@ -55,6 +55,49 @@ def _seconds_since_iso(iso_ts: str) -> int:
     return int((datetime.now(timezone.utc) - dt).total_seconds())
 
 
+def _quote_ingestion_freshness() -> Callable:
+    """Quote ingestion check: read newest write across the legacy `quotes`
+    table AND the Spine `spine_quotes` table. The Spine is canonical per
+    §0 LAW 1 — new quotes flow through `src/spine/db.py` → `spine_quotes`,
+    NOT the legacy `quotes` table. Reading `quotes.created_at` alone
+    triggered the 2026-05-25 false alarm (~11d silent) because the
+    canonical Spine table has been carrying every recent ingest.
+
+    Same shape as the SCPRS sourcing fix and the empty-oracle bug
+    (PR #1076) — KPI sourcing the non-canonical substrate column.
+
+    Once the legacy `quotes` table is DELETED at the end of the Spine
+    migration (§0 LAW 2), this helper collapses to a single-table read.
+    """
+    def _check():
+        from src.core.db import get_db
+        best_age = 10**9
+        details = []
+        with get_db() as conn:
+            for table in ("quotes", "spine_quotes"):
+                try:
+                    row = conn.execute(
+                        f"SELECT MAX(created_at) FROM {table}"
+                    ).fetchone()
+                    last = row[0] if row else None
+                except Exception as e:
+                    details.append(f"{table}: query failed ({e})")
+                    continue
+                if not last:
+                    details.append(f"{table}: empty")
+                    continue
+                age = _seconds_since_iso(str(last))
+                details.append(f"{table}: {age // 60}min")
+                if age < best_age:
+                    best_age = age
+        if best_age >= 10**9:
+            return (False, 10**9,
+                    "no source had data — " + "; ".join(details))
+        return (True, best_age,
+                f"newest write {best_age // 60} min ago ({'; '.join(details)})")
+    return _check
+
+
 def _table_freshness(table: str, ts_col: str) -> Callable:
     """Return a check_fn that reads MAX(ts_col) from `table` and reports
     age. Returns (ok=True, detail="last write Xh ago") on success;
@@ -247,7 +290,10 @@ CHECKS = [
 
     ("Quote ingestion pipeline",
      "external_service_disconnected",
-     _table_freshness("quotes", "created_at"),
+     # Read newest write across legacy `quotes` AND Spine `spine_quotes`.
+     # Per §0 LAW 1 the Spine is canonical; reading only `quotes` fires
+     # false alarms because new ingest flows through spine_quotes.
+     _quote_ingestion_freshness(),
      7 * 24 * 3600),  # silent ingest break: no new quote rows in 7 days
 
     # ── Filesystem backup recency ────────────────────────────────────
