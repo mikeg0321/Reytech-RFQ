@@ -431,6 +431,17 @@ def _send_telegram(event_type: str, title: str, body: str, urgency: str,
     if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
         return {"ok": False, "reason": "Telegram not configured"}
 
+    # ── Pre-formatted body short-circuit ─────────────────────────────
+    # Callers that build their own MarkdownV2 layout (oracle weekly,
+    # award_tracker_idle, etc.) pass context["telegram_body"] with the
+    # complete escaped+formatted message. We send it AS-IS so emoji
+    # headers, monospace pre-blocks, and table alignment all survive.
+    # This mirrors how context["html_body"] short-circuits the email
+    # template in _send_alert_email.
+    if context and context.get("telegram_body"):
+        pre_built = str(context["telegram_body"])[:_TELEGRAM_BODY_LIMIT]
+        return _telegram_post(pre_built, event_type, title)
+
     _URGENCY_EMOJI = {
         "urgent": "🚨",
         "warning": "⚠️",
@@ -469,7 +480,14 @@ def _send_telegram(event_type: str, title: str, body: str, urgency: str,
         text_parts.append("\n" + "\n".join(ctx_lines))
 
     text = "\n\n".join(p for p in text_parts if p)
+    return _telegram_post(text, event_type, title)
 
+
+def _telegram_post(text: str, event_type: str, title: str) -> dict:
+    """POST a pre-built MarkdownV2 payload to the Telegram Bot API.
+    Used by both the standard escape-and-send path and the pre-formatted
+    short-circuit so error handling stays in one place.
+    """
     try:
         import urllib.request
         import urllib.parse

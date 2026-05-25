@@ -276,18 +276,37 @@ def run_award_check(force: bool = False) -> dict:
                 log.debug("rfq recent-count: %s", _re)
             if (recent_count + recent_rfq_count) > 0:
                 from src.agents.notify_agent import send_alert
+                # MarkdownV2-formatted body — bulleted layout matches the
+                # oracle weekly's UI shape so all telegram reports feel
+                # consistent. _send_telegram's pre-formatted short-circuit
+                # picks this up from context["telegram_body"].
+                tg_body = (
+                    "⚠️ *Award scanner: 0 eligible quotes*\n\n"
+                    "The scanner found *0* quotes in `status='sent'` "
+                    "despite recent activity:\n"
+                    f"  • *{recent_count}* quote\\(s\\) in last 30d\n"
+                    f"  • *{recent_rfq_count}* RFQ\\(s\\) in last 30d\n\n"
+                    "Mark\\-Sent path may be broken — loss detection is "
+                    "currently silent\\.\n\n"
+                    "*Next steps:*\n"
+                    "  • Check `/send-prep` gate\n"
+                    "  • Check dashboard Mark\\-Sent buttons\n"
+                    "  • Run `POST /api/intel/award-tracker/run` to retest"
+                )
+                plain_body = (
+                    f"award_tracker found 0 quotes in status='sent' "
+                    f"despite {recent_count} quote(s) + "
+                    f"{recent_rfq_count} RFQ(s) created in the last "
+                    f"30 days. The Mark-Sent path may be broken — "
+                    f"loss detection is currently silent. Check the "
+                    f"/send-prep gate + dashboard Mark-Sent buttons."
+                )
                 send_alert(
                     event_type="award_tracker_idle",
                     title="Award scanner: 0 eligible quotes",
-                    body=(
-                        f"award_tracker found 0 quotes in status='sent' "
-                        f"despite {recent_count} quote(s) + "
-                        f"{recent_rfq_count} RFQ(s) created in the last "
-                        f"30 days. The Mark-Sent path may be broken — "
-                        f"loss detection is currently silent. Check the "
-                        f"/send-prep gate + dashboard Mark-Sent buttons."
-                    ),
+                    body=plain_body,
                     urgency="warning",
+                    context={"telegram_body": tg_body},
                     cooldown_key="award_tracker_idle",
                     cooldown_seconds=86400,  # daily bucket per IN-14
                     run_async=False,
