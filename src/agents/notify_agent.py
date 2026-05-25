@@ -209,54 +209,124 @@ def _log_alert(event_type, title, body, urgency, context, channels, results):
         log.debug("suppressed: %s", _e)
 
 
+# Boot time — used for deploy-window suppression. Captured at module load.
+# Any non-CATASTROPHIC alert in the first DEPLOY_WINDOW_S seconds after
+# boot is suppressed (still bell-archived, but no Telegram/email/SMS).
+# Rationale: Railway re-deploys cause transient false-positives on every
+# health check; the deploy IS the cause and pinging Mike during the
+# window is pure noise.
+_BOOT_TIME = time.time()
+DEPLOY_WINDOW_S = int(os.environ.get("NOTIFY_DEPLOY_WINDOW_S", "600"))  # 10 min
+
+
+def _in_deploy_window() -> bool:
+    """True if the app has been up for less than DEPLOY_WINDOW_S seconds.
+    During this window, only CATASTROPHIC events (urgency='urgent') fire
+    their normal channels; everything else falls back to bell-only."""
+    return (time.time() - _BOOT_TIME) < DEPLOY_WINDOW_S
+
+
 def _dispatch_alert(event_type, title, body, urgency, context, channels_override):
     """Actually send the alert across all appropriate channels.
 
-    Routing tiers:
-      - ACTIONABLE (sms/email/bell): operator must see immediately —
-        new RFQ, CS draft, PO received, quote won, server error,
-        email permanent failure, urgent loss signals.
-      - REPORTS (telegram/bell): non-actionable status — oracle weekly
-        digest, order digest, scprs pull done, scanner-idle alarm.
-        Telegram is read-when-you-want; bell is the in-app archive.
-      - INTELLIGENCE (telegram+email/bell): loss-pattern hits ride both
-        rails so a real trend doesn't get lost in a Telegram scroll.
+    Mike's notification philosophy (2026-05-25):
+      "I see everything; extra email is clutter. Status I don't need
+       unless app is catastrophic failure. Worthy alerts are something
+       not connected, or SCPRS update failed. Everything else is noise."
+
+    Routing tiers — note SILENT IS THE DEFAULT:
+
+      - SILENT (bell only): the long tail of operator-visible events
+        that already surface in the dashboard (`/home`, queue, PO list).
+        Bell is the audit log; nothing pings the operator. Volume is
+        too low to need email/SMS redundancy — Mike checks the console.
+
+      - WORTHY (single channel, Telegram): persistent external-
+        dependency breaks + a few high-signal intelligence digests.
+        Examples: external_service_disconnected, scprs_pull_failed_
+        persistent, oracle_weekly, award_tracker_idle, loss_pattern_
+        detected. ONE channel — no email duplicate.
+
+      - CATASTROPHIC (Telegram + SMS): app is down / can't ingest /
+        DB locked > 10 min. Operator must act now. SMS is reserved
+        for "wake Mike up" — set urgency='urgent' to bypass the
+        deploy-window suppression.
+
+    Deploy-window suppression: in the first DEPLOY_WINDOW_S seconds
+    after boot, only urgency='urgent' fires its normal channels;
+    everything else degrades to bell-only. The 2026-05-25 deploy-
+    health email storm — "1 check failed" arriving on every Railway
+    boot — was the canonical noise this suppresses.
     """
     CHANNEL_MAP = {
-        # ── ACTIONABLE ────────────────────────────────────────────────
-        "cs_draft_ready":   ["sms", "email", "bell"],
-        "rfq_arrived":      ["sms", "email", "bell"],
-        "quote_won":        ["sms", "email", "bell"],
-        "po_received":      ["sms", "email", "bell"],
-        "order_delivered":   ["sms", "email", "bell"],
-        "all_delivered":     ["sms", "email", "bell"],
-        "line_shipped":      ["sms", "bell"],
-        "line_delivered":    ["sms", "bell"],
-        "auto_draft_ready": ["sms", "email", "bell"],
-        "outbox_stale":     ["email", "bell"],
-        "voice_call_placed":["bell"],
-        "cs_call_placed":   ["bell"],
-        "invoice_unpaid":   ["email", "bell"],
-        "delivery_confirmed":["bell"],
-        "award_loss_detected":       ["sms", "email", "bell"],
-        "award_loss_margin_too_high":["sms", "email", "bell"],
-        "server_error":              ["email", "bell"],
-        "email_permanent_failure":   ["email", "bell"],
-        # ── REPORTS (Telegram) ────────────────────────────────────────
-        "oracle_weekly":          ["telegram", "bell"],
-        "cross_sell_weekly":      ["telegram", "bell"],
-        "order_digest":           ["telegram", "bell"],
-        "scprs_pull_done":        ["telegram"],
-        "quote_lost_signal":      ["telegram", "bell"],
-        "award_tracker_idle":     ["telegram", "bell"],
-        # ── INTELLIGENCE (Telegram + email backup) ────────────────────
-        "loss_pattern_detected":     ["telegram", "email", "bell"],
-        "oracle_weekly_failed":      ["telegram", "email", "bell"],
-        "oracle_weekly_never_sent":  ["telegram", "email", "bell"],
-        "oracle_weekly_overdue":     ["telegram", "email", "bell"],
-        "oracle_weekly_crash":       ["telegram", "email", "bell"],
+        # ── CATASTROPHIC (Telegram + SMS) ──────────────────────────
+        # App is down or pipeline is broken. Always-on; bypasses
+        # deploy-window suppression because urgency='urgent' on these.
+        "app_down":                ["telegram", "sms", "bell"],
+        "ingest_broken":           ["telegram", "sms", "bell"],
+        "db_locked_persistent":    ["telegram", "sms", "bell"],
+
+        # ── WORTHY (Telegram only) ─────────────────────────────────
+        # Persistent external-dependency breaks + Mike-ratified
+        # intelligence digests (2026-05-25 explicit list).
+        "oracle_weekly":                 ["telegram", "bell"],
+        "award_tracker_idle":            ["telegram", "bell"],
+        "loss_pattern_detected":         ["telegram", "bell"],
+        "external_service_disconnected": ["telegram", "bell"],
+        "scprs_pull_failed_persistent":  ["telegram", "bell"],
+        "gmail_oauth_expired":           ["telegram", "bell"],
+        "twilio_unreachable":            ["telegram", "bell"],
+        "oracle_weekly_failed":          ["telegram", "bell"],
+        "oracle_weekly_never_sent":      ["telegram", "bell"],
+        "oracle_weekly_overdue":         ["telegram", "bell"],
+        "oracle_weekly_crash":           ["telegram", "bell"],
+
+        # ── SILENT (bell only — the long tail) ─────────────────────
+        # 2026-05-25 directive: "I see everything in the operator
+        # console, extra email is clutter." Every event below was on
+        # sms+email+bell pre-fix; bell-only is the new floor. Add new
+        # event types here by default; explicit Telegram promotion
+        # requires a justified PR.
+        "cs_draft_ready":            ["bell"],
+        "rfq_arrived":               ["bell"],
+        "quote_won":                 ["bell"],
+        "po_received":               ["bell"],
+        "buyer_replied":             ["bell"],
+        "email_permanent_failure":   ["bell"],
+        "order_delivered":           ["bell"],
+        "all_delivered":             ["bell"],
+        "line_shipped":              ["bell"],
+        "line_delivered":            ["bell"],
+        "auto_draft_ready":          ["bell"],
+        "outbox_stale":              ["bell"],
+        "voice_call_placed":         ["bell"],
+        "quote_lost_signal":         ["bell"],
+        "cs_call_placed":            ["bell"],
+        "invoice_unpaid":            ["bell"],
+        "delivery_confirmed":        ["bell"],
+        "order_digest":              ["bell"],
+        "cross_sell_weekly":         ["bell"],
+        "scprs_pull_done":           ["bell"],
+        "award_loss_detected":       ["bell"],
+        "award_loss_margin_too_high":["bell"],
+        "server_error":              ["bell"],   # transient — see deploy_health
+        "deploy_health_failed":      ["bell"],   # transient deploy noise
     }
     channels = channels_override or CHANNEL_MAP.get(event_type, ["bell"])
+
+    # ── Deploy-window suppression ────────────────────────────────────
+    # In the first 10 min after boot, suppress every non-urgent ping;
+    # bell still fires so the event lands in the audit log. CATASTROPHIC
+    # (urgency='urgent') bypasses — Mike has to be paged regardless.
+    if _in_deploy_window() and urgency != "urgent":
+        if any(ch in channels for ch in ("telegram", "email", "sms")):
+            log.info(
+                "Alert suppressed (deploy window, %ds remaining): %s | "
+                "would-be channels=%s — bell archive only",
+                int(DEPLOY_WINDOW_S - (time.time() - _BOOT_TIME)),
+                event_type, channels,
+            )
+            channels = [ch for ch in channels if ch == "bell"] or ["bell"]
 
     results = {}
 
@@ -941,22 +1011,20 @@ def send_daily_digest() -> dict:
     if any(i["urgency"] == "overdue" for i in items):
         subj = f"🚨 {subj}"
 
-    to = NOTIFY_EMAIL or GMAIL_ADDRESS
-    if not to:
-        return {"ok": False, "error": "no NOTIFY_EMAIL or GMAIL_ADDRESS set"}
-
-    try:
-        from src.core import gmail_api
-        if not gmail_api.is_configured():
-            return {"ok": False, "error": "gmail_api not configured"}
-        service = gmail_api.get_send_service()
-        gmail_api.send_message(service, to=to, subject=subj, body_plain=body)
-    except Exception as e:
-        log.error("digest send failed: %s", e, exc_info=True)
-        return {"ok": False, "error": str(e)}
-
-    log.info("Daily digest sent to %s — %d items", to, len(items))
-    return {"ok": True, "count": len(items), "to": to}
+    # 2026-05-25 substrate: route via send_alert. `order_digest` is
+    # bell-only in CHANNEL_MAP per Mike's silent-default directive
+    # (this digest function is gated OFF by default anyway and is on
+    # deletion track — kept compatible with the rest of the substrate
+    # in case it's ever re-enabled).
+    return send_alert(
+        event_type="order_digest",
+        title=subj,
+        body=body,
+        urgency="info",
+        cooldown_key="deadline_digest_daily",
+        cooldown_seconds=82800,  # 23h — daily-bucketed
+        run_async=False,
+    )
 
 
 def start_daily_digest():

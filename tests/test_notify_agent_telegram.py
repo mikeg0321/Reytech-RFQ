@@ -122,14 +122,17 @@ def test_send_telegram_no_config_returns_silently(monkeypatch):
 # ── CHANNEL_MAP routing tests ──────────────────────────────────────────────
 
 
+# Updated 2026-05-25 for the silent-default substrate. The full
+# routing matrix moved to test_notify_silent_default_2026_05_25.py;
+# this parametrization keeps a small smoke set on the original test
+# file so a regression in the Telegram routing path itself surfaces here.
 @pytest.mark.parametrize("event_type,expects_telegram", [
+    # WORTHY — Mike-ratified Telegram tier (2026-05-25 directive).
     ("oracle_weekly",      True),
-    ("cross_sell_weekly",  True),
-    ("order_digest",       True),
-    ("scprs_pull_done",    True),
     ("award_tracker_idle", True),
-    ("quote_lost_signal",  True),
-    # Actionable — Telegram must NOT be in the default routing.
+    ("loss_pattern_detected", True),
+    # SILENT — actionable + status events that Mike said "kill entirely,
+    # I see everything in the operator console." All bell-only.
     ("cs_draft_ready",     False),
     ("rfq_arrived",        False),
     ("quote_won",          False),
@@ -137,16 +140,25 @@ def test_send_telegram_no_config_returns_silently(monkeypatch):
     ("server_error",       False),
     ("email_permanent_failure", False),
     ("invoice_unpaid",     False),
+    ("cross_sell_weekly",  False),
+    ("order_digest",       False),
+    ("scprs_pull_done",    False),
+    ("quote_lost_signal",  False),
 ])
 def test_channel_map_reports_route_to_telegram(monkeypatch, event_type, expects_telegram):
-    """The reports tier must route through Telegram (or its degraded fallback);
-    actionable events must NOT — they keep SMS/email."""
+    """Per Mike's 2026-05-25 silent-default directive: WORTHY events
+    (oracle_weekly, award_tracker_idle, loss_pattern_detected, the
+    external-disconnection family) route to Telegram. The SILENT long
+    tail (actionable events + lower-value digests) is bell-only —
+    Mike checks the operator console for those."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "T")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "1")
     monkeypatch.setenv("TELEGRAM_ENABLED", "true")
     # Disable real send paths so we don't accidentally fire Twilio/Gmail.
     monkeypatch.setenv("NOTIFY_SMS", "false")
     monkeypatch.setenv("NOTIFY_EMAIL_ALERTS", "false")
+    # Disable deploy-window suppression so we test pure routing.
+    monkeypatch.setenv("NOTIFY_DEPLOY_WINDOW_S", "0")
 
     import importlib
     import src.agents.notify_agent as na
@@ -174,12 +186,17 @@ def test_channel_map_reports_route_to_telegram(monkeypatch, event_type, expects_
     )
 
 
-def test_channel_map_keeps_email_for_actionable_events(monkeypatch):
-    """rfq_arrived / cs_draft_ready / po_received must still hit email."""
+def test_channel_map_silent_default_no_email_for_actionable(monkeypatch):
+    """2026-05-25 directive replaces the old contract: rfq_arrived /
+    cs_draft_ready / po_received NO LONGER hit email. Mike said "I see
+    everything in the console; extra email is clutter." These are now
+    bell-only — they archive but do not ping any external channel.
+    """
     monkeypatch.setenv("NOTIFY_EMAIL", "ops@example.com")
     monkeypatch.setenv("NOTIFY_EMAIL_ALERTS", "true")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "T")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "1")
+    monkeypatch.setenv("NOTIFY_DEPLOY_WINDOW_S", "0")
 
     import importlib
     import src.agents.notify_agent as na
@@ -199,12 +216,16 @@ def test_channel_map_keeps_email_for_actionable_events(monkeypatch):
         for ev in ("rfq_arrived", "cs_draft_ready", "po_received"):
             na._dispatch_alert(
                 event_type=ev,
-                title="t", body="b", urgency="urgent",
+                title="t", body="b", urgency="info",  # NOT urgent
                 context={}, channels_override=None,
             )
 
-    assert email_calls == ["rfq_arrived", "cs_draft_ready", "po_received"], (
-        f"email skipped for actionable events: {email_calls}"
+    # Silent-default contract: actionable events route bell-only,
+    # not email. Email_calls must be empty.
+    assert email_calls == [], (
+        f"regression: actionable events re-introduced email routing — "
+        f"violates Mike's 2026-05-25 silent-default directive. "
+        f"email_calls: {email_calls}"
     )
 
 

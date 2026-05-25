@@ -237,35 +237,29 @@ def _auto_alert_failures(results):
         body += f"❌ {c['name']}: {c['detail']}\n"
     body += f"\nFull results: /api/health/startup"
 
-    # 1. Email alert (Gmail API — sixth and final outbound smtplib migration)
-    try:
-        from src.core import gmail_api
-        if gmail_api.is_configured():
-            gmail = os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com")
-            service = gmail_api.get_send_service()
-            gmail_api.send_message(
-                service,
-                to=gmail,
-                subject=subject,
-                body_plain=body,
-            )
-            log.info("Startup alert emailed to %s", gmail)
-    except Exception as e:
-        log.warning("Startup email alert failed: %s", e)
-
-    # 2. Bell notification (shows on home page)
+    # 2026-05-25 substrate: deploy-health failures are noise during the
+    # normal Railway redeploy cycle (one check fails transiently on every
+    # boot until the underlying code is fixed; emailing the same failure
+    # set on every deploy is pure clutter). Route via notify_agent ONLY —
+    # the `deploy_health_failed` event_type is bell-only in CHANNEL_MAP,
+    # AND the deploy-window suppression in _dispatch_alert ensures the
+    # first 10 min after boot is silent even if a channel was attached.
+    # If a check stays failed past the deploy window, future PRs can
+    # promote `deploy_health_failed` to Telegram with a persistence
+    # threshold (3+ failures in 1h). For now: silent.
     try:
         from src.agents.notify_agent import send_alert
         send_alert(
-            event_type="deploy_health",
+            event_type="deploy_health_failed",
             title=subject,
             body=body,
-            urgency="urgent",
-            channels=["bell", "email"],
+            urgency="warning",  # NOT "urgent" — must respect deploy window
+            cooldown_key="deploy_health_failed",
+            cooldown_seconds=3600,  # one bell-archive entry per hour max
             run_async=False,
         )
     except Exception as e:
-        log.debug("Startup bell alert: %s", e)
+        log.debug("Startup deploy_health alert: %s", e)
 
     # 3. Write to audit trail
     try:
