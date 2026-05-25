@@ -26,6 +26,14 @@ def _import_helpers():
     return _extract_sol_number, _iter_attachments, _SOL_PATTERNS
 
 
+def _import_find_subfolder():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from src.api.modules.routes_admin_drive_replay import _find_subfolder_readonly
+    return _find_subfolder_readonly
+
+
 # ── Sol# extraction ───────────────────────────────────────────────────────
 
 
@@ -164,3 +172,73 @@ class TestSolPatternsList:
         assert ids == ["cchcs_preq", "dsh_cb"], (
             f"Sol# patterns must stay scoped to Mike's actual agencies; got {ids}"
         )
+
+
+# ── Read-only lookup (dry-run contract) ──────────────────────────────────
+
+
+class _FakeListCall:
+    def __init__(self, files):
+        self._files = files
+
+    def execute(self):
+        return {"files": self._files}
+
+
+class _FakeFilesService:
+    """Records the kwargs every files().list() call gets so the test can
+    assert we never asked Drive to create anything."""
+    def __init__(self, present: list[dict]):
+        self.present = present
+        self.list_calls: list[dict] = []
+
+    def list(self, **kwargs):
+        self.list_calls.append(kwargs)
+        # Treat any list() that mentions the same parent as returning
+        # the configured `present` files; otherwise empty.
+        return _FakeListCall(list(self.present))
+
+    # Sentinel: the test asserts these are never invoked.
+    def create(self, **kwargs):  # pragma: no cover — must not be reached
+        raise AssertionError(
+            "files().create called from a read-only path — dry-run leaked a write"
+        )
+
+
+class _FakeDriveService:
+    def __init__(self, files_service):
+        self._files = files_service
+
+    def files(self):
+        return self._files
+
+
+class TestFindSubfolderReadonly:
+    """The dry-run path MUST NOT create folders. This helper is the gate —
+    if it ever calls files().create, dry_run is leaking writes."""
+
+    def test_existing_folder_returns_id(self):
+        find = _import_find_subfolder()
+        fs = _FakeFilesService(present=[{"id": "FOLDER_X", "name": "10843811"}])
+        drive = _FakeDriveService(fs)
+        assert find(drive, "10843811", "PARENT_P") == "FOLDER_X"
+        assert len(fs.list_calls) == 1, "expected exactly one read"
+
+    def test_missing_folder_returns_none(self):
+        find = _import_find_subfolder()
+        fs = _FakeFilesService(present=[])
+        drive = _FakeDriveService(fs)
+        assert find(drive, "99999999", "PARENT_P") is None
+
+    def test_query_constraints(self):
+        """Search must be scoped to the parent + folder mimeType + non-trashed."""
+        find = _import_find_subfolder()
+        fs = _FakeFilesService(present=[])
+        drive = _FakeDriveService(fs)
+        find(drive, "10847776", "PARENT_P")
+        assert len(fs.list_calls) == 1
+        q = fs.list_calls[0]["q"]
+        assert "name='10847776'" in q
+        assert "'PARENT_P' in parents" in q
+        assert "mimeType='application/vnd.google-apps.folder'" in q
+        assert "trashed=false" in q

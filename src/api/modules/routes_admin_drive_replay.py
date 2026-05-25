@@ -12,7 +12,10 @@
 #      subjects since the given date.
 #   3. For each, plans: which sol#, target Drive folder, which attachments
 #      to upload (deduped against existing Drive contents).
-#   4. dry_run=1 returns the plan as JSON for operator review.
+#   4. dry_run=1 returns the plan as JSON for operator review. The dry-run
+#      path is READ-ONLY — it does not create the sol# subfolder; if the
+#      folder doesn't exist yet, the plan reports `drive_folder_id: null`
+#      with `drive_folder_would_create: true`.
 #   5. dry_run=0 executes the uploads idempotently and returns the result.
 #
 # Sol# extraction patterns (in priority order):
@@ -104,6 +107,31 @@ def _iter_attachments(msg_payload):
 
 # ── Drive folder lookup ──────────────────────────────────────────────────
 
+def _find_subfolder_readonly(service, name: str, parent_id: str) -> Optional[str]:
+    """Read-only lookup: return the Drive folder ID if a subfolder named
+    `name` exists directly under `parent_id`, else None.
+
+    Does NOT create. Used by the replay endpoint's dry_run path so planning
+    leaves zero side effects on Drive — caller decides whether to create.
+    Mirrors gdrive._get_or_create_folder's search clause but stops short
+    of the create branch.
+    """
+    query = (
+        f"name='{name}' and '{parent_id}' in parents and "
+        f"mimeType='application/vnd.google-apps.folder' and trashed=false"
+    )
+    req = service.files().list(
+        q=query,
+        fields="files(id,name)",
+        pageSize=1,
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    )
+    results = req.execute()
+    files = results.get("files", [])
+    return files[0]["id"] if files else None
+
+
 def _list_drive_files_in_folder(service, folder_id: str) -> dict[str, str]:
     """Return {filename: file_id} for direct children of a Drive folder.
     Used to dedupe uploads."""
@@ -151,7 +179,8 @@ def admin_drive_replay():
               "thread_id": "...", "message_id": "...",
               "subject": "...", "date": "...",
               "attachments": [{"filename": "...", "size": N, "mime": "..."}],
-              "drive_folder_id": "...",
+              "drive_folder_id": "..." | null,  # null in dry_run if folder absent
+              "drive_folder_would_create": bool, # true in dry_run when absent
               "uploads_planned": [...],
               "uploads_skipped_existing": [...],
               "uploaded": [...],            # populated only when dry_run=false
@@ -243,15 +272,24 @@ def admin_drive_replay():
 
             # Locate / plan Drive folder. We rely on the existing
             # get_folder_path("YYYY", category="Pending") helper to land at
-            # the Pending parent for the year, then create/find the sol#
-            # subfolder under it.
+            # the Pending parent for the year. The sol# subfolder is
+            # resolved differently per mode:
+            #   - dry_run=True  : read-only lookup; None means "would create"
+            #   - dry_run=False : create-if-missing so the upload has a target
+            sol_folder_would_create = False
             try:
                 pending_id = gdrive.get_folder_path(
                     year_for_folder, category="Pending",
                 )
-                sol_folder_id = gdrive._get_or_create_folder(  # noqa: SLF001
-                    sol_num, pending_id,
-                )
+                if dry_run:
+                    sol_folder_id = _find_subfolder_readonly(
+                        drive, sol_num, pending_id,
+                    )
+                    sol_folder_would_create = sol_folder_id is None
+                else:
+                    sol_folder_id = gdrive._get_or_create_folder(  # noqa: SLF001
+                        sol_num, pending_id,
+                    )
             except Exception as e:
                 log.exception("drive folder resolve failed for sol=%s", sol_num)
                 plan.append({
@@ -262,6 +300,7 @@ def admin_drive_replay():
                         for (f, m, _aid, s) in attachments
                     ],
                     "drive_folder_id": None,
+                    "drive_folder_would_create": False,
                     "uploads_planned": [],
                     "uploads_skipped_existing": [],
                     "uploaded": [],
@@ -270,7 +309,12 @@ def admin_drive_replay():
                 totals["errors"] += 1
                 continue
 
-            existing = _list_drive_files_in_folder(drive, sol_folder_id)
+            # If the sol# folder doesn't exist yet (dry_run + first scan),
+            # there's nothing to list; every attachment is a planned upload.
+            existing = (
+                _list_drive_files_in_folder(drive, sol_folder_id)
+                if sol_folder_id else {}
+            )
 
             planned_uploads: list[dict] = []
             skipped_existing: list[dict] = []
@@ -334,6 +378,7 @@ def admin_drive_replay():
                     for (f, m, _aid, s) in attachments
                 ],
                 "drive_folder_id": sol_folder_id,
+                "drive_folder_would_create": sol_folder_would_create,
                 "uploads_planned": [
                     {"filename": p["filename"], "size": p["size"], "mime": p["mime"]}
                     for p in planned_uploads
