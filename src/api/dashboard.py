@@ -6058,6 +6058,7 @@ _ROUTE_MODULES = [
     "routes_admin_export_eml",     # Path-B admin: fetch raw .eml by sol# (2026-05-16 Spine handoff §5)
     "routes_gmail_health",         # Proactive Gmail OAuth liveness — closes 2026-05-16 silent-break class
     "routes_admin_spine_backfill", # 2026-05-18: counter/set + retroactive display_number stamp
+    "routes_admin_drive_replay",   # 2026-05-25: backfill Drive forms-archive from Gmail SENT
 ]
 
 for _mod in _ROUTE_MODULES:
