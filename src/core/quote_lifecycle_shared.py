@@ -361,3 +361,76 @@ def mark_lost(record, record_type, record_id, competitor="", competitor_price=0,
 
     log.info("MARK_LOST: %s %s — competitor=%s price=%s", record_type, record_id, competitor, competitor_price)
     return result
+
+
+def propagate_sent_to_quote_row(record: dict, source: str = "user") -> bool:
+    """When a PC or RFQ is marked sent, also flip its linked row in the
+    `quotes` table to status='sent' (which also stamps sent_at).
+
+    Why this exists: the canonical mark-sent paths
+    (`api_pricecheck_mark_sent`, `api_pricecheck_mark_sent_manually`,
+    `api_rfq_mark_sent_manually`, `send_email_enhanced`) all flip the
+    PC/RFQ ENTITY status + sent_at but did NOT update the `quotes` table
+    that `award_tracker` reads. Result: PCs in status='sent' + matching
+    `quotes` rows still in status='generated' or 'pending'. award_tracker's
+    eligibility filter (`WHERE status='sent' AND total > 0`) sees zero
+    work despite real operator activity → loss-detection pipeline silent
+    → empty Oracle weekly. The 2026-05-25 screenshot
+    (0 wins / 0 losses / 1991 calibration samples) was the visible
+    symptom; this helper is the substrate fix.
+
+    Args:
+        record: PC or RFQ dict; must carry `reytech_quote_number`
+            (the linkage key between entity and quotes table).
+        source: actor name for the audit trail. Use "user" for operator
+            paths, "system" for daemon/auto-generated sends.
+
+    Returns:
+        True  — quote row was found AND flipped to 'sent'.
+        False — no `reytech_quote_number` on the record (entity has no
+                linked quote PDF yet; legacy / pre-generation state) OR
+                the linked row wasn't found in `quotes` (data drift).
+
+    Best-effort — exceptions are caught and logged, never raised. The
+    PC/RFQ entity flip remains the authoritative operator-console state;
+    this helper only keeps the analytics substrate (award_tracker,
+    oracle_weekly, calibration EMA) in sync with operator reality.
+    """
+    quote_number = (
+        record.get("reytech_quote_number")
+        or record.get("quote_number")
+        or ""
+    ).strip()
+    if not quote_number:
+        log.debug(
+            "propagate_sent_to_quote_row: no reytech_quote_number on "
+            "record, skipping — entity was mark-sent before a quote PDF "
+            "was generated (legitimate for some flows)"
+        )
+        return False
+    try:
+        from src.forms.quote_generator import update_quote_status
+        ok = update_quote_status(
+            quote_number, "sent", actor=source,
+            notes="Propagated from PC/RFQ mark-sent",
+        )
+        if ok:
+            log.info(
+                "QUOTE_SENT_PROPAGATED: %s (source=%s)",
+                quote_number, source,
+            )
+        else:
+            log.warning(
+                "QUOTE_SENT_PROPAGATE_MISS: quote_number=%s not in quotes "
+                "table — entity flipped but award_tracker won't see it. "
+                "Likely cause: quote PDF was never generated, or "
+                "reytech_quote_number is stale.",
+                quote_number,
+            )
+        return bool(ok)
+    except Exception as e:
+        log.warning(
+            "propagate_sent_to_quote_row(quote_number=%s) failed: %s",
+            quote_number, e,
+        )
+        return False
