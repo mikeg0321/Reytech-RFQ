@@ -48,6 +48,10 @@ def sweep_conn():
             id INTEGER PRIMARY KEY, quote_number TEXT,
             created_at TEXT, status TEXT
         );
+        CREATE TABLE IF NOT EXISTS spine_quotes (
+            quote_id TEXT PRIMARY KEY, state_json TEXT,
+            created_at TEXT, updated_at TEXT
+        );
     """)
     conn.commit()
     yield conn
@@ -488,6 +492,117 @@ def test_scprs_browser_store_writes_both_timestamp_columns(tmp_path, monkeypatch
         "liveness check + the API pullers see one event-time."
     )
     assert scraped_at, "scraped_at also expected (historical column)"
+
+
+def test_quote_ingestion_passes_when_only_spine_quotes_is_fresh(sweep_conn):
+    """The 2026-05-25 false alarm reproducer: legacy `quotes.created_at`
+    is stale (no new ingest via the legacy path for 10+ days) but the
+    Spine `spine_quotes.created_at` is fresh. Per §0 LAW 1 the Spine
+    is canonical — the check must NOT fire.
+    See feedback_kpi_substrate_singleness."""
+    _fresh(sweep_conn)
+    # Make legacy quotes stale (10 days ago).
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    sweep_conn.execute("DELETE FROM quotes")
+    sweep_conn.execute(
+        "INSERT INTO quotes (quote_number, created_at, status) "
+        "VALUES ('R26Q-OLD', ?, 'sent')", (old,))
+    # Spine quote fresh (5 min ago).
+    fresh = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    sweep_conn.execute(
+        "INSERT INTO spine_quotes (quote_id, state_json, created_at, updated_at) "
+        "VALUES ('Q-NEW-1', '{}', ?, ?)", (fresh, fresh))
+    sweep_conn.commit()
+
+    sent = []
+    with _patch_db(sweep_conn), \
+         patch("src.agents.notify_agent.send_alert",
+               side_effect=lambda **kw: sent.append(kw) or {"ok": True}):
+        import importlib
+        import src.core.liveness_checks as lc
+        importlib.reload(lc)
+        lc.run_liveness_sweep()
+
+    qi = [s for s in sent if "Quote ingestion" in s.get("title", "")]
+    assert qi == [], (
+        f"Quote ingestion alert fired even though Spine spine_quotes is "
+        f"fresh. The check must read both quotes AND spine_quotes. "
+        f"Got: {qi}"
+    )
+
+
+def test_quote_ingestion_fires_when_both_tables_stale(sweep_conn):
+    """Inverse: both substrates silent past 7d threshold → alert MUST
+    fire. The Spine-awareness fix must not paper over a real outage."""
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    sweep_conn.execute("DELETE FROM quotes")
+    sweep_conn.execute(
+        "INSERT INTO quotes (quote_number, created_at, status) "
+        "VALUES ('R26Q-OLD', ?, 'sent')", (old,))
+    sweep_conn.execute(
+        "INSERT INTO spine_quotes (quote_id, state_json, created_at, updated_at) "
+        "VALUES ('Q-OLD-1', '{}', ?, ?)", (old, old))
+    # Other tables fresh.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for t, col in (("email_log", "logged_at"), ("scprs_po_master", "pulled_at"),
+                   ("award_tracker_log", "checked_at"),
+                   ("competitor_intel", "found_at"),
+                   ("oracle_calibration", "last_updated")):
+        sweep_conn.execute(f"DELETE FROM {t}")
+    sweep_conn.execute("INSERT INTO email_log (logged_at, direction) VALUES (?, 'in')", (now_iso,))
+    sweep_conn.execute("INSERT INTO scprs_po_master (pulled_at, po_number) VALUES (?, 'PO-1')", (now_iso,))
+    sweep_conn.execute("INSERT INTO award_tracker_log (checked_at, quote_number) VALUES (?, 'R')", (now_iso,))
+    sweep_conn.execute("INSERT INTO competitor_intel (found_at, outcome) VALUES (?, 'lost')", (now_iso,))
+    sweep_conn.execute("INSERT INTO oracle_calibration (category, last_updated) VALUES ('general', ?)", (now_iso,))
+    sweep_conn.commit()
+
+    sent = []
+    with _patch_db(sweep_conn), \
+         patch("src.agents.notify_agent.send_alert",
+               side_effect=lambda **kw: sent.append(kw) or {"ok": True}):
+        import importlib
+        import src.core.liveness_checks as lc
+        importlib.reload(lc)
+        lc.run_liveness_sweep()
+
+    qi = [s for s in sent if "Quote ingestion" in s.get("title", "")]
+    assert len(qi) == 1, (
+        f"Quote ingestion alert did not fire despite BOTH tables being "
+        f"10d stale (threshold 7d). The Spine-awareness fix must not "
+        f"mask real outages. Sent: {[s.get('title') for s in sent]}"
+    )
+
+
+def test_quote_ingestion_freshness_helper_picks_youngest_table():
+    """Direct unit test: the helper compares both tables and reports
+    the youngest write."""
+    import sqlite3
+    from src.core.liveness_checks import _quote_ingestion_freshness
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE quotes (created_at TEXT);
+        CREATE TABLE spine_quotes (quote_id TEXT, state_json TEXT,
+                                   created_at TEXT, updated_at TEXT);
+    """)
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    new = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    conn.execute("INSERT INTO quotes (created_at) VALUES (?)", (old,))
+    conn.execute(
+        "INSERT INTO spine_quotes (quote_id, state_json, created_at, updated_at) "
+        "VALUES ('q1', '{}', ?, ?)", (new, new))
+    conn.commit()
+
+    class _Ctx:
+        def __enter__(_self): return conn
+        def __exit__(_self, *a): return None
+
+    with patch("src.core.db.get_db", return_value=_Ctx()):
+        ok, age, detail = _quote_ingestion_freshness()()
+
+    assert ok is True
+    assert age < 300, f"expected ~2 min, got {age}s — spine_quotes (fresher) didn't win"
+    assert "spine_quotes" in detail
 
 
 def test_check_events_route_to_telegram_via_channel_map():
