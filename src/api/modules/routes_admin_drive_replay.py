@@ -17,10 +17,7 @@
 #
 # Sol# extraction patterns (in priority order):
 #   - 10\d{6}             — CCHCS 8-digit PREQ #
-#   - \d{2}CB\d{3}        — DSH (e.g., 25CB021)
-#   - PREQ\s+(\S+)        — explicit "PREQ X" prefix
-#   - PR\s+(\d+)          — DGS PR# prefix
-#   - RT-[A-Z]+-\d{6}-[a-f0-9]+  — Reytech internal id
+#   - \d{2}CB\d{3,4}      — DSH (e.g., 25CB021)
 #
 # Idempotency:
 #   - Drive uploads are deduped on (folder_id, filename). gdrive.upload_file
@@ -56,10 +53,6 @@ _SOL_PATTERNS = [
     (re.compile(r"\b(10\d{6})\b"), "cchcs_preq"),
     # DSH CBxxx format (e.g., 25CB021)
     (re.compile(r"\b(\d{2}CB\d{3,4})\b", re.IGNORECASE), "dsh_cb"),
-    # Reytech internal id (RT-AGENCY-YYMMDD-shortid)
-    (re.compile(r"\b(RT-[A-Z]+-\d{6}-[a-f0-9]+)\b"), "rt_internal"),
-    # Generic "PR \d{6,}" (DGS style)
-    (re.compile(r"\bPR\s+(\d{6,})\b", re.IGNORECASE), "pr_generic"),
 ]
 
 
@@ -144,8 +137,6 @@ def admin_drive_replay():
     Body (JSON):
         since (str, required): ISO date like "2026-05-15". Inclusive.
         dry_run (bool, default true): if true, return plan without uploading.
-        max_threads (int, default 200): cap on threads to scan in one call.
-        sol_filter (list[str], optional): if set, only process these sol#s.
 
     Returns 200 with:
         {
@@ -188,8 +179,6 @@ def admin_drive_replay():
                 "ok": False, "error": f"invalid 'since': {e}",
             }), 400
         dry_run = bool(body.get("dry_run", True))
-        max_threads = int(body.get("max_threads") or 200)
-        sol_filter = set(str(s).upper() for s in (body.get("sol_filter") or []))
 
         from src.core import gmail_api, gdrive
         if not gmail_api.is_configured():
@@ -208,7 +197,7 @@ def admin_drive_replay():
         # Build Gmail query — only SENT, only attachments, only since date.
         since_q = since_dt.strftime("%Y/%m/%d")
         q = f"in:sent has:attachment after:{since_q}"
-        msg_ids = gmail_api.list_message_ids(gmail, q, max_results=max_threads)
+        msg_ids = gmail_api.list_message_ids(gmail, q, max_results=200)
 
         plan: list[dict] = []
         seen_threads: set[str] = set()
@@ -245,9 +234,6 @@ def admin_drive_replay():
             if sol_match is None:
                 continue
             sol_num, sol_pattern = sol_match
-            sol_key = sol_num.upper()
-            if sol_filter and sol_key not in sol_filter:
-                continue
 
             attachments = list(_iter_attachments(payload))
             if not attachments:
