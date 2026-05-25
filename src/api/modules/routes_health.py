@@ -779,6 +779,36 @@ def catalog_health_json():
         return {"ok": False, "error": str(e)}, 200
 
 
+@bp.route("/api/health/liveness")
+@auth_required
+def liveness_health_json():
+    """Liveness sweep — silent-failure detector across all critical
+    connections (Gmail poller, SCPRS scrape, award tracker, oracle
+    calibration, quote ingestion, DB backup, plus credential presence
+    for Gmail OAuth / Telegram / Anthropic).
+
+    2026-05-25 substrate addition. Truth lives in OUTPUT tables, not
+    agent self-reports. Stale tables / missing credentials fire
+    `external_service_disconnected` (or specific events) to Telegram
+    via CHANNEL_MAP. Called hourly by ops_monitor; this route triggers
+    an on-demand sweep so an operator can manually verify the substrate.
+
+    Returns:
+      { ok: true, ran_at: iso, summary: {pass, fail, total},
+        checks: [{name, ok, age_seconds, max_age_seconds, detail,
+                  alert_event}, ...],
+        alerts_fired: [labels of checks that crossed the threshold]
+      }
+    """
+    try:
+        from src.core.liveness_checks import run_liveness_sweep
+        summary = run_liveness_sweep()
+        return {"ok": True, **summary}
+    except Exception as e:
+        log.warning("/api/health/liveness failed: %s", e)
+        return {"ok": False, "error": str(e)}, 200
+
+
 @bp.route("/api/health/quoting")
 @auth_required
 def quoting_health_json():
