@@ -61,25 +61,9 @@ class TestExtractSolNumber:
         extract, *_ = _import_helpers()
         assert extract("Re: 25cb021 status") == ("25cb021", "dsh_cb")
 
-    def test_reytech_internal_id(self):
+    def test_cchcs_preq_with_pr_prefix(self):
+        """8-digit CCHCS number with a 'PR' prefix still resolves cchcs_preq."""
         extract, *_ = _import_helpers()
-        assert extract("RFQ #RT-CCHCS-260516-0c8749e6 — bid request") == (
-            "RT-CCHCS-260516-0c8749e6", "rt_internal",
-        )
-
-    def test_generic_pr_with_no_8digit(self):
-        # A bare "PR 12345" without a CCHCS-shaped 10\d{6} should fall through
-        # to the generic pattern. Realistically these may exist in the wild.
-        extract, *_ = _import_helpers()
-        # Use a short pr-number with 6 digits to hit pr_generic
-        assert extract("PR 123456 - Buyer Request") == ("123456", "pr_generic")
-
-    def test_cchcs_8digit_wins_over_pr_generic(self):
-        """When both an 8-digit CCHCS-style number AND a 'PR N' phrase appear,
-        the 8-digit pattern wins because it's listed first in _SOL_PATTERNS."""
-        extract, *_ = _import_helpers()
-        # PR 10842771 has the 8-digit form, so it must match cchcs_preq, not
-        # the generic 'PR \d+' pattern.
         assert extract("PR 10842771 - QUOTE REQUEST") == ("10842771", "cchcs_preq")
 
     def test_no_sol_returns_none(self):
@@ -170,19 +154,13 @@ class TestIterAttachments:
 
 
 class TestSolPatternsList:
-    """Pattern priority order matters — the first regex match wins. If
-    someone reorders _SOL_PATTERNS, callers relying on cchcs_preq beating
-    pr_generic would silently misroute."""
+    """Sol# patterns are scoped to the two formats Mike's CCHCS/DSH flow
+    actually uses. New patterns require explicit Mike approval — adding
+    speculative ones risks misrouting an archive to the wrong sol#."""
 
-    def test_cchcs_preq_listed_before_pr_generic(self):
+    def test_only_cchcs_and_dsh_patterns(self):
         _, _, patterns = _import_helpers()
         ids = [p[1] for p in patterns]
-        assert ids.index("cchcs_preq") < ids.index("pr_generic"), (
-            "cchcs_preq must precede pr_generic so an 8-digit sol# routes "
-            "to CCHCS, not the generic catch-all."
+        assert ids == ["cchcs_preq", "dsh_cb"], (
+            f"Sol# patterns must stay scoped to Mike's actual agencies; got {ids}"
         )
-
-    def test_all_pattern_ids_unique(self):
-        _, _, patterns = _import_helpers()
-        ids = [p[1] for p in patterns]
-        assert len(ids) == len(set(ids)), f"duplicate pattern id in {ids}"
