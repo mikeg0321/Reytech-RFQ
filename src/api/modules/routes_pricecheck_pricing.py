@@ -882,6 +882,18 @@ def api_pricecheck_mark_sent(pcid):
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
 
+    # 2026-05-25 Patch 4: propagate sent to the quotes table so
+    # award_tracker's eligibility query (WHERE status='sent') sees this
+    # PC's linked quote. Before this, the PC flipped to status='sent' but
+    # quotes.status stayed 'generated' / 'pending' → award_tracker scanned
+    # an empty input set → loss-detection pipeline silent → empty Oracle
+    # weekly. Best-effort — does not block the PC flip.
+    try:
+        from src.core.quote_lifecycle_shared import propagate_sent_to_quote_row
+        propagate_sent_to_quote_row(pc, source="user")
+    except Exception as _ps_e:
+        log.debug("propagate_sent_to_quote_row (mark-sent) suppressed: %s", _ps_e)
+
     # PR-U (2026-05-13): fire drift + shadow drift logs on the canonical
     # operator Mark-Sent path. Pre-PR-U the substrate only logged on
     # /send-quote (which Mike's workflow doesn't use), so PR-S
@@ -993,6 +1005,18 @@ def _api_pricecheck_mark_sent_manually_locked(pcid):
                             actor="user")
     except Exception as _e:
         log.debug("log_lifecycle_event(pc sent manual) suppressed: %s", _e)
+
+    # 2026-05-25 Patch 4: propagate sent to the quotes table (same as
+    # the /mark-sent path above). The out-of-band manual flow has the
+    # same award_tracker visibility bug — fixed here in lockstep.
+    try:
+        from src.core.quote_lifecycle_shared import propagate_sent_to_quote_row
+        propagate_sent_to_quote_row(pc, source="user")
+    except Exception as _ps_e:
+        log.debug(
+            "propagate_sent_to_quote_row (mark-sent-manually) suppressed: %s",
+            _ps_e,
+        )
 
     # PR-U (2026-05-13): drift + shadow logs on the manual mark-sent path
     # too. Same fix as /mark-sent above; operator emails out-of-band ➜
