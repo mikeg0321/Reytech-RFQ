@@ -507,6 +507,199 @@ Learning rate: alpha=0.15 | Markup floor: 15% | Ceiling: 50% | Min samples: 5
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 2b. TELEGRAM REPORT FORMATTER (MarkdownV2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_MD2_RESERVED = r"_*[]()~`>#+-=|{}.!"
+
+
+def _md2(text) -> str:
+    """Escape every MarkdownV2-reserved char in arbitrary user content.
+    Used OUTSIDE pre/code blocks where Telegram requires every reserved
+    char to carry a backslash.
+    """
+    if text is None:
+        return ""
+    s = str(text)
+    out = []
+    for ch in s:
+        if ch in _MD2_RESERVED:
+            out.append("\\")
+        out.append(ch)
+    return "".join(out)
+
+
+def _pre_pad(s, width, align="left") -> str:
+    """Width-pad inside a pre block for monospace column alignment.
+    Truncates with a trailing space-buffer so columns never collide."""
+    s = "" if s is None else str(s)
+    if len(s) > width:
+        s = s[: max(0, width - 1)] + "…"
+    if align == "right":
+        return s.rjust(width)
+    return s.ljust(width)
+
+
+def format_telegram_report(report: dict) -> str:
+    """Build a MarkdownV2 Telegram payload for the oracle weekly digest.
+
+    Telegram doesn't render HTML, so the layout leans on:
+      - Bold + emoji headers for section structure
+      - Monospace pre-blocks for tabular data (calibration / wins / losses)
+      - Strategic line dividers instead of CSS borders
+      - Tables capped at ~30 columns so they don't wrap on a phone
+
+    Returns the FULL message body (header + KPI strip + sections + footer).
+    The caller passes this via context["telegram_body"] and _send_telegram
+    sends it AS-IS — no further escaping. Every interpolated value here is
+    pre-escaped via _md2() (outside pre blocks) or sanitized (inside).
+    """
+    period_start = _md2(report.get("period_start", ""))
+    period_end = _md2(report.get("period_end", ""))
+
+    win_count = report.get("win_count", 0) or 0
+    win_rev = report.get("win_revenue", 0) or 0
+    loss_count = report.get("loss_count", 0) or 0
+    samples = report.get(
+        "calibration_samples_total", report.get("winning_prices_total", 0)
+    ) or 0
+    margin = report.get("avg_margin_all_time", 0) or 0
+    supplier_leads = report.get("supplier_leads", []) or []
+    pending = report.get("pending_actions", []) or []
+
+    rev_str = f"${win_rev:,.0f}"
+    margin_str = f"{margin}% avg margin"
+
+    DIVIDER = "━━━━━━━━━━━━━━━━━━━"
+
+    lines = []
+
+    # ── Header ───────────────────────────────────────────────────────
+    lines.append("📊 *Oracle Weekly Intelligence*")
+    lines.append(f"_{period_start} → {period_end}_")
+    lines.append("")
+
+    # ── KPI strip ────────────────────────────────────────────────────
+    lines.append(f"🏆 *{_md2(win_count)}* Wins · `{_md2(rev_str)}`")
+    lines.append(f"❌ *{_md2(loss_count)}* Losses")
+    lines.append(
+        f"📈 *{_md2(f'{samples:,}')}* Calibration Samples · `{_md2(margin_str)}`"
+    )
+    lines.append("")
+
+    # ── Wins ─────────────────────────────────────────────────────────
+    wins = report.get("wins", []) or []
+    if wins:
+        lines.append(DIVIDER)
+        lines.append("🏆 *Wins This Week*")
+        lines.append("```")
+        lines.append(
+            f"{_pre_pad('Quote', 11)} {_pre_pad('Agency', 8)} "
+            f"{_pre_pad('Revenue', 9, 'right')}"
+        )
+        for w in wins[:10]:
+            q = w.get("quote", "") or ""
+            a = w.get("agency", "") or ""
+            t = w.get("total", 0) or 0
+            lines.append(
+                f"{_pre_pad(q, 11)} {_pre_pad(a, 8)} "
+                f"{_pre_pad(f'${t:,.0f}', 9, 'right')}"
+            )
+        if len(wins) > 10:
+            lines.append(f"… +{len(wins) - 10} more")
+        lines.append("```")
+        lines.append("")
+
+    # ── Losses ───────────────────────────────────────────────────────
+    losses = report.get("losses", []) or []
+    if losses:
+        lines.append(DIVIDER)
+        lines.append("❌ *Losses This Week*")
+        lines.append("```")
+        lines.append(
+            f"{_pre_pad('Quote', 10)} {_pre_pad('Competitor', 12)} "
+            f"{_pre_pad('Δ%', 6, 'right')}"
+        )
+        for L in losses[:10]:
+            q = L.get("quote", "") or ""
+            c = L.get("competitor", "") or ""
+            d = L.get("delta_pct")
+            d_str = f"{d:+.1f}%" if d is not None else "—"
+            lines.append(
+                f"{_pre_pad(q, 10)} {_pre_pad(c, 12)} "
+                f"{_pre_pad(d_str, 6, 'right')}"
+            )
+        if len(losses) > 10:
+            lines.append(f"… +{len(losses) - 10} more")
+        lines.append("```")
+        lines.append("")
+
+    # ── Calibration State ────────────────────────────────────────────
+    cals = report.get("calibrations", []) or []
+    if cals:
+        lines.append(DIVIDER)
+        lines.append("🎯 *Calibration State*")
+        lines.append("_How the algorithm is adjusting based on outcomes_")
+        lines.append("```")
+        lines.append(
+            f"{_pre_pad('Category', 13)} {_pre_pad('Sam', 4, 'right')} "
+            f"{_pre_pad('Win%', 4, 'right')} {_pre_pad('Markup', 7, 'right')}"
+        )
+        for c in cals[:8]:
+            cat = (c.get("category", "") or "").replace("_", " ")
+            s = c.get("samples", 0) or 0
+            wr = c.get("win_rate", 0) or 0
+            mk = c.get("rec_max_markup", 0) or 0
+            lines.append(
+                f"{_pre_pad(cat, 13)} {_pre_pad(s, 4, 'right')} "
+                f"{_pre_pad(f'{wr}%', 4, 'right')} "
+                f"{_pre_pad(f'{mk:.1f}%', 7, 'right')}"
+            )
+        if len(cals) > 8:
+            lines.append(f"… +{len(cals) - 8} more rows")
+        lines.append("```")
+        lines.append("")
+
+    # ── Quiet-week footer ────────────────────────────────────────────
+    if not wins and not losses:
+        lines.append(DIVIDER)
+        lines.append("_No win/loss activity this week\\._")
+        lines.append("_Oracle calibration unchanged\\._")
+        lines.append("")
+
+    # ── Pending action items (top 5) ─────────────────────────────────
+    if pending:
+        lines.append(DIVIDER)
+        lines.append("📋 *Pending Actions*")
+        for a in pending[:5]:
+            prio_emoji = {
+                "high": "🔴", "medium": "🟡", "low": "⚪",
+            }.get(a.get("priority", ""), "•")
+            desc = (a.get("description", "") or "")[:80]
+            lines.append(f"{prio_emoji} {_md2(desc)}")
+        if len(pending) > 5:
+            lines.append(f"_… \\+{len(pending) - 5} more in dashboard_")
+        lines.append("")
+
+    # ── Supplier leads ───────────────────────────────────────────────
+    if supplier_leads:
+        lines.append(DIVIDER)
+        lines.append("🔍 *Supplier Leads* \\(cost reduction\\)")
+        for lead in supplier_leads[:3]:
+            desc = (lead.get("description", "") or "")[:90]
+            lines.append(f"• {_md2(desc)}")
+        if len(supplier_leads) > 3:
+            lines.append(f"_… \\+{len(supplier_leads) - 3} more_")
+        lines.append("")
+
+    # ── Footer ───────────────────────────────────────────────────────
+    gen = (report.get("generated_at", "") or "")[:16]
+    lines.append(f"_Generated {_md2(gen)} · Oracle V4_")
+
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 3. SCHEDULED RUNNER + HEALTH CHECK
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -517,13 +710,14 @@ def run_weekly_report():
     try:
         report = generate_weekly_report()
         html_body = format_report_email(report)
+        telegram_body = format_telegram_report(report)
 
         plain = (
             f"Oracle V4 Weekly: {report['period_start']} to {report['period_end']}\n"
             f"Wins: {report.get('win_count', 0)} (${report.get('win_revenue', 0):,.2f})\n"
             f"Losses: {report.get('loss_count', 0)}\n"
             f"Supplier leads: {len(report.get('supplier_leads', []))}\n"
-            f"Data points: {report.get('winning_prices_total', 0)}\n"
+            f"Calibration samples: {report.get('calibration_samples_total', 0)}\n"
             f"Calibrations active: {len(report.get('calibrations', []))}"
         )
 
@@ -532,12 +726,17 @@ def run_weekly_report():
         # back to CHANNEL_MAP["oracle_weekly"] = ["telegram", "bell"].
         # The empty-inbox transition: status digests land in Telegram,
         # operator-actionable events (PO/CS draft/RFQ) keep email/SMS.
+        # telegram_body short-circuits _send_telegram's escape path —
+        # see format_telegram_report() docstring for the layout shape.
         result = send_alert(
             event_type="oracle_weekly",
             title=f"Oracle Weekly: {report.get('win_count', 0)}W / {report.get('loss_count', 0)}L",
             body=plain,
             urgency="info",
-            context={"html_body": html_body},
+            context={
+                "html_body": html_body,
+                "telegram_body": telegram_body,
+            },
             cooldown_key="oracle_weekly",  # IN-12: dedupe weekly sends on retry
             run_async=False,
         )
