@@ -237,18 +237,48 @@ def generate_weekly_report():
             except Exception:
                 report["calibrations"] = []
 
-            # Winning prices stats (all time)
+            # Calibration samples stats (all-time, sourced from
+            # oracle_calibration — the table calibrate_from_outcome
+            # writes to on EVERY win AND loss). This is the "Data
+            # Points" KPI on the email card.
+            #
+            # 2026-05-25: the old KPI read winning_prices.COUNT(*).
+            # winning_prices is populated ONLY on the win path
+            # (orders.creation → record_winning_prices), so the card
+            # displayed 0 even when the calibration table had 300+
+            # samples from real losses — a contradiction visible on
+            # the 2026-05-18→05-25 weekly that prompted this fix.
+            # The two substrate tables are kept separate; the report
+            # surfaces the canonical one for the KPI label "Data
+            # Points" and keeps winning_prices_total as a secondary
+            # field for downstream consumers / tests.
+            try:
+                cal_stats = conn.execute("""
+                    SELECT COALESCE(SUM(sample_size), 0),
+                           COALESCE(SUM(win_count), 0),
+                           COALESCE(AVG(avg_winning_margin), 0)
+                    FROM oracle_calibration
+                """).fetchone()
+                report["calibration_samples_total"] = int(cal_stats[0] or 0)
+                report["calibration_wins_total"] = int(cal_stats[1] or 0)
+                report["avg_margin_all_time"] = round(cal_stats[2] or 0, 1)
+            except Exception:
+                report["calibration_samples_total"] = 0
+                report["calibration_wins_total"] = 0
+                report["avg_margin_all_time"] = 0
+
+            # Winning prices — secondary metric, kept for downstream
+            # consumers (tests, future dashboards). NOT the headline KPI.
             try:
                 wp_stats = conn.execute("""
-                    SELECT COUNT(*), COUNT(DISTINCT fingerprint),
-                           AVG(margin_pct), MIN(recorded_at), MAX(recorded_at)
+                    SELECT COUNT(*), COUNT(DISTINCT fingerprint)
                     FROM winning_prices
                 """).fetchone()
                 report["winning_prices_total"] = wp_stats[0] or 0
                 report["winning_prices_unique"] = wp_stats[1] or 0
-                report["avg_margin_all_time"] = round(wp_stats[2] or 0, 1)
             except Exception:
                 report["winning_prices_total"] = 0
+                report["winning_prices_unique"] = 0
 
             # V4: Recent supplier research action items (cost reduction leads)
             try:
@@ -316,9 +346,9 @@ def format_report_email(report):
     <div style="color:#8b949e;font-size:13px">Losses</div>
   </div>
   <div style="flex:1;background:#1f6feb22;padding:12px;border-radius:8px;border:1px solid #1f6feb55">
-    <div style="font-size:24px;font-weight:700;color:#58a6ff">{report.get('winning_prices_total', 0)}</div>
-    <div style="color:#8b949e;font-size:13px">Data Points</div>
-    <div style="color:#8b949e;font-size:12px">{report.get('avg_margin_all_time', 0)}% avg margin</div>
+    <div style="font-size:24px;font-weight:700;color:#58a6ff">{report.get('calibration_samples_total', report.get('winning_prices_total', 0))}</div>
+    <div style="color:#8b949e;font-size:13px">Calibration Samples</div>
+    <div style="color:#8b949e;font-size:12px">{report.get('avg_margin_all_time', 0)}% avg win margin</div>
   </div>
 </div>
 """
@@ -498,12 +528,15 @@ def run_weekly_report():
         )
 
         from src.agents.notify_agent import send_alert
+        # 2026-05-25: dropped explicit channels=["email"] so this falls
+        # back to CHANNEL_MAP["oracle_weekly"] = ["telegram", "bell"].
+        # The empty-inbox transition: status digests land in Telegram,
+        # operator-actionable events (PO/CS draft/RFQ) keep email/SMS.
         result = send_alert(
             event_type="oracle_weekly",
             title=f"Oracle Weekly: {report.get('win_count', 0)}W / {report.get('loss_count', 0)}L",
             body=plain,
             urgency="info",
-            channels=["email"],
             context={"html_body": html_body},
             cooldown_key="oracle_weekly",  # IN-12: dedupe weekly sends on retry
             run_async=False,

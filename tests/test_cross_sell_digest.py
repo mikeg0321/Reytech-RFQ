@@ -214,16 +214,30 @@ def test_send_skips_when_no_prospects(temp_data_dir):
     mock_send.assert_not_called()
 
 
-def test_send_calls_notify_agent_with_email_channel(seeded_db):
-    """Real prospects → send_alert with channels=['email']."""
-    mock_result = {"ok": True, "results": {"email": {"ok": True}}}
+def test_send_calls_notify_agent_with_cross_sell_event(seeded_db):
+    """Real prospects → send_alert with event_type='cross_sell_weekly'.
+
+    2026-05-25: The explicit channels=["email"] kwarg was removed so
+    routing follows CHANNEL_MAP["cross_sell_weekly"] = ["telegram",
+    "bell"]. The contract this test pins is the EVENT TYPE + cooldown
+    key (which together drive the routing), not a hardcoded channel
+    list — that's now notify_agent's responsibility.
+    """
+    mock_result = {"ok": True, "results": {"telegram": {"ok": True}}}
     with patch("src.agents.notify_agent.send_alert",
                return_value=mock_result) as mock_send:
         out = send_weekly_digest(window_days=365)
     assert out["ok"] is True
     mock_send.assert_called_once()
     kwargs = mock_send.call_args.kwargs
-    assert kwargs.get("channels") == ["email"]
+    # The caller MUST NOT pin a channel list — routing is centralized
+    # in notify_agent.CHANNEL_MAP so a single edit there moves every
+    # report-tier digest at once.
+    assert "channels" not in kwargs or kwargs["channels"] is None, (
+        "regression: cross_sell_digest re-added channels=[...] kwarg, "
+        "bypassing CHANNEL_MAP — the 2026-05-25 fix relied on this "
+        "fallback to route reports to Telegram"
+    )
     assert kwargs.get("event_type") == "cross_sell_weekly"
     assert kwargs.get("cooldown_key") == "cross_sell_weekly"
     assert "html_body" in kwargs.get("context", {})
