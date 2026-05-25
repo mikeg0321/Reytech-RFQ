@@ -530,6 +530,17 @@ def create_app():
         except ImportError:
             pass
 
+        # 2026-05-25 — register Telegram webhook (idempotent). Reads
+        # TELEGRAM_WEBHOOK_SECRET + PUBLIC_URL/RAILWAY_PUBLIC_DOMAIN from
+        # env. Silently skips when the env isn't set so dev/test boots
+        # don't error.
+        try:
+            from src.api.modules.routes_telegram import ensure_telegram_webhook_registered
+            ensure_telegram_webhook_registered()
+        except Exception as _twh_e:
+            logging.getLogger("reytech").warning(
+                "Telegram webhook registration: %s", _twh_e)
+
         # Sync SCPRS harvest data → won_quotes KB (bridge between tables)
         try:
             from src.knowledge.won_quotes_db import sync_from_scprs_tables
