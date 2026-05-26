@@ -494,12 +494,22 @@ def test_scprs_browser_store_writes_both_timestamp_columns(tmp_path, monkeypatch
     assert scraped_at, "scraped_at also expected (historical column)"
 
 
-def test_quote_ingestion_passes_when_only_spine_quotes_is_fresh(sweep_conn):
+def test_quote_ingestion_passes_when_only_spine_quotes_is_fresh(
+    sweep_conn, tmp_path, monkeypatch,
+):
     """The 2026-05-25 false alarm reproducer: legacy `quotes.created_at`
     is stale (no new ingest via the legacy path for 10+ days) but the
     Spine `spine_quotes.created_at` is fresh. Per §0 LAW 1 the Spine
     is canonical — the check must NOT fire.
+
+    Substrate-singleness post-fix (chrome MCP audit 2026-05-26 anomaly #1):
+    spine_quotes lives in a SEPARATE SQLite file (data/spine.db) per the
+    Spine substrate boundary. Pre-fix this test seeded spine_quotes in
+    the legacy sweep_conn — which is exactly the bug the production
+    check had. Post-fix: seed Spine in its own DB at SPINE_DB_PATH and
+    let the check pick it up there.
     See feedback_kpi_substrate_singleness."""
+    import sqlite3
     _fresh(sweep_conn)
     # Make legacy quotes stale (10 days ago).
     old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
@@ -507,12 +517,23 @@ def test_quote_ingestion_passes_when_only_spine_quotes_is_fresh(sweep_conn):
     sweep_conn.execute(
         "INSERT INTO quotes (quote_number, created_at, status) "
         "VALUES ('R26Q-OLD', ?, 'sent')", (old,))
-    # Spine quote fresh (5 min ago).
-    fresh = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-    sweep_conn.execute(
-        "INSERT INTO spine_quotes (quote_id, state_json, created_at, updated_at) "
-        "VALUES ('Q-NEW-1', '{}', ?, ?)", (fresh, fresh))
     sweep_conn.commit()
+
+    # Spine quote fresh (5 min ago) — in the SPINE DB, not the legacy one.
+    spine_db = str(tmp_path / "spine.db")
+    fresh = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    with sqlite3.connect(spine_db) as sc:
+        sc.execute("""
+            CREATE TABLE spine_quotes (
+                quote_id TEXT PRIMARY KEY, state_json TEXT,
+                created_at TEXT, updated_at TEXT
+            )
+        """)
+        sc.execute(
+            "INSERT INTO spine_quotes "
+            "(quote_id, state_json, created_at, updated_at) "
+            "VALUES ('Q-NEW-1', '{}', ?, ?)", (fresh, fresh))
+    monkeypatch.setenv("SPINE_DB_PATH", spine_db)
 
     sent = []
     with _patch_db(sweep_conn), \
@@ -573,28 +594,46 @@ def test_quote_ingestion_fires_when_both_tables_stale(sweep_conn):
     )
 
 
-def test_quote_ingestion_freshness_helper_picks_youngest_table():
-    """Direct unit test: the helper compares both tables and reports
-    the youngest write."""
+def test_quote_ingestion_freshness_helper_picks_youngest_table(
+    tmp_path, monkeypatch,
+):
+    """Direct unit test: the helper compares legacy `quotes` (in the
+    dashboard DB) and Spine `spine_quotes` (in data/spine.db) and reports
+    the youngest write.
+
+    Substrate-singleness post-fix (chrome MCP audit 2026-05-26 anomaly #1):
+    Spine lives in its own SQLite file. Pre-fix this test put both
+    tables in the same conn — replicating the production bug. Post-fix
+    seeds Spine at SPINE_DB_PATH; the helper opens both connections."""
     import sqlite3
     from src.core.liveness_checks import _quote_ingestion_freshness
 
-    conn = sqlite3.connect(":memory:")
-    conn.executescript("""
-        CREATE TABLE quotes (created_at TEXT);
-        CREATE TABLE spine_quotes (quote_id TEXT, state_json TEXT,
-                                   created_at TEXT, updated_at TEXT);
-    """)
+    # Legacy `quotes` — stale (10d old).
+    legacy_conn = sqlite3.connect(":memory:")
+    legacy_conn.executescript("CREATE TABLE quotes (created_at TEXT);")
     old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    legacy_conn.execute(
+        "INSERT INTO quotes (created_at) VALUES (?)", (old,))
+    legacy_conn.commit()
+
+    # Spine `spine_quotes` — fresh (2 min old) in its own DB file.
+    spine_db = str(tmp_path / "spine.db")
     new = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
-    conn.execute("INSERT INTO quotes (created_at) VALUES (?)", (old,))
-    conn.execute(
-        "INSERT INTO spine_quotes (quote_id, state_json, created_at, updated_at) "
-        "VALUES ('q1', '{}', ?, ?)", (new, new))
-    conn.commit()
+    with sqlite3.connect(spine_db) as sc:
+        sc.executescript("""
+            CREATE TABLE spine_quotes (
+                quote_id TEXT, state_json TEXT,
+                created_at TEXT, updated_at TEXT
+            );
+        """)
+        sc.execute(
+            "INSERT INTO spine_quotes "
+            "(quote_id, state_json, created_at, updated_at) "
+            "VALUES ('q1', '{}', ?, ?)", (new, new))
+    monkeypatch.setenv("SPINE_DB_PATH", spine_db)
 
     class _Ctx:
-        def __enter__(_self): return conn
+        def __enter__(_self): return legacy_conn
         def __exit__(_self, *a): return None
 
     with patch("src.core.db.get_db", return_value=_Ctx()):

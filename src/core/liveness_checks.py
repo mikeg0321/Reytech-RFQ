@@ -93,26 +93,64 @@ def _quote_ingestion_freshness() -> Callable:
     multi-substrate reader.
     """
     def _check():
+        import os
+        import sqlite3
         from src.core.db import get_db
         best_age = 10**9
         details = []
-        with get_db() as conn:
-            for table in ("quotes", "spine_quotes"):
-                try:
-                    row = conn.execute(
-                        f"SELECT MAX(created_at) FROM {table}"
-                    ).fetchone()
-                    last = row[0] if row else None
-                except Exception as e:
-                    details.append(f"{table}: query failed ({e})")
-                    continue
-                if not last:
-                    details.append(f"{table}: empty")
-                    continue
+
+        # ── Legacy `quotes` lives in the dashboard DB (data/reytech.db) ──
+        try:
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT MAX(created_at) FROM quotes"
+                ).fetchone()
+                last = row[0] if row else None
+            if not last:
+                details.append("quotes: empty")
+            else:
                 age = _seconds_since_iso(str(last))
-                details.append(f"{table}: {age // 60}min")
+                details.append(f"quotes: {age // 60}min")
                 if age < best_age:
                     best_age = age
+        except Exception as e:
+            details.append(f"quotes: query failed ({e})")
+
+        # ── Spine `spine_quotes` lives in a SEPARATE DB (data/spine.db) ──
+        # Reading via the legacy get_db() returns `no such table:
+        # spine_quotes` because Spine has its own substrate per §0 LAW 1.
+        # Mirror the path resolution in routes_spine.py:1665-1677 — env
+        # override, then DATA_DIR/spine.db, last-ditch cwd fallback.
+        # Pre-fix (2026-05-25 PR #1088 → 2026-05-26): both reads hit the
+        # legacy connection; spine_quotes always returned "no such table"
+        # and the check fell back to the legacy `quotes` age alone,
+        # masking the canonical Spine substrate entirely. Same substrate-
+        # singleness class as PRs #1076 / #1086 / #1088.
+        spine_db_path = os.environ.get("SPINE_DB_PATH")
+        if not spine_db_path:
+            try:
+                from src.core.paths import DATA_DIR
+                spine_db_path = os.path.join(str(DATA_DIR), "spine.db")
+            except Exception:
+                spine_db_path = os.path.join(
+                    os.getcwd(), "data", "spine.db"
+                )
+        try:
+            with sqlite3.connect(spine_db_path, timeout=5.0) as spine_conn:
+                row = spine_conn.execute(
+                    "SELECT MAX(created_at) FROM spine_quotes"
+                ).fetchone()
+                last = row[0] if row else None
+            if not last:
+                details.append("spine_quotes: empty")
+            else:
+                age = _seconds_since_iso(str(last))
+                details.append(f"spine_quotes: {age // 60}min")
+                if age < best_age:
+                    best_age = age
+        except Exception as e:
+            details.append(f"spine_quotes: query failed ({e})")
+
         if best_age >= 10**9:
             return (False, 10**9,
                     "no source had data — " + "; ".join(details))
