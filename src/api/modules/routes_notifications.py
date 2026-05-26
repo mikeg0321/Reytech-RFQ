@@ -184,6 +184,36 @@ def api_notifications_grouped():
     return jsonify({"ok": True, "days": days, "groups": groups})
 
 
+@bp.route("/api/notifications/mark-event-read", methods=["POST"])
+@auth_required
+def api_notifications_mark_event_read():
+    """Mark every unread row for one `event_type` as read.
+
+    Bell-side counterpart to PR #1102's Telegram supersede primitive.
+    Pre-existing `/api/notifications/mark-read` accepts a list of IDs
+    or no-args ("mark everything"); neither matches the grouped-view
+    workflow ("dismiss this whole class — the underlying alarm is
+    moot"). Today's volume driver — 1,313 `deadline_critical` events
+    for the Coleman NON-IT misparse — is exactly the shape this
+    endpoint targets: one click clears one class without nuking the
+    rest of the archive.
+
+    Body: `{"event_type": "deadline_critical"}`. Returns count updated
+    so the UI can decrement its per-group counter without a refetch.
+    """
+    payload = request.get_json(silent=True) or {}
+    event_type = (payload.get("event_type") or "").strip()
+    if not event_type:
+        return jsonify({"ok": False, "error": "event_type required"}), 400
+    try:
+        from src.agents.notify_agent import mark_event_type_read
+        result = mark_event_type_read(event_type)
+    except Exception as e:
+        log.error("mark-event-read failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify(result)
+
+
 # ─── Page ────────────────────────────────────────────────────────────
 
 
