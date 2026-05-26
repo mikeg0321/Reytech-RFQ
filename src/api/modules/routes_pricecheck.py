@@ -392,12 +392,18 @@ def _api_pc_change_status_locked(pcid):
             return jsonify({"ok": False, "error": "PC not found"})
 
         old_status = pc.get("status", "")
-        _transition_status(pc, new_status, actor="user",
-                           notes=data.get("notes", f"Manual: {old_status} → {new_status}"))
-
-        # If marking as sent, record sent_at
+        # Generic update-status endpoint — only flip to 'sent' through
+        # the single-writer helper (PR #11 substrate-singleness). For
+        # any other target status, fall back to plain _transition_status.
         if new_status == "sent" and not pc.get("sent_at"):
-            pc["sent_at"] = __import__('datetime').datetime.now().isoformat()
+            from src.core.quote_lifecycle_shared import mark_sent_in_place
+            mark_sent_in_place(
+                pc, notes=data.get("notes", f"Manual: {old_status} → sent"),
+                source="user",
+            )
+        else:
+            _transition_status(pc, new_status, actor="user",
+                               notes=data.get("notes", f"Manual: {old_status} → {new_status}"))
 
         # Record closed_at and reason for terminal statuses
         if new_status in ("won", "lost", "expired"):

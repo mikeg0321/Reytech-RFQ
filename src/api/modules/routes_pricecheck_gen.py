@@ -202,12 +202,16 @@ def api_bundle_send(bundle_id):
             except Exception as _cleanup_err:
                 log.debug("bundle send tmpdir cleanup: %s", _cleanup_err)
 
-        # Mark all PCs as sent
+        # Mark all PCs as sent — PR #11 substrate-singleness.
+        from src.core.quote_lifecycle_shared import mark_sent_in_place
         now_iso = datetime.now().isoformat()
         for pc in bundle_pcs:
-            pc["status"] = "sent"
-            pc["sent_at"] = now_iso
-            pc["sent_to"] = to_email
+            mark_sent_in_place(
+                pc, sent_at=now_iso, sent_to=to_email,
+                sent_method="bundle",
+                notes=f"Bundle send to {to_email}",
+                source="user",
+            )
             _save_single_pc(pc["id"], pc)
             try:
                 _log_crm_activity(pc["id"], "bundle_quote_sent",
