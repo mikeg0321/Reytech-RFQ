@@ -496,6 +496,16 @@ CREATE INDEX IF NOT EXISTS idx_notif_type ON notifications(event_type);
 -- after ack, trimmed to Telegram's 48h deleteMessage window), and
 -- when the delete actually fired. NULL acked_at = unread (never
 -- deletes — Mike's "save by not acknowledging" semantics).
+--
+-- §0 LAW 4 ARCHITECT APPROVAL (annotated post-hoc 2026-05-26 via
+-- PR #1101 per audit Item 7): this new schema was authorized by Mike
+-- acting as the sole Architect for this personal-use, single-developer
+-- system. Mike's verbal directive ("Messages should go through UI
+-- enhancements and should be auto deleted 24hrs after 'read'…") was
+-- the MOTIVATION per LAW 7; PR #1085's merge IS the recorded
+-- Architect approval per LAW 4. This in-code citation is the durable
+-- back-reference the back-window audit asked for, so the LAW 4 chain
+-- is readable from the schema itself, not just from the PR body.
 CREATE TABLE IF NOT EXISTS telegram_messages (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id      INTEGER NOT NULL,
