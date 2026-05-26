@@ -1651,6 +1651,39 @@ def init_db_deferred():
         migrate_legacy_rfqs_json_if_present()
     except Exception as e:
         log.warning("rfqs.json migration: %s", e)
+    # Chrome MCP audit 2026-05-26 anomaly #5: PR #1079 (2026-05-25)
+    # renamed the startup deploy-health emitter from event_type=
+    # "deploy_health" → "deploy_health_failed" + dropped urgency from
+    # "urgent" to "warning". The emitter rename was correct but the
+    # pre-rename rows in the notifications table were left behind —
+    # 39 of them as of the audit, surfacing as a duplicate card in
+    # /notifications with the wrong urgency tier. One-shot UPDATE
+    # collapses them onto the canonical event_type. Idempotent: the
+    # next call finds 0 rows.
+    try:
+        _migrate_deploy_health_event_type()
+    except Exception as e:
+        log.warning("deploy_health event-type migration: %s", e)
+
+
+def _migrate_deploy_health_event_type() -> int:
+    """One-shot data migration: rename pre-PR-#1079 notifications from
+    event_type='deploy_health' (urgency 'urgent') to the canonical
+    'deploy_health_failed' (urgency 'warning'). Returns row count
+    rewritten. Idempotent — second call returns 0."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE notifications "
+            "SET event_type='deploy_health_failed', urgency='warning' "
+            "WHERE event_type='deploy_health'"
+        )
+        n = cur.rowcount if cur.rowcount is not None else 0
+    if n > 0:
+        log.info(
+            "deploy_health migration: rewrote %d pre-PR-#1079 rows "
+            "to canonical event_type", n,
+        )
+    return int(n)
 
 
 def _migrate_columns():
