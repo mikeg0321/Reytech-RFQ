@@ -563,6 +563,58 @@ class TestExtractSolicitation:
         assert _is_sol_placeholder_capture("") is True
         assert _is_sol_placeholder_capture("   ") is True
 
+    # ── 2026-05-26: NON-IT regression (Coleman PR 10842771) ──
+    # Pre-fix the `.isalpha()` check let "NON-IT" slip through because
+    # the hyphen makes .isalpha() False. The 703B form title "REQUEST
+    # FOR QUOTATION: NON-IT GOODS Rev 03/2025" tripped pattern #6 at
+    # line 1048 of _extract_solicitation and "NON-IT" became sol# in
+    # the Spine contract for rfq_cc8332ab. Same path mis-ingested
+    # Ragadio's NON-IT 703B. Substrate fix: digit-required invariant.
+    def test_rejects_non_it_hyphenated_placeholder(self):
+        from src.core.request_classifier import _is_sol_placeholder_capture
+        assert _is_sol_placeholder_capture("NON-IT") is True
+        assert _is_sol_placeholder_capture("IT-GOODS") is True
+
+    def test_rejects_any_digit_less_capture(self):
+        """The digit-required invariant — closes the hyphen-bypass class
+        for the entire space of form-template label noise."""
+        from src.core.request_classifier import _is_sol_placeholder_capture
+        # form-template noise that .isalpha() would have missed
+        assert _is_sol_placeholder_capture("NON-IT") is True
+        assert _is_sol_placeholder_capture("IT-GOODS") is True
+        assert _is_sol_placeholder_capture("PRE-Q") is True
+        assert _is_sol_placeholder_capture("REV-A") is True
+        # real sol#s still pass (have digits)
+        assert _is_sol_placeholder_capture("10842771") is False
+        assert _is_sol_placeholder_capture("25CB021") is False
+        assert _is_sol_placeholder_capture("R26Q41") is False
+        assert _is_sol_placeholder_capture("PREQ-10842771") is False
+
+    def test_coleman_703b_title_does_not_yield_non_it(self):
+        """Real-world regression: the 703B form title embedded in the
+        attachment corpus must NOT poison the sol# extraction."""
+        from src.core.request_classifier import _extract_solicitation
+        # Exact form-title snippet that triggered the misparse on
+        # rfq_cc8332ab (Coleman PR 10842771, 2026-05-21). Standalone,
+        # the title is the ONLY anchor and must fall through to "" so
+        # downstream extractors (email_poller / attachment filename)
+        # can win.
+        corpus = "REQUEST FOR QUOTATION: NON-IT GOODS Rev 03/2025"
+        result = _extract_solicitation(corpus, [])
+        assert result != "NON-IT", "form-title NON-IT must not become sol#"
+        assert result != "GOODS"
+
+    def test_coleman_corpus_with_real_sol_wins(self):
+        """When a real sol# coexists with the form-title noise, the
+        digit-bearing capture must win."""
+        from src.core.request_classifier import _extract_solicitation
+        corpus = (
+            "REQUEST FOR QUOTATION: NON-IT GOODS Rev 03/2025\n"
+            "Solicitation Number: 10842771\n"
+            "PR 10842771 - QUOTE REQUEST\n"
+        )
+        assert _extract_solicitation(corpus, []) == "10842771"
+
 
 # ─── Email-only (no attachments) ────────────────────────────────────────
 
