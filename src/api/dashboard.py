@@ -6069,6 +6069,7 @@ _ROUTE_MODULES = [
     "routes_admin_spine_backfill", # 2026-05-18: counter/set + retroactive display_number stamp
     "routes_admin_drive_replay",   # 2026-05-25: backfill Drive forms-archive from Gmail SENT
     "routes_telegram",             # 2026-05-25: Telegram webhook + [✓ Got it] ack/24h auto-delete
+    "routes_notifications",        # 2026-05-26 PR-C: grouped /notifications view + /api/notifications/grouped
 ]
 
 for _mod in _ROUTE_MODULES:
