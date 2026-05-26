@@ -973,6 +973,11 @@ _SOL_PLACEHOLDER_WORDS = frozenset({
     "SOLICITATION", "REFERENCE", "REF", "SAMPLE", "DRAFT", "PENDING",
     "OPEN", "CLOSED", "NEW", "BLANK", "EMPTY", "UNKNOWN", "TBD", "TBA",
     "NONE", "NULL", "REPLY", "RE", "FW", "FWD", "DOCUMENT",
+    # 2026-05-26 (Coleman 10842771 → #NON-IT): form-category words from
+    # the standard CCHCS 703B title "REQUEST FOR QUOTATION: NON-IT GOODS
+    # Rev 03/2025". The digit-required invariant below catches these
+    # already; listed here for clearer audit logs.
+    "NON-IT", "IT-GOODS", "GOODS",
 })
 
 
@@ -980,10 +985,22 @@ def _is_sol_placeholder_capture(value: str) -> bool:
     """True when a regex-captured sol# looks like a placeholder word.
 
     Mirror of `ingest_pipeline._looks_like_sol_placeholder` semantics
-    but inlined here to avoid a cross-module circular import. Real
-    sol#s almost always contain a digit (CCHCS = 8 digits, CalVet =
-    `25CB021`-style, etc.); a pure-alphabetic ALL-CAPS capture is
-    almost always the buyer's body text mis-parsed as a label value.
+    but inlined here to avoid a cross-module circular import.
+
+    The substrate invariant: every real solicitation number contains
+    at least one digit. CCHCS = 8 digits (10842771); CalVet/DSH =
+    "25CB021"-style alphanumerics with embedded digits; CalRecycle =
+    digit-bearing. A no-digit capture is the buyer's body text or a
+    form-template default ("NON-IT" / "PAYMENT" / "ATTACHED") misread
+    as a sol#. Enforcing the invariant here closes the class for ALL
+    7 regex patterns in `_extract_solicitation` simultaneously.
+
+    History: the pre-2026-05-26 check (`s.isalpha() and len(s) <= 20`)
+    rejected pure-alpha words like "PAYMENT" but let `NON-IT` slip
+    through — the hyphen makes `.isalpha()` return False. Coleman's
+    PR 10842771 ingested as sol#="NON-IT" because the regex at line
+    1048 captured `NON-IT` from the 703B title "REQUEST FOR QUOTATION:
+    NON-IT GOODS". Replaced with the stronger digit-required rule.
     """
     if not value:
         return True
@@ -992,10 +1009,8 @@ def _is_sol_placeholder_capture(value: str) -> bool:
         return True
     if s in _SOL_PLACEHOLDER_WORDS:
         return True
-    # Pure all-caps alphabetic word, no digits, no hyphen — matches
-    # "PAYMENT", "ATTACHED", etc. but not "25CB021" (has digits) or
-    # "RT-CALVET-260513-abc" (has hyphens + digits).
-    if s.isalpha() and len(s) <= 20:
+    # Substrate invariant: a real sol# always contains a digit.
+    if not any(c.isdigit() for c in s):
         return True
     return False
 

@@ -356,11 +356,23 @@ def _normalize_sol_num(raw: str) -> str:
       "RFQ # 25CB021" → "25CB021"
       "10847262"      → "10847262"  (unchanged)
       "25CB021"       → "25CB021"   (unchanged)
+      "NON-IT"        → ""          (rejected — no digits)
+
+    Substrate invariant (2026-05-26 / Coleman 10842771): a real sol#
+    always contains at least one digit. Form-field values without a
+    digit are form-template defaults (the buyer left the AcroForm
+    field empty so the template's category text shows through) — not
+    buyer input. Returning "" here lets the caller fall back to the
+    email-derived sol# in `attachment_contract_parser.py` instead of
+    overwriting `10842771` with `NON-IT`.
     """
     if not raw:
         return ""
     cleaned = _PREFIX_NOISE.sub("", raw).strip()
-    return cleaned or raw.strip()
+    candidate = cleaned or raw.strip()
+    if not any(c.isdigit() for c in candidate):
+        return ""
+    return candidate
 
 
 _DATE_PATTERNS = [

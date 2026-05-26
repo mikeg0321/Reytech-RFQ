@@ -53,13 +53,25 @@ def test_normalize_sol_num_handles_empty():
     assert _normalize_sol_num("   ") == ""
 
 
-def test_normalize_sol_num_fallback_when_only_prefix():
-    """Edge: value is just the prefix with no payload — return the
-    cleaned (empty) form, NOT the raw, so we don't silently leak
-    'PREQ' as a sol#. But never return empty if raw had content."""
+def test_normalize_sol_num_rejects_digit_less_values():
+    """Substrate invariant (2026-05-26 / Coleman 10842771): a real
+    sol# always contains at least one digit. Digit-less form-field
+    values are template defaults / category labels, not buyer input.
+    Returning "" lets `attachment_contract_parser` fall back to the
+    email-derived sol# instead of overwriting `10842771` with
+    `NON-IT`. The previous behavior leaked 'PREQ' / 'NON-IT' through.
+    """
     from src.agents.form_field_extractor import _normalize_sol_num
-    # Just "PREQ" alone (no digits) — fallback returns original
-    assert _normalize_sol_num("PREQ") == "PREQ"
+    # Form-template / category labels — REJECT
+    assert _normalize_sol_num("NON-IT") == ""
+    assert _normalize_sol_num("IT-GOODS") == ""
+    assert _normalize_sol_num("GOODS") == ""
+    # Just "PREQ" alone (the prefix only, no digits) — also REJECT
+    assert _normalize_sol_num("PREQ") == ""
+    # Real digit-bearing values still pass
+    assert _normalize_sol_num("10842771") == "10842771"
+    assert _normalize_sol_num("PREQ 10842771") == "10842771"
+    assert _normalize_sol_num("25CB021") == "25CB021"
 
 
 def test_normalize_date_mdy_slash():
