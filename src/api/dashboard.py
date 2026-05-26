@@ -6203,6 +6203,26 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Quote lifecycle failed to start: %s", _e)
 
+    # ── Start Gmail-SENT Watcher (PR #9 2026-05-26) ──────────────────────
+    # Closes the manual-Gmail-bypass gap: when Mike sends a quote via
+    # Gmail compose instead of the in-app Mark-Sent button, this watcher
+    # detects the outbound message in SENT and fires the SAME pipeline
+    # (status flip, Spine sync, operator_quote_sent insert, Drive
+    # archive, training capture, prior_submissions). Idempotent via
+    # `already_attached` flag on observed_send matches.
+    try:
+        import src.agents.gmail_sent_watcher as _gsw_mod
+        _gsw_mod.start_scheduler(app=app)
+        from src.core.scheduler import register_restartable
+        register_restartable("gmail-sent-watcher",
+                             _gsw_mod._DEFAULT_INTERVAL_SEC,
+                             _gsw_mod, "_scheduler_started",
+                             lambda: _gsw_mod.start_scheduler(app=app))
+        log.info("Gmail-SENT watcher started (interval=%ds, restartable)",
+                 _gsw_mod._DEFAULT_INTERVAL_SEC)
+    except Exception as _e:
+        log.warning("Gmail-SENT watcher failed to start: %s", _e)
+
     # ── Start Email Retry Scheduler (retries failed emails) ─────────────────
     try:
         import src.agents.email_lifecycle as _el_mod

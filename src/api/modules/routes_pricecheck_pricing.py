@@ -929,18 +929,9 @@ def api_pricecheck_mark_sent_manually(pcid):
 
     Race-safe wrapper (PR #778 pattern).
     """
-    from src.api.data_layer import _save_pcs_lock
-    with _save_pcs_lock:
-        return _api_pricecheck_mark_sent_manually_locked(pcid)
-
-
-def _api_pricecheck_mark_sent_manually_locked(pcid):
-    """Inner body — always runs under `_save_pcs_lock`."""
-    pcs = _load_price_checks()
-    if pcid not in pcs:
-        return jsonify({"ok": False, "error": "PC not found"}), 404
-    pc = pcs[pcid]
-
+    # Read the request OUTSIDE the lock so the locked inner is pure-data
+    # and reusable from non-Flask-request contexts (gmail_sent_watcher
+    # PR #9 2026-05-26).
     is_multipart = (request.content_type or "").startswith("multipart/")
     if is_multipart:
         payload = request.form.to_dict()
@@ -948,6 +939,24 @@ def _api_pricecheck_mark_sent_manually_locked(pcid):
     else:
         payload = request.get_json(force=True, silent=True) or {}
         uploaded = None
+    from src.api.data_layer import _save_pcs_lock
+    with _save_pcs_lock:
+        return _api_pricecheck_mark_sent_manually_locked(
+            pcid, payload=payload, uploaded=uploaded,
+        )
+
+
+def _api_pricecheck_mark_sent_manually_locked(pcid, *, payload=None, uploaded=None):
+    """Inner body — always runs under `_save_pcs_lock`.
+
+    Pure-data entry point — see _api_rfq_mark_sent_manually_locked
+    docstring for the call-from-background-thread pattern.
+    """
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+    pc = pcs[pcid]
+    payload = payload or {}
 
     now_iso = datetime.now().isoformat()
     sent_to = (payload.get("sent_to")
