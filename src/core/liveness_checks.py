@@ -66,8 +66,31 @@ def _quote_ingestion_freshness() -> Callable:
     Same shape as the SCPRS sourcing fix and the empty-oracle bug
     (PR #1076) — KPI sourcing the non-canonical substrate column.
 
-    Once the legacy `quotes` table is DELETED at the end of the Spine
-    migration (§0 LAW 2), this helper collapses to a single-table read.
+    ⚠ DUAL-READ INTERIM SHIM — DELETION TICKET BELOW ⚠
+
+    This helper is a temporary multi-substrate reader pending legacy
+    `quotes`-table deletion. It MUST collapse to a single-table read
+    on `spine_quotes` only when both conditions hold:
+
+      1. **Job #1 (CCHCS Spine migration, due 2026-06-18)** lands the
+         deletion commit for the CCHCS legacy quote-write paths AND
+         3 consecutive clean CCHCS Spine ships have been logged.
+         At that point CCHCS no longer writes to `quotes`.
+
+      2. **Subsequent agency migrations** (CalVet → DSH → DGS) each
+         repeat the same delete-the-legacy-writer step. The last
+         agency to migrate ends `quotes`-table writes entirely.
+
+    Acceptance for collapse: `grep -rn 'INTO quotes' src/` finds zero
+    callsites. At that point: delete the `"quotes"` branch from the
+    `for table in (...)` loop below, delete this docstring section,
+    rename the helper to `_spine_quote_ingestion_freshness`. Do NOT
+    collapse early — keeping the dual-read while legacy still writes
+    masks real silences.
+
+    Audit Item 8 (2026-05-26 back-window pass): named the deletion
+    gate explicitly so this shim cannot ossify into a permanent
+    multi-substrate reader.
     """
     def _check():
         from src.core.db import get_db
@@ -146,6 +169,32 @@ def _multi_source_freshness(*sources: tuple) -> Callable:
         (ok, age_seconds, detail) — age is the SMALLEST across sources that
         returned a value. Sources that error or are empty are noted in
         detail but don't fail the check unless ALL sources are empty/erroring.
+
+    ⚠ MULTI-COLUMN INTERIM SHIM — DELETION TICKET BELOW ⚠
+
+    The primary live call site reads SCPRS as
+    `_multi_source_freshness(("scprs_po_master","pulled_at"),
+    ("scprs_po_master","scraped_at"))` because the 4 manual/API writer
+    paths (`scprs_*_engine` modules) still write `pulled_at` while the
+    scheduled scraper writes `scraped_at`. Collapse to a single-column
+    read when ONE of these holds:
+
+      1. **SCPRS writer convergence** — all 4 manual/API writers migrate
+         to write `scraped_at` (the schedule-canonical column). Owner:
+         next session that touches `src/agents/scprs_*_engine.py`. At
+         that point: change the call site to single-arg
+         `_table_freshness("scprs_po_master", "scraped_at")` and delete
+         this helper if it has no other callers.
+
+      2. **The `pulled_at` column is dropped from `scprs_po_master`** in
+         a migration (definitive deletion gate).
+
+    Until then: each NEW callsite of `_multi_source_freshness` is itself
+    a substrate-singleness smell that should file its own collapse
+    ticket per the same pattern.
+
+    Audit Item 8 (2026-05-26 back-window pass): named the convergence
+    gates so this shim cannot ossify into permanent N-column reads.
     """
     def _check():
         from src.core.db import get_db
