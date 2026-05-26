@@ -1664,6 +1664,15 @@ def init_db_deferred():
         _migrate_deploy_health_event_type()
     except Exception as e:
         log.warning("deploy_health event-type migration: %s", e)
+    # Chrome MCP audit 2026-05-26 anomaly #4: `due_date_reminder`
+    # emitter consolidated onto `deadline_critical` (the canonical
+    # event_type used by start_deadline_watcher). The two daemons
+    # were doing the same conceptual work — collapse historical
+    # rows so /notifications shows one card per concern.
+    try:
+        _migrate_due_date_reminder_event_type()
+    except Exception as e:
+        log.warning("due_date_reminder event-type migration: %s", e)
 
 
 def _migrate_deploy_health_event_type() -> int:
@@ -1681,6 +1690,28 @@ def _migrate_deploy_health_event_type() -> int:
     if n > 0:
         log.info(
             "deploy_health migration: rewrote %d pre-PR-#1079 rows "
+            "to canonical event_type", n,
+        )
+    return int(n)
+
+
+def _migrate_due_date_reminder_event_type() -> int:
+    """One-shot data migration: rename pre-PR-F notifications from
+    event_type='due_date_reminder' to the canonical 'deadline_critical'.
+    Both event_types described the same concern (bid deadline
+    approaching) — the rename consolidates them onto one card in the
+    grouped /notifications view. Returns row count rewritten.
+    Idempotent — second call returns 0."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE notifications "
+            "SET event_type='deadline_critical' "
+            "WHERE event_type='due_date_reminder'"
+        )
+        n = cur.rowcount if cur.rowcount is not None else 0
+    if n > 0:
+        log.info(
+            "due_date_reminder migration: rewrote %d pre-PR-F rows "
             "to canonical event_type", n,
         )
     return int(n)

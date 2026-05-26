@@ -128,11 +128,30 @@ def check_due_dates():
         # Bell notification
         try:
             from src.agents.notify_agent import send_alert
-            send_alert("due_date_reminder", alert["message"],
-                       f"{alert['type'].upper()} #{alert['number']} due {alert['due']}",
-                       urgency="urgent",
-                       context={"type": "due_date", "item_type": alert["type"],
-                                "item_id": alert["id"]})
+            # Chrome MCP audit 2026-05-26 anomaly #4: this emitter and
+            # notify_agent.start_deadline_watcher (`_scan_deadlines`)
+            # both describe the SAME conceptual event — bid deadline
+            # approaching. Pre-fix they emitted two different event_types
+            # (due_date_reminder vs deadline_critical), creating two
+            # cards on /notifications for one concern. Substrate-
+            # singleness — collapse onto the canonical name.
+            #
+            # Cooldown alignment: pass entity_id + per-bid cooldown_key
+            # so both emitters share dedup state. Pre-fix this site
+            # passed no entity_id, defaulting to "deadline_critical:"
+            # — every bid collided onto one global key (explaining the
+            # suspiciously low 21 events / 30d). Per-bid key fixes
+            # that and matches the watcher's key shape exactly.
+            send_alert(
+                "deadline_critical",
+                alert["message"],
+                f"{alert['type'].upper()} #{alert['number']} due {alert['due']}",
+                urgency="urgent",
+                context={"type": "due_date", "item_type": alert["type"],
+                         "item_id": alert["id"], "entity_id": alert["id"]},
+                cooldown_key=f"deadline_critical:{alert['id']}",
+                cooldown_seconds=3600,
+            )
         except Exception as _e:
             log.debug("suppressed: %s", _e)
 
