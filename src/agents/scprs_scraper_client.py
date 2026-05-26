@@ -76,6 +76,12 @@ def _fallback_local(fn_name, *args, **kwargs):
     elif fn_name == "scrape_po_detail":
         from src.agents.scprs_browser import scrape_po_detail
         return scrape_po_detail(*args, **kwargs)
+    elif fn_name == "scrape_exhaustive":
+        # Local fallback: call the same _scrape_with_retry path the
+        # daemon used pre-remote. If local playwright is unavailable
+        # it returns []; the daemon's outer loop is tolerant of empty.
+        from src.agents.scprs_browser import _scrape_with_retry
+        return _scrape_with_retry(*args, **kwargs)
     elif fn_name == "search_scprs_public":
         from src.agents.scprs_public_search import search_scprs_public
         return search_scprs_public(*args, **kwargs)
@@ -137,6 +143,57 @@ def search_scprs_public(keyword="", department_code="", max_results=50):
         return _fallback_local("search_scprs_public",
                                keyword=keyword, department_code=department_code,
                                max_results=max_results)
+
+
+def scrape_exhaustive(supplier_name="", from_date="", to_date="",
+                      description="", max_rows=500, seen_pos=None):
+    """Run an exhaustive FI$Cal scrape for a date window via the remote
+    scraper service. Returns the list of PO dicts the service collected.
+
+    Chrome MCP audit 2026-05-26 anomaly #9: the daemon at
+    `scprs_browser._run_exhaustive_scrape` called
+    `_scrape_with_retry` → `_scrape_full_async` directly, which bailed
+    on `_playwright_available()=False` and returned []. The remote
+    scraper service has been running with playwright since 2026-05-12
+    and exposes the matching `/scrape/exhaustive` endpoint, but no
+    client wrapper existed — so the daemon never tried it. This
+    wrapper closes that gap.
+
+    `seen_pos`: passed through as a list (JSON-serializable). The
+    remote service rebuilds the set on its side.
+    """
+    payload = {
+        "supplier_name": supplier_name,
+        "from_date": from_date,
+        "to_date": to_date,
+        "description": description,
+        "max_rows": max_rows,
+        "seen_pos": list(seen_pos) if seen_pos else [],
+    }
+    try:
+        return _call_with_breaker("/scrape/exhaustive", payload)
+    except CircuitOpenError:
+        log.debug("Scraper circuit open — immediate fallback to local")
+        return _fallback_local(
+            "scrape_exhaustive",
+            search_params={
+                "supplier_name": supplier_name, "from_date": from_date,
+                "to_date": to_date, "description": description,
+            },
+            seen_pos=seen_pos or set(),
+            max_rows=max_rows,
+        )
+    except (ConnectionError, requests.RequestException) as e:
+        log.warning("Scraper service error on /scrape/exhaustive: %s", e)
+        return _fallback_local(
+            "scrape_exhaustive",
+            search_params={
+                "supplier_name": supplier_name, "from_date": from_date,
+                "to_date": to_date, "description": description,
+            },
+            seen_pos=seen_pos or set(),
+            max_rows=max_rows,
+        )
 
 
 def search_scprs_intercept(keyword="", department_code="3860"):

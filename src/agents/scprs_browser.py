@@ -5,6 +5,7 @@ extract line-item data that HTTP scraping cannot reach.
 """
 
 import logging
+import os
 import re
 import asyncio
 
@@ -1012,7 +1013,50 @@ def _scrape_with_retry(search_params, seen_pos, max_rows=500, max_retries=3):
     preserved for existing callers. Behavior is identical to the
     pre-Tier-1d implementation: max_retries attempts, linear backoff
     (10s, 20s between retries), retries on any Exception.
+
+    Chrome MCP audit 2026-05-26 anomaly #9: when `SCRAPER_SERVICE_URL`
+    is set, route to the remote scprs-scraper service first. That
+    service has been running with playwright since 2026-05-12 and
+    exposes `/scrape/exhaustive` with the matching signature. Pre-fix
+    this function went directly to `_scrape_full_async` which bailed
+    on `_playwright_available()=False` and returned [] — 25 days of
+    silent zero-row writes. The client wrapper has its own circuit-
+    breaker + local-fallback chain, so when this branch is taken we
+    never need playwright in this container.
     """
+    if os.environ.get("SCRAPER_SERVICE_URL"):
+        try:
+            from src.agents.scprs_scraper_client import scrape_exhaustive
+            from src.core.external_call import with_retry
+
+            def _do_remote():
+                return scrape_exhaustive(
+                    supplier_name=search_params.get("supplier_name", ""),
+                    from_date=search_params.get("from_date", ""),
+                    to_date=search_params.get("to_date", ""),
+                    description=search_params.get("description", ""),
+                    max_rows=max_rows,
+                    seen_pos=seen_pos,
+                )
+
+            return with_retry(
+                _do_remote,
+                op="SCPRS scrape (remote)",
+                attempts=max_retries,
+                base_delay=10.0,
+                backoff="linear",
+                logger=log,
+            )
+        except Exception as _e:
+            # Importing the client itself failed (rare) — fall through
+            # to the local playwright path below. _playwright_available()
+            # gates that path so empty-result on missing playwright is
+            # the safe degraded behavior.
+            log.warning(
+                "Remote scraper client import failed, falling back to local: %s",
+                _e,
+            )
+
     from src.core.external_call import with_retry
 
     def _do_scrape():
