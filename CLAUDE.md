@@ -23,7 +23,7 @@ The disease is the **operating model**, measured 2026-05-21:
 A migration that never deletes what it replaces is not a migration.
 That single behavior is what this section exists to stop.
 
-### The cure — six laws
+### The cure — seven laws
 
 **LAW 1 — One substrate.** The Spine (`src/spine/`) is the canonical
 quote path. `QuoteContract` and the legacy dict path are on a
@@ -74,6 +74,22 @@ ambiguous, ingest records the gap as a contract field and **blocks the
 quote** — it never papers over it. Every agency migration (Job #1
 onward) must prove its `EmailContract` carries that agency's full
 requirement set before that agency's legacy path is deleted.
+
+**LAW 7 — §0 changes only by PR; verbal directives MOTIVATE a PR,
+they don't BECOME one.** §0 is the governance substrate. Any change
+to it — any LAW, any Job, any clause — is a PR diff, code-reviewed,
+visible in `git log`. A directive from Mike spoken in chat, captured
+in a memory file, or relayed through a handoff is the *motivation*
+for a §0 PR; it is **not** itself a §0 change. Two parallel windows
+reading §0 differently because one captured a verbal "kill Spine" in
+memory while the other read the file and saw `LAW 1 — Spine
+canonical` is the exact failure mode this rule closes (2026-05-25:
+the substrate-wave handoff acted on a verbal-only "§0 reversal"
+while the Spine-save-button-fix handoff read the file and built the
+opposite plan — same operator, same day, opposite directions). When
+a verbal directive conflicts with §0 as written, the file wins until
+a PR amends it. If you find yourself about to act on a §0 change that
+isn't in `git log` yet, stop and open the PR first.
 
 ### The pack — four roles, mission-scoped
 
