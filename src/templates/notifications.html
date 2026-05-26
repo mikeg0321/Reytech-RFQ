@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Notifications — Reytech RFQ{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width:1100px;margin:0 auto;padding:18px 24px">
+
+ <header style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+  <h1 style="margin:0;font-size:22px;font-weight:600">🔔 Notifications</h1>
+  <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx2)">
+   <span>Window:</span>
+   {% for w in [1, 7, 30, 90] %}
+   <a href="?days={{ w }}"
+      class="hdr-btn"
+      style="padding:6px 12px;font-size:12px;{% if days == w %}background:var(--ac);color:#fff;font-weight:600{% endif %}">
+    {{ w }}d
+   </a>
+   {% endfor %}
+   <span style="margin-left:12px;color:var(--tx2)">
+    {{ total_count }} {{ 'event' if total_count == 1 else 'events' }}
+    across {{ groups|length }} {{ 'type' if groups|length == 1 else 'types' }}
+   </span>
+  </div>
+ </header>
+
+ {% if not groups %}
+ <div class="card" style="padding:48px 24px;text-align:center;color:var(--tx2)">
+  <div style="font-size:48px;margin-bottom:12px">📭</div>
+  <div style="font-size:16px;margin-bottom:6px">No notifications in the last {{ days }} day{{ 's' if days != 1 else '' }}</div>
+  <div style="font-size:13px">The bell archive is clean. Try widening the window or check back after the next liveness sweep.</div>
+ </div>
+ {% else %}
+
+ <div role="list" aria-label="Notification groups">
+ {% for g in groups %}
+  {% set urgency = g.latest_urgency or 'info' %}
+  {% set _bd = ('#e57373' if urgency == 'urgent' else '#f6c343' if urgency == 'warning' else 'var(--bd)') %}
+  {% set _icon = ('🚨' if urgency == 'urgent' else '⚠️' if urgency == 'warning' else 'ℹ️') %}
+  {% if g.is_recovered_event %}
+   {% set _icon = '✓' %}
+   {% set _bd = '#4caf50' %}
+  {% endif %}
+ <div role="listitem"
+      class="card"
+      style="padding:14px 18px;margin-bottom:10px;border-left:4px solid {{ _bd }};{% if g.resolved %}opacity:0.72{% endif %}">
+  <div style="display:flex;align-items:start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+   <div style="flex:1;min-width:280px">
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px">
+     <span style="margin-right:6px">{{ _icon }}</span>
+     {{ g.latest_title }}
+     {% if g.resolved %}
+     <span style="display:inline-block;margin-left:8px;font-size:11px;padding:2px 8px;background:#4caf5022;color:#4caf50;border-radius:10px;font-weight:500">RESOLVED {{ g.resolved_at[:10] if g.resolved_at else '' }}</span>
+     {% endif %}
+    </div>
+    <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">
+     <code style="background:var(--sf);padding:1px 6px;border-radius:3px;font-size:11px">{{ g.event_type }}</code>
+     · {{ g.count }} {{ 'occurrence' if g.count == 1 else 'occurrences' }}
+     · first {{ g.first_seen[:16].replace('T', ' ') if g.first_seen else '?' }}
+     · last {{ g.last_seen[:16].replace('T', ' ') if g.last_seen else '?' }}
+    </div>
+    {% if g.latest_body %}
+    <div style="font-size:13px;color:var(--tx);white-space:pre-wrap;line-height:1.45;max-height:120px;overflow:hidden">{{ g.latest_body }}</div>
+    {% endif %}
+   </div>
+   {% if g.latest_deep_link %}
+   <a href="{{ g.latest_deep_link }}" class="hdr-btn" style="padding:6px 12px;font-size:12px;flex-shrink:0">Open →</a>
+   {% endif %}
+  </div>
+ </div>
+ {% endfor %}
+ </div>
+
+ {% endif %}
+
+ <footer style="margin-top:24px;padding-top:16px;border-top:1px solid var(--bd);font-size:12px;color:var(--tx2);text-align:center">
+  Read-only projection over the <code>notifications</code> table.
+  Recovery (✓) cards close out their prior alert via PR-B's
+  <code>{event}_recovered</code> emitter.
+  API: <a href="/api/notifications/grouped?days={{ days }}" style="color:var(--ac)">/api/notifications/grouped</a>
+ </footer>
+
+</div>
+{% endblock %}
