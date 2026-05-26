@@ -526,10 +526,29 @@ def create_app():
             logging.getLogger("reytech").warning("Task consumer startup: %s", e)
 
         # Full FI$Cal exhaustive scrape at 2:00 AM PST
+        # Chrome MCP audit 2026-05-26 anomaly #9: also register with the
+        # watchdog so silent thread death triggers a respawn — pre-fix
+        # the raw threading.Thread daemon was invisible to the watchdog
+        # and 25 days of silence went undetected. Same shape as PR #1087.
         try:
-            from src.agents.scprs_browser import schedule_full_fiscal_scrape
-            schedule_full_fiscal_scrape(target_hour_pst=2)
-            logging.getLogger("reytech").info("FI$Cal exhaustive scrape scheduled for 2:00 AM PST")
+            from src.agents import scprs_browser as _sb_mod
+            _sb_mod.schedule_full_fiscal_scrape(target_hour_pst=2)
+            try:
+                from src.core.scheduler import register_restartable
+                register_restartable(
+                    "fiscal-exhaustive",
+                    86400,  # daily — daemon heartbeats once per loop
+                    _sb_mod,
+                    "_fiscal_scheduler_started",
+                    lambda: _sb_mod.schedule_full_fiscal_scrape(target_hour_pst=2),
+                )
+            except Exception as _e:
+                logging.getLogger("reytech").debug(
+                    "fiscal-exhaustive watchdog registration: %s", _e,
+                )
+            logging.getLogger("reytech").info(
+                "FI$Cal exhaustive scrape scheduled for 2:00 AM PST (restartable)"
+            )
         except ImportError:
             pass
 

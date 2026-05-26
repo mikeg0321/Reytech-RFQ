@@ -647,15 +647,43 @@ def _store_results(batch, seen_pos):
 
 # ── Exhaustive Scrape ───────────────────────────────────────────
 
+_fiscal_scheduler_started = False
+
+
 def schedule_full_fiscal_scrape(target_hour_pst=2):
-    """Schedule exhaustive FI$Cal scrape at target hour Pacific time."""
+    """Schedule exhaustive FI$Cal scrape at target hour Pacific time.
+
+    Chrome MCP audit 2026-05-26 anomaly #9: this daemon was 25 days
+    silent in prod. Pre-fix it was spawned via raw threading.Thread —
+    invisible to the scheduler watchdog (same defect class as PR #1087's
+    email-poller silent thread death). Silent death = forever silent.
+    Post-fix: guard against double-start via module-level
+    `_fiscal_scheduler_started`, heartbeat each loop iteration so the
+    watchdog sees liveness, app.py wires register_restartable so a dead
+    thread gets auto-respawned within one watchdog cycle.
+    """
     import threading
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     PST = ZoneInfo("America/Los_Angeles")
 
+    global _fiscal_scheduler_started
+    if _fiscal_scheduler_started:
+        log.debug("fiscal-exhaustive: already started, skipping re-init")
+        return
+    _fiscal_scheduler_started = True
+
+    # Heartbeat so the watchdog has a baseline signal even before the
+    # first scheduled scrape (which can be up to 24h away).
+    try:
+        from src.core.scheduler import heartbeat
+        heartbeat("fiscal-exhaustive", success=True)
+    except Exception as _e:
+        log.debug("fiscal-exhaustive: initial heartbeat suppressed: %s", _e)
+
     def _wait_and_run():
         import time as _time
+        from src.core.scheduler import heartbeat as _hb
         while True:
             now = datetime.now(PST)
             target = now.replace(hour=target_hour_pst, minute=0, second=0, microsecond=0)
@@ -664,11 +692,27 @@ def schedule_full_fiscal_scrape(target_hour_pst=2):
             wait_seconds = (target - now).total_seconds()
             log.info("FISCAL SCRAPE: next run %s PST (in %.1f hours)",
                      target.strftime("%Y-%m-%d %H:%M"), wait_seconds / 3600)
+            # Heartbeat at the head of each sleep so the watchdog sees
+            # the daemon is alive even across 24h sleeps. Without this,
+            # the watchdog sees no signal between scrape runs and would
+            # mark the job dead.
+            try:
+                _hb("fiscal-exhaustive", success=True)
+            except Exception as _e:
+                log.debug("fiscal-exhaustive: pre-sleep heartbeat suppressed: %s", _e)
             _time.sleep(wait_seconds)
             try:
                 _run_exhaustive_scrape()
+                try:
+                    _hb("fiscal-exhaustive", success=True)
+                except Exception as _e:
+                    log.debug("fiscal-exhaustive: post-scrape heartbeat suppressed: %s", _e)
             except Exception as e:
                 log.error("FISCAL SCRAPE failed: %s", e)
+                try:
+                    _hb("fiscal-exhaustive", success=False, error=str(e)[:200])
+                except Exception as _e:
+                    log.debug("fiscal-exhaustive: error heartbeat suppressed: %s", _e)
             _time.sleep(60)
 
     t = threading.Thread(target=_wait_and_run, daemon=True, name="fiscal-exhaustive")

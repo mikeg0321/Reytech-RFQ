@@ -6277,10 +6277,27 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
         log.warning("Invoice poller failed to start: %s", _e)
 
     # ── FI$Cal Exhaustive Scrape (2AM PST nightly) ──────────────
+    # Chrome MCP audit 2026-05-26 anomaly #9: register with watchdog
+    # too, so silent thread death triggers respawn. Pre-fix the raw
+    # threading.Thread daemon was invisible to the watchdog — 25 days
+    # of silence went undetected.
     try:
-        from src.agents.scprs_browser import schedule_full_fiscal_scrape
-        schedule_full_fiscal_scrape(target_hour_pst=2)
-        log.info("FI$Cal exhaustive scrape scheduled for 2:00 AM PST")
+        from src.agents import scprs_browser as _sb_mod
+        _sb_mod.schedule_full_fiscal_scrape(target_hour_pst=2)
+        try:
+            from src.core.scheduler import register_restartable
+            register_restartable(
+                "fiscal-exhaustive",
+                86400,
+                _sb_mod,
+                "_fiscal_scheduler_started",
+                lambda: _sb_mod.schedule_full_fiscal_scrape(target_hour_pst=2),
+            )
+        except Exception as _e:
+            log.debug("fiscal-exhaustive watchdog registration: %s", _e)
+        log.info(
+            "FI$Cal exhaustive scrape scheduled for 2:00 AM PST (restartable)"
+        )
     except Exception as _e:
         log.warning("FI$Cal scrape scheduler failed: %s", _e)
 
