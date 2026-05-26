@@ -6484,10 +6484,13 @@ def _api_pc_send_quote_locked(pcid):
             except Exception as _cleanup_err:
                 log.debug("pc send tmpdir cleanup: %s", _cleanup_err)
 
-        # Update PC status
-        pc["status"] = "sent"
-        pc["sent_at"] = datetime.now().isoformat()
-        pc["sent_to"] = to_email
+        # Update PC status — PR #11 substrate-singleness.
+        from src.core.quote_lifecycle_shared import mark_sent_in_place
+        mark_sent_in_place(
+            pc, sent_to=to_email, sent_method="email",
+            notes="PC sent via admin endpoint",
+            source="user",
+        )
         _save_single_pc(pcid, pc)
 
         # Log activity

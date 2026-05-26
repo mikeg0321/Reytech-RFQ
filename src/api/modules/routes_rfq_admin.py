@@ -417,12 +417,16 @@ def _api_rfq_mark_sent_manually_locked(rid, *, payload=None, uploaded=None):
     attachment = _save_manual_attachment(rid, uploaded)
 
     old_status = r.get("status", "")
-    from src.api.modules.routes_rfq import _transition_status
-    _transition_status(r, "sent", actor="user",
-                       notes=notes or "Marked sent manually (out-of-band)")
-    r["sent_at"] = sent_at
-    r["sent_to"] = sent_to
-    r["sent_method"] = "manual"
+    # Substrate-singleness (PR #11 / audit Item 6): single writer for
+    # the 'sent' transition. Replaces the 4-step
+    # `_transition_status + r["sent_at"]/sent_to/sent_method` block
+    # + the propagate_sent_to_quote_row call below.
+    from src.core.quote_lifecycle_shared import mark_sent_in_place
+    mark_sent_in_place(
+        r, sent_at=sent_at, sent_to=sent_to, sent_method="manual",
+        notes=notes or "Marked sent manually (out-of-band)",
+        source="user",
+    )
 
     # Bug-2 audit (2026-05-02): the SCPRS award_tracker enrollment query
     # filters `WHERE total > 0`. If `r.total` was never persisted (some
@@ -466,20 +470,8 @@ def _api_rfq_mark_sent_manually_locked(rid, *, payload=None, uploaded=None):
     except Exception as _e:
         log.debug("DAL update_rfq_status(sent) suppressed: %s", _e)
 
-    # 2026-05-25 Patch 4: propagate sent to the quotes table so
-    # award_tracker's eligibility scan sees the linked quote. Without this
-    # the RFQ flips to status='sent' but the quotes row stays at its
-    # generation-time status (typically 'generated' or 'pending'), and
-    # award_tracker's `WHERE status='sent'` filter excludes it → empty
-    # Oracle weekly even though the operator actually sent the quote.
-    try:
-        from src.core.quote_lifecycle_shared import propagate_sent_to_quote_row
-        propagate_sent_to_quote_row(r, source="user")
-    except Exception as _ps_e:
-        log.debug(
-            "propagate_sent_to_quote_row (rfq mark-sent-manually) suppressed: %s",
-            _ps_e,
-        )
+    # propagate to quotes table is now handled INSIDE mark_sent_in_place
+    # above (PR #11 substrate-singleness — single writer for 'sent').
 
     # Plan §4.1: KPI telemetry — measure time-to-send for the <90s KPI.
     # Best-effort; never blocks the mark-sent flip.
@@ -1089,9 +1081,14 @@ def _send_email_enhanced_legacy_DISABLED(rid):
         sender = EmailSender(CONFIG.get("email", {}))
         sender.send(draft)
         
-        # Transition status
-        _transition_status(r, "sent", actor="user", notes=f"Email sent to {to_addr}")
-        r["sent_at"] = datetime.now().isoformat()
+        # PR #11 substrate-singleness: single writer for 'sent'.
+        # Replaces _transition_status + r["sent_at"] block + the
+        # propagate_sent_to_quote_row call below.
+        from src.core.quote_lifecycle_shared import mark_sent_in_place
+        mark_sent_in_place(
+            r, sent_method="email", notes=f"Email sent to {to_addr}",
+            source="user",
+        )
         r["draft_email"] = {"to": to_addr, "subject": subject, "body": body, "cc": cc, "bcc": bcc}
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
@@ -1100,17 +1097,6 @@ def _send_email_enhanced_legacy_DISABLED(rid):
             _dal_ur(rid, "sent")
         except Exception as _e:
             log.debug('suppressed in send_email_enhanced: %s', _e)
-        # 2026-05-25 Patch 4: propagate to quotes table (same rationale as
-        # the mark-sent-manually paths — without this, award_tracker's
-        # eligibility scan misses RFQ-sent emails).
-        try:
-            from src.core.quote_lifecycle_shared import propagate_sent_to_quote_row
-            propagate_sent_to_quote_row(r, source="user")
-        except Exception as _ps_e:
-            log.debug(
-                "propagate_sent_to_quote_row (rfq send_email_enhanced) suppressed: %s",
-                _ps_e,
-            )
         
         # ── Log to email_log table ──
         sol = r.get("solicitation_number", "")

@@ -833,12 +833,16 @@ def api_pricecheck_mark_sent(pcid):
         pc = pcs[pcid]
 
         now = datetime.now().isoformat()
-        _transition_status(pc, "sent", actor="user",
-                          notes=data.get("notes", "704 sent to requestor"))
-        pc["sent_at"] = now
+        # PR #11 substrate-singleness: single writer for 'sent'.
+        from src.core.quote_lifecycle_shared import mark_sent_in_place
+        mark_sent_in_place(
+            pc, sent_at=now,
+            sent_to=data.get("sent_to", pc.get("requestor", "")),
+            sent_method=data.get("method", "email"),
+            notes=data.get("notes", "704 sent to requestor"),
+            source="user",
+        )
         pc["award_status"] = "pending"
-        pc["sent_to"] = data.get("sent_to", pc.get("requestor", ""))
-        pc["sent_method"] = data.get("method", "email")
 
         # Create versioned document record
         doc_id = 0
@@ -882,17 +886,8 @@ def api_pricecheck_mark_sent(pcid):
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
 
-    # 2026-05-25 Patch 4: propagate sent to the quotes table so
-    # award_tracker's eligibility query (WHERE status='sent') sees this
-    # PC's linked quote. Before this, the PC flipped to status='sent' but
-    # quotes.status stayed 'generated' / 'pending' → award_tracker scanned
-    # an empty input set → loss-detection pipeline silent → empty Oracle
-    # weekly. Best-effort — does not block the PC flip.
-    try:
-        from src.core.quote_lifecycle_shared import propagate_sent_to_quote_row
-        propagate_sent_to_quote_row(pc, source="user")
-    except Exception as _ps_e:
-        log.debug("propagate_sent_to_quote_row (mark-sent) suppressed: %s", _ps_e)
+    # propagate to quotes table now handled INSIDE mark_sent_in_place
+    # above (PR #11 substrate-singleness — single writer for 'sent').
 
     # PR-U (2026-05-13): fire drift + shadow drift logs on the canonical
     # operator Mark-Sent path. Pre-PR-U the substrate only logged on
@@ -980,11 +975,13 @@ def _api_pricecheck_mark_sent_manually_locked(pcid, *, payload=None, uploaded=No
             log.error("PC manual-sent attachment save failed: %s", _e)
 
     old_status = pc.get("status", "")
-    _transition_status(pc, "sent", actor="user",
-                       notes=notes or "Marked sent manually (out-of-band)")
-    pc["sent_at"] = sent_at
-    pc["sent_to"] = sent_to
-    pc["sent_method"] = "manual"
+    # PR #11 substrate-singleness: single writer for 'sent'.
+    from src.core.quote_lifecycle_shared import mark_sent_in_place
+    mark_sent_in_place(
+        pc, sent_at=sent_at, sent_to=sent_to, sent_method="manual",
+        notes=notes or "Marked sent manually (out-of-band)",
+        source="user",
+    )
     pc["manual_sent_metadata"] = {
         "marked_at": now_iso,
         "sent_at_reported": sent_at,
@@ -1015,17 +1012,8 @@ def _api_pricecheck_mark_sent_manually_locked(pcid, *, payload=None, uploaded=No
     except Exception as _e:
         log.debug("log_lifecycle_event(pc sent manual) suppressed: %s", _e)
 
-    # 2026-05-25 Patch 4: propagate sent to the quotes table (same as
-    # the /mark-sent path above). The out-of-band manual flow has the
-    # same award_tracker visibility bug — fixed here in lockstep.
-    try:
-        from src.core.quote_lifecycle_shared import propagate_sent_to_quote_row
-        propagate_sent_to_quote_row(pc, source="user")
-    except Exception as _ps_e:
-        log.debug(
-            "propagate_sent_to_quote_row (mark-sent-manually) suppressed: %s",
-            _ps_e,
-        )
+    # propagate to quotes table now handled INSIDE mark_sent_in_place
+    # above (PR #11 substrate-singleness — single writer for 'sent').
 
     # PR-U (2026-05-13): drift + shadow logs on the manual mark-sent path
     # too. Same fix as /mark-sent above; operator emails out-of-band ➜

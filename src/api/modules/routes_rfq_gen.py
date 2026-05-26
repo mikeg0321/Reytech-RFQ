@@ -3779,8 +3779,12 @@ def send_email(rid):
     try:
         sender = EmailSender(CONFIG.get("email", {}))
         sender.send(r["draft_email"])
-        _transition_status(r, "sent", actor="user", notes="Email sent to buyer")
-        r["sent_at"] = datetime.now().isoformat()
+        # PR #11 substrate-singleness: single writer for 'sent'.
+        from src.core.quote_lifecycle_shared import mark_sent_in_place
+        mark_sent_in_place(
+            r, sent_method="email", notes="Email sent to buyer",
+            source="user",
+        )
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
         try:

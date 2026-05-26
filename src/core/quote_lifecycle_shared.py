@@ -363,6 +363,89 @@ def mark_lost(record, record_type, record_id, competitor="", competitor_price=0,
     return result
 
 
+def mark_sent_in_place(
+    record: dict,
+    *,
+    sent_at: str | None = None,
+    sent_to: str | None = None,
+    sent_method: str | None = None,
+    notes: str | None = None,
+    source: str = "user",
+    skip_transition: bool = False,
+) -> dict:
+    """Single substrate writer for the 'sent' state transition on a PC
+    or RFQ entity dict.
+
+    Before this helper (audit-flagged 2026-05-26 / PR #1078 follow-up):
+    8 inline call sites across routes_rfq_admin / routes_rfq_gen /
+    routes_pricecheck_admin / routes_pricecheck_pricing /
+    routes_pricecheck_gen each did the same 4-step dance:
+
+        _transition_status(record, "sent", actor=..., notes=...)
+        record["sent_at"]     = <some iso>
+        record["sent_to"]     = <some recipient>
+        record["sent_method"] = <"manual"|"email"|"bundle"|...>
+        # ... and later somewhere:
+        propagate_sent_to_quote_row(record, source=...)
+
+    8 inline writers = 8 places to drift. Per
+    `[[feedback-kpi-substrate-singleness]]` this is the dominant
+    defect class. ONE function owns the transition now; the inline
+    writes are deleted in the same PR.
+
+    Args:
+        record: PC or RFQ dict (mutated in place).
+        sent_at: ISO timestamp. Defaults to datetime.now().isoformat().
+        sent_to: recipient email (e.g., buyer's procurement address).
+        sent_method: "manual" | "email" | "bundle" | ... — free-form
+            audit metadata; only written when truthy.
+        notes: audit-trail note forwarded to _transition_status.
+        source: actor for propagate_sent_to_quote_row audit
+            ("user" for operator, "system" for daemons,
+            "gmail_sent_watcher" / "bundle_send" / etc.).
+        skip_transition: when True, the helper does NOT call
+            _transition_status (caller already did). Use ONLY when
+            interleaving with non-sent transitions; default False is
+            the intended path.
+
+    Returns:
+        {transitioned: bool, propagated: bool}
+        - transitioned: True if status was flipped to 'sent' here.
+        - propagated: True if the linked `quotes` row was also flipped
+          (via propagate_sent_to_quote_row).
+
+    Best-effort: never raises. The status flip is authoritative; the
+    propagate call is the analytics-substrate side-effect.
+    """
+    if sent_at is None:
+        sent_at = datetime.now().isoformat()
+
+    transitioned = False
+    if not skip_transition:
+        try:
+            from src.api.modules.routes_rfq import _transition_status
+            _transition_status(record, "sent", actor=source, notes=notes)
+            transitioned = True
+        except Exception as e:
+            # Defensive: never let a transition-helper hiccup block the
+            # sent-state flip the operator just requested.
+            log.warning(
+                "mark_sent_in_place: _transition_status failed (%s), "
+                "falling back to direct status write", e,
+            )
+            record["status"] = "sent"
+            transitioned = True
+
+    record["sent_at"] = sent_at
+    if sent_to:
+        record["sent_to"] = sent_to
+    if sent_method:
+        record["sent_method"] = sent_method
+
+    propagated = propagate_sent_to_quote_row(record, source=source)
+    return {"transitioned": transitioned, "propagated": propagated}
+
+
 def propagate_sent_to_quote_row(record: dict, source: str = "user") -> bool:
     """When a PC or RFQ is marked sent, also flip its linked row in the
     `quotes` table to status='sent' (which also stamps sent_at).
