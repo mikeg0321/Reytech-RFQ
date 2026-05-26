@@ -178,7 +178,16 @@ def run_all_checks():
                 
                 # Pattern C: sqlite3.connect without init_db or get_db or DATA_DIR
                 if 'sqlite3.connect(' in content and fname not in ('db.py', 'startup_checks.py'):
-                    has_guard = 'init_db' in content or 'get_db' in content or 'from src.core' in content
+                    # Spine substrate modules (src/spine/*.py) are intentionally
+                    # isolated from src.core (§0 LAW 1 — no cross-substrate
+                    # imports) so they own their own _connect helpers. The
+                    # core-import-marker heuristic doesn't apply to them.
+                    # 2026-05-26: src/spine/catalog.py (PR #1046) was tripping
+                    # this check; it has its own _connect mirroring db._connect
+                    # by design — adding a src.core import would violate LAW 1.
+                    is_spine_substrate = rel.startswith('spine' + os.sep) or rel.startswith('spine/')
+                    has_guard = ('init_db' in content or 'get_db' in content
+                                 or 'from src.core' in content or is_spine_substrate)
                     if not has_guard:
                         issues.append(f"{rel}: direct sqlite3.connect without any db guard")
 
