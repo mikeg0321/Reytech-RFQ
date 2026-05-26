@@ -2252,29 +2252,24 @@ def process_rfq_email(rfq_email):
                 if _v2_result.record_type == "rfq":
                     _rfqs_after = load_rfqs()
                     _new_rfq = _rfqs_after.get(_v2_result.record_id)
-                    # PR-AV9 (AV-9): the V2 success branch was returning
-                    # before reaching `_trigger_auto_price` at the end of
-                    # this function. Result: V2-ingested RFQs (most
-                    # modern records — Vision/AcroForm-extracted) never
-                    # got their auto-PC, never ran catalog/history price
-                    # lookup, never progressed from "parsed" to
-                    # "auto_priced" status. Operators had to hand-price
-                    # or hit the manual retry-auto-price route on every
-                    # new RFQ. rfq_efbdef4a / 25CB021 (Vision found 7
-                    # items, Vision-only path) was a flagged example.
-                    # Fire the same trigger the legacy path uses so the
-                    # V2 path reaches pricing parity. `_trigger_auto_price`
-                    # is idempotent (early-exits when auto_price_pc_id
-                    # is already set) so re-entry is safe.
-                    if _new_rfq and _new_rfq.get("line_items"):
-                        try:
-                            _trigger_auto_price(_new_rfq)
-                        except Exception as _ape:
-                            log.debug(
-                                "PR-AV9 auto-price trigger on V2 record "
-                                "%s failed (non-fatal): %s",
-                                _v2_result.record_id, _ape,
-                            )
+                    # PR-AV9 WITHDRAWN 2026-05-26 (substrate-singleness
+                    # 4th-in-5-days). The original AV-9 patch fired a
+                    # legacy auto-price-trigger here for V2-classified
+                    # RFQ records; the trigger spawned an `auto_rfq_*`
+                    # PC for every RFQ-class email, doubling each
+                    # inbound on /home (PC panel + RFQ panel rendering
+                    # the same email twice). Mike caught it via 5 ghost
+                    # PCs on prod (auto_rfq_d877/f11c/cc83/0124/89bb).
+                    # RFQ-class records now live in `rfqs` only; the PC
+                    # substrate is reserved for the early-detect branch
+                    # in email_poller (true PC-class 704 worksheets).
+                    # CCHCS auto-pricing is Spine's job per §0 LAW 1
+                    # (see src/spine/auto_pricer.py); non-CCHCS legacy
+                    # RFQs price via the editor until those agencies
+                    # migrate. See [[feedback-kpi-substrate-singleness]]
+                    # + [[project-handoff-2026-05-25-rfq-ingest-
+                    # double-classify]]. The withdrawn call shape is
+                    # pinned out by tests/test_av9_v2_auto_price_trigger.
                     return _new_rfq
                 return None
             else:
@@ -3591,8 +3586,22 @@ def process_rfq_email(rfq_email):
     except Exception as _ap_e:
         log.debug("F10 auto-price: %s", _ap_e)
 
-    # ── Auto Price Lookup (no quote generation) ─────────────────────────────
-    _trigger_auto_price(rfq_data)
+    # ── Auto Price Lookup REMOVED 2026-05-26 ────────────────────────────────
+    # The legacy-path tail used to fire an auto-price trigger here for
+    # every RFQ-class email reaching this point; that trigger spawned
+    # an `auto_rfq_*` PC, visible on /home as 5 ghost PCs (Duffey x2,
+    # Coleman, Argarin x2). RFQ-class records live in `rfqs` only; the
+    # PC substrate is reserved for the `is_price_check_email` early-
+    # detect branch. The duplicate-classify bug Mike caught on the
+    # 2026-05-25 /home snapshot is closed by NOT making the call. The
+    # other (V2-path) callsite is similarly removed; see the
+    # PR-AV9-WITHDRAWN block above.
+    #
+    # If a downstream consumer needs auto-pricing on an RFQ row in
+    # the future, build it on the RFQ row (write back to rfq_data
+    # itself), do not spawn a PC. See [[project-handoff-2026-05-25-
+    # rfq-ingest-double-classify]] + the pinning tests in
+    # tests/test_av9_v2_auto_price_trigger.py.
 
     return rfq_data
 
