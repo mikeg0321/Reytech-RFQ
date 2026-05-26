@@ -408,7 +408,18 @@ def _get_price_alerts(threshold_pct=10.0, limit=20):
                                     # Per-product cooldown so repeated dashboard
                                     # hits on the same item don't re-alert, but
                                     # different products each get their own bell.
+                                    #
+                                    # Chrome MCP audit 2026-05-26 anomaly #2:
+                                    # this fired 57,314 events in 30d (~1900/day)
+                                    # because the 15-min default cooldown +
+                                    # ~hourly /growth-intel scans × ~20 products
+                                    # over the 30% gap = ~80 events/hour. The
+                                    # "this SKU is undercut" signal is static —
+                                    # it doesn't change between intra-day scans.
+                                    # 24h cooldown keeps the per-product alert
+                                    # but kills the per-scan re-fire spam.
                                     cooldown_key=f"scprs_undercut_{pid}",
+                                    cooldown_seconds=86400,
                                     run_async=False,
                                 )
                             except Exception as _e:
