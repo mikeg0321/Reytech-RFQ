@@ -360,6 +360,28 @@ CHECKS = [
      ),
      48 * 3600),
 
+    # Chrome MCP audit 2026-05-26 anomaly #9 Phase 3b: daemon-attempt
+    # signal, independent of write success. scprs_pull_log gets one row
+    # per fiscal-exhaustive cycle (and per manual puller) — read its
+    # MAX(pulled_at) to detect "daemon dead" distinct from "daemon ran
+    # but wrote 0 rows". 26h threshold = nightly + 2h grace.
+    # Together with the SCPRS-award-scrape check above, three states are
+    # distinguishable:
+    #   • Both fresh        → daemon running + writes succeeding
+    #   • Daemon fresh,
+    #     award-scrape stale → daemon attempts succeed but the scraper
+    #                          itself returns 0 rows (FI$Cal portal
+    #                          broken, login lapsed, selectors stale).
+    #                          Layer-2 investigation needed.
+    #   • Both stale        → daemon dead (thread crashed or never
+    #                         scheduled). PR #1115 watchdog should
+    #                         catch this within minutes; this is the
+    #                         persistent-signal fallback.
+    ("SCPRS scrape daemon liveness",
+     "scprs_pull_failed_persistent",
+     _table_freshness("scprs_pull_log", "pulled_at"),
+     26 * 3600),
+
     ("Award tracker cycle",
      "external_service_disconnected",
      _table_freshness("award_tracker_log", "checked_at"),
