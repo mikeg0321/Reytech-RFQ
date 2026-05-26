@@ -256,16 +256,27 @@ def create_app():
 
     def _send_error_alert(error, route_info):
         """Fire alerts for server errors via notify_agent (non-blocking).
-        Routes to email + SMS + dashboard bell based on notify_agent config."""
+        Routes to email + SMS + dashboard bell based on notify_agent config.
+
+        Chrome MCP audit 2026-05-26 anomaly #10: 3 historical events
+        had title='500 Error: MethodNotAllowed' (MethodNotAllowed is
+        405, not 500). PR #678 fixed the root cause — the
+        @app.errorhandler(Exception) catch-all now re-raises
+        HTTPException so 4xx no longer mask as 500 — but the title
+        constructor here still hardcoded '500'. Use the exception's
+        actual `code` attribute when it has one (HTTPException
+        subclasses do), fall back to 500 for unhandled exceptions.
+        """
+        code = getattr(error, "code", None) or 500
         try:
             from src.agents.notify_agent import send_alert
             send_alert(
                 event_type="server_error",
-                title=f"500 Error: {type(error).__name__}",
+                title=f"{code} Error: {type(error).__name__}",
                 body=f"{route_info}\n{str(error)[:300]}",
                 urgency="warning",
                 channels=["email", "bell"],
-                cooldown_key=f"500:{route_info}",
+                cooldown_key=f"{code}:{route_info}",
             )
         except Exception:
             pass  # Alert infra failure must never block error response
