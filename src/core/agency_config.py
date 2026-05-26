@@ -128,115 +128,15 @@ def _agency_from_email_domain(email):
     return None
 
 
-# ── PARENT AGENCY REGISTRY (2026-05-25) ────────────────────────────────────
-# Two-tier agency model. Each parent has strong signals (unambiguous patterns
-# / domains that prove this parent) and a children list (the legacy agency
-# config keys that live under this parent). Parent resolution happens FIRST;
-# child matching is then SCOPED to the parent's children only — preventing
-# cross-parent conflation.
-#
-# The bug this fixes (Mike's 2026-05-25 directive):
-#   PVSP (Pleasant Valley State Prison) is a CCHCS facility in COALINGA, CA.
-#   DSH's match_patterns include "COALINGA" because Coalinga State Hospital
-#   is also in Coalinga. The pre-2026-05-25 `match_agency()` loop checked
-#   DSH BEFORE CCHCS and returned DSH for any quote shipping to PVSP,
-#   producing the wrong Fill Plan with NO PROFILE for CCHCS Bid Package.
-#
-# The substrate fix:
-#   1. Detect parent via email domain (deterministic) OR strong textual
-#      patterns ("CCHCS", "STATE HOSPITAL", etc.).
-#   2. Once parent is known, match only the parent's children.
-#   3. Patterns flagged as OVERLAP (e.g. "COALINGA") never fire without a
-#      parent context — they need parent disambiguation first.
-#   4. Mike's mental model: CCHCS and DSH are sibling child branches of the
-#      correctional/healthcare CDCR-family parent, each with its own
-#      addresses, processes, forms, bill-to. See [[architectural-cdcr-hierarchy]].
-PARENT_AGENCIES = {
-    "CDCR": {
-        "name": "California Department of Corrections and Rehabilitation",
-        "strong_patterns": [
-            "CCHCS", "CDCR", "CDCR.CA.GOV", "CCHCS.CA.GOV",
-            "CORRECTIONAL HEALTH CARE",
-            "CALIFORNIA CORRECTIONAL",
-            "STATE PRISON",  # CCHCS prison naming; DSH doesn't use "State Prison"
-        ],
-        "domains": ["cdcr.ca.gov", "cchcs.ca.gov"],
-        "children": ["cchcs"],
-    },
-    "DSH": {
-        "name": "Department of State Hospitals",
-        "strong_patterns": [
-            "DSH", "DSH.CA.GOV",
-            "STATE HOSPITAL", "DEPARTMENT OF STATE HOSPITALS",
-            "ATASCADERO STATE", "NAPA STATE", "METROPOLITAN STATE", "PATTON STATE",
-        ],
-        "domains": ["dsh.ca.gov"],
-        "children": ["dsh"],
-    },
-    "CALVET": {
-        "name": "California Department of Veterans Affairs",
-        "strong_patterns": [
-            "CALVET", "CAL VET", "CVA",
-            "VETERANS HOME", "VETERANS AFFAIRS",
-            "VHC", "CALVET.CA.GOV",
-        ],
-        "domains": ["calvet.ca.gov"],
-        # Order matters: calvet_barstow is more specific; checked first.
-        "children": ["calvet_barstow", "calvet"],
-    },
-    "DGS": {
-        "name": "Department of General Services",
-        "strong_patterns": ["DGS", "GENERAL SERVICES", "DGS.CA.GOV"],
-        "domains": ["dgs.ca.gov"],
-        "children": ["dgs"],
-    },
-    "CALFIRE": {
-        "name": "California Department of Forestry and Fire Protection",
-        "strong_patterns": ["CALFIRE", "CAL FIRE", "FORESTRY", "FIRE PROTECTION"],
-        "domains": ["fire.ca.gov", "calfire.ca.gov"],
-        "children": ["calfire"],
-    },
-}
-
-# Patterns that previously lived in agency `match_patterns` lists but are
-# AMBIGUOUS — they appear in multiple parents' facility universes and must
-# not fire without a parent signal. The canonical example: "COALINGA"
-# matches both PVSP (CCHCS) and Coalinga State Hospital (DSH).
-#
-# Patterns listed here are SKIPPED during the no-parent fallback scan.
-# Parent-scoped matching ignores this list (the parent context resolves
-# the ambiguity).
-OVERLAP_PATTERNS = {
-    "COALINGA",  # PVSP (cchcs) + Coalinga State Hospital (dsh)
-}
-
-
-def _detect_parent(search_text: str, email_domain: str | None = None) -> str | None:
-    """Detect parent organization from strong signals.
-
-    Order: email domain (deterministic) → strong text patterns. Returns
-    parent_id ("CDCR", "DSH", "CALVET", "DGS", "CALFIRE") or None.
-
-    Pure helper — no side effects.
-    """
-    text = (search_text or "").upper()
-    # Domain signal wins.
-    if email_domain:
-        d = email_domain.lower().strip().rstrip(">").rstrip(".")
-        for parent_id, info in PARENT_AGENCIES.items():
-            for known in sorted(info.get("domains", []), key=lambda x: -len(x)):
-                if d == known or d.endswith("." + known):
-                    return parent_id
-    # Strong text patterns — longest pattern wins to favor specificity.
-    candidates = []
-    for parent_id, info in PARENT_AGENCIES.items():
-        for pattern in info.get("strong_patterns", []):
-            if pattern.upper() in text:
-                candidates.append((len(pattern), parent_id, pattern))
-    if candidates:
-        candidates.sort(reverse=True)  # longest first
-        return candidates[0][1]
-    return None
+# ── PARENT AGENCY REGISTRY (extracted 2026-05-26 / PR #13) ─────────────────
+# Hierarchy data + parent detection are now in `agency_hierarchy.py` — a
+# separate module that survives Job #1 (CCHCS) deletion. The data and
+# function are re-exported here so every existing caller (DEFAULT_AGENCY_CONFIGS
+# lookups, line ~601 / match_agency, downstream importers) keeps working
+# unchanged. See agency_hierarchy.py for the full migration rationale.
+from src.core.agency_hierarchy import (  # noqa: E402,F401
+    PARENT_AGENCIES, OVERLAP_PATTERNS, _detect_parent,
+)
 
 
 DEFAULT_AGENCY_CONFIGS = {
