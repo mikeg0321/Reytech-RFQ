@@ -729,6 +729,15 @@ def _run_exhaustive_scrape():
     log.info("FISCAL EXHAUSTIVE SCRAPE — STARTING")
     log.info("=" * 60)
 
+    # Chrome MCP audit 2026-05-26 anomaly #9 Phase 3b: record daemon
+    # attempt at start so the advancement liveness check can distinguish
+    # "daemon ran" from "daemon wrote data". Pre-fix, the only signal
+    # was scprs_po_master.scraped_at — which doesn't move when a scrape
+    # attempts and fails. scprs_pull_log already used by the manual
+    # pullers; the daemon was the missing writer.
+    _scrape_start = _time.time()
+    _scrape_start_iso = datetime.utcnow().isoformat()
+
     seen_pos = set()
 
     # Pre-load existing POs so we don't re-scrape them
@@ -795,6 +804,42 @@ def _run_exhaustive_scrape():
     log.info("  Items ingested:   %d", total_ingested)
     log.info("  Errors (skipped): %d", total_errors)
     log.info("=" * 60)
+
+    # Phase 3b: record this attempt in scprs_pull_log so the
+    # daemon-liveness check has independent evidence the daemon ran
+    # (distinct from scprs_po_master.scraped_at, which only advances on
+    # successful write). Errors are also recorded so partial-failure
+    # cycles still update the liveness signal.
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        _duration = max(0.0, _time.time() - _scrape_start)
+        _db = sqlite3.connect(DB_PATH, timeout=10)
+        _db.execute(
+            "INSERT INTO scprs_pull_log "
+            "(pulled_at, search_term, dept_filter, results_found, "
+            " lines_parsed, new_pos, error, duration_sec) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                datetime.utcnow().isoformat(),
+                "fiscal-exhaustive",
+                "",
+                total_pos,
+                total_lines,
+                total_ingested,
+                "" if total_errors == 0 else f"{total_errors} window(s) failed",
+                _duration,
+            ),
+        )
+        _db.commit()
+        _db.close()
+        log.info(
+            "FISCAL: scprs_pull_log row written "
+            "(duration=%.1fs, new_pos=%d, errors=%d)",
+            _duration, total_ingested, total_errors,
+        )
+    except Exception as e:
+        log.warning("FISCAL: scprs_pull_log write failed: %s", e)
 
     # Post-scrape: re-enrich all existing quotes with fresh data
     try:

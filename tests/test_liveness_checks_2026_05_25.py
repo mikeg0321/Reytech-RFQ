@@ -52,6 +52,11 @@ def sweep_conn():
             quote_id TEXT PRIMARY KEY, state_json TEXT,
             created_at TEXT, updated_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS scprs_pull_log (
+            id INTEGER PRIMARY KEY, pulled_at TEXT, search_term TEXT,
+            dept_filter TEXT, results_found INTEGER, lines_parsed INTEGER,
+            new_pos INTEGER, error TEXT, duration_sec REAL
+        );
     """)
     conn.commit()
     yield conn
@@ -68,6 +73,10 @@ def _fresh(conn):
     conn.execute("INSERT INTO competitor_intel (found_at, outcome) VALUES (?, 'lost')", (iso,))
     conn.execute("INSERT INTO oracle_calibration (category, last_updated) VALUES ('general', ?)", (iso,))
     conn.execute("INSERT INTO quotes (quote_number, created_at, status) VALUES ('R26Q1', ?, 'sent')", (iso,))
+    conn.execute(
+        "INSERT INTO scprs_pull_log (pulled_at, search_term) VALUES (?, ?)",
+        (iso, "fiscal-exhaustive"),
+    )
     conn.commit()
 
 
@@ -253,11 +262,13 @@ def test_check_function_exception_does_not_crash_sweep(sweep_conn):
     # The exploding check is reported as failed
     assert any(c["name"] == "Exploding check" and not c["ok"]
                for c in result["checks"])
-    # All checks ran — broken one + the original 10 = 11.
-    # Use the patched-in length explicitly (CHECKS was mutated for this test).
-    assert len(result["checks"]) == 11, (
+    # All checks ran — broken one + the live CHECKS registry. Use the
+    # patched-in length explicitly rather than a hardcoded count so this
+    # test doesn't need to know how many checks are in the registry.
+    expected = len(lc.CHECKS) + 1  # +1 for the prepended broken_tuple
+    assert len(result["checks"]) == expected, (
         f"sweep didn't run all checks past the exploding one: "
-        f"{len(result['checks'])} reported"
+        f"{len(result['checks'])} reported, expected {expected}"
     )
     # Sweep itself didn't raise
     assert "error" not in result, f"sweep crashed: {result}"
@@ -342,6 +353,14 @@ def test_scprs_check_fires_when_both_columns_stale(sweep_conn):
     sweep_conn.execute("INSERT INTO oracle_calibration (category, last_updated) VALUES ('general', ?)", (now_iso,))
     sweep_conn.execute("DELETE FROM quotes")
     sweep_conn.execute("INSERT INTO quotes (quote_number, created_at, status) VALUES ('R26Q1', ?, 'sent')", (now_iso,))
+    # Phase 3b: seed scprs_pull_log as FRESH so this test stays focused
+    # on the scprs_po_master double-stale case. The daemon-liveness
+    # check is exercised separately in test_scprs_scrape_daemon_liveness.
+    sweep_conn.execute("DELETE FROM scprs_pull_log")
+    sweep_conn.execute(
+        "INSERT INTO scprs_pull_log (pulled_at, search_term) VALUES (?, ?)",
+        (now_iso, "fiscal-exhaustive"),
+    )
     sweep_conn.commit()
 
     sent = []
@@ -353,11 +372,14 @@ def test_scprs_check_fires_when_both_columns_stale(sweep_conn):
         importlib.reload(lc)
         lc.run_liveness_sweep()
 
-    scprs = [s for s in sent if "SCPRS" in s.get("title", "")]
+    # Filter to the data-freshness check specifically. "SCPRS scrape
+    # daemon liveness" (Phase 3b) is a sibling SCPRS-shaped alert with
+    # its own dedicated tests in test_scprs_scrape_daemon_liveness.
+    scprs = [s for s in sent if "SCPRS award scrape" in s.get("title", "")]
     assert len(scprs) == 1, (
-        f"SCPRS alert did not fire even though BOTH columns are 4d stale "
-        f"(threshold 48h). The multi-source primitive must not mask real "
-        f"outages. Sent: {[s.get('title') for s in sent]}"
+        f"SCPRS award-scrape alert did not fire even though BOTH columns "
+        f"are 4d stale (threshold 48h). The multi-source primitive must "
+        f"not mask real outages. Sent: {[s.get('title') for s in sent]}"
     )
 
 
