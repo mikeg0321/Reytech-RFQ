@@ -77,11 +77,37 @@ def _fallback_local(fn_name, *args, **kwargs):
         from src.agents.scprs_browser import scrape_po_detail
         return scrape_po_detail(*args, **kwargs)
     elif fn_name == "scrape_exhaustive":
-        # Local fallback: call the same _scrape_with_retry path the
-        # daemon used pre-remote. If local playwright is unavailable
-        # it returns []; the daemon's outer loop is tolerant of empty.
-        from src.agents.scprs_browser import _scrape_with_retry
-        return _scrape_with_retry(*args, **kwargs)
+        # Local fallback: call `_scrape_full_async` DIRECTLY, bypassing
+        # `_scrape_with_retry` to avoid infinite recursion.
+        #
+        # Recursion bug closed 2026-05-26: the previous version called
+        # `_scrape_with_retry` here, but that function checks
+        # `SCRAPER_SERVICE_URL` first and re-routes through the remote
+        # path → scrape_exhaustive → _fallback_local → _scrape_with_retry
+        # → infinite. On the first ReadTimeout the daemon thread blew
+        # the recursion limit / leaked memory. The right local fallback
+        # is the playwright invocation; if playwright isn't installed,
+        # `_scrape_full_async` returns [] cleanly (which the daemon
+        # tolerates).
+        import asyncio as _asyncio
+        from src.agents.scprs_browser import _scrape_full_async
+
+        search_params = kwargs.get("search_params") or {}
+        seen_pos = kwargs.get("seen_pos") or set()
+        max_rows = kwargs.get("max_rows", 500)
+
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                _scrape_full_async(
+                    search_params=search_params,
+                    seen_pos=seen_pos,
+                    max_rows=max_rows,
+                )
+            )
+        finally:
+            loop.close()
     elif fn_name == "search_scprs_public":
         from src.agents.scprs_public_search import search_scprs_public
         return search_scprs_public(*args, **kwargs)
