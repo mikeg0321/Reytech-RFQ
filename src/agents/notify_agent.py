@@ -609,6 +609,140 @@ def _record_telegram_send(message_id: int, event_type: str, title: str) -> None:
         log.warning("telegram_messages insert failed: %s", e)
 
 
+# Events that supersede their prior card when fired again. These are the
+# WORTHY-tier liveness/freshness alerts whose CONDITION persists until
+# resolved — the same "Gmail OAuth expired" alarm firing again tomorrow
+# is the SAME alarm, not a new one, and Mike doesn't want his chat
+# accreting daily duplicates. Same shape as camplock's
+# telegram_ledger.SUPERSEDING_CATEGORIES (proven primitive Mike already
+# runs in azure cron */2). Ported here per back-window audit 2026-05-26
+# Item 6 / PR-A.
+#
+# NOT in this set (deliberately):
+#   - "oracle_weekly" — each weekly digest is distinct content, not a
+#     re-fire of the same condition. Supersede would lose history.
+#   - "loss_pattern_detected" — each detected pattern is potentially
+#     distinct; supersede would conflate unrelated losses.
+#   - Catastrophic-tier events (app_down etc.) — those need every
+#     occurrence visible.
+_SUPERSEDING_EVENT_TYPES = frozenset({
+    "award_tracker_idle",
+    "external_service_disconnected",
+    "scprs_pull_failed_persistent",
+    "gmail_oauth_expired",
+    "twilio_unreachable",
+    "oracle_weekly_failed",
+    "oracle_weekly_never_sent",
+    "oracle_weekly_overdue",
+    "oracle_weekly_crash",
+})
+
+
+def _telegram_delete_message(message_id: int) -> dict:
+    """POST deleteMessage to Telegram. Returns {ok, error?}. Telegram's
+    48h delete hard wall means very old messages return 'message to
+    delete not found' — caller treats that as success (already gone).
+    """
+    try:
+        import urllib.request
+        import urllib.parse
+        import json as _json
+        data = urllib.parse.urlencode({
+            "chat_id": TELEGRAM_CHAT_ID,
+            "message_id": int(message_id),
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteMessage",
+            data=data,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = _json.loads(resp.read().decode("utf-8") or "{}")
+        if payload.get("ok"):
+            return {"ok": True}
+        return {"ok": False, "error": payload.get("description", "unknown")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _supersede_prior_telegrams(event_type: str, current_message_id: int) -> int:
+    """Find prior un-deleted telegram_messages with the same event_type
+    and delete them via the Telegram API.
+
+    Returns count of cards superseded. Only runs when event_type is in
+    `_SUPERSEDING_EVENT_TYPES` — non-superseding events are no-op.
+
+    Substrate-singleness fix (back-window audit 2026-05-26 Item 6 /
+    PR-A): without this, the daily liveness sweep accreted stale
+    duplicate cards in Mike's Telegram chat (e.g. five "Gmail inbound
+    silent 96h" cards spanning a week). After this PR: ONE card per
+    underlying condition; new card supersedes old via the Telegram
+    deleteMessage API; row stays in telegram_messages with
+    deleted_at stamped so the cleanup cron's audit trail is intact.
+
+    Failure handling:
+      - "message to delete not found" (past Telegram's 48h hard wall):
+        treat as success — message is already gone from chat, just
+        mark deleted_at in DB so we stop retrying.
+      - Other errors: store in delete_error column; row stays
+        un-deleted_at so the next supersede attempt retries.
+    """
+    if event_type not in _SUPERSEDING_EVENT_TYPES:
+        return 0
+    superseded = 0
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT message_id FROM telegram_messages "
+                "WHERE chat_id = ? AND event_type = ? "
+                "AND deleted_at IS NULL AND message_id != ?",
+                (str(TELEGRAM_CHAT_ID), event_type, int(current_message_id)),
+            ).fetchall()
+            for row in rows:
+                prior_id = row[0] if not hasattr(row, "keys") else row["message_id"]
+                result = _telegram_delete_message(prior_id)
+                now_iso = datetime.now(timezone.utc).isoformat()
+                if result.get("ok"):
+                    conn.execute(
+                        "UPDATE telegram_messages SET deleted_at = ?, "
+                        "delete_error = NULL "
+                        "WHERE message_id = ? AND chat_id = ?",
+                        (now_iso, int(prior_id), str(TELEGRAM_CHAT_ID)),
+                    )
+                    superseded += 1
+                    log.info(
+                        "Telegram superseded: msg_id=%s event=%s",
+                        prior_id, event_type,
+                    )
+                else:
+                    err = (result.get("error") or "")[:200]
+                    # "message to delete not found" = past Telegram's
+                    # 48h delete wall; chat-side already gone — stamp
+                    # deleted_at so we stop retrying.
+                    if "not found" in err.lower():
+                        conn.execute(
+                            "UPDATE telegram_messages SET deleted_at = ?, "
+                            "delete_error = ? "
+                            "WHERE message_id = ? AND chat_id = ?",
+                            (now_iso, err, int(prior_id),
+                             str(TELEGRAM_CHAT_ID)),
+                        )
+                    else:
+                        conn.execute(
+                            "UPDATE telegram_messages SET delete_error = ? "
+                            "WHERE message_id = ? AND chat_id = ?",
+                            (err, int(prior_id), str(TELEGRAM_CHAT_ID)),
+                        )
+                        log.warning(
+                            "Telegram supersede delete failed: "
+                            "msg_id=%s err=%s", prior_id, err,
+                        )
+    except Exception as e:
+        log.warning("supersede_prior_telegrams failed: %s", e)
+    return superseded
+
+
 def _telegram_post(text: str, event_type: str, title: str) -> dict:
     """POST a pre-built MarkdownV2 payload to the Telegram Bot API with
     the [✓ Got it] inline keyboard attached. Records the resulting
@@ -641,6 +775,14 @@ def _telegram_post(text: str, event_type: str, title: str) -> dict:
                      title[:60], event_type, message_id)
             if message_id:
                 _record_telegram_send(message_id, event_type, title)
+                # PR-A 2026-05-26: WORTHY-tier alerts whose CONDITION
+                # persists supersede their prior card. Order matters:
+                # record_send FIRST (so the new row exists and the
+                # supersede query's `message_id != ?` filter targets
+                # only OLDER cards), then supersede.
+                _supersede_prior_telegrams(
+                    event_type, current_message_id=message_id,
+                )
             return {"ok": True, "message_id": message_id}
         log.warning("Telegram API rejected: %s", payload)
         return {"ok": False, "error": payload.get("description", "unknown")}
