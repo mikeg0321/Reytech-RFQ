@@ -523,6 +523,32 @@ CREATE TABLE IF NOT EXISTS telegram_messages (
 CREATE INDEX IF NOT EXISTS idx_tg_msg_expires ON telegram_messages(expires_at)
     WHERE deleted_at IS NULL;
 
+-- Liveness sweep per-check state (PR-B 2026-05-26 / back-window audit).
+-- Tracks last observed status (ok|stale) for each check label so the
+-- sweep can detect stale→ok transitions and fire a one-shot
+-- {alert_event}_recovered close-out (bell-only — no Telegram noise) so
+-- Mike sees the alarm cleared without checking the dashboard. Daily-
+-- bucketed cooldown sits in notify_agent (cooldown_seconds=86400 per
+-- liveness:<label> key); this table is the persistence-aware companion
+-- for the transition detection, NOT a duplicate cooldown store.
+--
+-- §0 LAW 4 — Architect approval recorded in PR-B description: schema
+-- add authorized by Mike as sole Architect. One new table; column adds
+-- to existing tables would belong in `_migrate_columns` per CLAUDE.md
+-- "wholly new table belongs in SCHEMA" rule, which is where this lives.
+CREATE TABLE IF NOT EXISTS liveness_state (
+    label             TEXT PRIMARY KEY,
+    last_status       TEXT NOT NULL,        -- 'ok' | 'stale'
+    last_alert_at     TEXT,                 -- ISO timestamp of most recent stale-fire
+    last_recovered_at TEXT,                 -- ISO timestamp of most recent recovery fire
+    last_check_at     TEXT NOT NULL,        -- ISO timestamp of most recent sweep observation
+    last_age_seconds  INTEGER,              -- age reported at last_check_at (for forensic)
+    alert_event       TEXT                  -- CHANNEL_MAP key (for the recovered close-out)
+);
+
+CREATE INDEX IF NOT EXISTS idx_liveness_state_status
+    ON liveness_state(last_status);
+
 CREATE TABLE IF NOT EXISTS email_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     logged_at       TEXT NOT NULL,
