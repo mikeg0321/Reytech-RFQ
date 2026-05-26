@@ -138,7 +138,20 @@ def _query_grouped(days: int) -> list[dict]:
 
     # Sort: unresolved first (urgency desc), then resolved, then
     # _recovered-only events. Within each, newest last_seen first.
-    _URGENCY_RANK = {"urgent": 0, "warning": 1, "info": 2}
+    #
+    # Chrome MCP audit 2026-05-26 anomaly #6: `notify_agent.py` declares
+    # 5 urgency tiers (urgent | warning | deal | draft | info — see the
+    # module docstring + send_alert signature), but this ranking only
+    # knew 3. `deal` (po_received, quote_won, all_delivered) and
+    # `draft` (auto_draft_ready) were silently bucketed into the
+    # default "unknown" rank (3), sorting them BELOW info events.
+    # Substrate-singleness — the canonical schema lives in notify_agent
+    # but the grouped view's sort had its own short subset.
+    # Order chosen: urgent → warning → deal (positive operator signal,
+    # surface above noise) → draft → info.
+    _URGENCY_RANK = {
+        "urgent": 0, "warning": 1, "deal": 2, "draft": 3, "info": 4,
+    }
     def _key(b):
         ur = _URGENCY_RANK.get(b.get("latest_urgency"), 3)
         is_recovered_only = b.get("is_recovered_event")
