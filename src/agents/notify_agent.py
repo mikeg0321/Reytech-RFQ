@@ -1352,6 +1352,37 @@ def mark_notifications_read(notification_ids: list = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def mark_event_type_read(event_type: str) -> dict:
+    """Mark every unread row for a single `event_type` as read.
+
+    Bell-archive cleanup primitive for the grouped /notifications view.
+    Bug class the audit named (2026-05-26 handoff): a misparse fires
+    1,313 `deadline_critical` events for one bid before the underlying
+    parser bug is closed, leaving Mike's bell archive at 99+ unread
+    long after the alarm is moot. Telegram is collapsed (PR #1102
+    supersede); bell wasn't. This is the bell-side of that same
+    primitive — collapse-by-type at the operator's discretion.
+
+    Uses `idx_notif_type` for an O(matches) update. `is_read=0` filter
+    keeps the write small when run repeatedly on a quiet event_type.
+    """
+    et = (event_type or "").strip()
+    if not et:
+        return {"ok": False, "error": "event_type required", "updated": 0}
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            cur = conn.execute(
+                "UPDATE notifications SET is_read=1 "
+                "WHERE event_type=? AND is_read=0",
+                (et,),
+            )
+            updated = cur.rowcount if cur.rowcount is not None else 0
+        return {"ok": True, "event_type": et, "updated": int(updated)}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "updated": 0}
+
+
 def get_unread_count() -> int:
     """Fast unread count for bell badge — called every 30s by nav polling."""
     try:

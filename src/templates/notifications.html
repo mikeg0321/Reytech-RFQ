@@ -41,6 +41,7 @@
   {% endif %}
  <div role="listitem"
       class="card"
+      data-event-type="{{ g.event_type }}"
       style="padding:14px 18px;margin-bottom:10px;border-left:4px solid {{ _bd }};{% if g.resolved %}opacity:0.72{% endif %}">
   <div style="display:flex;align-items:start;justify-content:space-between;gap:16px;flex-wrap:wrap">
    <div style="flex:1;min-width:280px">
@@ -61,9 +62,19 @@
     <div style="font-size:13px;color:var(--tx);white-space:pre-wrap;line-height:1.45;max-height:120px;overflow:hidden">{{ g.latest_body }}</div>
     {% endif %}
    </div>
-   {% if g.latest_deep_link %}
-   <a href="{{ g.latest_deep_link }}" class="hdr-btn" style="padding:6px 12px;font-size:12px;flex-shrink:0">Open →</a>
-   {% endif %}
+   <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
+    {% if g.latest_deep_link %}
+    <a href="{{ g.latest_deep_link }}" class="hdr-btn" style="padding:6px 12px;font-size:12px">Open →</a>
+    {% endif %}
+    <button type="button"
+            class="hdr-btn js-mark-event-read"
+            data-event-type="{{ g.event_type }}"
+            data-count="{{ g.count }}"
+            title="Mark all {{ g.count }} {{ g.event_type }} events as read"
+            style="padding:6px 12px;font-size:12px;cursor:pointer">
+     Mark {{ g.count }} read
+    </button>
+   </div>
   </div>
  </div>
  {% endfor %}
@@ -72,11 +83,74 @@
  {% endif %}
 
  <footer style="margin-top:24px;padding-top:16px;border-top:1px solid var(--bd);font-size:12px;color:var(--tx2);text-align:center">
-  Read-only projection over the <code>notifications</code> table.
+  Read-only projection over the <code>notifications</code> table —
+  except the per-group Mark-read button, which writes back via
+  <code>/api/notifications/mark-event-read</code>.
   Recovery (✓) cards close out their prior alert via PR-B's
   <code>{event}_recovered</code> emitter.
   API: <a href="/api/notifications/grouped?days={{ days }}" style="color:var(--ac)">/api/notifications/grouped</a>
  </footer>
+
+ <script>
+ // Bell-archive per-group mark-read. POSTs the event_type, on 200
+ // dims the card + disables the button + refreshes the global bell
+ // badge by re-hitting the same endpoint header.js polls.
+ (function() {
+   function refreshBellBadge() {
+     // header.js owns the badge update via /api/notifications/bell-count;
+     // re-fetch so the header reflects the new unread total without
+     // waiting for the next 30s poll. Uses the same combine-with-drafts
+     // logic header.js does (total_badge already accounts for unread bell).
+     fetch('/api/notifications/bell-count', {credentials: 'same-origin'})
+       .then(function(r) { return r.json(); })
+       .then(function(d) {
+         var badge = document.getElementById('notif-badge');
+         if (!badge || !d || !d.ok) return;
+         var total = d.total_badge || 0;
+         if (total > 0) {
+           badge.textContent = total > 99 ? '99+' : String(total);
+           badge.classList.add('show');
+         } else {
+           badge.classList.remove('show');
+         }
+       }).catch(function() {});
+   }
+
+   document.querySelectorAll('.js-mark-event-read').forEach(function(btn) {
+     btn.addEventListener('click', async function() {
+       var eventType = btn.getAttribute('data-event-type');
+       var count = parseInt(btn.getAttribute('data-count') || '0', 10);
+       if (!eventType) return;
+       btn.disabled = true;
+       var origText = btn.textContent;
+       btn.textContent = 'Marking…';
+       try {
+         var resp = await fetch('/api/notifications/mark-event-read', {
+           method: 'POST',
+           credentials: 'same-origin',
+           headers: {'Content-Type': 'application/json'},
+           body: JSON.stringify({event_type: eventType}),
+         });
+         var data = await resp.json();
+         if (resp.ok && data.ok) {
+           btn.textContent = '✓ Cleared (' + (data.updated || count) + ')';
+           var card = btn.closest('[data-event-type]');
+           if (card) card.style.opacity = '0.5';
+           refreshBellBadge();
+         } else {
+           btn.disabled = false;
+           btn.textContent = origText;
+           alert('Mark failed: ' + ((data && data.error) || 'unknown'));
+         }
+       } catch (err) {
+         btn.disabled = false;
+         btn.textContent = origText;
+         alert('Mark failed: ' + err.message);
+       }
+     });
+   });
+ })();
+ </script>
 
 </div>
 {% endblock %}
