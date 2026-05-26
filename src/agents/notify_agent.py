@@ -310,6 +310,13 @@ def _dispatch_alert(event_type, title, body, urgency, context, channels_override
         "quote_won":                 ["bell"],
         "po_received":               ["bell"],
         "buyer_replied":             ["bell"],
+        # Chrome MCP audit 2026-05-26 anomaly #2: scprs_undercut fired
+        # 57,314 events / 30d, the dominant noise source on the bell
+        # archive. Pre-audit it wasn't in CHANNEL_MAP — fell through to
+        # the implicit bell-only default. Adding it explicitly so the
+        # routing is governed, not accidental. Per-product 24h cooldown
+        # at the emit site (PR-D companion change) cuts volume ~24×.
+        "scprs_undercut":            ["bell"],
         "email_permanent_failure":   ["bell"],
         "order_delivered":           ["bell"],
         "all_delivered":             ["bell"],
