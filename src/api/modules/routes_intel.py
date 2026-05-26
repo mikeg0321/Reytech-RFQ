@@ -2557,3 +2557,186 @@ def api_shipping_scan():
     return jsonify(result)
 
 
+# ── SCPRS Pricing-Impact Report ──────────────────────────────────────────────
+# Chrome MCP audit 2026-05-26 anomaly #9 Phase 2: for the 25-day SCPRS-silent
+# window (2026-05-01 → 2026-05-26), our bids priced against STALE ceilings.
+# This endpoint compares every sent quote's line-item unit prices against
+# the now-fresh SCPRS catalog and flags lines where our price was ≥ 15%
+# above the state-paid ceiling — strong "likely lost" signal.
+#
+# Threshold mirrors scprs_undercut at routes_growth_intel.py:372 (1.15×).
+# Read-only — no mutations. Safe to call repeatedly with different windows.
+
+
+def _parse_iso_date(s: str):
+    """Best-effort ISO date parse. Returns ISO string normalized to start
+    or end of day, or None on parse failure."""
+    if not s:
+        return None
+    s = s.strip()
+    if len(s) == 10 and s[4] == '-' and s[7] == '-':  # YYYY-MM-DD
+        return s
+    try:
+        from datetime import datetime as _dt
+        return _dt.fromisoformat(s.replace('Z', '+00:00')).date().isoformat()
+    except (ValueError, AttributeError):
+        return None
+
+
+def _scprs_match_for_line(db, description: str, mfg_number: str = ""):
+    """Return the best SCPRS price match for one line item.
+
+    Uses the existing pricing_oracle_v2 helper for token-based description
+    match plus exact MFG#. Picks the highest-frequency match (times_seen
+    desc — already the ORDER BY in the helper) and returns the first row.
+    """
+    try:
+        from src.core.pricing_oracle_v2 import _search_scprs_catalog
+        matches = _search_scprs_catalog(db, description, item_number=mfg_number)
+    except Exception as e:
+        log.debug("pricing-impact: scprs lookup failed: %s", e)
+        return None
+    if not matches:
+        return None
+    return matches[0]  # highest times_seen
+
+
+@bp.route("/api/intel/pricing-impact-report")
+@auth_required
+@safe_route
+def api_pricing_impact_report():
+    """Compare sent quotes against fresh SCPRS ceilings, flag likely losses.
+
+    Query params:
+      from_date=YYYY-MM-DD  (default: 25 days ago — the SCPRS silent window)
+      to_date=YYYY-MM-DD    (default: today)
+      threshold_pct=15.0    (default: 15.0 — matches scprs_undercut)
+
+    Returns JSON with per-quote analysis + summary stats. No HTML rendering
+    here — JSON is the substrate; a viewer page can be added separately.
+    """
+    import json as _json
+    from datetime import datetime as _dt, timedelta as _td
+
+    threshold_pct = float(request.args.get("threshold_pct", "15.0"))
+
+    from_arg = _parse_iso_date(request.args.get("from_date", ""))
+    to_arg = _parse_iso_date(request.args.get("to_date", ""))
+    if not from_arg:
+        from_arg = (_dt.utcnow() - _td(days=25)).date().isoformat()
+    if not to_arg:
+        to_arg = _dt.utcnow().date().isoformat()
+
+    summary = {
+        "from_date": from_arg,
+        "to_date": to_arg,
+        "threshold_pct": threshold_pct,
+        "quotes_in_window": 0,
+        "quotes_flagged": 0,
+        "lines_total": 0,
+        "lines_with_scprs_match": 0,
+        "lines_flagged": 0,
+        "total_revenue_at_risk": 0.0,
+    }
+    flagged_quotes = []
+
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT quote_number, agency, institution, sent_at, total, "
+            "       items_detail, line_items, status "
+            "FROM quotes "
+            "WHERE sent_at >= ? AND sent_at <= ? "
+            "  AND status IN ('sent', 'won', 'lost') "
+            "ORDER BY sent_at ASC",
+            (from_arg, to_arg + "T23:59:59"),
+        ).fetchall()
+
+        for row in rows:
+            summary["quotes_in_window"] += 1
+            quote_number = row[0]
+            agency = row[1] or ""
+            institution = row[2] or ""
+            sent_at = row[3] or ""
+            quote_total = float(row[4] or 0)
+            items_json = row[5] or row[6] or "[]"
+
+            try:
+                line_items = _json.loads(items_json)
+                if not isinstance(line_items, list):
+                    line_items = []
+            except (ValueError, TypeError):
+                line_items = []
+
+            flagged_lines = []
+            quote_max_gap = 0.0
+            quote_at_risk = 0.0
+
+            for idx, li in enumerate(line_items, 1):
+                summary["lines_total"] += 1
+                description = (li.get("description") or li.get("name")
+                               or li.get("item_description") or "").strip()
+                mfg_number = (li.get("mfg_number") or li.get("manufacturer_part")
+                              or li.get("part_number") or "").strip()
+                try:
+                    unit_price = float(
+                        li.get("unit_price")
+                        or li.get("price")
+                        or li.get("sell_price")
+                        or 0
+                    )
+                    qty = float(li.get("quantity") or li.get("qty") or 1)
+                except (ValueError, TypeError):
+                    continue
+                if unit_price <= 0 or not description:
+                    continue
+
+                match = _scprs_match_for_line(conn, description, mfg_number)
+                if not match:
+                    continue
+                summary["lines_with_scprs_match"] += 1
+
+                scprs_unit = float(match.get("price") or 0)
+                if scprs_unit <= 0:
+                    continue
+                gap_pct = (unit_price / scprs_unit - 1.0) * 100.0
+                if gap_pct < threshold_pct:
+                    continue
+
+                summary["lines_flagged"] += 1
+                line_at_risk = unit_price * qty
+                quote_at_risk += line_at_risk
+                quote_max_gap = max(quote_max_gap, gap_pct)
+                flagged_lines.append({
+                    "line_no": idx,
+                    "description": description[:120],
+                    "mfg_number": mfg_number,
+                    "qty": qty,
+                    "our_unit_price": round(unit_price, 2),
+                    "scprs_unit_price": round(scprs_unit, 2),
+                    "scprs_supplier": match.get("supplier", ""),
+                    "scprs_date": match.get("date", ""),
+                    "gap_pct": round(gap_pct, 1),
+                    "line_revenue_at_risk": round(line_at_risk, 2),
+                })
+
+            if flagged_lines:
+                summary["quotes_flagged"] += 1
+                summary["total_revenue_at_risk"] += quote_at_risk
+                flagged_quotes.append({
+                    "quote_number": quote_number,
+                    "agency": agency,
+                    "institution": institution,
+                    "sent_at": sent_at,
+                    "quote_total": round(quote_total, 2),
+                    "max_gap_pct": round(quote_max_gap, 1),
+                    "revenue_at_risk": round(quote_at_risk, 2),
+                    "flagged_lines": flagged_lines,
+                })
+
+    summary["total_revenue_at_risk"] = round(summary["total_revenue_at_risk"], 2)
+    return jsonify({
+        "ok": True,
+        "summary": summary,
+        "flagged_quotes": flagged_quotes,
+    })
+
