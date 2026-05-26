@@ -375,21 +375,10 @@ def api_rfq_mark_sent_manually(rid):
 
     Race-safe wrapper (PR #778 pattern).
     """
-    from src.api.data_layer import _save_rfqs_lock
-    with _save_rfqs_lock:
-        return _api_rfq_mark_sent_manually_locked(rid)
-
-
-def _api_rfq_mark_sent_manually_locked(rid):
-    """Inner body — always runs under `_save_rfqs_lock`."""
-    from src.api.data_layer import load_rfqs, _save_single_rfq
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "RFQ not found"}), 404
-
-    # Multipart form for attachment uploads; JSON for attachment-less
-    # callers. Request.form covers both when multipart is the content type.
+    # Read the request OUTSIDE the lock so the locked inner is pure-data
+    # and reusable from non-Flask-request contexts (e.g.,
+    # gmail_sent_watcher firing the same pipeline for an outbound
+    # message it observed in Gmail SENT — PR #9 2026-05-26).
     is_multipart = (request.content_type or "").startswith("multipart/")
     if is_multipart:
         payload = request.form.to_dict()
@@ -397,6 +386,28 @@ def _api_rfq_mark_sent_manually_locked(rid):
     else:
         payload = request.get_json(force=True, silent=True) or {}
         uploaded = None
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        return _api_rfq_mark_sent_manually_locked(
+            rid, payload=payload, uploaded=uploaded,
+        )
+
+
+def _api_rfq_mark_sent_manually_locked(rid, *, payload=None, uploaded=None):
+    """Inner body — always runs under `_save_rfqs_lock`.
+
+    Pure-data entry point: callers pass `payload` (dict) and `uploaded`
+    (Werkzeug FileStorage or None). The HTTP route reads the request and
+    forwards; background callers (gmail_sent_watcher) construct the dict
+    directly. Both go through the same lock + side-effect pipeline.
+    """
+    from src.api.data_layer import load_rfqs, _save_single_rfq
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    payload = payload or {}
 
     now_iso = datetime.now().isoformat()
     sent_to = (payload.get("sent_to") or r.get("requestor_email", "") or "").strip()
