@@ -29,7 +29,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Optional
 
 log = logging.getLogger("reytech.liveness")
 
@@ -369,6 +369,125 @@ CHECKS = [
 ]
 
 
+# ── PR-B 2026-05-26: env-driven thresholds + recovery close-out ──────────
+
+
+def _label_to_env_slug(label: str) -> str:
+    """Convert a CHECKS label to the env-var slug naming convention.
+
+    "Gmail inbound poller" → "GMAIL_INBOUND_POLLER"
+    "SCPRS award scrape"   → "SCPRS_AWARD_SCRAPE"
+    "Quote ingestion pipeline" → "QUOTE_INGESTION_PIPELINE"
+
+    Mike can override any threshold without a PR via Railway env, e.g.
+    `LIVENESS_GMAIL_INBOUND_POLLER_MAX_AGE_S=86400` bumps the Gmail
+    silent-threshold from 2h to 24h.
+    """
+    out_chars = []
+    for ch in (label or "").upper():
+        if ch.isalnum():
+            out_chars.append(ch)
+        else:
+            out_chars.append("_")
+    slug = "".join(out_chars).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug
+
+
+def _threshold_for(label: str, default_s: int) -> int:
+    """Read `LIVENESS_<LABEL_SLUG>_MAX_AGE_S` env override; fall back to
+    the in-code default. Bad env values (non-int, zero, negative) log
+    and fall through to the default — operator typo never breaks the
+    sweep."""
+    env_key = f"LIVENESS_{_label_to_env_slug(label)}_MAX_AGE_S"
+    raw = os.environ.get(env_key, "").strip()
+    if not raw:
+        return default_s
+    try:
+        v = int(raw)
+        if v <= 0:
+            log.warning(
+                "liveness threshold env override %s=%r is not positive — "
+                "falling back to default %ds",
+                env_key, raw, default_s,
+            )
+            return default_s
+        return v
+    except (TypeError, ValueError):
+        log.warning(
+            "liveness threshold env override %s=%r is not an int — "
+            "falling back to default %ds",
+            env_key, raw, default_s,
+        )
+        return default_s
+
+
+def _load_liveness_state(label: str) -> Optional[dict]:
+    """Read the prior sweep's observation for this label. Returns None
+    if this is the first sweep ever (no row yet)."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT last_status, last_alert_at, last_recovered_at, "
+                "last_check_at, last_age_seconds, alert_event "
+                "FROM liveness_state WHERE label = ?",
+                (label,),
+            ).fetchone()
+        if row is None:
+            return None
+        if hasattr(row, "keys"):
+            return {
+                "last_status": row["last_status"],
+                "last_alert_at": row["last_alert_at"],
+                "last_recovered_at": row["last_recovered_at"],
+                "last_check_at": row["last_check_at"],
+                "last_age_seconds": row["last_age_seconds"],
+                "alert_event": row["alert_event"],
+            }
+        return {
+            "last_status": row[0], "last_alert_at": row[1],
+            "last_recovered_at": row[2], "last_check_at": row[3],
+            "last_age_seconds": row[4], "alert_event": row[5],
+        }
+    except Exception as e:
+        log.debug("liveness_state load(%s) failed: %s", label, e)
+        return None
+
+
+def _persist_liveness_state(
+    label: str, *, status: str, alert_event: str,
+    age_seconds: int, fired_alert: bool, fired_recovered: bool,
+) -> None:
+    """UPSERT the current observation. Best-effort — a write failure
+    must not crash the sweep. Preserves prior last_alert_at /
+    last_recovered_at when this sweep didn't fire that side."""
+    try:
+        from src.core.db import get_db
+        now = datetime.now(timezone.utc).isoformat()
+        prior = _load_liveness_state(label) or {}
+        last_alert_at = (
+            now if fired_alert
+            else (prior.get("last_alert_at") or None)
+        )
+        last_recovered_at = (
+            now if fired_recovered
+            else (prior.get("last_recovered_at") or None)
+        )
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO liveness_state "
+                "(label, last_status, last_alert_at, last_recovered_at, "
+                "last_check_at, last_age_seconds, alert_event) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (label, status, last_alert_at, last_recovered_at,
+                 now, int(age_seconds), alert_event),
+            )
+    except Exception as e:
+        log.debug("liveness_state persist(%s) failed: %s", label, e)
+
+
 # ── The sweep — call once per hour ────────────────────────────────────────
 
 
@@ -398,7 +517,11 @@ def run_liveness_sweep() -> dict:
         return {"ran_at": now_iso, "checks": [], "alerts_fired": [],
                 "error": f"notify_agent import: {e}"}
 
-    for label, event, check_fn, max_age in CHECKS:
+    recovered_fired = []
+
+    for label, event, check_fn, default_max_age in CHECKS:
+        # PR-B 2026-05-26: env override per-check (defaults preserved).
+        max_age = _threshold_for(label, default_max_age)
         try:
             ok, age, detail = check_fn()
         except Exception as e:
@@ -406,6 +529,18 @@ def run_liveness_sweep() -> dict:
             log.warning("liveness check %s raised: %s", label, e)
 
         is_stale = (not ok) or (age > max_age)
+        current_status = "stale" if is_stale else "ok"
+
+        # PR-B 2026-05-26: transition detection. Prior state lets us
+        # fire ONE close-out card when a previously-stale check goes
+        # green — Mike sees the alarm cleared without having to check
+        # the dashboard. Recovered events are bell-only by override.
+        prior = _load_liveness_state(label)
+        prior_status = (prior or {}).get("last_status")
+
+        fired_alert = False
+        fired_recovered = False
+
         results.append({
             "name": label,
             "ok": bool(ok and not is_stale),
@@ -413,6 +548,7 @@ def run_liveness_sweep() -> dict:
             "max_age_seconds": int(max_age),
             "detail": detail,
             "alert_event": event,
+            "prior_status": prior_status,
         })
 
         if is_stale:
@@ -441,13 +577,54 @@ def run_liveness_sweep() -> dict:
                     run_async=False,
                 )
                 alerts_fired.append(label)
+                fired_alert = True
             except Exception as e:
                 log.warning("liveness alert for %s failed: %s", label, e)
+        elif prior_status == "stale":
+            # Stale → ok transition: fire ONE bell-only close-out so
+            # Mike sees the alarm cleared. channels_override=["bell"]
+            # bypasses CHANNEL_MAP — recovery info shouldn't pile on
+            # Telegram noise. Uses a separate cooldown key from the
+            # stale alert so it can fire independently.
+            try:
+                send_alert(
+                    event_type=f"{event}_recovered",
+                    title=f"✓ {label}: recovered",
+                    body=(
+                        f"{label}\n\n"
+                        f"Status: now OK\n"
+                        f"Current: {detail}\n"
+                        f"Threshold: {max_age // 3600}h\n\n"
+                        f"This check was previously stale (see prior "
+                        f"alerts for `{event}`); it has now returned "
+                        f"fresh. No further action needed."
+                    ),
+                    urgency="info",
+                    channels_override=["bell"],
+                    cooldown_key=f"liveness:{label}:recovered",
+                    cooldown_seconds=3600,
+                    run_async=False,
+                )
+                recovered_fired.append(label)
+                fired_recovered = True
+            except Exception as e:
+                log.warning(
+                    "liveness recovery alert for %s failed: %s", label, e,
+                )
+
+        # Persist current observation regardless of fire outcome so the
+        # next sweep can detect transitions.
+        _persist_liveness_state(
+            label,
+            status=current_status, alert_event=event, age_seconds=age,
+            fired_alert=fired_alert, fired_recovered=fired_recovered,
+        )
 
     summary = {
         "ran_at": now_iso,
         "checks": results,
         "alerts_fired": alerts_fired,
+        "recovered_fired": recovered_fired,
         "summary": {
             "pass": sum(1 for r in results if r["ok"]),
             "fail": sum(1 for r in results if not r["ok"]),
@@ -455,8 +632,8 @@ def run_liveness_sweep() -> dict:
         },
     }
     log.info(
-        "liveness sweep: %d/%d pass | %d alerts fired",
+        "liveness sweep: %d/%d pass | %d alerts fired | %d recovered",
         summary["summary"]["pass"], summary["summary"]["total"],
-        len(alerts_fired),
+        len(alerts_fired), len(recovered_fired),
     )
     return summary
