@@ -1884,8 +1884,24 @@ def api_pricing_alerts():
     drift_items = 0
     now = _dt.now()
 
+    # 2026-05-26 audit (Mr. Wolf 13-badge audit): exclusion set was
+    # missing canonical terminal/inactive statuses. Operator-
+    # dispositioned RFQs (Argarin/Ragadio no_bid per the 2026-05-26
+    # substrate-wave handoff) inflated the ⚠ home-badge count.
+    # Same substrate-singleness shape as PRs #1076/#1086/#1088: a KPI
+    # query reads against a non-canonical filter.
+    # Union of:
+    #   - rfq_detail.html:1648 terminal: ('won','lost','no_bid','cancelled')
+    #   - routes_intel_ops.py:853 inactive:
+    #     {'dismissed','archived','deleted','duplicate','no_response'}
+    #   - sent/expired (already-out-the-door states)
+    _TERMINAL_OR_INACTIVE = (
+        "dismissed", "sent", "won", "lost", "cancelled",
+        "no_bid", "no_response", "expired",
+        "archived", "deleted", "duplicate",
+    )
     for rid, r in rfqs.items():
-        if r.get("status") in ("dismissed", "sent", "won", "lost", "cancelled"):
+        if r.get("status") in _TERMINAL_OR_INACTIVE:
             continue
         items = r.get("line_items", [])
         if not items:
