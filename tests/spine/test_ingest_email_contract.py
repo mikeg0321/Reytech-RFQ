@@ -236,3 +236,89 @@ def test_contract_built_when_attachment_refs_missing():
     result = ingest_email_contract(contract, tax_resolver=_tax_825)
     assert result.ok
     assert result.email_contract.attachment_refs == []
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Canonical bill-to / ship-to resolution at ingest (LAW 6)
+# ──────────────────────────────────────────────────────────────────────
+# Mike caught this on Duffey rfq_89bb9a3e (2026-05-26): the Quote PDF
+# rendered "Bill to: CCHCS" + "Ship to: CA STATE PRISON SACRAMENTO"
+# with no street, no PO Box, no email. Substrate cause: the EmailContract
+# fields bill_to_name/email/address/ship_to_facility/ship_to_address
+# were all null because ingest never looked them up. Per §0 LAW 6 the
+# canonical answers MUST be on the contract AT INGEST — these tests pin
+# that invariant for CCHCS quotes shipped through Spine. The renderer
+# already supports the rich fields; ingest is the seam.
+
+
+def test_contract_populates_canonical_bill_to_for_cchcs():
+    """A CCHCS-class quote ingested with no raw bill-to in the dict
+    must inherit the canonical AGENCY_CONFIGS bill-to (name + email +
+    multi-line address). Without this, every CCHCS Quote PDF shows
+    'Bill to: CCHCS' with no street."""
+    result = ingest_email_contract(_minimal_contract(), tax_resolver=_tax_825)
+    c = result.email_contract
+    assert c.bill_to_name == "Dept. of Corrections and Rehabilitation"
+    assert c.bill_to_email == "APA.Invoices@cdcr.ca.gov"
+    assert c.bill_to_address is not None
+    assert "P.O. BOX 187021" in c.bill_to_address
+    assert "Sacramento, CA 95818-7021" in c.bill_to_address
+
+
+def test_contract_populates_canonical_ship_to_from_facility_registry():
+    """A facility free-text string that resolves cleanly via
+    facility_registry must yield a populated ship_to_facility
+    (canonical_name) and ship_to_address (line1+line2 joined)."""
+    # SATF resolves unambiguously per facility_registry seed data.
+    result = ingest_email_contract(_minimal_contract(), tax_resolver=_tax_825)
+    c = result.email_contract
+    assert c.ship_to_facility is not None
+    assert "SATF" in c.ship_to_facility or "California Substance Abuse" in c.ship_to_facility
+    assert c.ship_to_address is not None
+    # The resolved registry address overrides the raw "ship_to" string
+    # only when the raw is absent; the _minimal_contract above passes
+    # ship_to which WINS — so this test must use the dict-supplied value.
+    # Re-test with no raw ship_to to prove canonical lookup fills the gap.
+    contract = _minimal_contract()
+    contract.pop("ship_to", None)
+    contract.pop("ship_to_address", None)
+    result2 = ingest_email_contract(contract, tax_resolver=_tax_825)
+    c2 = result2.email_contract
+    assert c2.ship_to_address is not None
+    assert "Corcoran" in c2.ship_to_address  # SATF is in Corcoran, CA
+
+
+def test_raw_dict_bill_to_overrides_canonical_lookup():
+    """If the raw ingest dict carries a bill_to_name (operator override
+    path, richer parser), it wins over the canonical lookup. Canonical
+    is fallback-only, never stomp."""
+    contract = _minimal_contract()
+    contract["bill_to_name"] = "Override Buyer LLC"
+    contract["bill_to_email"] = "ap@override.example.com"
+    contract["bill_to_address"] = "1 Override Way\nOverride, CA 90000"
+    result = ingest_email_contract(contract, tax_resolver=_tax_825)
+    c = result.email_contract
+    assert c.bill_to_name == "Override Buyer LLC"
+    assert c.bill_to_email == "ap@override.example.com"
+    assert c.bill_to_address == "1 Override Way\nOverride, CA 90000"
+
+
+def test_unrecognized_agency_leaves_bill_to_null_gracefully():
+    """A non-CCHCS, non-AGENCY_CONFIGS agency leaves bill-to None
+    (status quo) — never raises, never blocks ingest."""
+    contract = _minimal_contract()
+    contract["agency"] = "UnknownAgency"
+    # Quote-construction will reject the unknown agency, so we test the
+    # resolver function directly to confirm graceful degradation.
+    from src.spine_bridge.ingest import _resolve_canonical_bill_to
+    name, email, addr = _resolve_canonical_bill_to("UnknownAgency")
+    assert (name, email, addr) == (None, None, None)
+
+
+def test_unresolvable_facility_leaves_ship_to_null_gracefully():
+    """A facility string that facility_registry can't resolve returns
+    (None, None) — caller's raw-dict fallback preserves today's
+    behavior. Never raises."""
+    from src.spine_bridge.ingest import _resolve_canonical_ship_to
+    fac, addr = _resolve_canonical_ship_to("Nonexistent Facility XYZ")
+    assert (fac, addr) == (None, None)

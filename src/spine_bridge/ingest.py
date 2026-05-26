@@ -314,6 +314,69 @@ def _sanitize_for_cid(s: str) -> str:
     return "".join(c if c in _CID_SAFE else "-" for c in s)[:60]
 
 
+def _resolve_canonical_bill_to(agency: str | None) -> tuple[str | None, str | None, str | None]:
+    """Return (bill_to_name, bill_to_email, bill_to_address) for a
+    canonical agency code by looking up the legacy AGENCY_CONFIGS.
+
+    Legacy stores bill_to_name + bill_to_lines (4-5 strings: street(s),
+    city/state/zip, sometimes an email as the last line). We pop the
+    last line if it's email-shaped, then "\\n"-join the rest as the
+    single bill_to_address string the Spine model holds.
+
+    §0 LAW 6: this MUST run AT INGEST so the EmailContract carries the
+    answer the renderer needs — no incremental render-time lookup. The
+    PDF address blocks in src/spine/quote_pdf.py:528-591 read the
+    contract; if it's null, they fall back to bare quote.agency /
+    quote.facility, which is the bug this resolver closes (caught by
+    Mike on Duffey rfq_89bb9a3e PDF on 2026-05-26).
+
+    Returns (None, None, None) when the agency isn't in AGENCY_CONFIGS
+    so the caller can fall back to raw-dict values without breaking
+    ingest for non-CCHCS agencies that aren't migrated yet.
+    """
+    if not agency:
+        return None, None, None
+    try:
+        from src.forms.quote_generator import AGENCY_CONFIGS
+    except Exception:
+        return None, None, None
+    cfg = AGENCY_CONFIGS.get(agency)
+    if not cfg:
+        return None, None, None
+    name = (cfg.get("bill_to_name") or "").strip() or None
+    lines = [str(s).strip() for s in (cfg.get("bill_to_lines") or []) if s and str(s).strip()]
+    email: str | None = None
+    if lines and "@" in lines[-1]:
+        email = lines.pop()
+    address = "\n".join(lines) or None
+    return name, email, address
+
+
+def _resolve_canonical_ship_to(facility: str | None) -> tuple[str | None, str | None]:
+    """Return (ship_to_facility, ship_to_address) by resolving free-text
+    facility through the canonical facility_registry. ship_to_address
+    joins address_line1 + address_line2 with "\\n" so the renderer
+    (_address_to_html in quote_pdf.py) splits them onto separate lines.
+
+    Returns (None, None) when the registry can't unambiguously resolve
+    (per facility_registry.resolve contract — never silently guesses).
+    The caller's fallback uses raw-dict values, preserving today's
+    behavior for un-resolvable facility strings.
+    """
+    if not facility:
+        return None, None
+    try:
+        from src.core.facility_registry import resolve as _resolve_facility
+    except Exception:
+        return None, None
+    rec = _resolve_facility(facility)
+    if not rec:
+        return None, None
+    addr_lines = [s for s in (rec.address_line1, rec.address_line2) if s and str(s).strip()]
+    address = "\n".join(addr_lines) or None
+    return rec.canonical_name or None, address
+
+
 def _build_email_contract(
     *,
     contract: dict,
@@ -331,6 +394,14 @@ def _build_email_contract(
     header/line invariants. Captures buyer-side fields that Quote
     intentionally drops (buyer name/email, due_date, attachment refs,
     parser version) so the audit chain stays complete.
+
+    Bill-to + ship-to addresses are resolved canonically here (LAW 6)
+    from AGENCY_CONFIGS + facility_registry when the raw dict doesn't
+    supply them. The Vision/Adobe parser doesn't extract bill-to
+    (it's an agency constant, not in the solicitation PDF) and rarely
+    extracts ship-to addresses cleanly. Raw-dict values still win when
+    present so an operator override or a richer parser doesn't get
+    stomped — fallback-only, never override.
     """
     contract_id = f"contract_{_sanitize_for_cid(rfq_id)}_{int(ingest_ts.timestamp())}"
 
@@ -403,6 +474,12 @@ def _build_email_contract(
         else "separate_pdfs"
     )
 
+    # Canonical address resolution — LAW 6 (every answer at ingest).
+    # Raw-dict values win when present (operator override / richer
+    # parser); canonical lookup fills the gap that Vision/Adobe leaves.
+    _cn_bill_name, _cn_bill_email, _cn_bill_addr = _resolve_canonical_bill_to(agency)
+    _cn_ship_facility, _cn_ship_addr = _resolve_canonical_ship_to(facility)
+
     return EmailContract(
         contract_id=contract_id,
         rfq_id=rfq_id,
@@ -420,8 +497,11 @@ def _build_email_contract(
         rfq_title=_opt_str("rfq_title", "subject", "title"),
         release_date=_opt_dt("release_date", "released_at"),
         due_date=_opt_dt("due_date", "due_at"),
-        ship_to_address=_opt_str("ship_to", "ship_to_address"),
-        ship_to_facility=_opt_str("ship_to_facility"),
+        bill_to_name=_opt_str("bill_to_name") or _cn_bill_name,
+        bill_to_email=_opt_str("bill_to_email") or _cn_bill_email,
+        bill_to_address=_opt_str("bill_to_address") or _cn_bill_addr,
+        ship_to_address=_opt_str("ship_to", "ship_to_address") or _cn_ship_addr,
+        ship_to_facility=_opt_str("ship_to_facility") or _cn_ship_facility,
         tax_rate_bps=tax_bps,
         line_items=contract_line_items,
         attachment_refs=[
