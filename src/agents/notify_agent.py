@@ -281,6 +281,24 @@ def _dispatch_alert(event_type, title, body, urgency, context, channels_override
         "oracle_weekly_overdue":         ["telegram", "bell"],
         "oracle_weekly_crash":           ["telegram", "bell"],
 
+        # ── Deadline missed (WORTHY — operator-visible bid deadline) ──
+        # Mr. Wolf audit 2026-05-26: deadline_critical was UNROUTED in
+        # CHANNEL_MAP, falling through to bell-only default. The
+        # `_scan_deadlines` emitter at line ~970 fires with
+        # urgency="urgent" + per-bid cooldown_key=f"deadline_critical:{doc_id}"
+        # + cooldown_seconds=3600 already, but with no CHANNEL_MAP entry
+        # Mike got NO Telegram on his 3 active Job #1 inbound RFQs going
+        # 9.8h overdue. Promote to WORTHY tier so money-on-the-line
+        # deadlines surface immediately.
+        #
+        # NOT in _SUPERSEDING_EVENT_TYPES on purpose: deadline_critical
+        # fires once per bid (different doc_id ⇒ different cooldown
+        # key); supersede on event_type alone would conflate distinct
+        # overdue bids into one visible card. Operator must see ALL
+        # overdue cards, not just the latest one. The existing 1h
+        # per-bid cooldown already prevents same-bid re-spam.
+        "deadline_critical":             ["telegram", "bell"],
+
         # ── SILENT (bell only — the long tail) ─────────────────────
         # 2026-05-25 directive: "I see everything in the operator
         # console, extra email is clutter." Every event below was on
