@@ -3698,12 +3698,26 @@ def pricecheck_source_pdf(pcid):
     if source_pdf and os.path.exists(source_pdf):
         return send_file(source_pdf, mimetype="application/pdf",
                          download_name=os.path.basename(source_pdf))
-    # Fallback: try rfq_files DB
+    # ── DB fallback: rfq_files persists the buyer PDF blob on ingest ──
+    # Mike's "Source PDF not found" incident (Handoff A PR-5, auto_rfq_
+    # 11fc_1779308659): the disk path 404s after Railway redeploys wipe
+    # /app/uploads. But the email_poller ALSO saves the PDF bytes into
+    # rfq_files with category="source" (see dashboard.py:2628 +2772
+    # +2855 +2909). The original fallback queried category="template"
+    # — which is what saved-RESPONSE templates use, NOT inbound buyer
+    # PDFs — so the fallback returned 0 rows and the operator saw 404
+    # even when the bytes WERE in the DB. Try the right category first,
+    # then the prior one for legacy data, then ANY file as last resort.
     try:
-        from src.api.dashboard import list_rfq_files
-        files = list_rfq_files(pcid, category="template")
+        from src.api.dashboard import list_rfq_files, get_rfq_file
+        files = None
+        for _cat in ("source", "template", None):
+            _candidates = (list_rfq_files(pcid, category=_cat) if _cat
+                           else list_rfq_files(pcid))
+            if _candidates:
+                files = _candidates
+                break
         if files:
-            from src.api.dashboard import get_rfq_file
             f = get_rfq_file(files[0]["id"])
             if f and f.get("data"):
                 from flask import Response
