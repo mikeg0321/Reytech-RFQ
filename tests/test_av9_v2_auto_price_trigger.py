@@ -1,89 +1,54 @@
-"""PR-AV9 (AV-9) — V2 ingest path auto-price trigger.
+"""PR-AV9 (AV-9) — WITHDRAWN 2026-05-26 (substrate-singleness fix).
 
-Closes the substrate gap flagged in the 5/14 EOD handoff: the
-classifier_v2 success branch in `dashboard.process_rfq_email`
-returns immediately after saving the record, bypassing the
-`_trigger_auto_price` call at the end of the function. Result:
-every Vision/AcroForm-extracted RFQ (most modern records) lands
-in "parsed" status with empty pricing fields. Operators had to
-hand-price or hit the manual retry-auto-price route.
+Original purpose: pin the V2 ingest path's `_trigger_auto_price` call so
+that V2-extracted RFQs reached pricing parity with the legacy path.
 
-rfq_efbdef4a / DSH 25CB021 was the flagged example: Vision found
-7 items, V2 path saved them, but auto-price never fired. Items
-stayed unpriced until Mike manually intervened.
+Why withdrawn: the "parity" itself was a bug. `_trigger_auto_price`
+spawns an `auto_rfq_*` PC for every RFQ-class email — doubling each
+inbound on /home (PC panel + RFQ panel render the same email twice).
+Mike caught it 2026-05-26: 5 ghost PCs visible on prod
+(`auto_rfq_d877/f11c/cc83/0124/89bb`), each one a duplicate of a
+real `rfq_*` row. That's the substrate-singleness defect class
+(`[[feedback-kpi-substrate-singleness]]`) — 4th instance in 5 days
+(after Oracle KPI #1076, SCPRS liveness #1086, Quote ingestion
+liveness #1088).
 
-THE FIX
+The fix is at the SUBSTRATE: RFQ-class records live in `rfqs` only.
+The PC substrate is reserved for the `is_price_check_email` early-
+detect branch in `email_poller.py` — true PC-class emails (704
+worksheets, AMS price-check headers). Both `_trigger_auto_price`
+callsites in `dashboard.process_rfq_email` (the V2 branch at L~2271
+and the legacy tail at L~3595) have been REMOVED.
 
-Before the V2 success branch returns, look up the freshly-saved
-RFQ and call `_trigger_auto_price(record)`. The legacy V1 path
-already does this at the end of process_rfq_email — V2 just
-returned early. Now both paths reach pricing parity.
+What these tests pin now:
+  - `_trigger_auto_price` itself remains in dashboard.py (in case a
+    future caller wants it for a true PC path), and its idempotency
+    + empty-line-items + already-priced safety nets all still hold.
+  - The V2 success branch does NOT call `_trigger_auto_price` —
+    source-grep guard against accidental re-introduction.
+  - The legacy `process_rfq_email` tail does NOT call
+    `_trigger_auto_price` — same guard at the other seam.
 
-Safety:
-  - `_trigger_auto_price` is idempotent (early-exits when
-    `auto_price_pc_id` already set), so reparse / re-ingest
-    never double-creates auto-PCs.
-  - Defensive: try/except around the call so any pipeline crash
-    doesn't break the ingest path. The auto-price work is
-    asynchronous (spawns a daemon thread) — its failure is
-    independent of the record save.
-  - Skipped when `line_items` is empty (no rows to price).
-
-Tests pin the seam contract without exercising the full
-auto-price pipeline (which would need PC seeding + Oracle mocks).
-We verify:
-  - The dashboard.py source contains the AV-9 marker + trigger
-    call in the V2 success branch (source-grep guard against
-    accidental removal during refactors).
-  - `_trigger_auto_price` is idempotent on a record that already
-    has `auto_price_pc_id` set.
-  - `_trigger_auto_price` skips records with empty line_items.
+CCHCS auto-pricing is now Spine's responsibility (`spine/auto_pricer.py`
+per §0 LAW 1). Non-CCHCS legacy RFQs price via the editor's manual
+flow until those agencies migrate to Spine.
 """
 from __future__ import annotations
 
 
-def test_v2_success_branch_calls_trigger_auto_price():
-    """Source-level guard: the dashboard.py V2 success path must
-    invoke `_trigger_auto_price`. A future refactor that drops the
-    call would silently regress rfq_efbdef4a's failure class. Pin
-    the marker + the call so a search for `PR-AV9` always lands at
-    the seam."""
-    import inspect
-    from src.api import dashboard
-    src = inspect.getsource(dashboard)
-    # AV-9 marker comment must be present in the V2 branch
-    assert "PR-AV9" in src, "AV-9 marker comment missing"
-    # The trigger call must be in the V2 success branch — look for
-    # the call sequence: load_rfqs → get(record_id) → _trigger_auto_price
-    assert "_trigger_auto_price(_new_rfq)" in src, (
-        "AV-9 trigger call missing from V2 success branch"
-    )
-
-
-def test_trigger_auto_price_skips_when_no_line_items():
-    """The trigger has a defensive `if not line_items` early-exit so
-    records that V2 saved without items (parser failure, vision miss)
-    don't crash the auto-price pipeline."""
+def test_trigger_auto_price_function_still_exists():
+    """The function isn't deleted (in case a true PC path wants it
+    later) — only the RFQ-class callsites are removed. Calling it on
+    an empty record is still safe."""
     from src.api.dashboard import _trigger_auto_price
-
-    # Record with no line_items — trigger should no-op cleanly
-    rfq = {"id": "rfq_empty", "line_items": [], "solicitation_number": "TEST"}
-    # No exception should propagate; no thread should spawn (we can't
-    # easily assert on threads, but at minimum no AttributeError /
-    # KeyError on the early-exit path)
-    _trigger_auto_price(rfq)
-    # Record gets no `auto_price_pc_id` set (would only set if pipeline
-    # actually ran and completed; here it bailed before spawning thread)
-    # The function returns None; we just confirm no exception.
+    # No-op on empty line_items
+    _trigger_auto_price({"id": "rfq_empty", "line_items": [], "solicitation_number": "TEST"})
 
 
-def test_trigger_auto_price_skips_when_already_processed():
-    """Idempotency: a record that already has `auto_price_pc_id` must
-    NOT have a fresh auto-price pipeline kicked off. This is the safety
-    net that lets us call the trigger from multiple ingest paths
-    (V1, V2, reparse, retry) without double-creating auto-PCs."""
+def test_trigger_auto_price_still_idempotent():
+    """Idempotency safety net still holds even though no caller is
+    expected to hit this today — defensive against future reuse."""
     from src.api.dashboard import _trigger_auto_price
-
     rfq = {
         "id": "rfq_already_priced",
         "line_items": [{"description": "A", "qty": 1}],
@@ -91,48 +56,51 @@ def test_trigger_auto_price_skips_when_already_processed():
         "auto_price_pc_id": "pc_existing_abc123",
     }
     _trigger_auto_price(rfq)
-    # No change to the record; no new pc_id stamped
     assert rfq["auto_price_pc_id"] == "pc_existing_abc123"
 
 
-def test_v2_branch_only_triggers_for_rfq_record_type():
-    """PCs use their own auto-price hook (_auto_price_new_pc) — the
-    V2 success branch must not also fire `_trigger_auto_price` on a
-    PC record_type, which would create a redundant auto-PC of-a-PC
-    chain. The branch shape uses an explicit `record_type == 'rfq'`
-    guard before the trigger; pin that guard."""
+def test_v2_success_branch_does_NOT_call_trigger_auto_price():
+    """Source-grep guard: the V2 success branch must NOT invoke
+    `_trigger_auto_price`. Re-introducing it would re-create the
+    `auto_rfq_*` ghost-PC bug Mike caught 2026-05-26.
+
+    Find the branch by its sentinel string (`_v2_result.record_type == "rfq"`)
+    and assert no `_trigger_auto_price` call sits in the window
+    between that sentinel and the branch's `return _new_rfq`.
+    """
     import inspect
     from src.api import dashboard
     src = inspect.getsource(dashboard)
-    # The guard must precede the trigger call
-    idx_guard = src.find('_v2_result.record_type == "rfq"')
-    idx_trigger = src.find("_trigger_auto_price(_new_rfq)")
-    assert idx_guard != -1, "PC/RFQ guard missing"
-    assert idx_trigger != -1, "trigger call missing"
-    assert idx_guard < idx_trigger, (
-        "trigger fires BEFORE the rfq-only guard — would also fire "
-        "on PC ingests"
+    idx_branch = src.find('_v2_result.record_type == "rfq"')
+    assert idx_branch != -1, "V2 success branch sentinel missing"
+    # Window from the branch sentinel to the next `return _new_rfq`
+    rest = src[idx_branch:]
+    idx_return = rest.find("return _new_rfq")
+    assert idx_return != -1, "branch return statement missing"
+    branch_body = rest[:idx_return]
+    assert "_trigger_auto_price(_new_rfq)" not in branch_body, (
+        "_trigger_auto_price re-introduced in V2 success branch — "
+        "this is the substrate-singleness regression that spawned 5 "
+        "ghost auto_rfq_* PCs on prod 2026-05-26. RFQ-class records "
+        "live in rfqs only; PCs are for the early-detect path."
     )
 
 
-def test_v2_trigger_wrapped_in_try_except():
-    """The auto-price call must NOT propagate exceptions to the ingest
-    path. If pipeline crashes (e.g., Oracle unreachable, DB lock), the
-    record save has already happened — we don't want the poller to
-    think the save failed because a background hook crashed."""
+def test_legacy_process_rfq_email_tail_does_NOT_call_trigger_auto_price():
+    """Same guard for the legacy tail callsite at the end of
+    `process_rfq_email`. The function-end window between the F10
+    auto-price block's closing `except Exception as _ap_e:` and the
+    final `return rfq_data` must not contain `_trigger_auto_price(rfq_data)`.
+    """
     import inspect
     from src.api import dashboard
-    src = inspect.getsource(dashboard)
-    # Find the trigger call and check the preceding ~5 lines contain
-    # a try: block, and the following ~5 lines contain except.
-    idx = src.find("_trigger_auto_price(_new_rfq)")
-    assert idx != -1
-    preceding = src[max(0, idx - 200):idx]
-    following = src[idx:idx + 500]
-    assert "try:" in preceding, "try block missing before trigger call"
-    assert "except" in following, "except block missing after trigger call"
-    # The exception handler must log at debug level (best-effort),
-    # not surface to operator
-    assert ("log.debug" in following or "log.warning" in following), (
-        "exception in auto-price must be logged, not silently swallowed"
+    src = inspect.getsource(dashboard.process_rfq_email)
+    # The function body itself shouldn't contain the line. (It also
+    # shouldn't contain it on any path — process_rfq_email is the
+    # RFQ-class entry point; calling auto-price here always doubles.)
+    assert "_trigger_auto_price(rfq_data)" not in src, (
+        "_trigger_auto_price(rfq_data) re-introduced in process_rfq_email — "
+        "this is the substrate-singleness regression. process_rfq_email "
+        "handles RFQ-class records only; spawning a PC here doubles "
+        "every inbound on /home (PC panel + RFQ panel)."
     )
