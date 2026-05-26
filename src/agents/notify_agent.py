@@ -82,9 +82,83 @@ SMS_ENABLED    = os.environ.get("NOTIFY_SMS", "false").lower() not in ("false","
 EMAIL_ENABLED  = os.environ.get("NOTIFY_EMAIL_ALERTS", "true").lower() not in ("false","0","off")
 COOLDOWN_MIN   = int(os.environ.get("ALERT_COOLDOWN_MIN", "15"))
 
-# ── Cooldown tracker (in-memory, per event+entity key) ─────────────────────
+# ── Cooldown tracker (in-memory + JSON-persisted, per event+entity key) ────
+#
+# Chrome MCP audit 2026-05-26 anomaly #3: `deadline_critical` fired 3,596
+# events in 30d for a single overdue bid. Watcher cadence is 1/hour with
+# explicit `cooldown_seconds=3600`, so the in-memory cooldown was working
+# WITHIN a process — but Railway redeploys (daily this week, PRs #1095-
+# #1106) reset the dict on every boot. 3 active overdue bids × 24h ×
+# ~daily restarts ≈ the observed rate.
+#
+# Fix: persist `_cooldown` to a JSON file in DATA_DIR. On boot we hydrate
+# the dict from the file; on every cooldown-update we write back. Atomic
+# via tmp+rename. Existing JSON-in-data/ pattern (gmail_health.json,
+# follow_up_state.json, etc.) — no new SQLite table, no schema change.
 _cooldown: dict[str, float] = {}
 _cooldown_lock = threading.Lock()
+_cooldown_hydrated = False
+
+
+def _cooldown_file_path() -> str:
+    """Resolve the cooldown persistence path. Mirrors DATA_DIR resolution
+    used elsewhere in the dashboard. Lives outside the module-load path
+    so test fixtures can monkeypatch DATA_DIR before first use."""
+    try:
+        from src.core.paths import DATA_DIR
+        return os.path.join(str(DATA_DIR), "notification_cooldowns.json")
+    except Exception:
+        return os.path.join(os.getcwd(), "data", "notification_cooldowns.json")
+
+
+def _hydrate_cooldowns_once() -> None:
+    """Load `_cooldown` from disk on first access. Idempotent — second
+    call is a no-op. Failure to read the file is non-fatal (logged, empty
+    dict). The cost of a stale or missing file is at most one extra alert
+    per cooldown_key after the restart, which is the pre-fix steady state
+    — a structural improvement either way."""
+    global _cooldown_hydrated
+    if _cooldown_hydrated:
+        return
+    try:
+        path = _cooldown_file_path()
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            # Defensive: only accept float-valued entries.
+            cleaned = {
+                k: float(v) for k, v in raw.items()
+                if isinstance(v, (int, float))
+            }
+            with _cooldown_lock:
+                _cooldown.update(cleaned)
+            log.info(
+                "notify cooldown hydrated: %d keys from %s",
+                len(cleaned), path,
+            )
+    except Exception as e:
+        log.warning("notify cooldown hydrate failed (continuing empty): %s", e)
+    finally:
+        _cooldown_hydrated = True
+
+
+def _persist_cooldowns_locked() -> None:
+    """Atomically write `_cooldown` to disk. MUST be called while holding
+    `_cooldown_lock`. Tmp+rename pattern matches the rest of data/*.json
+    writes in the dashboard. Persistence failures are logged but
+    non-fatal — the cooldown still works in-process for this run."""
+    try:
+        path = _cooldown_file_path()
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(_cooldown, fh)
+        os.replace(tmp, path)
+    except Exception as e:
+        # Don't crash the alert path on disk failure — degrade to
+        # in-memory-only for this process and log so ops can see drift.
+        log.warning("notify cooldown persist failed: %s", e)
+
 
 def _is_cooled_down(key: str, ttl_seconds: int = None, _now_fn=time.time) -> bool:
     """Return True if this alert key is past its cooldown period.
@@ -95,7 +169,14 @@ def _is_cooled_down(key: str, ttl_seconds: int = None, _now_fn=time.time) -> boo
     keep returning False until the snooze expires.
 
     `_now_fn` is injectable so unit tests can drive a fake clock.
+
+    Persisted across restarts (chrome MCP audit 2026-05-26 anomaly #3):
+    on first call we hydrate the dict from disk; on every successful
+    cooldown stamp we write back. A `deadline_critical:doc_X` row that
+    fired 10 minutes before a Railway redeploy will still be cooled-
+    down 50 minutes later — eliminating the per-deploy alert spam.
     """
+    _hydrate_cooldowns_once()
     ttl = int(ttl_seconds) if ttl_seconds is not None else COOLDOWN_MIN * 60
     with _cooldown_lock:
         last = _cooldown.get(key, 0)
@@ -105,10 +186,12 @@ def _is_cooled_down(key: str, ttl_seconds: int = None, _now_fn=time.time) -> boo
             snooze_until = -last
             if now >= snooze_until:
                 _cooldown[key] = now
+                _persist_cooldowns_locked()
                 return True
             return False
         if now - last >= ttl:
             _cooldown[key] = now
+            _persist_cooldowns_locked()
             return True
         return False
 
@@ -119,19 +202,29 @@ def snooze_alert(key: str, hours: float = 24.0, _now_fn=time.time) -> dict:
     same dedup key) will be suppressed until `now + hours*3600`.
 
     Returns the snooze metadata so callers / tests can verify.
+
+    Persisted alongside the rest of `_cooldown` — a snooze set before a
+    redeploy survives the redeploy.
     """
+    _hydrate_cooldowns_once()
     snooze_until = _now_fn() + max(0.0, float(hours)) * 3600.0
     with _cooldown_lock:
         # Encoded as a negative timestamp so _is_cooled_down can distinguish
         # snooze markers from normal "last fired" values.
         _cooldown[key] = -snooze_until
+        _persist_cooldowns_locked()
     return {"key": key, "snoozed_until": snooze_until, "hours": hours}
 
 
 def _reset_cooldowns_for_test():
-    """Test-only: wipe the in-memory cooldown table."""
+    """Test-only: wipe the in-memory cooldown table AND mark hydrated so
+    subsequent calls don't re-load from disk. Tests that need to
+    exercise hydration should reset `_cooldown_hydrated = False`
+    themselves."""
+    global _cooldown_hydrated
     with _cooldown_lock:
         _cooldown.clear()
+    _cooldown_hydrated = True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
