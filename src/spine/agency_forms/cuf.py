@@ -14,7 +14,7 @@ import io
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from src.spine.agency_forms.cchcs_703b import (
+from src.spine.agency_forms._identity import (
     ReytechIdentity,
     SpineFormFillError,
 )
