@@ -51,6 +51,9 @@ from src.spine.agency_forms.cchcs_704b import (
 from src.spine.agency_forms.cchcs_bidpkg import (
     fill_bidpkg_pdf,
 )
+from src.spine.agency_forms.std_204 import (
+    fill_std_204_pdf,
+)
 
 if TYPE_CHECKING:
     from src.spine.model import Quote
@@ -113,10 +116,16 @@ def _render_quote_pdf_adapter(
 Renderer = Callable[..., bytes]
 
 FORM_REGISTRY: dict[str, Renderer] = {
-    "703b":   fill_703b_pdf,
-    "704b":   fill_704b_pdf,
-    "bidpkg": fill_bidpkg_pdf,
-    "quote":  _render_quote_pdf_adapter,
+    "703b":    fill_703b_pdf,
+    "704b":    fill_704b_pdf,
+    "bidpkg":  fill_bidpkg_pdf,
+    "quote":   _render_quote_pdf_adapter,
+    # Pillar 4 / G10: STD 204 Payee Data Record. Most universal of
+    # the deferred renderers — required by CalVet + DGS + DSH and
+    # already fires inside the CCHCS bidpkg via fill_bid_package.
+    # Standalone registration unblocks every non-CCHCS agency
+    # response path.
+    "std_204": fill_std_204_pdf,
 }
 
 
@@ -126,6 +135,7 @@ __all__ = [
     "fill_703b_pdf",
     "fill_704b_pdf",
     "fill_bidpkg_pdf",
+    "fill_std_204_pdf",
     "FORM_REGISTRY",
     "Renderer",
 ]
