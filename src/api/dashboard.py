@@ -6212,13 +6212,18 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     # archive, training capture, prior_submissions). Idempotent via
     # `already_attached` flag on observed_send matches.
     try:
+        # `app` (Flask instance) isn't bound at this module-level scope —
+        # `app = create_app()` lives in app.py and runs AFTER this block.
+        # The watcher's thread body lazy-resolves the app via
+        # `from app import app as _flask_app` at first fire (by which time
+        # app.py:738 has bound it).
         import src.agents.gmail_sent_watcher as _gsw_mod
-        _gsw_mod.start_scheduler(app=app)
+        _gsw_mod.start_scheduler()
         from src.core.scheduler import register_restartable
         register_restartable("gmail-sent-watcher",
                              _gsw_mod._DEFAULT_INTERVAL_SEC,
                              _gsw_mod, "_scheduler_started",
-                             lambda: _gsw_mod.start_scheduler(app=app))
+                             _gsw_mod.start_scheduler)
         log.info("Gmail-SENT watcher started (interval=%ds, restartable)",
                  _gsw_mod._DEFAULT_INTERVAL_SEC)
     except Exception as _e:

@@ -314,3 +314,76 @@ def test_start_scheduler_is_idempotent(monkeypatch):
     gsw.start_scheduler(app=_FakeApp(), interval_sec=999)  # second call
 
     assert len(started_threads) == 1, "start_scheduler must be idempotent"
+
+
+def test_start_scheduler_callable_with_no_args(monkeypatch):
+    """start_scheduler() must be callable from a scope where `app` isn't
+    bound — that's how dashboard.py spawns it at module-level, BEFORE
+    `app = create_app()` runs in app.py. Pre-fix prod log:
+    `Gmail-SENT watcher failed to start: name 'app' is not defined`.
+    The watcher must lazy-resolve the app at first fire instead."""
+    monkeypatch.setattr(gsw, "_scheduler_started", False)
+    monkeypatch.setattr(gsw, "_scheduler_thread", None)
+    monkeypatch.setattr(gsw, "_scheduler_app", None)
+
+    real_thread = __import__("threading").Thread
+
+    def fake_thread(*a, **kw):
+        t = real_thread(*a, **kw)
+        t._target = lambda: None  # don't actually start the loop
+        return t
+
+    monkeypatch.setattr("threading.Thread", fake_thread)
+
+    # No `app=` kwarg — this is what dashboard.py does post-fix.
+    # Must not raise NameError, must not raise TypeError.
+    gsw.start_scheduler()
+
+    assert gsw._scheduler_started is True
+    # _scheduler_app stays None when no app is passed; the fire path
+    # lazy-resolves via `from app import app as _flask_app`.
+    assert gsw._scheduler_app is None
+
+
+def test_fire_lazy_resolves_app_from_app_py(monkeypatch):
+    """When no app was captured at start_scheduler time AND no Flask
+    request context is active, _fire_mark_sent_for_match must lazy-import
+    the global Flask app from `app.py` (where `app = create_app()` lives
+    at module-level). Pre-fix the watcher tried `from src.api.dashboard
+    import app` — but dashboard.py has no module-level `app`, so the
+    fallback raised ImportError on every fire."""
+    import sys
+    import types
+
+    # Inject a fake `app` module that exposes `app` (mirrors app.py:738).
+    fake_app_module = types.ModuleType("app")
+    fake_app_module.app = _FakeApp()
+    monkeypatch.setitem(sys.modules, "app", fake_app_module)
+
+    # Force the fallback chain: no captured app, no Flask context.
+    monkeypatch.setattr(gsw, "_scheduler_app", None)
+
+    # Stub the RFQ-locked side-effect so the test doesn't hit the DB.
+    import src.api.modules.routes_rfq_admin as ram
+    import src.api.data_layer as dl
+    monkeypatch.setattr(
+        ram, "_api_rfq_mark_sent_manually_locked",
+        lambda rid, *, payload=None, uploaded=None: ({"ok": True}, 200),
+    )
+
+    class _NullLock:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(dl, "_save_rfqs_lock", _NullLock())
+
+    # Should not raise — proves the fallback chain reaches `app.py`.
+    gsw._fire_mark_sent_for_match(
+        {
+            "matched_record_id": "rfq_test",
+            "matched_record_kind": "rfq",
+            "gmail_message_id": "gid_test",
+            "to": "buyer@example.com",
+            "date": "2026-05-27T00:00:00Z",
+        },
+        app=None,
+    )
