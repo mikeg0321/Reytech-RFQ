@@ -69,6 +69,12 @@ from src.spine.agency_forms.std_1000 import (
 from src.spine.agency_forms.cuf import (
     fill_cuf_pdf,
 )
+from src.spine.agency_forms.cchcs_703c import (
+    fill_703c_pdf,
+)
+from src.spine.agency_forms.cchcs_704c import (
+    fill_704c_pdf,
+)
 
 if TYPE_CHECKING:
     from src.spine.model import Quote
@@ -163,6 +169,13 @@ FORM_REGISTRY: dict[str, Renderer] = {
     # directly (inventory + logistics + delivery) — all 6 questions
     # answered "Yes".
     "cuf":           fill_cuf_pdf,
+    # Pillar 4 / G10 + 703c/704c (Architect 2026-05-27): CCHCS 703C
+    # and 704C alternate templates ship with the buyer's email rather
+    # than being bundled. Each adapter resolves its template via env
+    # override (SPINE_{703C,704C}_TEMPLATE_PATH) or contract.
+    # attachment_refs filename match. Raises if neither path resolves.
+    "703c":          fill_703c_pdf,
+    "704c":          fill_704c_pdf,
 }
 
 
@@ -178,6 +191,8 @@ __all__ = [
     "fill_calrecycle_74_pdf",
     "fill_std_1000_pdf",
     "fill_cuf_pdf",
+    "fill_703c_pdf",
+    "fill_704c_pdf",
     "FORM_REGISTRY",
     "Renderer",
 ]
