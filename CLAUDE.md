@@ -708,12 +708,42 @@ Old enrichment data doesn't apply to new item set.
 
 ### We Only Sell in CA
 Every institution maps to a known CA agency. Default to CDCR (most common),
-never "DEFAULT". Use `institution_resolver.resolve()` first, keyword fallback
-second.
+never "DEFAULT".
+
+### Facility Resolution — One Source of Truth (Updated 2026-05-27)
+`src/core/facility_registry.py` is the canonical source for every CA
+facility (CDCR prisons, CalVet veterans homes, DSH hospitals). It owns
+the address, zip, parent agency, and alias set for each facility, and
+its `resolve(text)` refuses to silently guess on ambiguous input
+(e.g. bare "Folsom" / "Lancaster" / shared zips return None).
+
+`src/core/institution_resolver.py` is now a **thin facade** over
+`facility_registry`. Its `resolve(name, email, ship_to)` is preserved
+as a backwards-compatible public API that returns the legacy dict
+shape (`{canonical, agency, facility_code, original, source}`) for
+the grandfathered callers in `_INSTITUTION_RESOLVER_DIRECT_IMPORT_ALLOWLIST`
+(see `tests/test_classify_agency_facade.py`). The 5 heuristic data
+tables that previously duplicated facility data here —
+`_CDCR_FACILITIES`, `_CALVET_FACILITIES`, `_DSH_FACILITIES`,
+`_ADDRESS_FACILITIES`, `_ADDRESS_KEYWORDS` — have been DELETED
+(LAW 2 deletion commit). Every facility lookup now goes through
+`facility_registry.resolve()`.
+
+What's still resolved locally inside `institution_resolver`:
+  - Agency-alias map (`_AGENCY_ALIASES`) — agency-level only, no addresses
+  - Email-domain → agency map (`_EMAIL_DOMAINS`)
+  - Garbage-form-label filter (`_GARBAGE_NAMES`)
+  - The 3-input fallback chain (raw name → ship_to → email)
+
+For NEW code, prefer the `quote_contract` facades:
+  - `quote_contract.canonical_name(text)` — label normalizer
+  - `quote_contract.same_institution(a, b)` — match comparator
+  - `quote_contract.classify_agency(name, email, ship_to)` — full chain
+  - `quote_contract.ship_to_for_text(text)` — facility address resolver
 
 ### Institution Resolver Returns Lowercase
 The resolver returns `"cchcs"`, `"cdcr"`, etc. UI expects `"CCHCS"`, `"CDCR"`.
-Always normalize: `agency_map.get(agency.lower(), agency.upper())`.
+Always normalize via `src/core/agency_display.agency_display(key)`.
 
 ## PC → RFQ Conversion (Updated 2026-03-31)
 

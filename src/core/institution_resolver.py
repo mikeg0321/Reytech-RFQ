@@ -10,153 +10,56 @@ Used at:
   - Extraction time (parsers) to normalize before storage
   - Match time (pc_rfq_linker) to compare institutions accurately
   - Display time (templates) for clean, consistent names
+
+## Substrate status — 2026-05-27 collapse (LAW 2 deletion commit)
+
+This module is now a THIN FACADE over `src/core/facility_registry.py`.
+The 5 heuristic data tables previously duplicated here —
+`_CDCR_FACILITIES`, `_CALVET_FACILITIES`, `_DSH_FACILITIES`,
+`_ADDRESS_FACILITIES`, `_ADDRESS_KEYWORDS` — have been DELETED. All
+facility lookups now go through `facility_registry.resolve()`, which
+is the single source of truth.
+
+Why: the 2026-05-27 facility audit found 6 drift defects where the
+heuristic tables here disagreed with the canonical registry:
+  - FSP zip 95763 (wrong) vs 95671 (canonical, Represa)
+  - DSH-Atascadero zip 93423 vs 93422 (canonical)
+  - DSH-Metropolitan zip 90660 vs 90650 (canonical, Norwalk)
+  - VHC-Lancaster zip 93534 vs 93536 (canonical)
+  - `"prison road"` keyword UNCONDITIONALLY mapped to CSP-SAC, but
+    300 Prison Rd is FSP (Old Folsom) and 100 Prison Rd is CSP-SAC
+    (New Folsom). The keyword guess shipped wrong addresses.
+  - bare `"lancaster"` CalVet match collided with CSP-LAC.
+
+The legacy heuristic-table fallbacks would silently guess on
+ambiguous input. The canonical registry refuses to guess — bare
+"Folsom" / "Lancaster" / shared zips return None so the caller can
+prompt the operator or fall through. This is a STRICT SUPERSET of
+the prior CORRECT behavior — the only behavior lost is the wrong-
+answer silent guesses, which were defects.
+
+What's PRESERVED in this module:
+  - The public dict-shape API (`resolve()` returns
+    `{canonical, agency, facility_code, original, source}`)
+  - `_match_alias` — agency-alias map (CDCR, CalVet, DSH, etc.)
+  - `_match_email_domain` — email-domain → agency mapping
+  - `_GARBAGE_NAMES` — form-label words that aren't institutions
+  - `_AGENCY_ALIASES`, `_EMAIL_DOMAINS` (no facility addresses here)
+  - The 3-input fallback chain (raw → ship_to → email)
+
+Callers should prefer the `quote_contract` facades
+(`canonical_name` / `same_institution` / `classify_agency` /
+`ship_to_for_text`) — they go through this module which goes
+through `facility_registry`. Direct `institution_resolver` imports
+are bounded by `tests/test_classify_agency_facade.py`.
 """
 
-import re
 import logging
+import re
+
+from src.core import facility_registry
 
 log = logging.getLogger("reytech.institution_resolver")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CDCR / CCHCS Facilities
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_CDCR_FACILITIES = {
-    # Abbreviation → (Full Name, City)
-    "ASP":   ("Avenal State Prison", "Avenal"),
-    "CAL":   ("California State Prison, Calipatria", "Calipatria"),
-    "CCC":   ("California Correctional Center", "Susanville"),
-    "CCWF":  ("Central California Women's Facility", "Chowchilla"),
-    "CEN":   ("Centinela State Prison", "Imperial"),
-    "CHCF":  ("California Health Care Facility", "Stockton"),
-    "CIM":   ("California Institution for Men", "Chino"),
-    "CIW":   ("California Institution for Women", "Corona"),
-    "CMC":   ("California Men's Colony", "San Luis Obispo"),
-    "CMF":   ("California Medical Facility", "Vacaville"),
-    "COR":   ("California State Prison, Corcoran", "Corcoran"),
-    "CRC":   ("California Rehabilitation Center", "Norco"),
-    "CTF":   ("Correctional Training Facility", "Soledad"),
-    "CVSP":  ("Chuckawalla Valley State Prison", "Blythe"),
-    "DVI":   ("Deuel Vocational Institution", "Tracy"),
-    "FSP":   ("Folsom State Prison", "Represa"),
-    "HDSP":  ("High Desert State Prison", "Susanville"),
-    "ISP":   ("Ironwood State Prison", "Blythe"),
-    "KVSP":  ("Kern Valley State Prison", "Delano"),
-    "LAC":   ("California State Prison, Los Angeles County", "Lancaster"),
-    "MCSP":  ("Mule Creek State Prison", "Ione"),
-    "NKSP":  ("North Kern State Prison", "Delano"),
-    "PBSP":  ("Pelican Bay State Prison", "Crescent City"),
-    "PVSP":  ("Pleasant Valley State Prison", "Coalinga"),
-    "RJD":   ("Richard J. Donovan Correctional Facility", "San Diego"),
-    "SAC":   ("California State Prison, Sacramento", "Sacramento"),
-    "SCC":   ("Sierra Conservation Center", "Jamestown"),
-    "SOL":   ("California State Prison, Solano", "Vacaville"),
-    "SQ":    ("San Quentin State Prison", "San Quentin"),
-    "SATF":  ("Substance Abuse Treatment Facility", "Corcoran"),
-    "SVSP":  ("Salinas Valley State Prison", "Soledad"),
-    "VSP":   ("Valley State Prison", "Chowchilla"),
-    "WSP":   ("Wasco State Prison", "Wasco"),
-    "CSP":   ("California State Prison", ""),  # generic — needs location suffix
-}
-
-# City → CDCR abbreviation (reverse lookup for facility name matching)
-_CDCR_CITIES = {}
-for _abbr, (_name, _city) in _CDCR_FACILITIES.items():
-    if _city:
-        _CDCR_CITIES[_city.lower()] = _abbr
-    # Also index key words from facility name
-    for _word in _name.lower().split():
-        if len(_word) >= 5 and _word not in ("state", "prison", "california", "facility", "center", "valley"):
-            _CDCR_CITIES[_word] = _abbr
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CalVet Facilities
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_CALVET_FACILITIES = {
-    "yountville":   "Veterans Home of California, Yountville",
-    "barstow":      "Veterans Home of California, Barstow",
-    "chula vista":  "Veterans Home of California, Chula Vista",
-    "fresno":       "Veterans Home of California, Fresno",
-    "lancaster":    "Veterans Home of California, Lancaster",
-    "ventura":      "Veterans Home of California, Ventura",
-    "west la":      "Veterans Home of California, West Los Angeles",
-    "west los angeles": "Veterans Home of California, West Los Angeles",
-    "wla":          "Veterans Home of California, West Los Angeles",
-    "redding":      "Veterans Home of California, Redding",
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DSH Facilities
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_DSH_FACILITIES = {
-    "atascadero":   "DSH — Atascadero State Hospital",
-    "coalinga":     "DSH — Coalinga State Hospital",
-    "metropolitan": "DSH — Metropolitan State Hospital",
-    "napa":         "DSH — Napa State Hospital",
-    "patton":       "DSH — Patton State Hospital",
-}
-
-# Facility mailing addresses live on `core/facility_registry.FacilityRecord`
-# (the canonical source). Callers needing a ship-to address for free-text
-# institution input use `core/quote_contract.ship_to_for_text(text)`, which
-# resolves through `facility_registry.resolve()` and returns
-# "address_line1, address_line2". Migrated 2026-04-27 (S2 follow-up).
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Address / ZIP → Facility Mapping (for ship-to address resolution)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_ADDRESS_FACILITIES = {
-    # CalVet facilities
-    "91911": ("Veterans Home of California, Chula Vista", "calvet", "VHC-ChulaVista"),
-    "92311": ("Veterans Home of California, Barstow", "calvet", "VHC-Barstow"),
-    "94599": ("Veterans Home of California, Yountville", "calvet", "VHC-Yountville"),
-    "93721": ("Veterans Home of California, Fresno", "calvet", "VHC-Fresno"),
-    "93534": ("Veterans Home of California, Lancaster", "calvet", "VHC-Lancaster"),
-    "93003": ("Veterans Home of California, Ventura", "calvet", "VHC-Ventura"),
-    "90073": ("Veterans Home of California, West Los Angeles", "calvet", "VHC-WLA"),
-    "96001": ("Veterans Home of California, Redding", "calvet", "VHC-Redding"),
-    # CDCR facilities by ZIP
-    "92179": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
-    "91710": ("California Institution for Men", "cchcs", "CIM"),
-    "92880": ("California Institution for Women", "cchcs", "CIW"),
-    "93409": ("California Men's Colony", "cchcs", "CMC"),
-    "95696": ("California Medical Facility", "cchcs", "CMF"),
-    "95763": ("Folsom State Prison", "cchcs", "FSP"),
-    "94964": ("San Quentin State Prison", "cchcs", "SQ"),
-    "95202": ("California Health Care Facility", "cchcs", "CHCF"),
-    # DSH facilities by ZIP
-    "93423": ("DSH — Atascadero State Hospital", "dsh", "ASH"),
-    "93210": ("DSH — Coalinga State Hospital", "dsh", "CSH"),
-    "90660": ("DSH — Metropolitan State Hospital", "dsh", "MSH"),
-    "94558": ("DSH — Napa State Hospital", "dsh", "NSH"),
-    "92369": ("DSH — Patton State Hospital", "dsh", "PSH"),
-}
-
-# Street address keywords → facility (when ZIP alone is ambiguous)
-_ADDRESS_KEYWORDS = {
-    "naples": ("Veterans Home of California, Chula Vista", "calvet", "VHC-ChulaVista"),
-    "alta rd": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
-    "donovan": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
-    "chino-corona": ("California Institution for Women", "cchcs", "CIW"),
-    "chino corona": ("California Institution for Women", "cchcs", "CIW"),
-    "central avenue": ("California Institution for Men", "cchcs", "CIM"),
-    "prison road": ("California State Prison, Sacramento", "cchcs", "SAC"),
-    "peabody": ("California State Prison, Solano", "cchcs", "SOL"),
-    "california drive": ("California Medical Facility", "cchcs", "CMF"),
-    "o'byrnes ferry": ("Sierra Conservation Center", "cchcs", "SCC"),
-    "cecil ave": ("North Kern State Prison", "cchcs", "NKSP"),
-    "quebec ave": ("Substance Abuse Treatment Facility", "cchcs", "SATF"),
-    "scofield": ("Wasco State Prison", "cchcs", "WSP"),
-    "lake earl": ("Pelican Bay State Prison", "cchcs", "PBSP"),
-    "el camino real": ("DSH — Atascadero State Hospital", "dsh", "DSH-Atascadero"),
-    "bloomfield": ("DSH — Metropolitan State Hospital", "dsh", "DSH-Metropolitan"),
-    "highland ave": ("DSH — Patton State Hospital", "dsh", "DSH-Patton"),
-    "napa-vallejo": ("DSH — Napa State Hospital", "dsh", "DSH-Napa"),
-    "carnoustie": ("Reytech Inc.", "", ""),  # Our own address
-}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Email Domain → Agency Mapping
@@ -186,16 +89,6 @@ _GARBAGE_NAMES = {
 }
 
 
-def _match_email_domain(email: str) -> dict:
-    """Resolve institution from email domain (e.g., @cdcr.ca.gov → CDCR)."""
-    if not email or "@" not in email:
-        return None
-    domain = email.strip().lower().split("@")[-1]
-    if domain in _EMAIL_DOMAINS:
-        display, agency = _EMAIL_DOMAINS[domain]
-        return {"canonical": display, "agency": agency, "facility_code": ""}
-    return None
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Agency Aliases (abbreviation → canonical display name)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -224,6 +117,108 @@ _AGENCY_ALIASES = {
     "hhsa": "HHSA",
     "dfpi": "DFPI",
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Legacy facility_code mapping — for backward-compat dict shape
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# The registry uses canonical codes like "CSP-SAC", "CALVETHOME-LA",
+# "DSH-Patton". The legacy `institution_resolver.resolve()` dict shape
+# carried shorter codes like "SAC", "VHC-WLA", "DSH-Patton". This map
+# translates registry → legacy on OUTPUT only. No facility data
+# duplicated — just a code-to-code rename.
+
+# Legacy canonical-name overrides. The registry stores some CDCR
+# CSP-prefixed facilities with the short form ("CSP Corcoran", "CSP
+# Los Angeles County", "CSP Solano") because that's how they're
+# commonly identified. The legacy `_CDCR_FACILITIES` table carried
+# the long form ("California State Prison, Corcoran") and callers/
+# tests pin the long form. Map registry → legacy on OUTPUT only.
+# CSP-SAC's registry canonical_name is already the long form
+# ("California State Prison, Sacramento") per the audit W canonical-
+# name fix, so it doesn't need an override here.
+_REGISTRY_TO_LEGACY_CANONICAL_NAME = {
+    "CSP-COR": "California State Prison, Corcoran",
+    "CSP-LAC": "California State Prison, Los Angeles County",
+    "CSP-SOL": "California State Prison, Solano",
+}
+
+
+_REGISTRY_TO_LEGACY_CODE = {
+    # CDCR — registry "CSP-XXX" → legacy "XXX"
+    "CSP-SAC": "SAC",
+    "CSP-COR": "COR",
+    "CSP-LAC": "LAC",
+    "CSP-SOL": "SOL",
+    # CalVet — registry "CALVETHOME-XX" → legacy "VHC-Xxxxxx"
+    "CALVETHOME-YV": "VHC-Yountville",
+    "CALVETHOME-BF": "VHC-Barstow",
+    "CALVETHOME-CV": "VHC-ChulaVista",
+    "CALVETHOME-LA": "VHC-WestLosAngeles",
+    "CALVETHOME-FR": "VHC-Fresno",
+    "CALVETHOME-RD": "VHC-Redding",
+    "CALVETHOME-VM": "VHC-Ventura",
+    "CALVETHOME-LC": "VHC-Lancaster",
+    # DSH codes already match registry shape (DSH-Atascadero, etc.)
+    # CDCR non-CSP codes (CIM, CIW, FSP, ...) pass through unchanged.
+}
+
+
+# Parent-agency → resolver-style lowercase agency key. CDCR-parent
+# facilities map to "cchcs" because the legacy resolver classified
+# every CDCR prison under the CCHCS healthcare-procurement bucket.
+# (Distinct from `parent_agency` on the registry record, which is the
+# dept that OWNS the facility — see test_facility_registry.py
+# :test_ciw_parent_agency_is_cdcr for the registry-side contract.)
+_PARENT_AGENCY_TO_LEGACY_KEY = {
+    "CDCR": "cchcs",
+    "CCHCS": "cchcs",
+    "CalVet": "calvet",
+    "DSH": "dsh",
+    "DGS": "dgs",
+}
+
+
+def _strip_code_prefix(name: str, code: str) -> str:
+    """Strip leading "CODE - " from a canonical_name, matching the
+    legacy shape. Registry has both "CSP-SAC" (no prefix in name) and
+    "CIW" (canonical_name has "CIW - " prefix). Old `_match_cdcr`
+    always returned just the descriptive name."""
+    prefix = f"{code} - "
+    if name.startswith(prefix):
+        return name[len(prefix):]
+    return name
+
+
+def _record_to_legacy_dict(rec) -> dict:
+    """Map a `facility_registry.FacilityRecord` to the legacy
+    institution_resolver dict shape. Returns None for None input."""
+    if rec is None:
+        return None
+    agency = _PARENT_AGENCY_TO_LEGACY_KEY.get(
+        rec.parent_agency, rec.parent_agency.lower()
+    )
+    code = _REGISTRY_TO_LEGACY_CODE.get(rec.code, rec.code)
+    name = _REGISTRY_TO_LEGACY_CANONICAL_NAME.get(
+        rec.code, _strip_code_prefix(rec.canonical_name, rec.code)
+    )
+    return {
+        "canonical": name,
+        "agency": agency,
+        "facility_code": code,
+    }
+
+
+def _match_email_domain(email: str) -> dict:
+    """Resolve institution from email domain (e.g., @cdcr.ca.gov → CDCR)."""
+    if not email or "@" not in email:
+        return None
+    domain = email.strip().lower().split("@")[-1]
+    if domain in _EMAIL_DOMAINS:
+        display, agency = _EMAIL_DOMAINS[domain]
+        return {"canonical": display, "agency": agency, "facility_code": ""}
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -355,7 +350,7 @@ def same_institution(name_a: str, name_b: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Internal Matching
+# Internal Matching — facades over facility_registry
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _normalize_text(text: str) -> str:
@@ -366,124 +361,222 @@ def _normalize_text(text: str) -> str:
     return text
 
 
+def _registry_resolve(text: str):
+    """Thin wrapper around `facility_registry.resolve()` that also
+    tolerates inputs already passed through `_normalize_text()` (which
+    strips hyphens, so "csp-sac" arrives as "csp sac"). Tries both the
+    normalized form and a hyphenated reconstruction so common code-
+    pattern aliases ("csp-sac", "csp-cor") still hit the alias index.
+    """
+    if not text:
+        return None
+    # Direct attempt with the input as-given.
+    rec = facility_registry.resolve(text)
+    if rec is not None:
+        return rec
+    # Some legacy callers pass `_normalize_text(...)` output where
+    # "CSP-SAC" became "csp sac". Registry alias index has both
+    # "csp sac" AND "csp-sac" for CSP-SAC, so the direct attempt
+    # usually wins. This fallback covers the few cases where the
+    # text contains the hyphenated form spelled out as separate
+    # tokens that should re-join (e.g. raw-name "CSP - SAC").
+    if " " in text:
+        joined = text.replace(" ", "-")
+        rec = facility_registry.resolve(joined)
+        if rec is not None:
+            return rec
+    return None
+
+
 def _match_cdcr(text: str) -> dict:
-    """Match CDCR/CCHCS facilities by abbreviation or name keywords."""
-    # Check for "CSP-SAC" or "CSP SAC" pattern
-    m = re.match(r'^(csp)\s+(\w+)', text)
-    if m:
-        suffix = m.group(2).upper()
-        # Try suffix as abbreviation
-        if suffix in _CDCR_FACILITIES:
-            name, city = _CDCR_FACILITIES[suffix]
-            return {"canonical": name, "agency": "cchcs", "facility_code": suffix}
-        # Try suffix as city
-        if suffix.lower() in _CDCR_CITIES:
-            code = _CDCR_CITIES[suffix.lower()]
-            name, city = _CDCR_FACILITIES[code]
-            return {"canonical": name, "agency": "cchcs", "facility_code": code}
-        # Generic CSP with location
-        return {"canonical": f"California State Prison, {suffix.title()}", "agency": "cchcs", "facility_code": "CSP"}
+    """Match CDCR/CCHCS facilities via the canonical facility_registry.
 
-    # Check for exact abbreviation (with optional unit/program suffix like "ML EOP")
-    words = text.split()
-    if words:
-        first = words[0].upper()
-        if first in _CDCR_FACILITIES and first != "CSP":
-            name, city = _CDCR_FACILITIES[first]
-            return {"canonical": name, "agency": "cchcs", "facility_code": first}
+    Facade over `facility_registry.resolve()` — replaces the deleted
+    `_CDCR_FACILITIES` heuristic table. Preserves the legacy keyword-
+    fallback behavior: when text contains "cdcr"/"cchcs"/"corrections"/
+    "prison"/"state prison" but no specific facility resolves, returns
+    a generic CDCR record so callers see SOMETHING is CDCR-side.
 
-    # Check for CDCR/CCHCS keyword + city/facility
-    if any(kw in text for kw in ("cdcr", "cchcs", "corrections", "correctional", "prison", "state prison")):
-        # 2026-05-06 (Mike P0): try CDCR abbreviations BEFORE city keywords.
-        # pc_e06e345d had institution text "cdcr csp sac" (CSP-SAC after
-        # normalization) and fell through to generic "CDCR" because the
-        # _CDCR_CITIES map indexes by city name, not by abbreviation.
-        # Scan abbreviations (whole-word, longest-first to avoid CSP eating
-        # CSP-SAC) so the more specific facility code wins.
-        words = set(text.split())
-        for abbr in sorted(_CDCR_FACILITIES.keys(), key=len, reverse=True):
-            if abbr.lower() in words and abbr != "CSP":
-                name, _ = _CDCR_FACILITIES[abbr]
-                return {"canonical": name, "agency": "cchcs", "facility_code": abbr}
-        # Try to find facility by city name
-        for city, code in _CDCR_CITIES.items():
-            if city in text:
-                name, _ = _CDCR_FACILITIES[code]
-                return {"canonical": name, "agency": "cchcs", "facility_code": code}
-        # CSP standalone (no facility suffix found anywhere) — better than
-        # generic "CDCR" because at minimum the form is on the prison side.
-        if "csp" in words:
-            return {"canonical": "California State Prison", "agency": "cchcs", "facility_code": "CSP"}
+    Agency-context narrowing: when the CDCR/CCHCS keyword is present,
+    a follow-on city token that the registry refuses to resolve on its
+    own (e.g. bare "lancaster" is ambiguous between CSP-LAC and
+    VHC-Lancaster; bare "sac" isn't a registry alias) is re-tried
+    against CDCR-parent facilities only. The keyword is the
+    disambiguator — without it, the registry's None is preserved.
+    """
+    # 1. Try canonical registry resolution.
+    rec = _registry_resolve(text)
+    if rec is not None and rec.parent_agency in ("CDCR", "CCHCS"):
+        return _record_to_legacy_dict(rec)
+
+    # 1b. Bare CDCR short-code (e.g. "sac" → CSP-SAC). The registry
+    # stores these as "CSP-XXX" so bare 3-letter input misses the
+    # alias index. Preserved per legacy behavior: bare CDCR short
+    # codes are unambiguous CDCR identifiers (no non-CDCR facility
+    # uses these tokens).
+    stripped = text.strip()
+    if " " not in stripped and stripped in _CDCR_BARE_ABBREVS:
+        code = _CDCR_BARE_ABBREVS[stripped]
+        narrowed = facility_registry.FACILITIES_BY_CODE.get(code)
+        if narrowed is not None and narrowed.parent_agency in ("CDCR", "CCHCS"):
+            return _record_to_legacy_dict(narrowed)
+
+    # 2. Keyword fallback: text mentions CDCR/CCHCS but the registry
+    # couldn't pin a facility.
+    has_cdcr_kw = any(
+        kw in text for kw in (
+            "cdcr", "cchcs", "corrections", "correctional",
+            "prison", "state prison",
+        )
+    )
+    if has_cdcr_kw:
+        # 2a. Agency-context narrow: scan text against CDCR-parent
+        # facility aliases the registry refused on bare input. The
+        # keyword narrows the universe — "cdcr lancaster" picks
+        # CSP-LAC (not VHC-Lancaster); "cchcs sac" picks CSP-SAC.
+        narrowed = _scan_for_agency_facility(text, parent_agencies=("CDCR", "CCHCS"))
+        if narrowed is not None:
+            return _record_to_legacy_dict(narrowed)
+
+        # "csp" with no facility suffix → generic California State Prison
+        if re.search(r"\bcsp\b", text):
+            return {
+                "canonical": "California State Prison",
+                "agency": "cchcs",
+                "facility_code": "CSP",
+            }
         # Generic CDCR
         return {"canonical": "CDCR", "agency": "cchcs", "facility_code": ""}
-
-    # Check for facility city names without CDCR prefix
-    for city, code in _CDCR_CITIES.items():
-        if len(city) >= 5 and text == city:
-            name, _ = _CDCR_FACILITIES[code]
-            return {"canonical": name, "agency": "cchcs", "facility_code": code}
 
     return None
 
 
-def _match_calvet(text: str) -> dict:
-    """Match CalVet facilities."""
-    if any(kw in text for kw in ("calvet", "cal vet", "cva", "veterans home", "veterans affairs", "vhc")):
-        # Try to find specific facility
-        for loc, full_name in _CALVET_FACILITIES.items():
-            if loc in text:
-                return {"canonical": full_name, "agency": "calvet", "facility_code": f"VHC-{loc.title().replace(' ', '')}"}
-        return {"canonical": "CalVet", "agency": "calvet", "facility_code": ""}
+# Legacy 3-letter CDCR abbreviations the registry intentionally
+# doesn't carry as aliases (it stores them as "CSP-XXX" instead). On
+# bare input these are unambiguous CDCR identifiers — no non-CDCR
+# facility uses these tokens — so they resolve directly. Used both
+# for bare single-token input ("SAC" → CSP-SAC) and for CDCR-keyword
+# context ("CCHCS SAC" → CSP-SAC).
+_CDCR_BARE_ABBREVS = {
+    "sac": "CSP-SAC",
+    "cor": "CSP-COR",
+    "lac": "CSP-LAC",
+    "sol": "CSP-SOL",
+}
 
-    # Check for facility location without CalVet prefix (less confident)
-    for loc, full_name in _CALVET_FACILITIES.items():
-        if len(loc) >= 5 and text == loc:
-            return {"canonical": full_name, "agency": "calvet", "facility_code": f"VHC-{loc.title().replace(' ', '')}"}
+# City tokens the registry refuses on bare input (they collide with
+# non-CDCR facilities), but CDCR keyword present narrows them in.
+# DO NOT add to this map without verifying the city is unambiguous
+# WITH a CDCR keyword present. "lancaster" alone is ambiguous between
+# CSP-LAC and VHC-Lancaster; "cdcr lancaster" is unambiguously CSP-LAC.
+_CDCR_NARROW_CITIES = {
+    "lancaster": "CSP-LAC",
+}
+
+
+def _scan_for_agency_facility(text: str, parent_agencies):
+    """Whole-word scan for CDCR-only alias tokens the registry refuses
+    on bare input. Returns the FacilityRecord or None. Only used when
+    the caller has already established an agency context (keyword match).
+    Scans both the bare abbrev set ("sac" / "cor" / etc.) and the
+    city-narrow set ("lancaster" — only valid with CDCR keyword).
+    """
+    for token_map in (_CDCR_BARE_ABBREVS, _CDCR_NARROW_CITIES):
+        for tok, code in token_map.items():
+            if re.search(r"\b" + re.escape(tok) + r"\b", text):
+                rec = facility_registry.FACILITIES_BY_CODE.get(code)
+                if rec is not None and rec.parent_agency in parent_agencies:
+                    return rec
+    return None
+
+
+def _match_calvet(text: str) -> dict:
+    """Match CalVet facilities via the canonical facility_registry.
+
+    Facade over `facility_registry.resolve()` — replaces the deleted
+    `_CALVET_FACILITIES` heuristic table. Preserves legacy keyword
+    fallback (generic CalVet when text mentions calvet/veterans but
+    no specific facility resolves). The audit's `"lancaster"` ambiguity
+    is now correctly handled by the registry returning None (CSP-LAC
+    and VHC-Lancaster share city + zip 93536); callers fall through.
+    """
+    rec = _registry_resolve(text)
+    if rec is not None and rec.parent_agency == "CalVet":
+        return _record_to_legacy_dict(rec)
+
+    has_calvet_kw = any(
+        kw in text for kw in (
+            "calvet", "cal vet", "cva", "veterans home",
+            "veterans affairs", "vhc",
+        )
+    )
+    if has_calvet_kw:
+        return {"canonical": "CalVet", "agency": "calvet", "facility_code": ""}
 
     return None
 
 
 def _match_dsh(text: str) -> dict:
-    """Match DSH facilities."""
-    if any(kw in text for kw in ("dsh", "state hospital", "department of state hospitals")):
-        for loc, full_name in _DSH_FACILITIES.items():
-            if loc in text:
-                return {"canonical": full_name, "agency": "dsh", "facility_code": f"DSH-{loc.title()}"}
+    """Match DSH facilities via the canonical facility_registry.
+
+    Facade over `facility_registry.resolve()` — replaces the deleted
+    `_DSH_FACILITIES` heuristic table. The registry's bare alias for
+    "atascadero" / "patton" continues to resolve those uniquely; the
+    DSH-HQ catch-all carries the agency-only fallback aliases ("dsh",
+    "department of state hospitals", etc.).
+    """
+    rec = _registry_resolve(text)
+    if rec is not None and rec.parent_agency == "DSH":
+        return _record_to_legacy_dict(rec)
+
+    has_dsh_kw = any(
+        kw in text for kw in (
+            "dsh", "state hospital", "department of state hospitals",
+        )
+    )
+    if has_dsh_kw:
         return {"canonical": "DSH", "agency": "dsh", "facility_code": ""}
 
     return None
 
 
 def _match_alias(text: str) -> dict:
-    """Match simple agency aliases."""
+    """Match simple agency aliases (CDCR, CalVet, DSH, etc.).
+
+    PRESERVED in the 2026-05-27 collapse — the `_AGENCY_ALIASES` map
+    is agency-level (not facility-level) and doesn't carry any address
+    data, so it stays here rather than moving to facility_registry.
+    """
     for alias, canonical in _AGENCY_ALIASES.items():
         if text == alias or text.startswith(alias + " "):
-            return {"canonical": canonical, "agency": canonical.lower().split()[0], "facility_code": ""}
+            return {
+                "canonical": canonical,
+                "agency": canonical.lower().split()[0],
+                "facility_code": "",
+            }
     return None
 
 
 def _match_address(text: str) -> dict:
-    """Match ship-to addresses by ZIP code or street keywords."""
-    import re
-    # Extract ZIP code — look for 5 digits near end (after state abbreviation)
-    zip_match = re.search(r'(?:CA|california)\s+(\d{5})\b', text, re.IGNORECASE)
-    if not zip_match:
-        # Fallback: last 5-digit number in the string
-        all_zips = re.findall(r'\b(\d{5})\b', text)
-        zip_match = type('M', (), {'group': lambda s, n: all_zips[-1]})() if all_zips else None
-    if zip_match:
-        z = zip_match.group(1)
-        if z in _ADDRESS_FACILITIES:
-            name, agency, code = _ADDRESS_FACILITIES[z]
-            return {"canonical": name, "agency": agency, "facility_code": code}
+    """Match ship-to addresses via the canonical facility_registry.
 
-    # Check street address keywords
-    text_lower = text.lower()
-    for keyword, (name, agency, code) in _ADDRESS_KEYWORDS.items():
-        if keyword in text_lower:
-            return {"canonical": name, "agency": agency, "facility_code": code}
+    Facade over `facility_registry.resolve()` — replaces the deleted
+    `_ADDRESS_FACILITIES` (zip table) and `_ADDRESS_KEYWORDS` (street
+    keyword table) heuristic tables.
 
-    return None
+    The deleted heuristics had two correctness bugs the facade now
+    closes:
+      - `"prison road"` UNCONDITIONALLY mapped to CSP-SAC, but
+        300 Prison Rd is FSP. Now returns None on ambiguous zip 95671;
+        a caller with full street text resolves correctly through
+        `facility_registry.resolve()`.
+      - `"lancaster"` (via `_ADDRESS_KEYWORDS`) collided with CSP-LAC.
+        Registry resolves bare "lancaster" to None (ambiguous).
+    """
+    rec = _registry_resolve(text)
+    if rec is None:
+        return None
+    return _record_to_legacy_dict(rec)
 
 
 # ── Backward-compatibility aliases ──────────────────────────────────────────
