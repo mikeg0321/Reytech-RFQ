@@ -58,9 +58,7 @@ class TestLoadAgencyConfigsSkips:
             configs = agency_config.load_agency_configs()
 
         # Defaults still returned — the override layer is degraded, not fatal.
-        # (Post-§0 Job #1 2026-05-27: DEFAULT_AGENCY_CONFIGS["cchcs"] was
-        # deleted; assert against a surviving entry to keep the test honest.)
-        assert "calvet" in configs, "defaults should still be present"
+        assert "cchcs" in configs, "defaults should still be present"
 
         skips = agency_config.drain_skips()
         assert any(
@@ -75,10 +73,10 @@ class TestLoadAgencyConfigsSkips:
         # Mock a DB connection that returns one good row + one corrupt-JSON row.
         # The good row's overrides should still apply; the corrupt row should
         # emit an INFO skip but not abort the loop.
-        # Post-§0 Job #1 2026-05-27: cchcs is no longer a defaults key, so use
-        # two surviving keys — dsh as the good row, calfire as the bad row.
-        good_row = ("dsh", '["703b","704b"]', '["std204"]')
-        bad_row = ("calfire", "{not-valid-json", "[]")
+        good_row = ("cchcs", '["703b","704b"]', '["std204"]')
+        # Use a real key (calvet) so the `if key in configs:` check passes
+        # and we actually exercise the JSON parse.
+        bad_row = ("calvet", "{not-valid-json", "[]")
 
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = [good_row, bad_row]
@@ -90,13 +88,13 @@ class TestLoadAgencyConfigsSkips:
             configs = agency_config.load_agency_configs()
 
         # Good row was applied
-        assert configs["dsh"]["required_forms"] == ["703b", "704b"]
+        assert configs["cchcs"]["required_forms"] == ["703b", "704b"]
         skips = agency_config.drain_skips()
         # The bad row emitted an INFO skip; the loop kept going.
         assert any(
             s.severity is Severity.INFO
             and "agency_package_configs" in s.name
-            and "calfire" in s.reason
+            and "calvet" in s.reason
             for s in skips
         ), skips
 
@@ -182,6 +180,5 @@ class TestNoSkipsOnCleanRun:
         mock_ctx.__exit__.return_value = None
         with patch("src.core.db.get_db", return_value=mock_ctx):
             configs = agency_config.load_agency_configs()
-        # Post-§0 Job #1 2026-05-27: assert against a surviving key.
-        assert "calvet" in configs
+        assert "cchcs" in configs
         assert agency_config.drain_skips() == []

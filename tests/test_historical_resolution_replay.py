@@ -120,23 +120,14 @@ class TestReplayFixtureShape:
         self, samples,
     ):
         keys = {s["expected_agency_key"] for s in samples}
-        # Rewritten 2026-05-27 (Job #1): CCHCS-tagged samples were
-        # re-tagged to "other" in the fixture after the legacy CCHCS
-        # config was DELETED per §0 LAW 2 (Spine canonical). The
-        # original 5 cdcr.ca.gov senders are still present in the
-        # fixture — they now pin the post-deletion fallback path.
-        # CalVet stays as the surviving non-trivial agency under test.
+        assert "cchcs" in keys, (
+            "fixture must include ≥1 CCHCS sample — CCHCS is the largest-"
+            "volume buyer; not pinning it leaves a major regression hole."
+        )
         assert "calvet" in keys, (
             "fixture must include ≥1 CalVet sample — CalVet uses a "
             "different pattern set than CCHCS; resolver bugs that affect "
             "one rarely affect the other."
-        )
-        # Post-CCHCS-deletion: the historical cdcr.ca.gov senders fall
-        # to "other". Several fixture rows test this path.
-        assert "other" in keys, (
-            "fixture must include ≥1 sample expected to fall to 'other' — "
-            "covers the post-Job-#1 fallback behavior for cdcr.ca.gov "
-            "senders (legacy CCHCS path) AND the non-CA-buyer fallback."
         )
 
     def test_fixture_has_required_fields(self, samples):

@@ -58,25 +58,13 @@ def _quote(agency: str = "CDCR Folsom",
 
 class TestRequiredFormsMerge:
     def test_agency_baseline_only_when_no_contract(self):
-        # Rewritten 2026-05-27 (Job #1): the CCHCS config entry was
-        # DELETED per §0 LAW 2 (Spine canonical). "CDCR Folsom" now
-        # resolves to "other" with the minimal baseline forms
-        # (quote, std204, sellers_permit). The mechanism under test —
-        # that the agency baseline is what the plan emits when no email
-        # contract is present — is preserved; only the expected ids
-        # changed.
+        # CDCR config requires 703b + 704b + bidpkg + quote
         q = _quote(requirements={})
         with patch("src.agents.fill_plan_builder._load_profiles_safe",
                    return_value={}):
             plan = build_fill_plan("PC-1", "pc", quote_data=q)
         ids = [it.form_id for it in plan.items]
-        # "other" baseline — minimal forms, no 703b/704b
-        assert "quote" in ids
-        assert "std204" in ids
-        # CCHCS-specific forms must NOT appear from the agency baseline
-        # (they would have to come through an email contract now)
-        assert "703b" not in ids
-        assert "704b" not in ids
+        assert "703b" in ids and "704b" in ids
         # All marked agency_config-sourced
         for it in plan.items:
             assert "agency_config" in it.required_by
