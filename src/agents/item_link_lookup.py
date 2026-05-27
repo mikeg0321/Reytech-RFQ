@@ -2421,6 +2421,20 @@ def lookup_from_url(url: str) -> dict:
             result.get("title") or result.get("price"))
         log.info("item_link_lookup: %s → supplier=%s price=%s part=%s",
                  url[:60], result["supplier"], result.get("price"), result.get("part_number"))
+
+        # Pillar 3 / G9 (chrome MCP audit 2026-05-26): URL→Catalog
+        # write-through. Successful lookups feed the Spine catalog so
+        # the MFG#/description/cost coverage grows over time. The
+        # writer is non-fatal — if it skips (garbage title, no MFG#,
+        # no positive price) or fails (DB unreachable) the operator
+        # still gets the lookup result back unchanged.
+        if result.get("ok"):
+            try:
+                from src.spine_bridge.url_catalog_writethrough import observe_url_lookup
+                observe_url_lookup(result)
+            except Exception as _e:
+                log.debug("url→catalog writethrough suppressed: %s", _e)
+
         return result
 
     except Exception as e:
