@@ -1,31 +1,35 @@
 [
   {
     "msg_id": "194af435173f5bc5",
-    "expected_agency_key": "cchcs",
+    "expected_agency_key": "other",
     "from": "\"Chechi, Mohammad@CDCR\" <Mohammad.Chechi@cdcr.ca.gov>",
     "subject": "RE: PREQ 10800255",
-    "date": "2025-01-28"
+    "date": "2025-01-28",
+    "_note_post_cchcs_deletion": "2026-05-27: CCHCS dict deleted per Job #1 LAW 2; this cdcr.ca.gov sender now falls to \"other\" since the config it would resolve to no longer exists. Original tag preserved in commit log of fix/job1-delete-agency-config-cchcs."
   },
   {
     "msg_id": "1953a26a50c704d9",
-    "expected_agency_key": "cchcs",
+    "expected_agency_key": "other",
     "from": "\"Harris2, Kellie\" <Kellie.harris2@cdcr.ca.gov>",
     "subject": "RE: Request for Bid - 10804116",
-    "date": "2025-02-24"
+    "date": "2025-02-24",
+    "_note_post_cchcs_deletion": "2026-05-27: CCHCS dict deleted per Job #1 LAW 2; this cdcr.ca.gov sender now falls to \"other\" since the config it would resolve to no longer exists. Original tag preserved in commit log of fix/job1-delete-agency-config-cchcs."
   },
   {
     "msg_id": "19543c4a95dfd05a",
-    "expected_agency_key": "cchcs",
+    "expected_agency_key": "other",
     "from": "\"Harris2, Kellie\" <Kellie.harris2@cdcr.ca.gov>",
     "subject": "RE: Request for Bid - 10804116",
-    "date": "2025-02-26"
+    "date": "2025-02-26",
+    "_note_post_cchcs_deletion": "2026-05-27: CCHCS dict deleted per Job #1 LAW 2; this cdcr.ca.gov sender now falls to \"other\" since the config it would resolve to no longer exists. Original tag preserved in commit log of fix/job1-delete-agency-config-cchcs."
   },
   {
     "msg_id": "19547fe051e0fdb5",
-    "expected_agency_key": "cchcs",
+    "expected_agency_key": "other",
     "from": "\"Harris2, Kellie\" <Kellie.harris2@cdcr.ca.gov>",
     "subject": "RE: Request for Bid - 10804116",
-    "date": "2025-02-27"
+    "date": "2025-02-27",
+    "_note_post_cchcs_deletion": "2026-05-27: CCHCS dict deleted per Job #1 LAW 2; this cdcr.ca.gov sender now falls to \"other\" since the config it would resolve to no longer exists. Original tag preserved in commit log of fix/job1-delete-agency-config-cchcs."
   },
   {
     "msg_id": "19561ddabc8d34cc",
@@ -64,10 +68,11 @@
   },
   {
     "msg_id": "19586b33202e8051",
-    "expected_agency_key": "cchcs",
+    "expected_agency_key": "other",
     "from": "\"Pech, Sommony@CDCR\" <Sommony.Pech@cdcr.ca.gov>",
     "subject": "RE: Request for Quote: 10805688- CIW",
-    "date": "2025-03-11"
+    "date": "2025-03-11",
+    "_note_post_cchcs_deletion": "2026-05-27: CCHCS dict deleted per Job #1 LAW 2; this cdcr.ca.gov sender now falls to \"other\" since the config it would resolve to no longer exists. Original tag preserved in commit log of fix/job1-delete-agency-config-cchcs."
   },
   {
     "msg_id": "194696278d8daf54",
