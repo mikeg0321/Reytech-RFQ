@@ -202,3 +202,75 @@ class TestRegistryCompleteness:
             assert len(fac.zip) == 5 and fac.zip.isdigit(), (
                 f"{code} has malformed zip: {fac.zip!r}"
             )
+
+
+class TestCanonicalNameConflation:
+    """Operator (Mike) 2026-05-27: a generated quote ship-to displayed
+    'CSP-Sacramento - New Folsom'. CSP-Sacramento and Folsom State
+    Prison are DIFFERENT CDCR institutions; 'New Folsom' is a
+    colloquial nickname for CSP-SAC and belongs in the alias set, NOT
+    in the canonical name that appears on outbound quote PDFs. This
+    test pins the fix so the colloquialism doesn't leak back in."""
+
+    def test_csp_sac_canonical_is_official_cdcr_name(self):
+        """The canonical name on outbound documents must be the
+        official CDCR institution name, not the colloquial nickname."""
+        rec = get("CSP-SAC")
+        assert rec is not None
+        assert rec.canonical_name == "California State Prison, Sacramento"
+        assert "New Folsom" not in rec.canonical_name, (
+            "'New Folsom' is a colloquialism — it belongs in aliases, "
+            "not the canonical name that ships on quote PDFs."
+        )
+
+    def test_csp_sac_resolves_to_official_name(self):
+        """A disambiguating CSP-SAC input (alias + address) must
+        resolve to the official CDCR name (not the colloquial
+        'New Folsom' string). The bare '100 Prison Road, Represa'
+        case isn't tested here — the 95671 zip is shared with FSP
+        so the resolver correctly returns ambiguous_zip on the
+        bare address; see test_shared_zip_does_not_silently_pick."""
+        rec, reason = resolve_with_reason(
+            "CSP Sacramento, 100 Prison Road, Represa, CA 95671"
+        )
+        assert rec is not None
+        assert rec.code == "CSP-SAC"
+        assert rec.canonical_name == "California State Prison, Sacramento"
+        assert "New Folsom" not in rec.canonical_name
+
+    def test_new_folsom_alias_still_resolves_to_csp_sac(self):
+        """The 'new folsom' colloquialism MUST still resolve inbound —
+        operators and buyers use it. Only the OUTBOUND canonical name
+        changes; the alias set is preserved."""
+        rec = resolve("new folsom")
+        assert rec is not None
+        assert rec.code == "CSP-SAC"
+        # And the resolved record carries the official canonical name
+        assert rec.canonical_name == "California State Prison, Sacramento"
+
+
+class TestCdcrParentAgency:
+    """CIW (California Institution for Women) and CHCF (California
+    Health Care Facility) are CDCR prisons. CCHCS provides healthcare
+    services WITHIN them, but the parent department is CDCR per the
+    official CDCR org chart. Prior data had both as parent_agency=CCHCS,
+    which mis-attributed the institution's parent dept on quotes and
+    in agency rollups."""
+
+    def test_ciw_parent_agency_is_cdcr(self):
+        rec = get("CIW")
+        assert rec is not None
+        assert rec.parent_agency == "CDCR", (
+            f"CIW parent_agency must be CDCR (CCHCS provides healthcare "
+            f"WITHIN the prison; the institution itself is CDCR), got "
+            f"{rec.parent_agency!r}"
+        )
+
+    def test_chcf_parent_agency_is_cdcr(self):
+        rec = get("CHCF")
+        assert rec is not None
+        assert rec.parent_agency == "CDCR", (
+            f"CHCF parent_agency must be CDCR (the facility houses CDCR "
+            f"inmates; CCHCS is the medical provider, not the parent "
+            f"dept), got {rec.parent_agency!r}"
+        )
