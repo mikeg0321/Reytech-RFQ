@@ -44,15 +44,6 @@ from src.spine.agency_forms._identity import (
     ReytechIdentity,
     SpineFormFillError,
 )
-from src.spine.agency_forms.cchcs_703b import (
-    fill_703b_pdf,
-)
-from src.spine.agency_forms.cchcs_704b import (
-    fill_704b_pdf,
-)
-from src.spine.agency_forms.cchcs_bidpkg import (
-    fill_bidpkg_pdf,
-)
 from src.spine.agency_forms.std_204 import (
     fill_std_204_pdf,
 )
@@ -71,11 +62,17 @@ from src.spine.agency_forms.std_1000 import (
 from src.spine.agency_forms.cuf import (
     fill_cuf_pdf,
 )
-from src.spine.agency_forms.cchcs_703c import (
-    fill_703c_pdf,
-)
-from src.spine.agency_forms.cchcs_704c import (
-    fill_704c_pdf,
+# PR-Job1-D (2026-05-27): the five per-form CCHCS adapter shims that
+# previously lived under ``src/spine/agency_forms/cchcs_*.py`` were
+# folded into ``src/spine/forms_render.py`` — same delegation, one home.
+# FORM_REGISTRY entries for 703b/703c/704b/704c/bidpkg now point at the
+# ``render_*_pdf`` functions there.
+from src.spine.forms_render import (
+    render_703b_pdf,
+    render_703c_pdf,
+    render_704b_pdf,
+    render_704c_pdf,
+    render_bidpkg_pdf,
 )
 
 if TYPE_CHECKING:
@@ -129,19 +126,28 @@ def _render_quote_pdf_adapter(
 #   4. The architecture test will fail until all three exist —
 #      that's the consumer-driven-contract gate at build time.
 #
-# Codes in the FormCode literal but NOT in FORM_REGISTRY (today: 703c,
-# 704c, calrecycle_74, std_204, std_1000, dvbe_843, darfur, cuf) are
-# *known-deferred* — they live in the legacy app or aren't yet needed.
-# An EmailContract that declares them in required_forms causes the
-# /package endpoint to refuse 409 with "renderer not registered" — the
-# substrate gate that the legacy app never had.
+# Every FormCode literal member is currently registered: 703b / 703c /
+# 704b / 704c / bidpkg / quote / std_204 / std_1000 / dvbe_843 / darfur /
+# calrecycle_74 / cuf. An EmailContract that declares an unregistered
+# code (the substrate gate against a future typo-only code addition)
+# would cause /package to refuse 409 with "renderer not registered".
 
 Renderer = Callable[..., bytes]
 
 FORM_REGISTRY: dict[str, Renderer] = {
-    "703b":          fill_703b_pdf,
-    "704b":          fill_704b_pdf,
-    "bidpkg":        fill_bidpkg_pdf,
+    # PR-Job1-D (2026-05-27): the CCHCS-specific entries point at
+    # ``forms_render.py``'s ``render_*_pdf`` functions. 703b/704b/bidpkg
+    # delegate through the bundled standalone-form-set renderer
+    # (``render_cchcs_forms_via_legacy``) which classifies the buyer's
+    # template PDFs and runs the verified legacy fillers in
+    # ``src.forms.reytech_filler_v4``. 703c/704c go through the
+    # ``_template_resolver`` (env override or attachment_refs match)
+    # and call the legacy fillers directly. Same delegation, single home.
+    "703b":          render_703b_pdf,
+    "704b":          render_704b_pdf,
+    "bidpkg":        render_bidpkg_pdf,
+    "703c":          render_703c_pdf,
+    "704c":          render_704c_pdf,
     "quote":         _render_quote_pdf_adapter,
     # Pillar 4 / G10: STD 204 Payee Data Record. Most universal of
     # the deferred renderers — required by CalVet + DGS + DSH and
@@ -171,30 +177,23 @@ FORM_REGISTRY: dict[str, Renderer] = {
     # directly (inventory + logistics + delivery) — all 6 questions
     # answered "Yes".
     "cuf":           fill_cuf_pdf,
-    # Pillar 4 / G10 + 703c/704c (Architect 2026-05-27): CCHCS 703C
-    # and 704C alternate templates ship with the buyer's email rather
-    # than being bundled. Each adapter resolves its template via env
-    # override (SPINE_{703C,704C}_TEMPLATE_PATH) or contract.
-    # attachment_refs filename match. Raises if neither path resolves.
-    "703c":          fill_703c_pdf,
-    "704c":          fill_704c_pdf,
 }
 
 
 __all__ = [
     "ReytechIdentity",
     "SpineFormFillError",
-    "fill_703b_pdf",
-    "fill_704b_pdf",
-    "fill_bidpkg_pdf",
+    "render_703b_pdf",
+    "render_704b_pdf",
+    "render_bidpkg_pdf",
+    "render_703c_pdf",
+    "render_704c_pdf",
     "fill_std_204_pdf",
     "fill_dvbe_843_pdf",
     "fill_darfur_pdf",
     "fill_calrecycle_74_pdf",
     "fill_std_1000_pdf",
     "fill_cuf_pdf",
-    "fill_703c_pdf",
-    "fill_704c_pdf",
     "FORM_REGISTRY",
     "Renderer",
 ]

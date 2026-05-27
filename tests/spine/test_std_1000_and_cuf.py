@@ -78,7 +78,7 @@ def test_std_1000_passes_sol_through(monkeypatch):
 def test_std_1000_raises_on_missing_template(monkeypatch):
     import pytest
     from src.spine.agency_forms import fill_std_1000_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
     monkeypatch.setattr(
         "src.forms.cchcs_attachment_fillers.fill_std_1000",
         lambda r, p: None,
@@ -122,7 +122,7 @@ def test_cuf_passes_identity_through(monkeypatch):
         "src.forms.cchcs_attachment_fillers.fill_cuf", _spy,
     )
     from src.spine.agency_forms import fill_cuf_pdf
-    from src.spine.agency_forms.cchcs_703b import ReytechIdentity
+    from src.spine.agency_forms._identity import ReytechIdentity
     fill_cuf_pdf(
         _make_quote(sol="CUF-SOL-3"),
         identity=ReytechIdentity(
@@ -142,7 +142,7 @@ def test_cuf_passes_identity_through(monkeypatch):
 def test_cuf_raises_on_missing_template(monkeypatch):
     import pytest
     from src.spine.agency_forms import fill_cuf_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
     monkeypatch.setattr(
         "src.forms.cchcs_attachment_fillers.fill_cuf",
         lambda r, p: None,

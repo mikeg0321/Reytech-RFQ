@@ -86,12 +86,12 @@ _FILE_SCOPED_LEGACY_IMPORTS: dict[str, set[str]] = {
     # Whitelisted PER FILE — a new adapter dropped into agency_forms/
     # without an entry here still fails this test. Architect approval
     # is required to extend this list (CLAUDE.md §0 LAW 4).
-    "cchcs_703c.py": {
-        "src.forms.reytech_filler_v4",     # fill_703c, load_config, get_pst_date
-    },
-    "cchcs_704c.py": {
-        "src.forms.reytech_filler_v4",     # fill_704b, load_config, get_pst_date
-    },
+    #
+    # PR-Job1-D (2026-05-27) folded the standalone CCHCS adapters
+    # (cchcs_{703b,703c,704b,704c,bidpkg}.py) into ``src/spine/forms_render.py``.
+    # The 703C / 704C delegations to ``src.forms.reytech_filler_v4`` now
+    # ride the ``forms_render.py`` whitelist entry above; no per-file
+    # entry is needed in ``agency_forms/`` for them anymore.
     "calrecycle_74.py": {
         "src.forms.cchcs_attachment_fillers",  # fill_calrecycle_74
     },

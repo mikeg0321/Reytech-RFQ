@@ -129,7 +129,7 @@ def test_raises_on_missing_template(monkeypatch):
     None — the registry's uniform contract is (raises | bytes)."""
     import pytest
     from src.spine.agency_forms import fill_calrecycle_74_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
 
     def _none_filler(reytech_info, parsed):
         return None
@@ -149,7 +149,7 @@ def test_raises_on_non_pdf_output(monkeypatch):
     import io
     import pytest
     from src.spine.agency_forms import fill_calrecycle_74_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
 
     def _junk_filler(reytech_info, parsed):
         return io.BytesIO(b"not a pdf, just garbage")

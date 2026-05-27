@@ -75,8 +75,8 @@ def test_703c_704c_registered_in_form_registry():
 
 def test_703c_704c_uniform_signature():
     import inspect
-    from src.spine.agency_forms import fill_703c_pdf, fill_704c_pdf
-    for fn in (fill_703c_pdf, fill_704c_pdf):
+    from src.spine.agency_forms import render_703c_pdf, render_704c_pdf
+    for fn in (render_703c_pdf, render_704c_pdf):
         sig = inspect.signature(fn)
         for kw in ("today", "flatten", "contract"):
             assert kw in sig.parameters, (
@@ -129,7 +129,7 @@ def test_resolver_word_boundary_703b_doesnt_match_703c(monkeypatch, tmp_path):
     confused-token bug class."""
     monkeypatch.delenv("SPINE_703C_TEMPLATE_PATH", raising=False)
     from src.spine.agency_forms._template_resolver import resolve_template_path
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
     import pytest
 
     f_703b = tmp_path / "buyer_703b_blank.pdf"
@@ -143,7 +143,7 @@ def test_resolver_word_boundary_703b_doesnt_match_703c(monkeypatch, tmp_path):
 def test_resolver_raises_when_no_template(monkeypatch):
     monkeypatch.delenv("SPINE_703C_TEMPLATE_PATH", raising=False)
     from src.spine.agency_forms._template_resolver import resolve_template_path
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
     import pytest
 
     with pytest.raises(SpineFormFillError, match="703C template not resolvable"):
@@ -155,7 +155,7 @@ def test_resolver_raises_when_env_path_missing(monkeypatch):
     with a clear message instead of falling through silently."""
     monkeypatch.setenv("SPINE_703C_TEMPLATE_PATH", "/does/not/exist.pdf")
     from src.spine.agency_forms._template_resolver import resolve_template_path
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
     import pytest
 
     with pytest.raises(SpineFormFillError, match="not a.*readable"):
@@ -168,7 +168,7 @@ def test_resolver_raises_when_attachment_path_missing(monkeypatch, tmp_path):
     pointed somewhere; that 'somewhere' is broken)."""
     monkeypatch.delenv("SPINE_703C_TEMPLATE_PATH", raising=False)
     from src.spine.agency_forms._template_resolver import resolve_template_path
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
     import pytest
 
     ghost = str(tmp_path / "buyer_703c_blank.pdf")  # never created
@@ -195,8 +195,8 @@ def test_703c_end_to_end_with_env_template(monkeypatch):
         pytest.skip("bundled 703b template not present")
     monkeypatch.setenv("SPINE_703C_TEMPLATE_PATH", str(bundled_703b))
 
-    from src.spine.agency_forms import fill_703c_pdf
-    data = fill_703c_pdf(_make_quote())
+    from src.spine.agency_forms import render_703c_pdf
+    data = render_703c_pdf(_make_quote())
     assert data[:5] == b"%PDF-"
     assert len(data) > 1024
 
@@ -214,7 +214,7 @@ def test_704c_end_to_end_with_env_template(monkeypatch):
         pytest.skip("bundled 704b template not present")
     monkeypatch.setenv("SPINE_704C_TEMPLATE_PATH", str(bundled_704b))
 
-    from src.spine.agency_forms import fill_704c_pdf
-    data = fill_704c_pdf(_make_quote())
+    from src.spine.agency_forms import render_704c_pdf
+    data = render_704c_pdf(_make_quote())
     assert data[:5] == b"%PDF-"
     assert len(data) > 1024

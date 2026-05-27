@@ -60,7 +60,7 @@ def test_dvbe_843_returns_real_pdf_bytes():
 def test_dvbe_843_raises_on_missing_template(monkeypatch):
     import pytest
     from src.spine.agency_forms import fill_dvbe_843_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
 
     monkeypatch.setattr(
         "src.forms.cchcs_attachment_fillers.fill_dvbe_843",
@@ -116,7 +116,7 @@ def test_darfur_returns_real_pdf_bytes():
 def test_darfur_raises_on_missing_template(monkeypatch):
     import pytest
     from src.spine.agency_forms import fill_darfur_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
 
     monkeypatch.setattr(
         "src.forms.cchcs_attachment_fillers.fill_darfur_act",
@@ -140,7 +140,7 @@ def test_darfur_identity_block_populated(monkeypatch):
         "src.forms.cchcs_attachment_fillers.fill_darfur_act", _spy,
     )
     from src.spine.agency_forms import fill_darfur_pdf
-    from src.spine.agency_forms.cchcs_703b import ReytechIdentity
+    from src.spine.agency_forms._identity import ReytechIdentity
     fill_darfur_pdf(
         _make_quote(),
         identity=ReytechIdentity(

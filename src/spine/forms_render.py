@@ -9,15 +9,20 @@ is a set of separate buyer forms:
     CDCR Bid Package           (the 14-page certifications bundle)
 
 plus the Reytech Quote PDF (handled elsewhere). This module renders that
-standalone set.
+standalone set. PR-Job1-D (2026-05-27) folded the five per-form CCHCS
+adapter shims (``agency_forms/cchcs_{703b,703c,704b,704c,bidpkg}.py``)
+into this module — the five ``render_*_pdf`` functions at the bottom are
+the FORM_REGISTRY entry points (single-form bytes for the per-form HTTP
+routes), and ``render_cchcs_forms_via_legacy`` remains the bundled call
+the standalone HTTP routes use.
 
 Why an adapter and not a Spine renderer
 ---------------------------------------
-The Spine grew its OWN from-scratch agency-form renderers
+The Spine briefly grew its OWN from-scratch agency-form renderers
 (``src/spine/agency_forms/cchcs_{703b,704b,bidpkg}.py``). They filled
 *blank templates* and produced output that failed CCHCS responsiveness
 review (the 2026-05-18 "trash" + a 21-minute operator hand-finish). They
-are RETIRED.
+are DELETED (PR-Job1-D, 2026-05-27 — §0 Job #1 deletion gate).
 
 The fix — ratified in ``src/spine/SPINE_CHARTER.md`` → "Second adapter —
 ``forms_render.py``" — is to delegate to the verified legacy fillers in
@@ -739,4 +744,289 @@ def render_cchcs_forms_via_legacy(
     return result
 
 
-__all__ = ["render_cchcs_forms_via_legacy"]
+# ──────────────────────────────────────────────────────────────────────
+# Per-form adapters — FORM_REGISTRY entry points.
+# ──────────────────────────────────────────────────────────────────────
+#
+# FORM_REGISTRY in src/spine/agency_forms/__init__.py uses the uniform
+# Renderer signature ``(quote, identity=None, *, today=None, flatten=True,
+# contract=None) -> bytes``. PR-Job1-D (2026-05-27) folded the five
+# per-form adapter shims that previously lived in
+# ``src/spine/agency_forms/cchcs_{703b,703c,704b,704c,bidpkg}.py`` into
+# this module: same delegation pattern, same shared call shape, one home.
+#
+# 703B / 704B / bidpkg are bundled together in the buyer's email so they
+# share template resolution + classification — the per-form entry points
+# call ``render_cchcs_forms_via_legacy`` and return one form's bytes.
+# 703C / 704C ship per-bid with their own buyer-supplied template and so
+# resolve via the dedicated ``_template_resolver``; they call the legacy
+# fillers directly (mirroring the standalone-render shape the deleted
+# ``cchcs_703c.py`` / ``cchcs_704c.py`` had).
+
+
+def _single_form_bytes_or_raise(
+    quote: "Quote",
+    contract: "EmailContract | None",
+    form_key: str,
+) -> bytes:
+    """Render the CCHCS standalone form set and return one form's bytes.
+
+    ``form_key`` is one of ``"703"`` / ``"704b"`` / ``"bidpkg"`` — the
+    keys ``render_cchcs_forms_via_legacy`` uses in ``result["forms"]``.
+    Raises ``SpineFormFillError`` when the form's bytes can't be produced
+    (no contract, template missing, filler crashed) so the failure
+    propagates the same way the deleted per-form modules did.
+    """
+    # Local import — keeps the per-form adapters loadable in test envs
+    # that don't construct an EmailContract or import _identity.
+    from src.spine.agency_forms._identity import SpineFormFillError
+
+    if contract is None:
+        raise SpineFormFillError(
+            f"render of {form_key!r} requires an EmailContract bound to "
+            "the quote — its attachment_refs locate the buyer's template "
+            "PDF. Ingest via spine_ingest with EmailContract or write "
+            "one with /contract-override before rendering."
+        )
+
+    res = render_cchcs_forms_via_legacy(quote, contract, strict=False)
+    sub = (res.get("forms") or {}).get(form_key) or {}
+    data = sub.get("pdf_bytes") or b""
+    if _is_real_pdf(data):
+        return data
+    detail = sub.get("error") or res.get("error") or f"{form_key} render produced no bytes"
+    raise SpineFormFillError(f"{form_key} render failed: {detail}")
+
+
+def render_703b_pdf(
+    quote: "Quote",
+    identity=None,
+    *,
+    today=None,
+    flatten: bool = True,
+    contract: "EmailContract | None" = None,
+) -> bytes:
+    """Render the CCHCS 703B cover sheet for a Spine quote.
+
+    Delegates to ``render_cchcs_forms_via_legacy`` and returns just the
+    703 form's bytes (the bundled call also produces 704B + bidpkg, which
+    are discarded here — the per-form HTTP route caches/streams them in
+    its own request). ``identity`` / ``today`` / ``flatten`` are accepted
+    for FORM_REGISTRY signature uniformity; the legacy filler self-derives
+    identity from ``reytech_config.json`` + does its own flatten.
+    """
+    return _single_form_bytes_or_raise(quote, contract, "703")
+
+
+def render_704b_pdf(
+    quote: "Quote",
+    identity=None,
+    *,
+    today=None,
+    flatten: bool = True,
+    contract: "EmailContract | None" = None,
+) -> bytes:
+    """Render the CCHCS 704B quote worksheet for a Spine quote."""
+    return _single_form_bytes_or_raise(quote, contract, "704b")
+
+
+def render_bidpkg_pdf(
+    quote: "Quote",
+    identity=None,
+    *,
+    today=None,
+    flatten: bool = True,
+    contract: "EmailContract | None" = None,
+) -> bytes:
+    """Render the CDCR Bid Package for a Spine quote."""
+    return _single_form_bytes_or_raise(quote, contract, "bidpkg")
+
+
+def _build_703c_rfq_dict(
+    quote: "Quote",
+    identity,
+    contract: "EmailContract | None",
+) -> dict:
+    """Build the legacy rfq_data dict for a standalone 703C fill.
+
+    Slimmer than ``_build_legacy_rfq_dict`` because 703C is cover-sheet
+    only — no line-item rows. Mirrors the dict the deleted
+    ``cchcs_703c.fill_703c_pdf`` produced.
+    """
+    sol = quote.solicitation_number
+    if not sol and contract is not None:
+        sol = contract.solicitation_number
+
+    if quote.sign_date_pst is not None:
+        sign_date_str = quote.sign_date_pst.strftime("%m/%d/%Y")
+    else:
+        from src.forms.reytech_filler_v4 import get_pst_date
+        sign_date_str = get_pst_date()
+
+    return {
+        "solicitation_number": sol or "",
+        "sign_date": sign_date_str,
+        "agency": quote.agency,
+        "facility": quote.facility,
+        "institution": quote.facility,
+        "line_items": [],
+        "requestor_name": getattr(contract, "buyer_name", "") if contract else "",
+        "requestor_email": getattr(contract, "buyer_email", "") if contract else "",
+        "requestor_phone": getattr(contract, "buyer_phone", "") if contract else "",
+    }
+
+
+def _build_704c_rfq_dict(
+    quote: "Quote",
+    contract: "EmailContract | None",
+) -> dict:
+    """Build the legacy rfq_data dict for a standalone 704C fill.
+
+    704 forms iterate ``line_items`` so this is the heavier conversion:
+    each line emits the row fields the legacy filler reads.
+    """
+    line_items: list[dict] = []
+    for li in quote.line_items:
+        unit_price = li.unit_price_cents / 100.0
+        mfg = (li.mfg_number or "").strip()
+        line_items.append({
+            "line_number": li.line_no,
+            "description": li.description,
+            "qty": li.qty,
+            "uom": li.uom,
+            "unit_price": unit_price,
+            "price_per_unit": unit_price,
+            "supplier_cost": li.cost_cents / 100.0,
+            "mfg_number": mfg,
+            "part_number": mfg,
+        })
+
+    sol = quote.solicitation_number
+    if not sol and contract is not None:
+        sol = contract.solicitation_number
+
+    if quote.sign_date_pst is not None:
+        sign_date_str = quote.sign_date_pst.strftime("%m/%d/%Y")
+    else:
+        from src.forms.reytech_filler_v4 import get_pst_date
+        sign_date_str = get_pst_date()
+
+    return {
+        "solicitation_number": sol or "",
+        "sign_date": sign_date_str,
+        "agency": quote.agency,
+        "facility": quote.facility,
+        "institution": quote.facility,
+        "line_items": line_items,
+    }
+
+
+def _legacy_fill_to_bytes(filler, template_path: str, rfq_data: dict,
+                          tmp_prefix: str, form_label: str) -> bytes:
+    """Call a legacy file-writing filler and return the bytes it wrote.
+
+    ``filler(template_path, rfq_data, config, out_path)`` is the shape
+    every ``reytech_filler_v4`` filler exposes. We give it a tempfile,
+    read the result back, and clean up. Raises ``SpineFormFillError`` on
+    missing output or non-PDF bytes.
+    """
+    from src.spine.agency_forms._identity import SpineFormFillError
+    from src.forms.reytech_filler_v4 import load_config
+
+    try:
+        config = load_config()
+    except Exception as e:
+        raise SpineFormFillError(
+            f"could not load reytech_config.json: {e}"
+        )
+
+    tmp_dir = tempfile.mkdtemp(prefix=tmp_prefix)
+    out_path = os.path.join(tmp_dir, f"{form_label}_filled.pdf")
+    try:
+        filler(template_path, rfq_data, config, out_path)
+        if not os.path.isfile(out_path):
+            raise SpineFormFillError(
+                f"{form_label} filler returned without writing {out_path}"
+            )
+        with open(out_path, "rb") as fh:
+            data = fh.read()
+    finally:
+        try:
+            os.remove(out_path)
+            os.rmdir(tmp_dir)
+        except Exception:
+            pass
+
+    if not data or len(data) < 1024 or data[:5] != b"%PDF-":
+        raise SpineFormFillError(
+            f"{form_label} filler produced non-PDF bytes "
+            f"(len={len(data)}, head={data[:8]!r})"
+        )
+    return data
+
+
+def render_703c_pdf(
+    quote: "Quote",
+    identity=None,
+    *,
+    today=None,
+    flatten: bool = True,
+    contract: "EmailContract | None" = None,
+) -> bytes:
+    """Render CCHCS 703C cover sheet. Template comes from
+    ``contract.attachment_refs`` (buyer-supplied) or the
+    ``SPINE_703C_TEMPLATE_PATH`` env override.
+
+    Raises ``SpineFormFillError`` if no template path is resolvable or
+    the legacy filler returns non-PDF output.
+    """
+    from src.spine.agency_forms._identity import ReytechIdentity
+    from src.spine.agency_forms._template_resolver import resolve_template_path
+    from src.forms.reytech_filler_v4 import fill_703c
+
+    if identity is None:
+        identity = ReytechIdentity.from_env()
+    template_path = resolve_template_path(
+        "703c", contract, "SPINE_703C_TEMPLATE_PATH",
+    )
+    rfq_data = _build_703c_rfq_dict(quote, identity, contract)
+    return _legacy_fill_to_bytes(
+        fill_703c, template_path, rfq_data, "spine_703c_", "703c",
+    )
+
+
+def render_704c_pdf(
+    quote: "Quote",
+    identity=None,
+    *,
+    today=None,
+    flatten: bool = True,
+    contract: "EmailContract | None" = None,
+) -> bytes:
+    """Render CCHCS 704C line-item form. Template resolved from
+    ``contract.attachment_refs`` or ``SPINE_704C_TEMPLATE_PATH`` env.
+
+    Calls the legacy ``fill_704b`` (which auto-detects field prefixes
+    and works for 704B + 704C templates alike). Raises
+    ``SpineFormFillError`` on missing template or non-PDF output.
+    """
+    from src.spine.agency_forms._template_resolver import resolve_template_path
+    from src.forms.reytech_filler_v4 import fill_704b
+
+    template_path = resolve_template_path(
+        "704c", contract, "SPINE_704C_TEMPLATE_PATH",
+    )
+    rfq_data = _build_704c_rfq_dict(quote, contract)
+    return _legacy_fill_to_bytes(
+        fill_704b, template_path, rfq_data, "spine_704c_", "704c",
+    )
+
+
+__all__ = [
+    "render_cchcs_forms_via_legacy",
+    "render_703b_pdf",
+    "render_703c_pdf",
+    "render_704b_pdf",
+    "render_704c_pdf",
+    "render_bidpkg_pdf",
+]

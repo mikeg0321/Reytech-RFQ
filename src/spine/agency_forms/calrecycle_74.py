@@ -1,10 +1,10 @@
 """CalRecycle 74 — Postconsumer Recycled-Content Certification.
 
 Spine-shaped wrapper around the legacy `fill_calrecycle_74()` filler
-in `src.forms.cchcs_attachment_fillers`. Same architecture as the
-existing `cchcs_703b.py` adapter: convert Quote + EmailContract into
-the legacy `reytech_info` + `parsed` dict shape, call the existing
-filler, return bytes.
+in `src.forms.cchcs_attachment_fillers`. Same adapter architecture as
+`src/spine/forms_render.py`: convert Quote + EmailContract into the
+legacy `reytech_info` + `parsed` dict shape, call the existing filler,
+return bytes.
 
 Pillar 4 / G10 (chrome MCP audit 2026-05-26): FORM_REGISTRY had 4
 entries (703b/704b/bidpkg/quote) but the FormCode literal declares
@@ -91,7 +91,7 @@ def fill_calrecycle_74_pdf(
     Args:
         quote:    Spine Quote. Provides solicitation_number + line_items.
         identity: ReytechIdentity. Defaults to `from_env()` if omitted —
-                  matches the convention `cchcs_703b.fill_703b_pdf`
+                  matches the convention every FORM_REGISTRY renderer
                   uses so callers can pass `None` for env-driven
                   defaults.
         today:    Currently unused by the legacy filler (it computes
