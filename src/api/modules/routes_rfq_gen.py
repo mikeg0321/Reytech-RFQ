@@ -3391,14 +3391,28 @@ def generate_rfq_package(rid):
     except Exception as _e:
         log.debug('suppressed in _form_sort_key: %s', _e)
     r["generated_at"] = datetime.now().isoformat()
-    
+
     # ── Google Drive: upload package to Pending ──
-    try:
-        from src.agents.drive_triggers import on_package_generated
-        on_package_generated(r, out_dir, final_output_files)
-    except Exception as _gde:
-        log.debug("Drive trigger (package_generated): %s", _gde)
-    
+    # Gated on _package_complete (same gate as the operator notification
+    # at line 3370 and the draft-email path below) so an INCOMPLETE
+    # package never reaches the Pending folder Mike pulls from. Closes
+    # the split-brain caught 2026-05-27 rfq_0124647e: alignment blocker
+    # fired ("TAX $0.00 ≠ canonical $70.22"), NOTIFY SUPPRESSED — but
+    # Drive uploaded 4 broken files anyway (incl. the $0-tax quote PDF).
+    # Incomplete packages are still written to local disk at out_dir for
+    # operator review via /rfq/<id>/review-package.
+    if _package_complete:
+        try:
+            from src.agents.drive_triggers import on_package_generated
+            on_package_generated(r, out_dir, final_output_files)
+        except Exception as _gde:
+            log.debug("Drive trigger (package_generated): %s", _gde)
+    else:
+        log.warning(
+            "DRIVE UPLOAD SKIPPED %s: package incomplete — %s",
+            rid, _incomplete_msg,
+        )
+
     # Draft email with final files attached (quote + merged package).
     # PR D: blocked when package is incomplete — operator must fix the
     # missing/failed forms before a draft can be created.
