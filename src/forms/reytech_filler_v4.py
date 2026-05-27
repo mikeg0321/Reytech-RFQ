@@ -78,6 +78,39 @@ from PIL import Image
 import logging
 log = logging.getLogger("reytech.reytech_filler_v4")
 
+
+def _log_form_drift_audit(template_path: str, unmatched_fields: list,
+                          total_fields: int, phase: str) -> None:
+    """Write one audit_trail row when a form has drift between intended
+    fields and the actual template (PRE-FILL phase) OR between intended
+    fields and the written output (post-fill phase).
+
+    Pre-2026-05-27 these drift events lived only in deploy logs (the two
+    `[wrn] fill_and_sign_pdf ...` lines). Operator never saw them unless
+    they were tailing logs. The `forms_drift_monitor` scheduler caught
+    them only once a month. The 2026-05-27 prod boot showed 14/22 +
+    93/174 drift on a real CCHCS package — invisible to the operator.
+
+    Surfaces drift via the audit_trail table so the audit dashboard
+    shows it immediately. Never raises; lazy-imports dal to avoid
+    circular dependency with src.forms.
+    """
+    if not unmatched_fields:
+        return
+    try:
+        from src.core.dal import _audit
+        _audit(
+            "form_drift",
+            os.path.basename(template_path),
+            f"{phase}: {len(unmatched_fields)}/{total_fields}",
+            actor="reytech_filler_v4",
+            new_value=", ".join(sorted(unmatched_fields)[:50])[:2000],
+        )
+    except Exception as _e:
+        # Audit-write failures must not block PDF generation.
+        log.debug("_log_form_drift_audit suppressed: %s", _e)
+
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "reytech_config.json")
 SIGNATURE_PATH = os.path.join(SCRIPT_DIR, "signature_transparent.png")
@@ -496,6 +529,9 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
                 "fill_and_sign_pdf PRE-FILL: %d/%d field names not in template %s: %s",
                 len(_pre_unmatched), len(clean_values),
                 _os.path.basename(input_path), _pre_unmatched[:15])
+            _log_form_drift_audit(
+                input_path, _pre_unmatched, len(clean_values), "pre_fill"
+            )
     except Exception as _e:
         log.debug("suppressed: %s", _e)  # TemplateProfile is best-effort — never block filling
 
@@ -615,6 +651,9 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             _vlog.getLogger("reytech.forms").warning(
                 "fill_and_sign_pdf: %d/%d intended fields not found in output: %s",
                 len(unmatched), len(intended_keys), sorted(unmatched)[:10])
+            _log_form_drift_audit(
+                input_path, list(unmatched), len(intended_keys), "post_fill"
+            )
     except Exception as _e:
         log.debug("suppressed: %s", _e)  # verification is best-effort, never block output
 
