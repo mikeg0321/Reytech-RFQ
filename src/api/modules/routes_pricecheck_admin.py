@@ -4256,6 +4256,65 @@ def api_item_link_lookup():
         # validation pass is ever wanted, it should be a separate
         # /api/item-link/validate endpoint the client polls after the
         # fast result lands — never inline on the hot path.
+
+        # ── pricing_memory rescue (2026-05-26 substrate fix) ──
+        # Closes the rfq_0124647e screenshot bug: catalog has prior cost
+        # from a related PC, scrape returns "No product data found" with
+        # cost stuck at $0.00. Resolve via the canonical pricing-memory
+        # cascade so the cost field hydrates from catalog / linked PC /
+        # oracle prior instead. Scrape result still wins for product
+        # identity (title, description) — memory only contributes when
+        # scrape couldn't fill the price.
+        try:
+            from src.core.pricing_memory import resolve as _resolve_memory
+            _r = result if isinstance(result, dict) else {}
+            _scrape_price_val = (
+                _r.get("list_price") or _r.get("price") or _r.get("sale_price") or 0
+            )
+            try:
+                _scrape_price_val = float(_scrape_price_val or 0)
+            except (TypeError, ValueError):
+                _scrape_price_val = 0.0
+            _pc_desc_input = (data.get("pc_description") or "").strip()
+            _hit = _resolve_memory(
+                url=url,
+                mfg=(_r.get("mfg_number") or _r.get("part_number") or "") or "",
+                upc=(_r.get("upc") or "") or "",
+                description=_pc_desc_input,
+                scrape_fn=None,  # we already have `result` — don't re-scrape
+            )
+            # Always annotate chain — useful even when scrape succeeded,
+            # since "you sold this for $X last time" is a chip the
+            # operator wants to see during URL paste.
+            _r["source_chain"] = _hit.source_chain
+            _r["evidence_pc_id"] = _hit.evidence_pc_id
+            _r["evidence_pc_number"] = _hit.evidence_pc_number
+            _r["memory_age_days"] = _hit.age_days
+            _r["memory_sell_price"] = _hit.sell_price
+            if _scrape_price_val <= 0 and _hit.cost > 0:
+                # Scrape failed — hydrate cost from pricing memory.
+                _r.pop("error", None)
+                _r["price"] = _hit.cost
+                _r["list_price"] = _hit.cost
+                _r["supplier"] = _r.get("supplier") or _hit.supplier
+                _r["cost_source"] = "pricing_memory"
+                _r["ok"] = True
+                if _hit.mfg_number and not _r.get("mfg_number"):
+                    _r["mfg_number"] = _hit.mfg_number
+                if _hit.upc and not _r.get("upc"):
+                    _r["upc"] = _hit.upc
+                if _hit.photo_url and not _r.get("photo_url"):
+                    _r["photo_url"] = _hit.photo_url
+                log.info(
+                    "URL-paste memory rescue: %s → cost=$%.2f via %s%s",
+                    url[:80], _hit.cost,
+                    _hit.source_chain[0] if _hit.source_chain else "?",
+                    " pc=" + _hit.evidence_pc_id[:8] if _hit.evidence_pc_id else "",
+                )
+            result = _r
+        except Exception as _mem_e:
+            log.warning("pricing_memory enrichment failed: %s", _mem_e)
+
         return jsonify(result)
     except Exception as e:
         log.error("item_link_lookup API error: %s", e)

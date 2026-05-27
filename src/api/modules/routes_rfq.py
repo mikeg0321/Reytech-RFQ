@@ -4488,7 +4488,19 @@ def _api_rfq_bulk_paste_data_locked(rid):
 @auth_required
 @safe_route
 def api_rfq_pc_link_suggestions(rid):
-    """Surface top CCHCS PC candidates for operator review. Never auto-links."""
+    """Surface top PC candidates for operator review. Never auto-links.
+
+    Each candidate now includes a per-line `preview` payload (2026-05-26
+    substrate UX fix) so the banner can render a glanceable diff table
+    BEFORE the operator clicks Apply — replacing the prior two-button +
+    confirm() pattern that committed blind. See
+    `pc_rfq_linker.preview_pc_link()` for the shape.
+
+    Originally CCHCS-only. Mike 2026-05-26: "fix for all PCs and RFQs."
+    Generic `find_matching_pc` supplements as a fallback when CCHCS path
+    returned nothing — surfaces prior price-checks for any agency the
+    operator has on file.
+    """
     bad = _validate_rid(rid)
     if bad:
         return bad
@@ -4497,11 +4509,41 @@ def api_rfq_pc_link_suggestions(rid):
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"}), 404
 
-    from src.core.pc_rfq_linker import find_matching_pcs_for_cchcs
+    from src.core.pc_rfq_linker import (
+        find_matching_pcs_for_cchcs,
+        find_matching_pc,
+        preview_pc_link,
+    )
     from src.api.dashboard import _load_price_checks as _dash_load_pcs
     pcs = _dash_load_pcs()
 
     candidates = find_matching_pcs_for_cchcs(r, pcs, max_results=3)
+    # Generic fallback for non-CCHCS RFQs (or to supplement when the CCHCS
+    # path returned nothing). The generic matcher returns at most one
+    # (pc_id, pc_data, reason) tuple — promoted to the same dict shape.
+    if not candidates:
+        try:
+            gen_pc_id, gen_pc, gen_reason = find_matching_pc(r, pcs)
+        except Exception as _gm_e:
+            log.debug("generic PC match: %s", _gm_e)
+            gen_pc_id = gen_pc = gen_reason = None
+        if gen_pc_id and gen_pc:
+            gen_inner = gen_pc.get("pc_data", gen_pc)
+            gen_items = (gen_inner.get("items") if isinstance(gen_inner, dict)
+                         else None) or gen_pc.get("items") or []
+            rfq_items = r.get("line_items") or r.get("items") or []
+            candidates = [{
+                "pc_id": gen_pc_id,
+                "pc_data": gen_pc,
+                # Generic matcher doesn't return per-line scores; approximate
+                # the match_pct from line count for the UI badge.
+                "match_pct": 60,
+                "line_matches": min(len(gen_items), len(rfq_items)),
+                "line_total": len(rfq_items),
+                "reasons": (gen_reason or "general").split("+"),
+                "is_exact": False,
+            }]
+
     suggestions = []
     for c in candidates:
         inner = c.get("pc_data", {}) or {}
@@ -4512,6 +4554,14 @@ def api_rfq_pc_link_suggestions(rid):
                 pc_inner = _json.loads(pc_inner)
             except Exception:
                 pc_inner = {}
+        # Per-line preview — what Apply would actually do. Pure function,
+        # safe on large PCs, no mutation. Failure surfaces as empty preview
+        # so the banner still renders (degrades gracefully).
+        try:
+            preview = preview_pc_link(r, inner)
+        except Exception as _pv_e:
+            log.warning("preview_pc_link failed for pc=%s: %s", c.get("pc_id"), _pv_e)
+            preview = {"lines": [], "totals": {}, "pc_id": c.get("pc_id"), "pc_number": ""}
         suggestions.append({
             "pc_id": c["pc_id"],
             "pc_number": pc_inner.get("pc_number") or inner.get("pc_number", ""),
@@ -4521,6 +4571,7 @@ def api_rfq_pc_link_suggestions(rid):
             "line_total": c["line_total"],
             "reasons": c["reasons"],
             "pc_item_count": len(pc_inner.get("items") or inner.get("items") or []),
+            "preview": preview,
         })
     return jsonify({
         "ok": True,
