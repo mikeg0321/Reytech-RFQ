@@ -60,6 +60,9 @@ from src.spine.agency_forms.dvbe_843 import (
 from src.spine.agency_forms.darfur import (
     fill_darfur_pdf,
 )
+from src.spine.agency_forms.calrecycle_74 import (
+    fill_calrecycle_74_pdf,
+)
 
 if TYPE_CHECKING:
     from src.spine.model import Quote
@@ -122,25 +125,29 @@ def _render_quote_pdf_adapter(
 Renderer = Callable[..., bytes]
 
 FORM_REGISTRY: dict[str, Renderer] = {
-    "703b":     fill_703b_pdf,
-    "704b":     fill_704b_pdf,
-    "bidpkg":   fill_bidpkg_pdf,
-    "quote":    _render_quote_pdf_adapter,
+    "703b":          fill_703b_pdf,
+    "704b":          fill_704b_pdf,
+    "bidpkg":        fill_bidpkg_pdf,
+    "quote":         _render_quote_pdf_adapter,
     # Pillar 4 / G10: STD 204 Payee Data Record. Most universal of
     # the deferred renderers — required by CalVet + DGS + DSH and
     # already fires inside the CCHCS bidpkg via fill_bid_package.
     # Standalone registration unblocks every non-CCHCS agency
     # response path.
-    "std_204":  fill_std_204_pdf,
+    "std_204":       fill_std_204_pdf,
     # Pillar 4 / G10: DVBE 843 declaration. Required by CalVet + DGS
     # for every prime-DVBE bid. CCHCS bidpkg already fires it
     # internally; standalone here unblocks non-CCHCS paths.
-    "dvbe_843": fill_dvbe_843_pdf,
+    "dvbe_843":      fill_dvbe_843_pdf,
     # Pillar 4 / G10: Darfur Contracting Act certification. Required
     # by CalVet + DGS + most CA agency bids. Reytech is not a
     # scrutinized company per CA Gov Code §10477 — fills the
     # non-scrutinized declaration on page 1.
-    "darfur":   fill_darfur_pdf,
+    "darfur":        fill_darfur_pdf,
+    # Pillar 4 / G10: CalRecycle 74 Postconsumer Recycled-Content
+    # Certification. Required by CalVet + DGS; also fires inside the
+    # CCHCS bidpkg via fill_bid_package.
+    "calrecycle_74": fill_calrecycle_74_pdf,
 }
 
 
@@ -153,6 +160,7 @@ __all__ = [
     "fill_std_204_pdf",
     "fill_dvbe_843_pdf",
     "fill_darfur_pdf",
+    "fill_calrecycle_74_pdf",
     "FORM_REGISTRY",
     "Renderer",
 ]
