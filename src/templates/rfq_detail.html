@@ -681,7 +681,7 @@
     </div>
    </td>
    <td>
-    <input type="text" inputmode="decimal" name="cost_{{loop.index0}}" value="{{ '%.2f'|format(i.supplier_cost|float) if i.supplier_cost not in (None, '', 0, 0.0) else '' }}" placeholder="0.00" class="num-in pricing-num" style="min-width:110px;field-sizing:content;font-size:17px;font-weight:700;padding:8px 10px" oninput="sanitizePrice(this);recalcFromCost({{loop.index0}})" onblur="fmtCurrency(this);recalcFromCost({{loop.index0}})" aria-label="Supplier cost">
+    <input type="text" inputmode="decimal" name="cost_{{loop.index0}}" value="{{ '%.2f'|format(i.supplier_cost|default(0)|float) if i.supplier_cost|default(0) not in (None, '', 0, 0.0) else '' }}" placeholder="0.00" class="num-in pricing-num" style="min-width:110px;field-sizing:content;font-size:17px;font-weight:700;padding:8px 10px" oninput="sanitizePrice(this);recalcFromCost({{loop.index0}})" onblur="fmtCurrency(this);recalcFromCost({{loop.index0}})" aria-label="Supplier cost">
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
      {% if i.scprs_last_price %}{% if i.get('scprs_po') %}<a href="/api/v1/harvest/po-screenshot/{{i.scprs_po}}" target="_blank" style="text-decoration:none">{% endif %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:#58a6ff;cursor:{% if i.get('scprs_po') %}pointer{% else %}help{% endif %}" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %} · PO Total (not per-unit){% endif %}{% if i.get('scprs_po') %} · PO {{i.scprs_po}} — click to view{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %}<span style="font-size:9px;opacity:.7"> (PO total)</span>{% endif %}</span>{% if i.get('scprs_po') %}</a>{% endif %}{% endif %}
      {% if i.get('amazon_price') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(251,146,60,.15);color:#fb923c;cursor:help" title="Amazon price">AMZ ${{'{:.2f}'.format(i.amazon_price)}}</span>{% endif %}
@@ -717,7 +717,7 @@
      <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
     </div>
    </td>
-   <td><input type="text" inputmode="decimal" name="price_{{loop.index0}}" value="{{ '%.2f'|format(i.price_per_unit|float) if i.price_per_unit not in (None, '', 0, 0.0) else '' }}" placeholder="0.00" class="num-in pricing-num" style="min-width:110px;field-sizing:content;font-size:17px;font-weight:700;padding:8px 10px" oninput="sanitizePrice(this);recalcFromBid({{loop.index0}})" onblur="fmtCurrency(this);recalcFromBid({{loop.index0}})" aria-label="Bid price per unit">
+   <td><input type="text" inputmode="decimal" name="price_{{loop.index0}}" value="{{ '%.2f'|format(i.price_per_unit|default(0)|float) if i.price_per_unit|default(0) not in (None, '', 0, 0.0) else '' }}" placeholder="0.00" class="num-in pricing-num" style="min-width:110px;field-sizing:content;font-size:17px;font-weight:700;padding:8px 10px" oninput="sanitizePrice(this);recalcFromBid({{loop.index0}})" onblur="fmtCurrency(this);recalcFromBid({{loop.index0}})" aria-label="Bid price per unit">
     {% if i.get('oracle_price') and i.get('oracle_price')|float > 0 %}
     {# Phase 4: auto-surface Oracle recommendation on every item row — no click required #}
     <div style="margin-top:3px">

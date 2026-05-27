@@ -21,16 +21,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ROUTE = Path(__file__).resolve().parents[1] / "src" / "api" / "modules" / "routes_rfq.py"
+ROUTE = Path(__file__).resolve().parents[1] / "src" / "core" / "tax_resolver.py"
 
 
 def _extract_street_regex() -> str:
-    """Pull the `_street_match = _re_tax.search(...)` pattern out of the
-    route source so the test guards what actually runs in prod, not a
-    duplicated copy."""
+    """Pull the `street_match = re.search(...)` pattern out of the
+    canonical tax-resolver source so the test guards what actually runs
+    in prod, not a duplicated copy. The regex was refactored out of the
+    RFQ + PC routes into `src/core/tax_resolver.py::_parse_address` so
+    both routes share one parser (Bundle-1 PR-1e / audit Y closure)."""
     src = ROUTE.read_text(encoding="utf-8")
-    m = re.search(r"_street_match\s*=\s*_re_tax\.search\(\s*r['\"]([^'\"]+)['\"]", src)
-    assert m, "Could not locate the tax-parser street regex in routes_rfq.py"
+    m = re.search(r"street_match\s*=\s*re\.search\(\s*r['\"]([^'\"]+)['\"]", src)
+    assert m, "Could not locate the tax-parser street regex in tax_resolver.py"
     return m.group(1)
 
 

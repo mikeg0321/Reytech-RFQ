@@ -50,26 +50,35 @@ def test_drift_stats_empty_table(client, temp_data_dir):
 
 def test_drift_stats_seeded_rows(client, temp_data_dir):
     """Insert a few rows; counts + recent + stats reflect them."""
+    from datetime import datetime, timedelta
     from src.core.db import get_db
+
+    # Use relative dates anchored to today so the 7d / 90d window
+    # assertions stay green over time. Hardcoded YYYY-MM-DD anchors aged
+    # out of the 7d window and made this test fail on every clock tick.
+    now = datetime.now()
+    recent1 = (now - timedelta(days=1)).isoformat()
+    recent2 = (now - timedelta(days=2)).isoformat()
+    older = (now - timedelta(days=60)).isoformat()
 
     with get_db() as conn:
         conn.execute("DELETE FROM operator_drift_line WHERE 1=1")
-        # 2 recent (within 7d) + 1 older (60d ago)
+        # 2 recent (within 7d) + 1 older (60d ago — outside 7d/30d, inside 90d)
         _insert_drift_row(
             conn, quote_id="pc_apt1", quote_type="pc",
-            sent_at="2026-05-13T10:00:00", agency_key="cchcs",
+            sent_at=recent1, agency_key="cchcs",
             line_idx=1, sent_price=100.0, rec_price=80.0,
             drift_pct=25.0,
         )
         _insert_drift_row(
             conn, quote_id="rfq_apt2", quote_type="rfq",
-            sent_at="2026-05-12T10:00:00", agency_key="calvet",
+            sent_at=recent2, agency_key="calvet",
             line_idx=1, sent_price=200.0, rec_price=180.0,
             drift_pct=11.11,
         )
         _insert_drift_row(
             conn, quote_id="pc_old", quote_type="pc",
-            sent_at="2026-03-15T10:00:00", agency_key="cchcs",
+            sent_at=older, agency_key="cchcs",
             line_idx=1, sent_price=50.0, rec_price=45.0,
             drift_pct=11.11,
         )
