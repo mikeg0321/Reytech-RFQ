@@ -237,6 +237,44 @@ files retired in 2026-05-20 were from-scratch fillers; the files
 currently on disk are adapters. Job #1 still deletes any
 `agency_forms/` files that are not on the whitelist above.
 
+### CCHCS HTTP entry point — `routes_spine.py` (arch-test covered)
+
+> Added 2026-05-27 (Job #1 PR-Job1-E). Architect approval recorded in
+> the ticket itself.
+
+The CCHCS HTTP layer (`src/api/modules/routes_spine.py`) lives outside
+`src/spine/` — it is the Flask wiring that registers the Spine's
+routes — but it IS named in the CLAUDE.md §0 Job #1 acceptance ("0
+imports from `src/core/` in the CCHCS quote path"). To make that
+acceptance a forcing function rather than a checklist item,
+`test_cchcs_routes_no_legacy_imports` (in
+`tests/spine/test_spine_architecture.py`) extends the same arch-test
+precision to that file.
+
+Scope of the wiring-layer test (stricter / narrower than the Spine's
+own `test_no_legacy_imports`):
+
+- **Forbidden:** any `src.core.*` or `src.forms.*` import — the two
+  legacy substrate roots Job #1 names.
+- **Allowed without ceremony:** `src.api.shared` (the shared blueprint
+  + auth decorator), `src.spine_bridge` (the legacy→Spine state
+  bridge), `src.spine.*` (the Spine itself), and stdlib / pydantic /
+  third-party.
+
+One sanctioned legacy import is currently whitelisted in
+`_ROUTE_FILE_SCOPED_LEGACY_IMPORTS`:
+
+- **`routes_spine.py`** → `src.core.paths` (`DATA_DIR` only, used as
+  the function-scoped fallback for `SPINE_DB_PATH` when the env var is
+  unset). This import predates Job #1 and is a path constant, not a
+  Spine correctness dependency. The existing in-line comment at the
+  callsite already documents this as "the wiring layer, not src/spine/".
+
+Adding a new `src.core.*` or `src.forms.*` import to `routes_spine.py`
+fails the build. The remedy is to push the dependency down into
+`src.spine_bridge` or a Spine helper — same delete-before-add
+discipline that governs every other Spine seam.
+
 ---
 
 ## Cannibalization Roadmap
