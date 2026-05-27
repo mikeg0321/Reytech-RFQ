@@ -269,7 +269,14 @@ class Quote(BaseModel):
     )
 
     quote_id: str = Field(min_length=4, max_length=64, pattern=r"^[A-Za-z0-9_\-]+$")
-    agency: Literal["CCHCS"]            # widened agency-by-agency in v2+.
+    # Chrome MCP audit 2026-05-27 / G12 (operator-architect approval):
+    # CalVet admitted as a Spine-renderable agency. This is a forward
+    # declaration only — Job #1 (CCHCS legacy deletion) is still the
+    # active migration; CalVet is the next-after-Job-#1 agency in the
+    # queue. Legacy CalVet path remains until its own deletion gate
+    # closes. Per §0 LAW 1: each new agency literal is a forward
+    # commitment, NOT a coexistence guarantee.
+    agency: Literal["CCHCS", "CalVet"]
     facility: str = Field(min_length=1, max_length=64)
     solicitation_number: str = Field(min_length=1, max_length=64)
     line_items: list[LineItem] = Field(min_length=1)

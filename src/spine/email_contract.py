@@ -157,7 +157,12 @@ class EmailContract(BaseModel):
     buyer_email: str | None = Field(default=None, max_length=128)
     buyer_phone: str | None = Field(default=None, max_length=32)
     buyer_title: str | None = Field(default=None, max_length=128)
-    agency: Literal["CCHCS"]
+    # Chrome MCP audit 2026-05-27 / G12: CalVet admitted as a Spine-
+    # renderable agency. Forward declaration for the next-after-Job-#1
+    # migration. Mirror of the same literal widening on Quote.agency
+    # in model.py — keeping both in sync so EmailContract and Quote
+    # agency literals can never drift.
+    agency: Literal["CCHCS", "CalVet"]
     facility: str = Field(min_length=1, max_length=128)
     institution_code: str | None = Field(default=None, max_length=32,
         description="Legacy institution code if known (e.g., 'CCWF').")
