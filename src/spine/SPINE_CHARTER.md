@@ -177,6 +177,66 @@ Which adapter serves a quote — `packet_render` (Non-Cloud Packet) or
 `EmailContract`, never guessed (LAW 6). The retired `agency_forms/`
 renderers are deleted by Job #1.
 
+### Adapter renderers in `agency_forms/` (Pillar-4 deferred renderers)
+
+> Added 2026-05-27 (Pillar 4 / G10). Architect approval recorded in
+> PR-C. Memory: this section is the canonical justification — every
+> entry in `_FILE_SCOPED_LEGACY_IMPORTS` for an `agency_forms/` file is
+> derived from this section.
+
+The original 2026-05-20 wording of this Charter declared the
+`agency_forms/` renderers "retired" because their from-scratch fillers
+produced the 2026-05-18 "trash" output. The Pillar-4 sprint (G10)
+**rebuilt those renderers as adapters** — not from-scratch fillers.
+Each file in `src/spine/agency_forms/` now follows the same boundary
+pattern as `forms_render.py`: it maps a Spine `Quote` +
+`EmailContract` onto the call shape of a verified legacy filler and
+delegates the actual PDF fill. The Spine continues to own the inputs
+(model, contract, identity, template resolution); the legacy code
+continues to own document filling (where its 4-month track record
+lives).
+
+Each adapter delegates to exactly one legacy module:
+
+- **`cchcs_703c.py`** → `src.forms.reytech_filler_v4` (`fill_703c`,
+  `load_config`, `get_pst_date`). Standalone 703C cover sheet for
+  CCHCS bids that arrive with a buyer-supplied 703C template.
+- **`cchcs_704c.py`** → `src.forms.reytech_filler_v4` (`fill_704b`,
+  `load_config`, `get_pst_date`). 704C line-item table.
+- **`calrecycle_74.py`** → `src.forms.cchcs_attachment_fillers`
+  (`fill_calrecycle_74`). CalRecycle postconsumer-content certification.
+- **`cuf.py`** → `src.forms.cchcs_attachment_fillers` (`fill_cuf`).
+  CUF (Commercially Useful Function) certification.
+- **`darfur.py`** → `src.forms.cchcs_attachment_fillers`
+  (`fill_darfur_act`). Darfur Contracting Act certification.
+- **`dvbe_843.py`** → `src.forms.cchcs_attachment_fillers`
+  (`fill_dvbe_843`). DVBE STD-843.
+- **`std_1000.py`** → `src.forms.cchcs_attachment_fillers`
+  (`fill_std_1000`). STD-1000 prohibited-funder certification.
+- **`std_204.py`** → `src.forms.cchcs_attachment_fillers`
+  (`fill_std204`). STD-204 payee data record.
+
+These eight adapters share the boundary justification of
+`forms_render.py` and `packet_render.py`: re-implementing a verified
+legacy filler to satisfy import purity would force the Spine to depend
+on a *worse, unverified* renderer instead of the audited one. The
+boundary is sanctioned, not reluctantly tolerated.
+
+**Containment.** Every entry above is whitelisted **per file** in
+`_FILE_SCOPED_LEGACY_IMPORTS` in
+`tests/spine/test_spine_architecture.py`. A new file added to
+`agency_forms/` that imports legacy code without an explicit entry in
+that mapping still **fails the build**. There is no blanket
+`agency_forms/*` allow-rule — the whitelist is the forcing function
+that keeps this boundary precise. Extending the list requires
+Architect approval per CLAUDE.md §0 LAW 4.
+
+The Job #1 acceptance criterion that calls for retired-renderer
+deletion (CLAUDE.md §0) is **not** in tension with this section: the
+files retired in 2026-05-20 were from-scratch fillers; the files
+currently on disk are adapters. Job #1 still deletes any
+`agency_forms/` files that are not on the whitelist above.
+
 ---
 
 ## Cannibalization Roadmap
