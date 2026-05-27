@@ -468,68 +468,156 @@
  </div>
  {% endif %}
 
- {# ── CCHCS PC link suggestions (operator-confirmed; prices port verbatim) ── #}
- {# agency_name is the display badge field (line 29) — include it so the panel
-    renders on any RFQ the UI labels CCHCS, not just ones with r.agency set.
-    Prod RFQs often have agency_name="cchcs" but r.agency empty. #}
- {% set _pc_link_agency = ((r.get('agency') or '') + ' ' + (r.get('agency_name') or ''))|lower %}
- {% set _pc_link_inst = (r.get('institution') or r.get('department') or '')|lower %}
- {% if not r.get('linked_pc_id') and ('cchcs' in _pc_link_agency or 'cchcs' in _pc_link_inst or 'correctional health' in _pc_link_inst) %}
- <div id="cchcs-pc-link-panel" data-testid="cchcs-pc-link-panel" style="display:none;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);border-radius:8px;padding:12px 16px;margin-bottom:10px">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+ {# ── PC link suggestions with inline preview (2026-05-26 substrate UX fix) ──
+    Mike's rfq_0124647e screenshot showed two near-identical buttons + a
+    confirm() dialog with no preview — operators committed blind. New flow:
+    server returns per-line preview (pc_rfq_linker.preview_pc_link); banner
+    renders a glanceable diff table BEFORE the operator clicks Apply.
+    The original CCHCS-gating was removed per "fix for all PCs and RFQs" —
+    the server's matcher returns empty suggestions for RFQs with no prior
+    PC anyway, so the banner self-hides naturally. #}
+ {% if not r.get('linked_pc_id') %}
+ <div id="pc-link-panel" data-testid="cchcs-pc-link-panel" style="display:none;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);border-radius:8px;padding:12px 16px;margin-bottom:10px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
    <span style="font-size:18px">🧭</span>
    <b style="color:#58a6ff">Possible Price Check match</b>
-   <span style="color:#8b949e;font-size:12px">Operator confirmation required — PC prices will port verbatim.</span>
+   <span style="color:#8b949e;font-size:12px">Preview below — Apply ports prices verbatim onto matching lines.</span>
   </div>
-  <div id="cchcs-pc-candidates"></div>
+  <div id="pc-candidates"></div>
  </div>
  <script>
  (function(){
   var rid={{rid|tojson}};
+  function _fmt$(n){
+   if(n===null||n===undefined||isNaN(n))return '—';
+   var v=parseFloat(n)||0;
+   if(v===0)return '—';
+   return '$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  }
+  function _esc(s){
+   return String(s||'').replace(/[<>&"]/g,function(c){
+    return c==='<'?'&lt;':c==='>'?'&gt;':c==='&'?'&amp;':'&quot;';
+   });
+  }
   fetch('/api/rfq/'+encodeURIComponent(rid)+'/pc-link-suggestions',{credentials:'same-origin'})
    .then(function(r){return r.ok?r.json():null}).then(function(d){
-    if(!d||!d.ok)return;  // only bail on hard error; empty is a valid state
-    var p=document.getElementById('cchcs-pc-link-panel');
-    var host=document.getElementById('cchcs-pc-candidates');
+    if(!d||!d.ok)return;
+    var p=document.getElementById('pc-link-panel');
+    var host=document.getElementById('pc-candidates');
     if(!p||!host)return;
     if(!d.suggestions||!d.suggestions.length){
-     // Empty state: operator needs a signal that the system looked and
-     // found nothing — silent hide misreads as "feature broken".
-     host.innerHTML='<div data-testid="cchcs-pc-no-candidates" style="padding:8px 0;color:#8b949e;font-size:13px">No matching Price Checks found. If you remember one was generated, paste its PC # here and we\'ll link it manually.</div>';
-     p.style.display='block';
+     // No prior PC found — hide silently. The page already exposes
+     // Auto-Price and Bulk-Paste KPI cards for the no-prior-PC path.
      return;
     }
     var html='';
     d.suggestions.forEach(function(c){
-     var tag=c.is_exact
-      ? '<span style="background:#3fb950;color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">EXACT</span>'
-      : '<span style="background:#d29922;color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">'+c.match_pct+'%</span>';
+     var preview=c.preview||{lines:[],totals:{}};
+     var totals=preview.totals||{};
+     var matched=totals.matched||0;
+     var drifted=totals.qty_changed||0;
+     var costSub=totals.subtotal_cost_if_ported||0;
+     var bidSub=totals.subtotal_bid_if_ported||0;
+     var tagColor=c.is_exact?'#3fb950':(c.match_pct>=80?'#3fb950':(c.match_pct>=50?'#d29922':'#8b949e'));
+     var tagLabel=c.is_exact?'EXACT':(c.match_pct+'%');
      var reasons=(c.reasons||[]).join(', ');
-     html+='<div data-testid="cchcs-pc-candidate" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.06)">';
-     html+=tag;
-     html+='<div style="flex:1"><b style="color:#e6edf3">PC '+(c.pc_number||c.pc_id.substring(0,10))+'</b>';
-     html+=' <span style="color:#8b949e;font-size:12px">— '+c.line_matches+'/'+c.line_total+' lines';
-     if(reasons)html+=' · '+reasons;
-     html+='</span></div>';
-     html+='<button type="button" class="btn btn-primary" data-testid="cchcs-pc-link-btn" data-pc-id="'+c.pc_id+'" style="font-size:13px;padding:6px 12px">Link this PC</button>';
-     html+='<button type="button" class="btn" data-testid="cchcs-pc-link-reprice-btn" data-pc-id="'+c.pc_id+'" title="Link this PC and auto-reprice any lines whose qty differs from the PC" style="font-size:13px;padding:6px 12px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3)">Link + reprice drifted</button>';
+     var pcLabel='PC '+_esc(c.pc_number||c.pc_id.substring(0,10));
+     html+='<div data-testid="cchcs-pc-candidate" style="padding:10px 0;border-top:1px solid rgba(255,255,255,.06)">';
+     // Header row
+     html+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">';
+     html+='<span style="background:'+tagColor+';color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">'+tagLabel+'</span>';
+     html+='<a href="/pricecheck/'+_esc(c.pc_id)+'" target="_blank" style="color:#e6edf3;font-weight:700;text-decoration:none">'+pcLabel+' ↗</a>';
+     html+='<span style="color:#8b949e;font-size:12px">'+c.line_matches+'/'+c.line_total+' lines'+(reasons?' · '+_esc(reasons):'')+'</span>';
+     html+='</div>';
+     // Preview table — exactly what Apply would do, per-line
+     if(preview.lines && preview.lines.length){
+      html+='<div style="overflow-x:auto;max-width:100%;margin-bottom:8px">';
+      html+='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px">';
+      html+='<thead><tr style="background:rgba(255,255,255,.03);color:#8b949e">'
+        +'<th style="text-align:left;padding:4px 8px;font-weight:600;width:30px">#</th>'
+        +'<th style="text-align:left;padding:4px 8px;font-weight:600">Description</th>'
+        +'<th style="text-align:right;padding:4px 8px;font-weight:600;width:50px">Qty</th>'
+        +'<th style="text-align:right;padding:4px 8px;font-weight:600;width:90px">PC cost</th>'
+        +'<th style="text-align:right;padding:4px 8px;font-weight:600;width:90px">PC bid</th>'
+        +'<th style="text-align:center;padding:4px 8px;font-weight:600;width:100px">Status</th>'
+        +'</tr></thead><tbody>';
+      preview.lines.forEach(function(L){
+       var matchPct=Math.round((L.match_confidence||0)*100);
+       var matchKind=L.match_kind||'';
+       var statusHtml='';
+       if(!matchKind){
+        statusHtml='<span style="color:#8b949e">— no match</span>';
+       } else if(L.qty_changed){
+        var driftSign=L.drift_pct>0?'+':'';
+        statusHtml='<span style="color:#d29922" title="PC qty '+L.pc_qty+' → RFQ qty '+L.rfq_qty+'">⚠ qty '+driftSign+L.drift_pct+'%</span>';
+       } else if(matchKind==='mfg'||matchKind==='upc'){
+        statusHtml='<span style="color:#3fb950" title="Matched by '+matchKind.toUpperCase()+'">✓ '+matchKind.toUpperCase()+'</span>';
+       } else if(matchKind==='desc'){
+        statusHtml='<span style="color:#3fb950" title="Description '+matchPct+'% match">✓ desc '+matchPct+'%</span>';
+       } else {
+        statusHtml='<span style="color:#d29922" title="Positional fallback (RFQ row '+(L.rfq_idx+1)+' ↔ PC row '+((L.pc_idx||0)+1)+')">~ position</span>';
+       }
+       var alreadyTag=L.currently_priced?'<span style="color:#d29922;font-size:10px;margin-right:4px" title="RFQ line already has a cost — Apply overwrites verbatim from PC">overwrite</span>':'';
+       var descRaw=L.rfq_description||'';
+       var descTrunc=_esc(descRaw.substring(0,55))+(descRaw.length>55?'…':'');
+       html+='<tr style="border-top:1px solid rgba(255,255,255,.04)">';
+       html+='<td style="padding:4px 8px;color:#8b949e">'+(L.rfq_idx+1)+'</td>';
+       html+='<td style="padding:4px 8px;color:#e6edf3">'+descTrunc+'</td>';
+       html+='<td style="padding:4px 8px;text-align:right;color:#e6edf3">'+L.rfq_qty+'</td>';
+       html+='<td style="padding:4px 8px;text-align:right;color:#e6edf3;font-family:JetBrains Mono,monospace">'+_fmt$(L.pc_unit_cost)+'</td>';
+       html+='<td style="padding:4px 8px;text-align:right;color:#3fb950;font-family:JetBrains Mono,monospace">'+_fmt$(L.pc_unit_price)+'</td>';
+       html+='<td style="padding:4px 8px;text-align:center;font-size:11px">'+alreadyTag+statusHtml+'</td>';
+       html+='</tr>';
+      });
+      html+='</tbody>';
+      // Totals footer
+      html+='<tfoot><tr style="border-top:2px solid rgba(255,255,255,.08);font-weight:700">'
+        +'<td colspan="3" style="padding:6px 8px;color:#8b949e;text-align:right">Subtotal if applied:</td>'
+        +'<td style="padding:6px 8px;text-align:right;color:#e6edf3;font-family:JetBrains Mono,monospace">'+_fmt$(costSub)+'</td>'
+        +'<td style="padding:6px 8px;text-align:right;color:#3fb950;font-family:JetBrains Mono,monospace">'+_fmt$(bidSub)+'</td>'
+        +'<td style="padding:6px 8px;text-align:center;font-size:11px;color:#8b949e">'+matched+' ported</td>'
+        +'</tr></tfoot></table></div>';
+     }
+     // Action row — single primary button (with totals + drift count baked
+     // into the label), optional secondary link for the reprice path when
+     // any line drifted in qty.
+     var primaryLabel='Apply this PC';
+     if(matched){
+      primaryLabel+=' — '+_fmt$(bidSub);
+      if(drifted)primaryLabel+=' · '+drifted+' drifted';
+     }
+     html+='<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">';
+     html+='<button type="button" class="btn btn-primary" data-testid="cchcs-pc-link-btn" data-pc-id="'+_esc(c.pc_id)+'" data-pc-label="'+_esc(c.pc_number||c.pc_id.substring(0,8))+'" style="font-size:13px;padding:8px 16px;font-weight:600">'+primaryLabel+'</button>';
+     if(drifted){
+      html+='<a href="#" data-testid="cchcs-pc-link-reprice-btn" data-pc-id="'+_esc(c.pc_id)+'" data-pc-label="'+_esc(c.pc_number||c.pc_id.substring(0,8))+'" title="Apply + re-quote drifted lines through the Oracle (lines whose qty changed from the PC)." style="color:#3fb950;font-size:12px;text-decoration:underline">Apply + re-quote '+drifted+' drifted</a>';
+     }
+     html+='<a href="/pricecheck/'+_esc(c.pc_id)+'" target="_blank" style="color:#8b949e;font-size:12px;margin-left:auto">Open PC ↗</a>';
+     html+='</div>';
      html+='</div>';
     });
     host.innerHTML=html;
     p.style.display='block';
-    function _doConfirm(btn, reprice){
+    function _doApply(btn, reprice){
+     // No confirm() dialog — the preview table IS the confirmation.
+     // Reload on success so all dependent badges (catalog chip, history
+     // chip, ext-cost cells, oracle row) refresh cleanly.
      var label=btn.textContent;
-     var prompt=reprice
-      ? 'Link this PC, port prices verbatim, and auto-reprice any lines whose qty differs from the PC?'
-      : 'Link this PC and port its prices verbatim onto this RFQ?';
-     if(!confirm(prompt))return;
-     btn.disabled=true;btn.textContent='Linking...';
+     btn.disabled=true;btn.textContent='Applying…';
      fetch('/api/rfq/'+encodeURIComponent(rid)+'/confirm-pc-link',{
       method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({pc_id:btn.dataset.pcId,reprice:!!reprice})
      }).then(function(r){return r.json()}).then(function(resp){
-      if(resp&&resp.ok){location.reload();return}
+      if(resp&&resp.ok){
+       try{
+        var t=document.createElement('div');
+        t.style.cssText='position:fixed;top:20px;right:20px;background:#238636;color:#fff;padding:10px 16px;border-radius:6px;z-index:99999;font-size:13px;font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.4)';
+        t.textContent='✓ Applied PC '+(btn.dataset.pcLabel||'')+(reprice?' + repriced drifted':'');
+        document.body.appendChild(t);
+       }catch(e){}
+       setTimeout(function(){location.reload()},400);
+       return;
+      }
       btn.disabled=false;btn.textContent=label;
       alert('Link failed: '+((resp&&resp.error)||'unknown error'));
      }).catch(function(e){
@@ -538,10 +626,10 @@
      });
     }
     host.querySelectorAll('[data-testid="cchcs-pc-link-btn"]').forEach(function(btn){
-     btn.addEventListener('click',function(){_doConfirm(btn,false)});
+     btn.addEventListener('click',function(){_doApply(btn,false)});
     });
-    host.querySelectorAll('[data-testid="cchcs-pc-link-reprice-btn"]').forEach(function(btn){
-     btn.addEventListener('click',function(){_doConfirm(btn,true)});
+    host.querySelectorAll('[data-testid="cchcs-pc-link-reprice-btn"]').forEach(function(a){
+     a.addEventListener('click',function(e){e.preventDefault();_doApply(a,true)});
     });
    }).catch(function(){});
  })();

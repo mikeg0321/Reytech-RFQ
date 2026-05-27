@@ -681,6 +681,173 @@ def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
 # ── Selective re-price for qty-changed lines ────────────────────────────────
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def preview_pc_link(rfq_data, pc_data) -> dict:
+    """Return what `promote_pc_to_rfq_in_place` WOULD do — without mutating.
+
+    Added 2026-05-26 for the substrate UX fix (rfq_0124647e screenshot).
+    The old PC-match banner gave the operator two buttons + a confirm()
+    dialog before they could see what would change. With a preview the
+    operator can see line-by-line:
+      - what RFQ row matches what PC row, and how (mfg/upc/desc/positional)
+      - the PC unit cost + unit price that would port verbatim
+      - which lines drift (qty changed → re-quote candidate)
+      - the totals impact (cost-basis subtotal, bid subtotal, K drifted)
+
+    Returns a dict shape consumed by the rfq_detail template:
+        {
+          "lines": [{
+              "rfq_idx": int,
+              "rfq_description": str, "rfq_qty": int,
+              "pc_idx": int | None,
+              "pc_description": str, "pc_qty": int,
+              "pc_unit_cost": float, "pc_unit_price": float,
+              "match_kind": "mfg" | "upc" | "desc" | "positional" | None,
+              "match_confidence": float (0-1),
+              "qty_changed": bool,
+              "drift_pct": float (qty drift as % — informational),
+              "currently_priced": bool (rfq line already has cost > 0),
+          }, ...],
+          "totals": {
+              "lines": int, "matched": int, "qty_changed": int,
+              "subtotal_cost_if_ported": float,  # cost × qty across matched
+              "subtotal_bid_if_ported": float,   # price × qty across matched
+          },
+          "pc_id": str, "pc_number": str,
+        }
+
+    The promote step still matches by mfg → upc → desc → positional in
+    that order; preview mirrors that order so the banner shows exactly
+    what would happen on Apply. Pure function — does not mutate.
+    """
+    inner = _get_pc_inner(pc_data) if pc_data else {}
+    pc_items = inner.get("items") or (pc_data.get("items") if pc_data else []) or []
+    rfq_items = rfq_data.get("line_items") or rfq_data.get("items") or []
+
+    pc_id = ""
+    if isinstance(pc_data, dict):
+        pc_id = pc_data.get("id") or pc_data.get("pc_id") or ""
+    pc_number = inner.get("pc_number") or (pc_data.get("pc_number") if pc_data else "") or ""
+
+    out_lines = []
+    totals_cost = 0.0
+    totals_bid = 0.0
+    matched_n = 0
+    drifted_n = 0
+    claimed = set()
+
+    for r_pos, rfq_item in enumerate(rfq_items):
+        rfq_qty = _as_int_qty(rfq_item.get("quantity") or rfq_item.get("qty"))
+        rfq_desc = rfq_item.get("description") or rfq_item.get("desc") or ""
+        # Skip lines that have no description AND no MFG# AND no UPC — there's
+        # nothing to identify them by, and the promote step would skip too.
+        if not (rfq_desc or rfq_item.get("mfg_number") or rfq_item.get("upc")):
+            continue
+        # Existing cost — informational, lets the UI badge "already priced"
+        try:
+            cur_cost = float(rfq_item.get("supplier_cost") or rfq_item.get("cost") or 0)
+        except (TypeError, ValueError):
+            cur_cost = 0.0
+
+        best_kind = None
+        best_idx = None
+        best_conf = 0.0
+        for idx, pc_item in enumerate(pc_items):
+            if idx in claimed:
+                continue
+            kind, conf = _line_identity_match(rfq_item, pc_item)
+            if kind in ("mfg", "upc"):
+                best_kind, best_idx, best_conf = kind, idx, conf
+                break
+            if kind == "desc" and conf > best_conf:
+                best_kind, best_idx, best_conf = kind, idx, conf
+        # Positional fallback if still nothing (matches promote logic)
+        if best_kind is None and r_pos < len(pc_items) and r_pos not in claimed:
+            best_kind = "positional"
+            best_idx = r_pos
+            best_conf = 0.3
+
+        if best_idx is not None:
+            claimed.add(best_idx)
+            pc_item = pc_items[best_idx]
+            pc_qty = _as_int_qty(pc_item.get("quantity") or pc_item.get("qty"))
+            try:
+                pc_cost = float(
+                    pc_item.get("supplier_cost")
+                    or pc_item.get("cost")
+                    or pc_item.get("unit_cost")
+                    or 0
+                )
+            except (TypeError, ValueError):
+                pc_cost = 0.0
+            try:
+                pc_price = float(
+                    pc_item.get("price_per_unit")
+                    or pc_item.get("bid_price")
+                    or pc_item.get("sell_price")
+                    or pc_item.get("unit_price")
+                    or 0
+                )
+            except (TypeError, ValueError):
+                pc_price = 0.0
+
+            qty_changed = bool(rfq_qty and pc_qty and rfq_qty != pc_qty)
+            drift_pct = 0.0
+            if pc_qty and rfq_qty and pc_qty != rfq_qty:
+                drift_pct = round((rfq_qty - pc_qty) / pc_qty * 100, 1)
+
+            matched_n += 1
+            if qty_changed:
+                drifted_n += 1
+            # Use RFQ qty for the projection (that's what the bid will be for).
+            totals_cost += pc_cost * (rfq_qty or pc_qty or 0)
+            totals_bid += pc_price * (rfq_qty or pc_qty or 0)
+
+            out_lines.append({
+                "rfq_idx": r_pos,
+                "rfq_description": rfq_desc,
+                "rfq_qty": rfq_qty,
+                "pc_idx": best_idx,
+                "pc_description": pc_item.get("description") or pc_item.get("desc") or "",
+                "pc_qty": pc_qty,
+                "pc_unit_cost": round(pc_cost, 4),
+                "pc_unit_price": round(pc_price, 4),
+                "match_kind": best_kind,
+                "match_confidence": round(best_conf, 3),
+                "qty_changed": qty_changed,
+                "drift_pct": drift_pct,
+                "currently_priced": cur_cost > 0,
+            })
+        else:
+            out_lines.append({
+                "rfq_idx": r_pos,
+                "rfq_description": rfq_desc,
+                "rfq_qty": rfq_qty,
+                "pc_idx": None,
+                "pc_description": "",
+                "pc_qty": 0,
+                "pc_unit_cost": 0.0,
+                "pc_unit_price": 0.0,
+                "match_kind": None,
+                "match_confidence": 0.0,
+                "qty_changed": False,
+                "drift_pct": 0.0,
+                "currently_priced": cur_cost > 0,
+            })
+
+    return {
+        "lines": out_lines,
+        "totals": {
+            "lines": len(out_lines),
+            "matched": matched_n,
+            "qty_changed": drifted_n,
+            "subtotal_cost_if_ported": round(totals_cost, 2),
+            "subtotal_bid_if_ported": round(totals_bid, 2),
+        },
+        "pc_id": pc_id,
+        "pc_number": pc_number,
+    }
+
+
 def qty_change_summary(rfq_data):
     """Surface the operator-facing diff for a promoted RFQ.
 

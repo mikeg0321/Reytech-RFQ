@@ -588,6 +588,36 @@ function _applyLinkData(idx, d, mode) {
         + _lookupTitle.substring(0,80).replace(/</g,'&lt;') + '</div>';
     }
   }
+  // Pricing-memory chain chip (2026-05-26 substrate fix). When the
+  // server hydrated cost from catalog / prior PC / oracle instead of a
+  // fresh scrape, surface the lineage so Mike can see "via: catalog[url],
+  // pc_4d8b9f1c (28d)". Also surfaces alongside a successful scrape as
+  // "you also sold this for $X last time" context.
+  if (d.source_chain && d.source_chain.length) {
+    var _chainSafe = d.source_chain.map(function(s){
+      return String(s).replace(/[<>"&]/g, function(c){
+        return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : '&quot;';
+      });
+    }).join(' → ');
+    statusHtml += ' <span style="font-size:11px;padding:2px 6px;border-radius:3px;'
+      + 'background:rgba(167,139,250,.12);color:#a78bfa;border:1px solid rgba(167,139,250,.30);'
+      + 'cursor:help" title="' + _chainSafe + '">🧠 via ' + _chainSafe + '</span>';
+    if (d.evidence_pc_id) {
+      var _pcTag = d.evidence_pc_number || d.evidence_pc_id.slice(0, 8);
+      var _pcAge = (d.memory_age_days != null) ? ' · ' + d.memory_age_days + 'd' : '';
+      statusHtml += ' <a href="/pricecheck/' + d.evidence_pc_id + '" target="_blank" '
+        + 'style="font-size:11px;padding:2px 6px;border-radius:3px;background:rgba(88,166,255,.15);'
+        + 'color:#58a6ff;border:1px solid rgba(88,166,255,.30);text-decoration:none">'
+        + '📋 ' + _pcTag + _pcAge + '</a>';
+    }
+    if (d.memory_sell_price && d.memory_sell_price > 0) {
+      statusHtml += ' <span style="font-size:11px;padding:2px 6px;border-radius:3px;'
+        + 'background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.30);'
+        + 'cursor:help" title="You priced this at $' + d.memory_sell_price.toFixed(2)
+        + ' per unit on a prior PC. Reference only — current markup recalculates from cost.">'
+        + 'prior bid $' + d.memory_sell_price.toFixed(2) + '</span>';
+    }
+  }
   if (metaEl && statusHtml) metaEl.innerHTML = statusHtml;
 
   // Attach Enter + blur handler to quick-entry cost fields (MSRP + optional Sale)
