@@ -18,6 +18,7 @@ Telegram for any row past its expiry.
 import json
 import logging
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -37,7 +38,17 @@ ACK_DELETE_DELAY_H = 24
 
 
 def _telegram_api(method: str, payload: dict) -> dict:
-    """POST to the Telegram Bot API. Returns parsed JSON. Never raises."""
+    """POST to the Telegram Bot API. Returns parsed JSON. Never raises.
+
+    On HTTPError (4xx/5xx), Telegram returns a JSON body like
+    `{"ok":false,"error_code":400,"description":"Bad Request: ..."}`.
+    urllib raises HTTPError BEFORE returning the response object, but
+    the response body is still readable via `e.read()` — we surface
+    Telegram's description so the operator can act on the failure
+    (e.g. "wrong webhook URL", "invalid secret_token"). Pre-2026-05-27
+    the catch-all `except Exception` lost that detail, leaving prod
+    logs with just `HTTP Error 400: Bad Request`.
+    """
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
         return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not set"}
@@ -52,6 +63,25 @@ def _telegram_api(method: str, payload: dict) -> dict:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as e:
+        # Read Telegram's JSON error body for the real reason.
+        body_text = ""
+        try:
+            body_text = e.read().decode("utf-8", errors="replace")
+            parsed = json.loads(body_text or "{}")
+            description = parsed.get("description") or body_text[:200]
+        except Exception:
+            description = body_text[:200] or str(e)
+        log.warning(
+            "Telegram API %s failed: HTTP %d — %s",
+            method, e.code, description,
+        )
+        return {
+            "ok": False,
+            "error_code": e.code,
+            "description": description,
+            "error": f"HTTP {e.code}: {description}",
+        }
     except Exception as e:
         log.warning("Telegram API %s failed: %s", method, e)
         return {"ok": False, "error": str(e)}
