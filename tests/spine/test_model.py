@@ -488,10 +488,13 @@ def test_zero_qty_raises():
 
 
 def test_agency_limited_to_cchcs_in_v1():
+    # PR #1143 added CalVet to the supported literal (Architect-approved).
+    # Negative case now asserts DSH (which is NOT yet in the literal) still
+    # raises. Keeps the substrate guard tight as new agencies are admitted.
     with pytest.raises(ValidationError):
         Quote(
             quote_id="Q-test",
-            agency="CalVet",  # not yet supported.
+            agency="DSH",  # not yet supported.
             facility="X",
             solicitation_number="1",
             line_items=[_ok_line(1)],

@@ -36,15 +36,26 @@ ROUTES = (
 
 def _route_body() -> str:
     src = ROUTES.read_text(encoding="utf-8")
-    m = re.search(
+    # api_pc_send_quote was refactored (PR #778 race-safe pattern) into a
+    # thin wrapper that acquires `_save_pcs_lock` and delegates to
+    # `_api_pc_send_quote_locked`. The hardening guards (gmail_api,
+    # idempotency) live in the locked helper. Concatenate both so the
+    # assertions see the full code path.
+    wrapper = re.search(
         r"def api_pc_send_quote\(pcid\)[\s\S]*?(?=\n@bp\.route|\ndef [a-zA-Z_]|\Z)",
         src,
     )
-    assert m, "api_pc_send_quote body not located"
+    assert wrapper, "api_pc_send_quote wrapper body not located"
+    locked = re.search(
+        r"def _api_pc_send_quote_locked\(pcid\)[\s\S]*?(?=\n@bp\.route|\ndef [a-zA-Z_]|\Z)",
+        src,
+    )
+    assert locked, "_api_pc_send_quote_locked helper body not located"
+    combined = wrapper.group(0) + "\n" + locked.group(0)
     # Strip comment lines so assertions like "no smtplib" don't flag the
     # docstring sentence that explains what this code replaced.
     kept = []
-    for line in m.group(0).splitlines():
+    for line in combined.splitlines():
         stripped = line.lstrip()
         if stripped.startswith("#"):
             continue
