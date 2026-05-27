@@ -18,8 +18,8 @@ Returned shape (all string values, AcroForm is text-only by design):
   {
     "bill_name": "CCHCS Accounting",
     "bill_addr_1": "PO Box 588500",
-    "to_name": "CSP Sacramento - New Folsom",
-    "ship_name": "CSP Sacramento - New Folsom",
+    "to_name": "California State Prison, Sacramento",
+    "ship_name": "California State Prison, Sacramento",
     "ship_addr_1": "100 Prison Road",
     "ship_addr_2": "Represa, CA 95671",
     ...

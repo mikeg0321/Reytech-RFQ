@@ -41,7 +41,7 @@ class TestQuoteGenResolutionLogic:
         assert record.code == "CSP-SAC"
         # Audit W critical: the canonical address MUST be 100, not 300
         assert record.address_line1 == "100 Prison Road"
-        assert record.canonical_name == "CSP Sacramento - New Folsom"
+        assert record.canonical_name == "California State Prison, Sacramento"
 
     def test_csp_sac_address_does_not_collide_with_fsp(self):
         """Belt-and-suspenders: even if a future seed-data change

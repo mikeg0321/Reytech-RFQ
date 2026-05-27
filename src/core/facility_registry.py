@@ -172,8 +172,8 @@ _SEED: Tuple[FacilityRecord, ...] = (
     FacilityRecord(
         code="CHCF", canonical_name="CHCF - California Health Care Facility",
         address_line1="23370 Road 22", address_line2="Stockton, CA 95215",
-        zip="95215", parent_agency="CCHCS",
-        parent_agency_full="California Correctional Health Care Services",
+        zip="95215", parent_agency="CDCR",
+        parent_agency_full="Dept. of Corrections and Rehabilitation",
         aliases=("california health care facility", "stockton hcf"),
     ),
     FacilityRecord(
@@ -186,8 +186,8 @@ _SEED: Tuple[FacilityRecord, ...] = (
     FacilityRecord(
         code="CIW", canonical_name="CIW - California Institution for Women",
         address_line1="16756 Chino-Corona Road", address_line2="Corona, CA 92880",
-        zip="92880", parent_agency="CCHCS",
-        parent_agency_full="California Correctional Health Care Services",
+        zip="92880", parent_agency="CDCR",
+        parent_agency_full="Dept. of Corrections and Rehabilitation",
         aliases=("california institution for women", "corona women"),
     ),
     FacilityRecord(
@@ -232,7 +232,7 @@ _SEED: Tuple[FacilityRecord, ...] = (
         aliases=("csp lancaster", "los angeles county state prison"),
     ),
     FacilityRecord(
-        code="CSP-SAC", canonical_name="CSP Sacramento - New Folsom",
+        code="CSP-SAC", canonical_name="California State Prison, Sacramento",
         address_line1="100 Prison Road",           # Audit W fix (was 300)
         address_line2="Represa, CA 95671",
         zip="95671", parent_agency="CDCR",
