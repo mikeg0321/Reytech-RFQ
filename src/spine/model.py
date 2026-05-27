@@ -71,7 +71,34 @@ class SpineValidationError(ValueError):
 # ──────────────────────────────────────────────────────────────────────
 
 COST_VALIDATION_REQUIRED_ABOVE_CENTS = 10_000   # $100.00
-COST_VALIDATION_FRESHNESS_DAYS = 30
+
+
+def _resolve_cost_freshness_days() -> int:
+    """30-day default, env-overridable via COST_STALENESS_FINALIZE_DAYS.
+
+    Chrome MCP audit 2026-05-27 / G7 (Architect approval): the
+    cost-staleness gate that fires on parsed/priced → finalized has
+    always defaulted to 30 days, but the threshold was hardcoded —
+    no way to tune it per-environment (e.g., a staging window
+    where prices update fast, or a regression-test fixture that
+    needs a tighter bar).
+
+    Reads `COST_STALENESS_FINALIZE_DAYS` env var on import. Invalid
+    or unset → 30. Negative or zero → 30 (refuse footgun config
+    that would disable the gate by accident).
+    """
+    import os
+    raw = os.environ.get("COST_STALENESS_FINALIZE_DAYS", "").strip()
+    if not raw:
+        return 30
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return 30
+    return v if v > 0 else 30
+
+
+COST_VALIDATION_FRESHNESS_DAYS = _resolve_cost_freshness_days()
 SUPPORTED_AGENCIES = ("CCHCS",)                  # v1: one agency only.
 
 # UOM allowlist — derived from Mike's actual procurement traffic, not
