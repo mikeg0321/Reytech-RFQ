@@ -880,6 +880,78 @@ def _persist_rejection(
     )
 
 
+def find_low_confidence_contracts(
+    db_path: str | Path,
+    *,
+    limit: int = 50,
+    confidence_levels: tuple = ("low", "medium"),
+) -> list[dict]:
+    """Return EmailContracts whose `parse_confidence` is in
+    `confidence_levels`, newest first. Read-only.
+
+    Pillar-1 / G3 operator triage (chrome MCP audit 2026-05-26): a
+    contract that parses but isn't fully trusted shouldn't disappear
+    silently. This surface lets the operator see them in one place
+    and decide: ship as-is, edit + ship, or no-bid.
+
+    Companion to `latest_rejections` — that one surfaces emails the
+    parser REFUSED, this one surfaces emails the parser ACCEPTED but
+    flagged. The triage page combines both feeds.
+
+    Returns a list of dicts (contract_id, rfq_id, parse_confidence,
+    agency, solicitation_number, buyer_name, facility, due_date,
+    rfq_title, ingested_at) — the operator-facing summary, not the
+    full contract blob. Caller can call `read_email_contract` for
+    the full record if needed.
+    """
+    if not isinstance(limit, int) or limit < 1 or limit > 1000:
+        raise SpineValidationError(
+            f"limit must be 1..1000; got {limit!r}"
+        )
+    if not confidence_levels or not all(
+        isinstance(v, str) and v in ("low", "medium", "high")
+        for v in confidence_levels
+    ):
+        raise SpineValidationError(
+            f"confidence_levels must be a tuple of "
+            f"'low'|'medium'|'high'; got {confidence_levels!r}"
+        )
+
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT contract_id, rfq_id, contract_json, ingested_at "
+            "FROM spine_email_contracts "
+            "ORDER BY ingested_at DESC LIMIT ?",
+            (limit * 5,),  # over-fetch so we have room after filter
+        ).fetchall()
+
+    out: list[dict] = []
+    for r in rows:
+        try:
+            blob = json.loads(r["contract_json"])
+        except Exception:
+            continue
+        conf = blob.get("parse_confidence")
+        if conf not in confidence_levels:
+            continue
+        out.append({
+            "contract_id": r["contract_id"],
+            "rfq_id": r["rfq_id"],
+            "parse_confidence": conf,
+            "agency": blob.get("agency"),
+            "solicitation_number": blob.get("solicitation_number"),
+            "buyer_name": blob.get("buyer_name"),
+            "facility": blob.get("facility"),
+            "due_date": blob.get("due_date"),
+            "rfq_title": blob.get("rfq_title"),
+            "line_item_count": len(blob.get("line_items") or []),
+            "ingested_at": r["ingested_at"],
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def latest_rejections(
     db_path: str | Path,
     *,

@@ -40,6 +40,7 @@ from src.spine import (
     contract_vs_quote,
     find_contract_for_quote,
     find_links_from,
+    find_low_confidence_contracts,
     init_db,
     iter_quote_ids,
     iter_snapshots,
@@ -1119,6 +1120,60 @@ def make_spine_blueprint(
     # spine_ingest_rejections; this route surfaces them newest-first
     # with optional reason_code filter. The Telegram missed-bid watcher
     # (queued) consumes this same read path.
+
+    # ─── GET /spine/queue/low-confidence ──────────────────────────────
+    #
+    # Pillar-1 / G3 triage surface (chrome MCP audit 2026-05-26): emails
+    # the parser accepted but flagged with parse_confidence='low' or
+    # 'medium' need operator review before they silently ship a bad
+    # quote. Companion to /queue/rejected (which surfaces refused
+    # emails). Together they form the full ingest-triage view.
+    #
+    # Read-only — no mutations. The operator's action is to open the
+    # individual /spine/quotes/<rfq_id> page and review/fix/ship.
+
+    @spine_bp.route("/spine/queue/low-confidence", methods=["GET"])
+    @_wrap
+    def get_queue_low_confidence():
+        raw_limit = request.args.get("limit", "50").strip()
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            return jsonify({
+                "error": "bad_request",
+                "detail": f"limit must be an integer 1..1000; got {raw_limit!r}",
+            }), 400
+        if limit < 1 or limit > 1000:
+            return jsonify({
+                "error": "bad_request",
+                "detail": f"limit must be 1..1000; got {limit}",
+            }), 400
+
+        # Optional confidence filter — default surfaces both low + medium.
+        # `?level=low` narrows to just low-confidence; same for medium.
+        level = (request.args.get("level") or "").strip().lower()
+        if level in ("low", "medium"):
+            confidence_levels = (level,)
+        else:
+            confidence_levels = ("low", "medium")
+
+        try:
+            rows = find_low_confidence_contracts(
+                db_path, limit=limit,
+                confidence_levels=confidence_levels,
+            )
+        except SpineValidationError as e:
+            return jsonify({"error": "bad_request", "detail": str(e)}), 400
+        except Exception as e:
+            log.exception("spine.get_queue_low_confidence: read failed")
+            return jsonify({"error": "read_failed", "detail": str(e)}), 500
+
+        return jsonify({
+            "count": len(rows),
+            "limit": limit,
+            "confidence_levels": list(confidence_levels),
+            "contracts": rows,
+        })
 
     @spine_bp.route("/spine/queue/rejected", methods=["GET"])
     @_wrap
