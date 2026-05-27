@@ -29,18 +29,13 @@ def test_ams708_in_forms_catalog():
     assert "ams708" in ids, f"ams708 missing from AVAILABLE_FORMS: {ids!r}"
 
 
-def test_ams708_in_cchcs_optional_forms():
-    from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
-    cchcs = DEFAULT_AGENCY_CONFIGS["cchcs"]
-    assert "ams708" in cchcs["optional_forms"]
-
-
-def test_std1000_still_in_cchcs_optional_forms_until_swap_enabled():
-    """The swap is GATED. Until the env var flips, std1000 stays in
-    the optional list so today's behavior is preserved."""
-    from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
-    cchcs = DEFAULT_AGENCY_CONFIGS["cchcs"]
-    assert "std1000" in cchcs["optional_forms"]
+# The two tests that pinned `ams708` / `std1000` membership inside
+# `DEFAULT_AGENCY_CONFIGS["cchcs"]["optional_forms"]` were DELETED
+# per §0 Job #1 acceptance 2026-05-27 — the entire "cchcs" entry
+# was removed from the legacy dict because CCHCS routes through the
+# Spine (`src/spine/`). The AMS 708 form registration (AVAILABLE_FORMS),
+# the email-detection patterns, and the swap helper survive — those
+# substrates are agency-agnostic and continue to be tested below.
 
 
 # ── Email pattern detection ───────────────────────────────────────

@@ -167,31 +167,13 @@ DEFAULT_AGENCY_CONFIGS = {
         "shipping_terms": "FOB Destination, Freight Prepaid",
         "delivery_days": "7-14 business days",
     },
-    "cchcs": {
-        "name": "CCHCS / CDCR",
-        "match_patterns": ["CCHCS", "CDCR", "CORRECTIONS", "CORRECTIONAL",
-                          "PRISON", "STATE PRISON",
-                          "CIM", "CMC", "CTF", "CIW", "LAC", "SAC", "SQ",
-                          "FSP", "SATF", "KVSP", "CRC", "CCWF", "CHCF",
-                          "DVI", "MCSP", "NKSP", "PBSP", "RJD", "SCC",
-                          "SOL", "SVSP", "VSP", "WSP", "CEN", "ISP",
-                          "ASP", "HDSP", "CAL", "PVSP", "CVSP",
-                          "PELICAN BAY", "FOLSOM", "CORCORAN", "IRONWOOD",
-                          "CENTINELA", "CALIPATRIA", "CHUCKAWALLA", "AVENAL",
-                          "SOLANO", "VACAVILLE", "REPRESA", "LANCASTER",
-                          "CHOWCHILLA", "IMPERIAL", "BLYTHE", "CORONA",
-                          "CDCR.CA.GOV", "CCHCS.CA.GOV"],
-        "required_forms": ["703b", "704b", "bidpkg", "quote"],
-        "primary_response_form": "704b",
-        "optional_forms": ["703c", "sellers_permit", "dvbe843", "std204", "calrecycle74",
-                          "bidder_decl", "darfur_act", "obs_1600", "drug_free", "std1000",
-                          "ams708", "cchcs_it_rfq"],
-        "notes": "CCHCS / CDCR. Package: 703B (or 703C) + 704B + CCHCS Bid Package. DVBE 843 and seller's permit are inside the bid package. CCHCS also issues a separate IT Goods/Services RFQ (form_type=cchcs_it_rfq, Non-Cloud only — Reytech does not respond to Cloud variants).",
-        "default_markup_pct": 25,
-        "payment_terms": "Net 45",
-        "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "7-14 business days",
-    },
+    # NOTE: The "cchcs" entry was DELETED per §0 Job #1 acceptance 2026-05-27.
+    # CCHCS routes through the Spine (`src/spine/`) — the legacy
+    # default-agency config is dead code. All production readers use
+    # `.get()` / `in` patterns (None-safe). The independent duplicate
+    # dict in `src/api/modules/routes_analytics.py:3618` retains its
+    # "cchcs" entry (separate substrate). LAW 2 migration completion
+    # gate satisfied for this surface.
     "dsh": {
         "name": "DSH — State Hospitals",
         "match_patterns": ["DSH", "STATE HOSPITAL", "DEPARTMENT OF STATE HOSPITALS",
