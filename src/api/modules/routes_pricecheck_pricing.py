@@ -1304,7 +1304,7 @@ def pricecheck_document_editor(pcid, doc_id):
          <td style="padding:4px"><input name="ed_uom_{i}" value="{uom}" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center"></td>
          <td style="padding:4px"><textarea name="ed_desc_{i}" rows="2" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;resize:vertical">{desc}</textarea></td>
          <td style="padding:4px"><input name="ed_mfg_{i}" value="{mfg}" style="width:120px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;font-family:monospace"></td>
-         <td style="padding:4px"><input name="ed_price_{i}" value="{float(price):.2f}" type="number" step="0.01" min="0" style="width:90px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:right" onchange="recalcDoc()"></td>
+         <td style="padding:4px"><input name="ed_price_{i}" value="{float(price):.2f}" type="text" inputmode="decimal" style="min-width:90px;field-sizing:content;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:right" oninput="if(window.sanitizePrice)sanitizePrice(this)" onblur="if(window.fmtCurrency)fmtCurrency(this)" onchange="recalcDoc()"></td>
          <td style="padding:8px;text-align:right;font-weight:600;font-family:monospace" class="doc-ext">${ext:,.2f}</td>
         </tr>'''
     
