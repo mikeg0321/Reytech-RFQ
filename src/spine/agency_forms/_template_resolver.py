@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+from src.spine.agency_forms._identity import SpineFormFillError
 
 if TYPE_CHECKING:
     from src.spine.email_contract import EmailContract

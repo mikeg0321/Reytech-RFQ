@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.spine.agency_forms.cchcs_703b import ReytechIdentity, SpineFormFillError
+from src.spine.agency_forms._identity import ReytechIdentity, SpineFormFillError
 
 if TYPE_CHECKING:
     from src.spine.model import Quote

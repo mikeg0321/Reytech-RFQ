@@ -305,6 +305,36 @@ same pattern.
 Pinning: `tests/spine/test_agency_constants.py` pins the byte-for-byte
 values and the frozen-dataclass shape so future drift breaks loudly.
 
+### Cross-renderer shared types — `agency_forms/_identity.py`
+
+> Added 2026-05-27 (Job #1 PR-Job1-D-prep). Architect approval recorded
+> in the PR introducing the module per §0 LAW 4.
+
+`src/spine/agency_forms/_identity.py` is the neutral home for
+`ReytechIdentity` (vendor-side identity dataclass — business name, FEIN,
+seller's permit, contact info, payment terms) and `SpineFormFillError`
+(raised when a filled-form matching gate disagrees with its source).
+Both types are imported by every adapter in `agency_forms/` — the CCHCS
+fillers (703b/703c/704b/704c/bidpkg) and the universal state forms
+(std_204, std_1000, dvbe_843, darfur, calrecycle_74, cuf, plus
+`_template_resolver.py`).
+
+Why it exists: the two shared types historically lived inside
+`cchcs_703b.py` because that file was the first to need them.
+PR-Job1-D's plan to DELETE the five CCHCS-specific renderers
+(`cchcs_703{b,c}.py`, `cchcs_704{b,c}.py`, `cchcs_bidpkg.py`) would have
+broken every non-CCHCS importer. Moving the types to a neutral module
+FIRST (this PR) lets PR-D delete the CCHCS renderers cleanly.
+
+Like `agency_constants.py`, `_identity.py` is NOT an adapter — it has
+**zero** legacy imports (verified by `test_no_legacy_imports`) — so it
+does NOT appear in `_FILE_SCOPED_LEGACY_IMPORTS`. Pure type definitions,
+no I/O, no PDF logic.
+
+`cchcs_703b.py` retains a short-lived backwards-compat re-export
+(`from ._identity import ReytechIdentity, SpineFormFillError`) so any
+straggler import keeps working until PR-D deletes the file outright.
+
 ---
 
 ## Cannibalization Roadmap
