@@ -11,7 +11,7 @@ in routes_utilization.py) were removed 2026-05-05 as a dead-route
 cleanup — the dashboard surface had no UI callers. The write-side
 telemetry collection (record_feature_use, time_feature, flush_now)
 remains live and is heavily used by routes_rfq, routes_pricecheck,
-routes_cchcs_packet, ingest_pipeline, etc.
+ingest_pipeline, etc.
 """
 import time
 
