@@ -643,8 +643,9 @@ def get_drift_diagnostic() -> dict:
 
 
 def get_drift_lines_per_agency(window_days: int = 7) -> list:
-    """PR-S helper: aggregate every operator_drift_line row in the window
-    by agency_key. Used by `auto_recommendations.build_*`.
+    """Aggregate every operator_drift_line row in the window by
+    agency_key. Used by the PR-T home-widget agency-winrate proxy
+    (`routes_rfq.py`).
 
     Lives in operator_kpi.py (not the caller's `src/agents/` module) so
     the canonical_state gate doesn't reject the inline WHERE sent_at
