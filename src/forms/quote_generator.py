@@ -1565,17 +1565,55 @@ def generate_quote(
     _tax_from_contract = False
     if contract is not None:
         try:
-            tax = contract.tax_cents / 100.0
-            # Rate label follows the contract. When shipping is bundled
-            # into the vendor price ("included"), the contract zeros tax
-            # (reseller absorbs in the markup). Print "TAX (BUNDLED)" —
-            # NOT bare "TAX" — so the agency sees the deliberate $0
-            # treatment instead of mistaking it for a renderer bug.
+            # ── Class-closer 2026-05-27: derive tax from
+            # (rate, subtotal, shipping_option) at render time.
+            #
+            # Prior path read `contract.tax_cents` directly. That field
+            # is computed at INGEST time and is stale whenever the
+            # operator edits items, swaps the facility, or — critically
+            # — when the row was ingested under the old
+            # `shipping_option DEFAULT 'included'` column (closed by
+            # PR #1120 forward-only; existing rows kept tax_cents=0).
+            # Symptom: rfq_0124647e 2026-05-27 alignment blocker
+            # `quote TAX $0.00 ≠ canonical $70.22 ($-70.22)` — quote
+            # PDF printed bare `TAX $0.00` with a `TAX (7.75%)` label,
+            # 3rd recurrence of this class in 16 days (#1091, #1120,
+            # this).
+            #
+            # New behavior:
+            #   shipping_option == 'included' → tax=0, label="TAX (BUNDLED)"
+            #     (PR #1120 invariant preserved — operator-bundled
+            #     shipping is a deliberate $0 tax line).
+            #   else, contract_rate > 0  → tax = round(subtotal × rate, 2),
+            #     label = "TAX (x.xx%)" (the canonical formula
+            #     pricing_alignment.compute_canonical_totals uses).
+            #   else → tax=0, label="TAX".
+            #
+            # contract.tax_cents is preserved as a divergence canary:
+            # if it disagrees with the canonical recomputation by more
+            # than $0.01, log a WARNING so the stale ingest row surfaces
+            # in deploy logs and audit_trail. Renderer still emits the
+            # canonical value — operator never ships a wrong tax.
+            contract_rate = contract.tax_rate or rate or 0.0
             if contract.shipping_option == "included":
+                tax = 0.0
                 _tax_label = "TAX (BUNDLED)"
+            elif contract_rate > 0 and subtotal > 0:
+                tax = round(subtotal * contract_rate, 2)
+                _tax_label = f"TAX ({contract_rate*100:.2f}%)"
             else:
-                _label_rate = contract.tax_rate or rate
-                _tax_label = f"TAX ({_label_rate*100:.2f}%)"
+                tax = 0.0
+                _tax_label = "TAX"
+
+            _contract_tax_dollars = (contract.tax_cents or 0) / 100.0
+            if abs(_contract_tax_dollars - tax) > 0.01:
+                log.warning(
+                    "Quote %s tax divergence: contract.tax_cents=$%.2f "
+                    "vs canonical (rate=%.4f × subtotal=$%.2f, "
+                    "shipping=%s) = $%.2f. Rendering canonical $%.2f.",
+                    quote_number, _contract_tax_dollars, contract_rate,
+                    subtotal, contract.shipping_option, tax, tax,
+                )
             _tax_from_contract = True
         except Exception as _ce:
             log.debug("contract tax read failed, falling back: %s", _ce)
