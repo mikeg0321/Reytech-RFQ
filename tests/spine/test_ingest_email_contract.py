@@ -322,3 +322,20 @@ def test_unresolvable_facility_leaves_ship_to_null_gracefully():
     from src.spine_bridge.ingest import _resolve_canonical_ship_to
     fac, addr = _resolve_canonical_ship_to("Nonexistent Facility XYZ")
     assert (fac, addr) == (None, None)
+
+
+def test_cchcs_bill_to_reads_from_spine_native_constants_not_legacy():
+    """§0 LAW 6 + Job #1 prerequisite (PR-Job1-A0): the CCHCS bill-to
+    answer must come from the Spine-native source of truth
+    (`src.spine.agency_constants`), NOT the legacy AGENCY_CONFIGS that
+    Job #1 will delete.
+
+    The values returned must match `CCHCS_CANONICAL_BILL_TO` exactly,
+    so a future Job #1 deletion of `AGENCY_CONFIGS["CCHCS"]` cannot
+    silently strip bill_to_* from CCHCS EmailContracts."""
+    from src.spine.agency_constants import CCHCS_CANONICAL_BILL_TO
+    from src.spine_bridge.ingest import _resolve_canonical_bill_to
+    name, email, addr = _resolve_canonical_bill_to("CCHCS")
+    assert name == CCHCS_CANONICAL_BILL_TO.name
+    assert email == CCHCS_CANONICAL_BILL_TO.email
+    assert addr == "\n".join(CCHCS_CANONICAL_BILL_TO.address_lines)
