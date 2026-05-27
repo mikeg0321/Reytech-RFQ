@@ -2573,15 +2573,14 @@ def _scprs_autostart():
     # Otherwise skip — let the scheduler do it on its own quiet cycle.
     def _boot_rebuild_awards():
         import time as _t3
-        from src.core.paths import DATA_DIR as _DD
         from src.core.intel_freshness_gate import intel_tables_fresh
         _t3.sleep(60)
-        _db = _os.path.join(_DD, "reytech.db")
         # Freshness gate (see `src/core/intel_freshness_gate.py`). Skips
         # rebuild when intel tables are already up-to-date — closes the
         # 2026-05-27 06:01-06:08 deploy-cycle lock cascade. Fails closed:
-        # any error in the gate means rebuild runs.
-        if intel_tables_fresh(_db):
+        # any error in the gate means rebuild runs. The helper defaults
+        # db_path to DATA_DIR/reytech.db when called with no args.
+        if intel_tables_fresh():
             log.info(
                 "Boot rebuild SKIPPED: scprs_awards already fresh — "
                 "scheduled post-pull rebuild handles normalization. "

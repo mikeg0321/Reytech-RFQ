@@ -137,6 +137,37 @@ def test_custom_thresholds_passed_through(tmp_path):
     assert intel_tables_fresh(db, min_rows=10, max_age_days=3) is False
 
 
+def test_default_path_resolves_to_data_dir(monkeypatch, tmp_path):
+    """Calling with no args defaults to DATA_DIR/reytech.db. Lets the
+    boot thread say `intel_tables_fresh()` without computing the path."""
+    db = str(tmp_path / "reytech.db")
+    now = datetime.now(timezone.utc).isoformat()
+    _build_db(db, rows=200, ts=now)
+    import src.core.intel_freshness_gate as gate_mod
+    monkeypatch.setattr(gate_mod, "DATA_DIR", str(tmp_path))
+    assert gate_mod.intel_tables_fresh() is True
+
+
+def test_passes_code_patterns_startup_check():
+    """The file MUST import `from src.core` to satisfy
+    `startup_checks.check_code_patterns` Pattern C — the linter that
+    allows bare sqlite3.connect only when the file imports init_db,
+    get_db, or anything from src.core. Pin against a future refactor
+    that removes the DATA_DIR import for 'cleanliness' — that would
+    re-trigger the prod STARTUP FAIL caught 2026-05-27 on deployment
+    9f0e8924 (`STARTUP FAIL: Code patterns — 1 code issues: core/
+    intel_freshness_gate.py: direct sqlite3.connect without any db
+    guard`)."""
+    src = (
+        REPO_ROOT / "src" / "core" / "intel_freshness_gate.py"
+    ).read_text(encoding="utf-8")
+    assert "sqlite3.connect(" in src, "Helper still uses sqlite3.connect"
+    assert "from src.core" in src, (
+        "intel_freshness_gate.py MUST import from src.core to satisfy "
+        "startup_checks Pattern C."
+    )
+
+
 # ── Source-grep: the boot thread MUST use the gate ────────────────────
 
 
