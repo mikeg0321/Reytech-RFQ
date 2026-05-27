@@ -201,7 +201,7 @@ def extract_pdf_totals(pdf_path: str, form_id: str = "") -> Optional[Dict]:
         return None
 
     def _find_money(label_re: str) -> Optional[float]:
-        """Find a $ amount on the same line as `label_re`.
+        r"""Find a $ amount on the same line as `label_re`.
 
         🚨 2026-05-12 Mike P0 rfq_8efe9fae: the regex previously made
         `$` optional (`\$?`). For a quote PDF rendering `TAX (8.35%)
