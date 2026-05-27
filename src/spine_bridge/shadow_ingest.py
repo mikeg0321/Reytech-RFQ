@@ -35,6 +35,42 @@ def _flag_on() -> bool:
     return str(os.environ.get(_FLAG_ENV, "0")).strip() in ("1", "true", "True", "yes", "on")
 
 
+# G5 (Architect approval 2026-05-27): auto-carry costs from a linked
+# PC into a new RFQ during ingest ONLY when the auto-link's confidence
+# clears this gate. The link itself fires above AUTO_LINK_THRESHOLD
+# (0.50, in quote_matcher.py) — that's "good enough to display in the
+# editor." But moving money autonomously needs a higher bar.
+#
+# 0.90 is the calibrated bar:
+#   - AUTO_LINK_OPERATOR_CONFIDENCE = 1.0 means "operator asserted"
+#   - find_pc_candidates returns matches with MFG# overlap up to ~0.95
+#     for very clean matches (full sol# + multi-line MFG# agreement)
+#   - 0.90 = "strong evidence both sides agree this is the predecessor"
+#     without requiring operator hand-confirmation.
+#
+# Env override (AUTO_CARRY_CONFIDENCE_THRESHOLD) for staging / tighter
+# operator-controlled rollout if Mike wants a higher bar later.
+def _resolve_auto_carry_threshold() -> float:
+    raw = os.environ.get("AUTO_CARRY_CONFIDENCE_THRESHOLD", "").strip()
+    if not raw:
+        return 0.90
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 0.90
+    # Clamp to [AUTO_LINK_THRESHOLD, 1.0]; anything below the link
+    # threshold would be a no-op (no link → no carry) and anything
+    # above 1.0 is incoherent.
+    if v < 0.50:
+        return 0.50
+    if v > 1.0:
+        return 1.0
+    return v
+
+
+AUTO_CARRY_CONFIDENCE_THRESHOLD = _resolve_auto_carry_threshold()
+
+
 def _make_tax_resolver():
     """Wrap the prod CDTFA resolver into the bps-returning callable
     that ingest_email_contract expects.
@@ -333,11 +369,21 @@ def shadow_ingest_to_spine(
         out["auto_link_error"] = str(e)
 
     # ── Auto-price carry-forward (Mike 5/17 directive — "should be
-    # auto priced"). Only fires when a link was just written: the link
+    # auto priced"). Only fires when a link was just written AND the
+    # link clears the AUTO_CARRY_CONFIDENCE_THRESHOLD gate. The link
     # is the substrate's evidence that the PC predecessor is the right
-    # cost source. Best-effort: a carry failure does NOT fail ingest
-    # and does NOT undo the link.
-    if linked_pc_id is not None:
+    # cost source — but a 0.50 link (sol# alone, no MFG# overlap) is
+    # NOT strong enough to autonomously move money. The operator-
+    # triggered button (PR #1121's /carry-forward-prices) is still
+    # available for lower-confidence carries; G5 gates only the
+    # AUTO path.
+    #
+    # G5 (Architect approval 2026-05-27 / Mike): "auto-fire on ingest
+    # when link confidence >= 0.90." Higher than AUTO_LINK_THRESHOLD
+    # (0.50) so weak links don't silently overwrite costs.
+    if linked_pc_id is not None and out.get("auto_link", {}).get(
+        "confidence", 0,
+    ) >= AUTO_CARRY_CONFIDENCE_THRESHOLD:
         try:
             carry_info = _maybe_carry_costs(path, persisted_quote, linked_pc_id)
             if carry_info is not None:
@@ -348,6 +394,18 @@ def shadow_ingest_to_spine(
                 persisted_quote.quote_id,
             )
             out["auto_price_error"] = str(e)
+    elif linked_pc_id is not None:
+        # Link exists but didn't clear the auto-carry gate. Record
+        # the gating so the operator surface can show "auto-carry
+        # available — click the button" instead of silently doing
+        # nothing. UI consumers read this to decide whether to
+        # highlight the Carry Prices button.
+        out["auto_price_skipped"] = {
+            "reason": "below_confidence_threshold",
+            "link_confidence": out.get("auto_link", {}).get("confidence"),
+            "threshold": AUTO_CARRY_CONFIDENCE_THRESHOLD,
+            "linked_pc_id": linked_pc_id,
+        }
 
     # ── Catalog observation (task #16 + #21) — every ingest with any
     # MFG#-bearing line items emits one observation per row. Runs
