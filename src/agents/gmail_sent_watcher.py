@@ -169,9 +169,12 @@ def _fire_mark_sent_for_match(match: Dict[str, Any], *, app=None) -> None:
             from flask import current_app
             target_app = current_app._get_current_object()
         except Exception:
-            # Last resort: import the global. If even this fails, raise —
-            # the per-match try/except in run_watcher_once captures it.
-            from src.api.dashboard import app as _flask_app  # type: ignore
+            # Last resort: import the global Flask app from app.py
+            # (where `app = create_app()` lives at module level).
+            # `dashboard.py` does NOT define a module-level `app`.
+            # If even this fails, raise — the per-match try/except in
+            # run_watcher_once captures it.
+            from app import app as _flask_app  # type: ignore
             target_app = _flask_app
 
     with target_app.app_context():
