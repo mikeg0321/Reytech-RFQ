@@ -63,6 +63,12 @@ from src.spine.agency_forms.darfur import (
 from src.spine.agency_forms.calrecycle_74 import (
     fill_calrecycle_74_pdf,
 )
+from src.spine.agency_forms.std_1000 import (
+    fill_std_1000_pdf,
+)
+from src.spine.agency_forms.cuf import (
+    fill_cuf_pdf,
+)
 
 if TYPE_CHECKING:
     from src.spine.model import Quote
@@ -148,6 +154,15 @@ FORM_REGISTRY: dict[str, Renderer] = {
     # Certification. Required by CalVet + DGS; also fires inside the
     # CCHCS bidpkg via fill_bid_package.
     "calrecycle_74": fill_calrecycle_74_pdf,
+    # Pillar 4 / G10: STD 1000 GenAI Disclosure. Required by most CA
+    # agency bids. Reytech does not use GenAI in supplied products —
+    # ticks "No" + skips items 1-6 per the form's instruction.
+    "std_1000":      fill_std_1000_pdf,
+    # Pillar 4 / G10: CV 012 Commercially Useful Function (DVBE
+    # attestation). Reytech is DVBE-certified + performs the function
+    # directly (inventory + logistics + delivery) — all 6 questions
+    # answered "Yes".
+    "cuf":           fill_cuf_pdf,
 }
 
 
@@ -161,6 +176,8 @@ __all__ = [
     "fill_dvbe_843_pdf",
     "fill_darfur_pdf",
     "fill_calrecycle_74_pdf",
+    "fill_std_1000_pdf",
+    "fill_cuf_pdf",
     "FORM_REGISTRY",
     "Renderer",
 ]
