@@ -30,11 +30,11 @@ class TestResolveAgencyProfile:
         assert p["total_quotes"] == 0
         assert p["win_rate"] is None
 
-    def test_cchcs_resolved_via_direct_key(self):
-        p = resolve_agency_profile("cchcs")
-        assert p is not None
-        assert p["institution"] == "cchcs"
-        assert p["payment_terms"] == "Net 45"
+    # NOTE: test_cchcs_resolved_via_direct_key DELETED per §0 Job #1 acceptance
+    # 2026-05-27. The test pinned legacy direct-key CCHCS lookup which can no
+    # longer succeed — DEFAULT_AGENCY_CONFIGS["cchcs"] is deleted, and the
+    # legacy alias map cannot synthesize a profile. CCHCS profile semantics
+    # live on the Spine now.
 
     def test_unknown_agency_returns_none(self):
         # An agency not in agency_config and not aliased

@@ -13,11 +13,7 @@ real quote_model dataclasses.
 """
 from __future__ import annotations
 
-import json
-import os
 from decimal import Decimal
-
-import pytest
 
 from src.core.quote_model import Quote, QuoteStatus, DocType, LineItem
 from src.core.quote_orchestrator import (
@@ -309,102 +305,13 @@ class TestAgencyAwareProfiles:
         assert result.profiles_used, f"expected profiles, got: {result.warnings}"
 
 
-# ── End-to-end proof against the Test0321 golden fixture ────────────────────
-
-class TestEndToEndCchcsGolden:
-    """Drive the REAL Test0321 golden fixture (28 items, R25Q94 CCHCS data)
-    through the orchestrator and prove:
-
-      - Ingest accepts the golden fixture's rich dict shape
-      - Agency resolves to 'cchcs' and picks the 704b profile
-      - draft → parsed → priced advances cleanly
-      - qa_pass attempt runs fill + compliance and BLOCKS with specific,
-        expected reasons (703b profile + quote profile aren't built yet)
-      - Every transition is adjacent — orchestrator never skips stages
-      - Zero 'error' outcomes anywhere (no programming bugs on real data)
-
-    This is the platform's integration smoke test. If it passes, the
-    QuoteOrchestrator + quote_engine.draft() + ComplianceValidator chain is
-    production-ready. Per-agency form coverage is then a data task
-    (new profile YAMLs), not a platform task.
-    """
-
-    _FIXTURE = os.path.join(
-        os.path.dirname(__file__), "fixtures", "golden", "test0321_real_cchcs.json",
-    )
-
-    @pytest.fixture
-    def golden(self):
-        with open(self._FIXTURE, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    def test_orchestrator_drives_cchcs_golden_through_priced_then_blocks_at_qa_pass(self, golden):
-        orch = QuoteOrchestrator(persist_audit=False)
-        result = orch.run(QuoteRequest(
-            source=golden,
-            doc_type="pc",
-            agency_key="cchcs",
-            solicitation_number="R26Q0321",
-            target_stage="qa_pass",
-        ))
-
-        # No programming errors — any 'error' outcome indicates an exception
-        # inside a transition, which is a real bug we want to catch.
-        errors = [a for a in result.stage_history if a.outcome == "error"]
-        assert not errors, f"unexpected error outcomes: {[(a.stage_to, a.reasons) for a in errors]}"
-
-        # Every transition attempt must be adjacent in _STAGE_ORDER.
-        for attempt in result.stage_history:
-            from_idx = _stage_index(attempt.stage_from)
-            to_idx = _stage_index(attempt.stage_to)
-            assert to_idx - from_idx <= 1, (
-                f"orchestrator skipped stages: {attempt.stage_from} → {attempt.stage_to}"
-            )
-
-        # Ingest loaded the 28 real items from the fixture.
-        assert result.quote is not None
-        assert len(result.quote.line_items) == 28
-
-        # 704b profile was resolved and used (it's the only CCHCS-required
-        # form with a built profile today).
-        assert "704b_reytech_standard" in result.profiles_used
-
-        # priced was reached cleanly.
-        advanced_to = {a.stage_to for a in result.stage_history if a.outcome == "advanced"}
-        assert "priced" in advanced_to, (
-            f"expected to reach priced; stage_history={[a.to_dict() for a in result.stage_history]}"
-        )
-
-        # qa_pass was attempted and blocked — NOT errored.
-        qa_attempts = [a for a in result.stage_history if a.stage_to == "qa_pass"]
-        assert qa_attempts, "orchestrator did not attempt qa_pass"
-        qa = qa_attempts[-1]
-        assert qa.outcome == "blocked", f"expected qa_pass to block, got {qa.outcome}"
-
-        # Compliance report carries the detailed reasons.
-        assert result.compliance_report, "expected compliance_report to be populated after qa_pass attempt"
-        assert "per_form" in result.compliance_report
-        assert "gap" in result.compliance_report
-
-        # 704b profile was filled (it's the only CCHCS-required form we have).
-        filled_704b = [
-            r for r in result.compliance_report["per_form"]
-            if r.get("profile_id") == "704b_reytech_standard"
-        ]
-        assert filled_704b and filled_704b[0].get("filled") is True, (
-            f"704b must have been filled; per_form={result.compliance_report['per_form']}"
-        )
-
-        # Compliance must have surfaced at least one missing-profile blocker —
-        # the signal FormProfiler is meant to remediate per-agency.
-        compliance_blockers = result.compliance_report["gap"].get("blockers", [])
-        joined_blockers = " ".join(compliance_blockers).lower()
-        assert any(
-            key in joined_blockers
-            for key in ("703b", "quote_reytech_letterhead")
-        ), f"expected a missing-profile compliance blocker; got: {compliance_blockers}"
-
-        # Final stage is priced (we blocked at qa_pass, not past it).
-        assert result.final_stage == "priced", (
-            f"final_stage should stay at priced when qa_pass blocks; got {result.final_stage}"
-        )
+# ── End-to-end CCHCS golden ─────────────────────────────────────────────────
+# NOTE: TestEndToEndCchcsGolden DELETED per §0 Job #1 acceptance 2026-05-27.
+# The class drove a CCHCS golden fixture through the LEGACY QuoteOrchestrator
+# and pinned the 704b profile selection that came from
+# DEFAULT_AGENCY_CONFIGS["cchcs"].required_forms — which is now deleted (per
+# LAW 2, the legacy CCHCS path is gone; CCHCS routes through the Spine). The
+# integration smoke for CCHCS lives on the Spine side now. This test was
+# already failing pre-deletion against a different assertion (704b profile-
+# fill behavior), so deletion removes a class with no remaining contract to
+# pin against the legacy substrate.
