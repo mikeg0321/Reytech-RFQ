@@ -188,8 +188,21 @@ function toggleSourcePanel() {
   p.style.display = (p.style.display !== 'none') ? 'none' : 'block';
 }
 
-/** Sanitize a price value — returns float or 0 */
+/**
+ * Sanitize a price value.
+ *   - Called with a value: returns float or 0 (legacy value-in/value-out).
+ *   - Called with an <input> element: strips illegal chars from el.value
+ *     in place (allowing digits, dot, minus). Returns the float for
+ *     chained use. Never reformats — that's fmtCurrency's job on blur.
+ */
 function sanitizePrice(v) {
+  if (v && typeof v === 'object' && 'value' in v && typeof v.tagName === 'string') {
+    var raw = String(v.value || '');
+    var cleaned = raw.replace(/[^0-9.\-]/g, '');
+    if (cleaned !== raw) v.value = cleaned;
+    var fEl = parseFloat(cleaned);
+    return isNaN(fEl) ? 0 : fEl;
+  }
   if (!v && v !== 0) return 0;
   if (typeof v === 'number') return v;
   var f = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
@@ -204,8 +217,22 @@ function sanitizeInt(v, d) {
   return isNaN(i) ? d : i;
 }
 
-/** Format currency for display */
+/**
+ * Format currency.
+ *   - Called with a value: returns "$x.xx" (or em-dash when zero) for display.
+ *   - Called with an <input> element: writes el.value as a 2-decimal
+ *     plain number ("9.60"), no $ sign. Empty input stays empty so the
+ *     placeholder shows through. Designed for onblur on currency
+ *     inputs so trailing zeros are preserved on screen.
+ */
 function fmtCurrency(v) {
+  if (v && typeof v === 'object' && 'value' in v && typeof v.tagName === 'string') {
+    var raw = String(v.value || '').trim();
+    if (raw === '') { v.value = ''; return ''; }
+    var nEl = sanitizePrice(raw);
+    v.value = nEl.toFixed(2);
+    return v.value;
+  }
   var n = sanitizePrice(v);
   if (n === 0) return '\u2014';
   return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
