@@ -1094,6 +1094,39 @@ def generate_quote(
         rfq_num = "RFQ"
     items   = quote_data.get("line_items", [])
 
+    # 2026-05-27 PR-Hygiene-4: lock the operator-resolved sell price onto
+    # every item's `unit_price` BEFORE the row loop and the canonical
+    # subtotal call. Without this, an item whose `unit_price` aliases the
+    # supplier COST (raw RFQ shape: `unit_price=cost, bid_price=sell`)
+    # silently underbids: the row's UNIT PRICE column prints the bid
+    # price ($15.00) via the normalize_line_item alias chain, but
+    # `subtotal_of(items)` → `canonical_unit_price(item)` reads
+    # `item["unit_price"]` ($12.50, cost) — so the Subtotal/Tax/Total
+    # line was $250 below the row line totals on a 2-item seed. Same
+    # silent-underbid risk class as #1120 shipping_option default poison.
+    # Shallow-copy each dict so we don't mutate the caller's list.
+    _normalized_items = []
+    for _it_pn in items:
+        if not isinstance(_it_pn, dict):
+            _normalized_items.append(_it_pn)
+            continue
+        _it_copy = dict(_it_pn)
+        _resolved_price = (_it_copy.get("price_per_unit")
+                           or _it_copy.get("bid_price")
+                           or _it_copy.get("unit_price")
+                           or _it_copy.get("sell_price")
+                           or _it_copy.get("final_price")
+                           or 0)
+        try:
+            _resolved_price = float(str(_resolved_price).replace("$", "").replace(",", ""))
+        except (TypeError, ValueError):
+            _resolved_price = 0.0
+        if _resolved_price > 0:
+            _it_copy["unit_price"] = _resolved_price
+            _it_copy["price_per_unit"] = _resolved_price
+        _normalized_items.append(_it_copy)
+    items = _normalized_items
+
     # ── Page constants ─────────────────────────────────────────────────────────
     # Matches QuoteWerks: page=612x792, margins L=18 R=594
     W, H  = letter
