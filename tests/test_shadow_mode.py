@@ -75,6 +75,78 @@ class TestDiffLogging:
         assert summary["total"] == 0
 
 
+class TestGraduatedSeverity:
+    """Pin the graduated-severity shipped 2026-05-27 after the
+    rfq_0124 case: `SHADOW rfq rfq_0124: diverge — 3/102 match, 99
+    divergences` was a WARNING in prod logs alongside 5%-divergence
+    near-misses. Same line, very different meaning. Graduated severity
+    surfaces the wildly-divergent cases as ERROR so they get attention,
+    suppresses near-perfect cases as INFO."""
+
+    def test_match_is_info_level(self, clean_shadow_log, caplog):
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.forms.shadow_mode"):
+            _log_diff("doc1", "pc", "match", "10/10 match",
+                      42, match_count=10, total_compared=10)
+        recs = [r for r in caplog.records if "SHADOW" in r.message]
+        assert len(recs) == 1
+        assert recs[0].levelno == logging.INFO
+
+    def test_near_perfect_diverge_is_info(self, clean_shadow_log, caplog):
+        """95% match → noise, log at INFO not WARNING."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.forms.shadow_mode"):
+            _log_diff("doc2", "pc", "diverge", "95/100 match, 5 diverge",
+                      42, match_count=95, total_compared=100)
+        recs = [r for r in caplog.records if "SHADOW" in r.message]
+        assert recs and recs[-1].levelno == logging.INFO
+
+    def test_mid_diverge_is_warning(self, clean_shadow_log, caplog):
+        """50-89% match → WARNING (something drifting)."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.forms.shadow_mode"):
+            _log_diff("doc3", "pc", "diverge", "70/100 match, 30 diverge",
+                      42, match_count=70, total_compared=100)
+        recs = [r for r in caplog.records if "SHADOW" in r.message]
+        assert recs and recs[-1].levelno == logging.WARNING
+
+    def test_massive_diverge_is_error(self, clean_shadow_log, caplog):
+        """<50% match → ERROR (substrate-class divergence, page someone).
+        This is the prod rfq_0124 case: 3/102 match (2.9%) was logged
+        as WARNING alongside 5%-divergence noise."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.forms.shadow_mode"):
+            _log_diff("rfq_0124", "rfq", "diverge",
+                      "3/102 match, 99 divergences",
+                      2329, match_count=3, total_compared=102)
+        recs = [r for r in caplog.records if "SHADOW" in r.message]
+        assert recs and recs[-1].levelno == logging.ERROR, (
+            "3/102 match (2.9%) must log at ERROR — prod incident "
+            "2026-05-27 rfq_0124 was logged as WARNING and ignored."
+        )
+
+    def test_error_verdict_stays_warning(self, clean_shadow_log, caplog):
+        """Non-`diverge` error verdicts (no_profile, legacy_missing,
+        error) keep the old WARNING level — they're operational signals,
+        not substrate divergence."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.forms.shadow_mode"):
+            _log_diff("doc4", "pc", "no_profile", "No profile found", 0)
+        recs = [r for r in caplog.records if "SHADOW" in r.message]
+        assert recs and recs[-1].levelno == logging.WARNING
+
+    def test_diverge_without_counts_falls_back_to_warning(
+        self, clean_shadow_log, caplog,
+    ):
+        """If a legacy caller still passes diverge with no match_count /
+        total_compared (back-compat), don't crash — fall back to WARNING."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.forms.shadow_mode"):
+            _log_diff("doc5", "pc", "diverge", "legacy summary", 10)
+        recs = [r for r in caplog.records if "SHADOW" in r.message]
+        assert recs and recs[-1].levelno == logging.WARNING
+
+
 class TestShadowDashboard:
     """Admin dashboard routes."""
 

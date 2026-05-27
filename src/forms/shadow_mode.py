@@ -112,7 +112,8 @@ def _shadow_worker(pc_or_rfq_dict: dict, doc_type: str, doc_id: str, legacy_outp
         # Field-level comparison using pypdf
         diff_result = _compare_pdfs(legacy_bytes, new_bytes)
 
-        # Log the result
+        # Log the result. match_count + total_compared drive log severity
+        # in _log_diff (see graduated-severity table there).
         _log_diff(
             doc_id=doc_id,
             doc_type=doc_type,
@@ -120,6 +121,8 @@ def _shadow_worker(pc_or_rfq_dict: dict, doc_type: str, doc_id: str, legacy_outp
             detail=diff_result["summary"],
             elapsed_ms=elapsed_ms,
             field_diffs=diff_result.get("field_diffs"),
+            match_count=diff_result.get("match_count", 0),
+            total_compared=diff_result.get("total_compared", 0),
             legacy_sha=hashlib.sha256(legacy_bytes).hexdigest()[:16],
             new_sha=hashlib.sha256(new_bytes).hexdigest()[:16],
             profile_id=profile.id,
@@ -192,12 +195,16 @@ def _compare_pdfs(legacy_bytes: bytes, new_bytes: bytes) -> dict:
                 "verdict": "match",
                 "summary": f"{match_count}/{total_compared} fields match, 0 divergences",
                 "field_diffs": [],
+                "match_count": match_count,
+                "total_compared": total_compared,
             }
         else:
             return {
                 "verdict": "diverge",
                 "summary": f"{match_count}/{total_compared} match, {len(diffs)} divergences",
                 "field_diffs": diffs[:50],  # Cap at 50 to avoid huge logs
+                "match_count": match_count,
+                "total_compared": total_compared,
             }
 
     except Exception as e:
@@ -205,6 +212,8 @@ def _compare_pdfs(legacy_bytes: bytes, new_bytes: bytes) -> dict:
             "verdict": "error",
             "summary": f"Comparison error: {e}",
             "field_diffs": [],
+            "match_count": 0,
+            "total_compared": 0,
         }
 
 
@@ -227,7 +236,32 @@ def _log_diff(doc_id, doc_type, verdict, detail, elapsed_ms, **extra):
     except Exception as e:
         log.warning("Failed to write shadow diff log: %s", e)
 
-    level = logging.INFO if verdict == "match" else logging.WARNING
+    # Graduated severity — fixes 2026-05-27 deploy-log finding:
+    # rfq_0124 produced 3/102 match (99 divergences) and the WARNING-only
+    # path made every shadow diff look identical. The 97% divergent case
+    # is a substrate-class signal ("Quote V2 fill engine wildly off for
+    # this profile"); a 5% one is rendering noise. Both were the same
+    # WARNING line, so neither got attention.
+    #
+    #   match                              → INFO  (current behavior)
+    #   diverge AND match-rate >= 90%      → INFO  (near-perfect; treat as noise)
+    #   diverge AND 50% <= match-rate <90% → WARNING (something drifting)
+    #   diverge AND match-rate < 50%       → ERROR (substrate divergence; page)
+    #   error / no_profile / legacy_missing → WARNING (current behavior)
+    match_count = int(extra.get("match_count", 0) or 0)
+    total_compared = int(extra.get("total_compared", 0) or 0)
+    if verdict == "match":
+        level = logging.INFO
+    elif verdict == "diverge" and total_compared > 0:
+        match_rate = match_count / total_compared
+        if match_rate >= 0.90:
+            level = logging.INFO
+        elif match_rate >= 0.50:
+            level = logging.WARNING
+        else:
+            level = logging.ERROR
+    else:
+        level = logging.WARNING
     log.log(level, "SHADOW %s %s: %s — %s (%dms)", doc_type, doc_id[:8], verdict, detail, elapsed_ms)
 
 
