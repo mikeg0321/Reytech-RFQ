@@ -81,15 +81,6 @@ REYTECH = {
 # AGENCY CONFIGS — each has different quoting requirements
 # ═══════════════════════════════════════════════════════════════════════════════
 AGENCY_CONFIGS = {
-    "CCHCS": {
-        "full_name": "California Correctional Health Care Services",
-        "show_bill_to": True,
-        "show_permit": True,
-        "bill_to_name": "Dept. of Corrections and Rehabilitation",
-        "bill_to_lines": ["Attn: Accounts Payable", "P.O. BOX 187021", "Sacramento, CA 95818-7021", "APA.Invoices@cdcr.ca.gov"],
-        "default_tax": 0.0725,
-        "default_terms": "Net 45",
-    },
     "CDCR": {
         "full_name": "Dept. of Corrections and Rehabilitation",
         "show_bill_to": True,
