@@ -275,6 +275,36 @@ fails the build. The remedy is to push the dependency down into
 `src.spine_bridge` or a Spine helper — same delete-before-add
 discipline that governs every other Spine seam.
 
+### Spine-native agency constants — `agency_constants.py`
+
+> Added 2026-05-27 (Job #1 prerequisite, ticket PR-Job1-A0). Architect
+> approval recorded in the PR introducing the module per §0 LAW 4.
+
+`src/spine/agency_constants.py` holds the canonical agency-level
+constants the Spine ingest needs to satisfy §0 LAW 6 ("the
+EmailContract carries every answer at ingest") WITHOUT importing from
+the legacy substrate. It is NOT an adapter — it has **zero** legacy
+imports — so it does NOT appear in `_FILE_SCOPED_LEGACY_IMPORTS`.
+
+Why it exists: `src/spine_bridge/ingest.py::_resolve_canonical_bill_to`
+used to read CCHCS bill-to from `src.forms.quote_generator.AGENCY_CONFIGS`.
+Job #1 plans to DELETE `AGENCY_CONFIGS["CCHCS"]`; doing that without
+first promoting the canonical values to a Spine-native module would
+silently strip `bill_to_*` from every new CCHCS EmailContract — a LAW 6
+violation. Promoting the constants FIRST (this module) keeps LAW 6
+intact across the deletion.
+
+Scope (LAW 1 / LAW 4 discipline): this module carries ONLY the
+constants the Spine ingest needs. It is NOT a generic "agency
+registry" / "config substrate" / fourth substrate — those would
+require Architect AND Closer sign-off (LAW 4). Today it carries the
+CCHCS canonical bill-to; CDCR / CalVet / DSH / DGS continue to read
+from the legacy table until their own migration tickets follow the
+same pattern.
+
+Pinning: `tests/spine/test_agency_constants.py` pins the byte-for-byte
+values and the frozen-dataclass shape so future drift breaks loudly.
+
 ---
 
 ## Cannibalization Roadmap
