@@ -73,6 +73,43 @@ _FILE_SCOPED_LEGACY_IMPORTS: dict[str, set[str]] = {
         "src.core.paths",                  # DATA_DIR/OUTPUT_DIR — path constants
         "src.forms.reytech_filler_v4",     # the verified 703B/703C/704B/bidpkg fillers
     },
+    # Pillar-4 adapter renderers in src/spine/agency_forms/. Each file
+    # is a thin adapter: it maps a Spine Quote + EmailContract onto the
+    # call shape of a verified legacy filler (reytech_filler_v4 for the
+    # AMS 703/704 forms, cchcs_attachment_fillers for the CCHCS bid-
+    # package attachments) and delegates. Same boundary justification as
+    # forms_render.py / packet_render.py: re-implementing a verified
+    # renderer to satisfy import purity would make the Spine depend on
+    # a worse, unverified renderer. See SPINE_CHARTER.md "Adapter
+    # renderers in agency_forms/".
+    #
+    # Whitelisted PER FILE — a new adapter dropped into agency_forms/
+    # without an entry here still fails this test. Architect approval
+    # is required to extend this list (CLAUDE.md §0 LAW 4).
+    "cchcs_703c.py": {
+        "src.forms.reytech_filler_v4",     # fill_703c, load_config, get_pst_date
+    },
+    "cchcs_704c.py": {
+        "src.forms.reytech_filler_v4",     # fill_704b, load_config, get_pst_date
+    },
+    "calrecycle_74.py": {
+        "src.forms.cchcs_attachment_fillers",  # fill_calrecycle_74
+    },
+    "cuf.py": {
+        "src.forms.cchcs_attachment_fillers",  # fill_cuf
+    },
+    "darfur.py": {
+        "src.forms.cchcs_attachment_fillers",  # fill_darfur_act
+    },
+    "dvbe_843.py": {
+        "src.forms.cchcs_attachment_fillers",  # fill_dvbe_843
+    },
+    "std_1000.py": {
+        "src.forms.cchcs_attachment_fillers",  # fill_std_1000
+    },
+    "std_204.py": {
+        "src.forms.cchcs_attachment_fillers",  # fill_std204
+    },
 }
 
 # Stdlib + well-known third-party packages always OK.
