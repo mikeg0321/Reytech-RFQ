@@ -2550,9 +2550,44 @@ def _scprs_autostart():
     # first scheduled pull (Mon 7am PT). Idempotent — INSERT OR IGNORE
     # on po_number means re-running is a no-op when there's no fresh
     # data. Deferred 60s to let init_db + migrations finish first.
+    #
+    # 2026-05-27 freshness gate: each deploy was firing this rebuild,
+    # which writes to 5 intel tables (38k+ rows for scprs_awards) over
+    # ~45-60s — exactly when workflow_runs / upsert_quote / record_price
+    # are also writing. With the DB at 2.2 GB, even WAL + 30s
+    # busy_timeout + 3-attempt retry couldn't absorb the contention.
+    # Prod log 2026-05-27 06:01-06:08 (deploy 28d5adc7) showed the
+    # cascade: `Boot rebuild_intelligence_tables failed: database is
+    # locked` → `upsert_quote R26Q47: database is locked` → `record_price
+    # 'INSOLES...': database is locked` (3 attempts each, both items)
+    # → `Failed to stamp PDF metadata: database is locked`. Five page
+    # routes timed out in `make smoke` (Quotes/Orders/Agents/Pipeline/
+    # Growth) as symptoms of the same contention.
+    #
+    # Fix: gate the rebuild on a cheap freshness check. The post-pull
+    # rebuild at scprs_intelligence_engine.py:1077 fires after every
+    # scheduled SCPRS pull (Mon 7am + Wed 10am PT), so intel tables
+    # stay current. Boot rebuild is only needed when (a) it's a fresh
+    # volume with empty intel tables OR (b) intel hasn't refreshed in
+    # the last 7 days (post-outage catch-up case the docstring names).
+    # Otherwise skip — let the scheduler do it on its own quiet cycle.
     def _boot_rebuild_awards():
         import time as _t3
+        from src.core.paths import DATA_DIR as _DD
+        from src.core.intel_freshness_gate import intel_tables_fresh
         _t3.sleep(60)
+        _db = _os.path.join(_DD, "reytech.db")
+        # Freshness gate (see `src/core/intel_freshness_gate.py`). Skips
+        # rebuild when intel tables are already up-to-date — closes the
+        # 2026-05-27 06:01-06:08 deploy-cycle lock cascade. Fails closed:
+        # any error in the gate means rebuild runs.
+        if intel_tables_fresh(_db):
+            log.info(
+                "Boot rebuild SKIPPED: scprs_awards already fresh — "
+                "scheduled post-pull rebuild handles normalization. "
+                "Closes deploy-cycle lock cascade (2026-05-27)."
+            )
+            return
         try:
             from src.agents.scprs_intelligence_engine import rebuild_intelligence_tables
             result = rebuild_intelligence_tables(notify_fn=_notify_wrapper)
