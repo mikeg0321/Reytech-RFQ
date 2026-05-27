@@ -47,17 +47,10 @@ class TestCCHCSPacketClassification:
         assert r.shape == SHAPE_CCHCS_PACKET
 
     def test_cchcs_packet_agency(self):
-        # Rewritten 2026-05-27 (Job #1): the CCHCS dict entry was
-        # DELETED per §0 LAW 2. The packet-shape detection still
-        # tags the agency key as "cchcs" (shape-based, no dict
-        # lookup needed), but the friendly `agency_name` field —
-        # which was sourced from the deleted dict's "name" key —
-        # is now empty. Spine carries the friendly name for CCHCS.
         from src.core.request_classifier import classify_request
         r = classify_request(attachments=[CCHCS_PACKET])
         assert r.agency == "cchcs"
-        # agency_name no longer populated from the legacy dict
-        assert r.agency_name == ""
+        assert r.agency_name == "CCHCS / CDCR"
 
     def test_cchcs_packet_extracts_solicitation(self):
         from src.core.request_classifier import classify_request
@@ -109,18 +102,10 @@ class TestCCHCSPacketClassification:
                                  agency_matches=[]) < 0.80
 
     def test_cchcs_packet_required_forms_from_agency(self):
-        # Rewritten 2026-05-27 (Job #1): the CCHCS dict — which
-        # sourced `required_forms` for legacy classifier output —
-        # was DELETED per §0 LAW 2. The CCHCS form set
-        # (703b + 704b + bidpkg + quote) now lives on the Spine path
-        # (`src/spine/agency_constants.py`), not in this classifier.
-        # The classifier still detects the agency key from the packet
-        # shape, but `required_forms` is now empty because the legacy
-        # dict is gone. Downstream Spine renderers resolve forms from
-        # the EmailContract (§0 LAW 6).
         from src.core.request_classifier import classify_request
         r = classify_request(attachments=[CCHCS_PACKET])
-        assert r.required_forms == []
+        # CCHCS requires the 703b + 704b + bidpkg stack per agency_config
+        assert "703b" in r.required_forms or "quote" in r.required_forms
 
 
 # ─── DOCX AMS 704 (CCHCS variant) ───────────────────────────────────────

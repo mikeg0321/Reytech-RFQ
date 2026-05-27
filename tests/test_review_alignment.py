@@ -357,36 +357,23 @@ class TestEmailDomainPriority:
         assert k == "calvet"
         assert "email_domain" in c.get("matched_by", "")
 
-    def test_cdcr_email_falls_to_other_post_cchcs_deletion(self):
-        # Rewritten 2026-05-27 (Job #1): the CCHCS dict was DELETED
-        # per §0 LAW 2. The EMAIL_DOMAIN_AGENCY_MAP still maps
-        # cdcr.ca.gov → "cchcs" (alias-of-record, kept for the
-        # email-domain priority test on the calvet branch), but with
-        # the config gone, match_agency can no longer return the
-        # CCHCS row — it falls through Step 1, Step 2 finds no
-        # parent, and the final fallback returns ("other", ...).
-        # CCHCS classification for cdcr.ca.gov senders now lives on
-        # the Spine ingest path.
+    def test_cdcr_email_resolves_to_cchcs(self):
         from src.core.agency_config import match_agency
+        # CDCR uses CCHCS forms — domain map normalizes the alias
         k, c = match_agency({"requestor_email": "officer@cdcr.ca.gov"})
-        assert k == "other"
+        assert k == "cchcs"
+        assert c.get("primary_response_form") == "704b"
 
-    def test_unknown_domain_falls_through_to_other_post_cchcs_deletion(self):
-        # Rewritten 2026-05-27 (Job #1): with the CCHCS dict deleted,
-        # keyword-based matching for "California Correctional Health
-        # Care Services (CCHCS)" no longer has a config to land on.
-        # The keyword-fallback MECHANISM is unchanged; only the
-        # CCHCS-specific landing pad is gone. The original test's
-        # intent (verify email_domain DID NOT match) is preserved
-        # by asserting the final key is "other" (no domain match,
-        # no keyword match — fell to the bottom).
+    def test_unknown_domain_falls_through_to_keywords(self):
         from src.core.agency_config import match_agency
+        # `department` isn't in match_agency's search_text — `agency` and
+        # `institution` are. Use one of those for the keyword fallback test.
         k, c = match_agency({
             "requestor_email": "user@gmail.com",
             "agency": "California Correctional Health Care Services (CCHCS)",
         })
-        assert k == "other"
-        # Should NOT have matched via email_domain (gmail isn't in the map)
+        assert k == "cchcs"
+        # Should NOT have matched via email_domain (fell through)
         assert "email_domain" not in c.get("matched_by", "")
 
     def test_subdomain_matches_parent_domain(self):

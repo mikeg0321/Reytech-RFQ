@@ -167,13 +167,42 @@ DEFAULT_AGENCY_CONFIGS = {
         "shipping_terms": "FOB Destination, Freight Prepaid",
         "delivery_days": "7-14 business days",
     },
-    # NOTE: The "cchcs" entry was DELETED per §0 Job #1 acceptance 2026-05-27.
-    # CCHCS routes through the Spine (`src/spine/`) — the legacy
-    # default-agency config is dead code. All production readers use
-    # `.get()` / `in` patterns (None-safe). The independent duplicate
-    # dict in `src/api/modules/routes_analytics.py:3618` retains its
-    # "cchcs" entry (separate substrate). LAW 2 migration completion
-    # gate satisfied for this surface.
+    # NOTE: The "cchcs" entry was DELETED in PR #1157 (2026-05-27 morning) as
+    # part of §0 Job #1 — but the legacy /rfq/<id>/generate route + the Fill
+    # Plan substrate (fill_plan_builder.py:312-323) still call match_agency()
+    # and fell to "other" without an entry here, silently producing a 2-file
+    # OtherUnknown package for CCHCS RFQs. Restored 2026-05-27 22:10Z as an
+    # emergency correctness fix (Inspector walk of Duffey rfq_0124647e caught
+    # the split-brain). Authoritative CCHCS bill-to data still lives in
+    # `src/spine/agency_constants.py` per PR #1155 — this entry exists ONLY
+    # to keep the legacy Regenerate path producing the correct form set
+    # (703B + 704B + Bid Package + Quote). DELETE only when the legacy
+    # Regenerate route is repointed at the Spine or deleted entirely
+    # (Job #1 architectural follow-up).
+    "cchcs": {
+        "name": "CCHCS / CDCR",
+        "match_patterns": [
+            "CCHCS", "CDCR", "CORRECTIONS", "CALIFORNIA CORRECTIONAL",
+            "STATE PRISON", "CSP-", "CSP ", "CHCF", "DUFFEY", "FOLSOM",
+            "SAN QUENTIN", "PELICAN BAY", "CORCORAN", "AVENAL",
+            "CCHCS.CA.GOV", "CDCR.CA.GOV",
+        ],
+        "required_forms": ["703b", "704b", "bidpkg", "quote"],
+        "primary_response_form": "704b",
+        "optional_forms": ["703c", "dvbe843", "bidder_decl", "calrecycle74",
+                           "sellers_permit", "std204", "std1000", "ams708"],
+        "notes": "LEGACY Regenerate path only. Authoritative CCHCS bill-to data "
+                 "lives in src/spine/agency_constants.py per PR #1155. Restored "
+                 "2026-05-27 to fix split-brain regression from PR #1157 — the "
+                 "legacy /rfq/<id>/generate route still calls match_agency and "
+                 "fell to 'other' without this entry. DELETE only when the "
+                 "legacy Regenerate route is fully repointed at Spine or "
+                 "deleted (Job #1 follow-up architectural ticket).",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "7-14 business days",
+    },
     "dsh": {
         "name": "DSH — State Hospitals",
         "match_patterns": ["DSH", "STATE HOSPITAL", "DEPARTMENT OF STATE HOSPITALS",

@@ -1,45 +1,84 @@
-"""Regression test pinning the §0 Job #1 deletion of CCHCS from the
-legacy `DEFAULT_AGENCY_CONFIGS` dict.
+"""Regression test pinning Mike's hard package rules from CLAUDE.md.
 
-The original tests in this file pinned Mike's hard package rules for
-the CCHCS entry in `src/core/agency_config.py`:
+These rules have caused multiple production incidents when violated.
+The audit of `agency_config.py` against CLAUDE.md was previously
+informal — this file makes the rules executable.
 
-  1. CCHCS required_forms = 703B + 704B + Bid Package + Quote.
-  2. DVBE 843 + seller's permit are INSIDE the bid package (optional only).
-  3. 703C is an optional alternative to 703B.
-  4. primary_response_form is 704b.
+Rules pinned:
 
-Those rules now belong to the Spine. CCHCS routes through `src/spine/`
-per §0 LAW 1; the legacy entry was deleted per §0 Job #1 acceptance
-2026-05-27. This file becomes the negative pin: the "cchcs" key must
-NOT come back into `DEFAULT_AGENCY_CONFIGS`. Sibling entries
-(calvet/dsh/dgs/calfire/other) survive.
+1. **CCHCS / CDCR**: required_forms = 703B + 704B + Bid Package + Quote.
+   DVBE 843 and seller's permit are INSIDE the bid package — never
+   generate as standalone required forms. (CLAUDE.md "Form Filling
+   Guard Rails > Package Generation".)
 
-If a future change re-adds "cchcs" to the legacy dict, this test fails
-loudly — the migration completion gate is preserved.
+2. **Optional forms are OPTIONAL.** Never auto-include based on item
+   count or heuristics. Optional forms must live in `optional_forms`,
+   not `required_forms`.
+
+3. **CCHCS optional forms include 703c** (alternative to 703B when the
+   buyer ships a 703C template).
 """
 from __future__ import annotations
 
 
-def test_cchcs_not_in_default_agency_configs():
-    """§0 LAW 2 / Job #1: CCHCS routes through the Spine. The legacy
-    `DEFAULT_AGENCY_CONFIGS["cchcs"]` entry was DELETED — re-adding it
-    would resurrect the dead substrate. Sibling agencies survive.
-    """
+def test_cchcs_required_forms_match_claude_md_rule():
+    """CCHCS package = 703B + 704B + Bid Package + Quote (4 forms only)."""
     from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
-    assert "cchcs" not in DEFAULT_AGENCY_CONFIGS, (
-        "DEFAULT_AGENCY_CONFIGS['cchcs'] must NOT exist — CCHCS routes "
-        "through `src/spine/` per §0 LAW 1 / Job #1 acceptance 2026-05-27. "
-        "If you need to re-add a CCHCS legacy config, open a §0 PR first."
+    cchcs = DEFAULT_AGENCY_CONFIGS["cchcs"]
+    required = cchcs["required_forms"]
+
+    # Exact match — adding or removing a form here is a real package
+    # change and must be intentional. Update both this test and
+    # CLAUDE.md "Form Filling Guard Rails" together.
+    assert set(required) == {"703b", "704b", "bidpkg", "quote"}, (
+        f"CCHCS required_forms must be 703B + 704B + bidpkg + quote, "
+        f"got: {required}. CLAUDE.md states 'CCHCS package = 703B/C + "
+        f"704B + Bid Package + Quote ONLY. DVBE 843, seller's permit, "
+        f"CalRecycle are INSIDE the bid package. Never generate "
+        f"standalone.'"
     )
 
 
-def test_sibling_agency_entries_survive():
-    """The Job #1 deletion is CCHCS-only. Multi-agency entries are
-    deferred to per-agency migrations (CalVet, DSH, DGS, CalFire)."""
+def test_cchcs_dvbe843_is_optional_not_required():
+    """DVBE 843 is INSIDE the bid package PDF. Listing it in
+    required_forms would generate it standalone — duplicate paperwork.
+    """
     from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
-    for key in ("calvet", "dsh", "dgs", "calfire", "other"):
-        assert key in DEFAULT_AGENCY_CONFIGS, (
-            f"Sibling agency key {key!r} must survive the CCHCS deletion — "
-            f"per-agency migrations are tracked separately."
-        )
+    cchcs = DEFAULT_AGENCY_CONFIGS["cchcs"]
+    assert "dvbe843" not in cchcs["required_forms"], (
+        "DVBE 843 must NOT be in CCHCS required_forms — it's inside "
+        "the bid package PDF. Adding it generates standalone duplicate."
+    )
+    assert "dvbe843" in cchcs["optional_forms"], (
+        "DVBE 843 must be in optional_forms so the operator can opt in "
+        "if a non-CCHCS variant requires it"
+    )
+
+
+def test_cchcs_sellers_permit_is_optional_not_required():
+    """Same as DVBE 843 — inside the bid package PDF."""
+    from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
+    cchcs = DEFAULT_AGENCY_CONFIGS["cchcs"]
+    assert "sellers_permit" not in cchcs["required_forms"], (
+        "sellers_permit must NOT be in CCHCS required_forms"
+    )
+
+
+def test_cchcs_703c_is_optional_alternative_to_703b():
+    """703C is an alternative supplier-info form some CCHCS orgs use.
+    It must be in optional_forms so operators can swap when buyer ships
+    a 703C template."""
+    from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
+    cchcs = DEFAULT_AGENCY_CONFIGS["cchcs"]
+    assert "703c" in cchcs["optional_forms"], (
+        "703c must be in CCHCS optional_forms — buyer-shipped variant"
+    )
+
+
+def test_cchcs_primary_response_form_is_704b():
+    """The 704B is Reytech's actual response form (priced). 703B/C is
+    supplier registration. The primary_response_form drives the
+    'generate quote' flow — must be 704b, not 703b."""
+    from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
+    cchcs = DEFAULT_AGENCY_CONFIGS["cchcs"]
+    assert cchcs["primary_response_form"] == "704b"
