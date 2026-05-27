@@ -2435,6 +2435,27 @@ def lookup_from_url(url: str) -> dict:
             except Exception as _e:
                 log.debug("url→catalog writethrough suppressed: %s", _e)
 
+        # Pillar 3 / G8 (chrome MCP audit 2026-05-27, Architect):
+        # Per-supplier scraper drift telemetry. Records this lookup's
+        # outcome so `scraper_drift_monitor.compute_supplier_health()`
+        # can detect "scraper alive but returning garbage" — the
+        # silent-failure class that left SCPRS dead for 25 days.
+        # Best-effort: never raises into the lookup return path.
+        try:
+            from src.agents.scraper_drift_monitor import record_lookup
+            _has_price = bool(
+                result.get("price")
+                or result.get("list_price")
+                or result.get("sale_price")
+            )
+            record_lookup(
+                result.get("supplier") or supplier or "unknown",
+                ok=bool(result.get("ok")),
+                has_price=_has_price,
+            )
+        except Exception as _e:
+            log.debug("scraper_drift record suppressed: %s", _e)
+
         return result
 
     except Exception as e:
