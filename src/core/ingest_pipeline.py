@@ -1625,25 +1625,34 @@ def _find_active_record_by_thread(
     canonical_agency = (agency or "").strip().lower()
     table = "price_checks" if record_type == "pc" else "rfqs"
     number_col = "pc_number" if record_type == "pc" else "rfq_number"
+    # Per-table sort timestamp: rfqs has NO `created_at` column
+    # (it uses received_at/updated_at). The original implementation
+    # hard-coded `created_at` and silently swallowed the SQLite error
+    # for every RFQ-side ingest since this helper landed — making the
+    # RFQ thread-dedup dead code for ~2 weeks and orphaning every
+    # buyer-reply on an RFQ thread. COALESCE handles both schemas.
+    sort_ts_expr = (
+        "COALESCE(created_at, received_at, '')"
+        if record_type == "pc"
+        else "COALESCE(received_at, updated_at, '')"
+    )
     try:
-        from datetime import timedelta as _td
         from src.core.db import get_db
     except Exception:
         return None
-    cutoff = (datetime.now() - _td(days=lookback_days)).isoformat()
     try:
         with get_db() as conn:
             rows = conn.execute(
                 f"SELECT id, {number_col} AS number, agency, institution, "
-                f"status, created_at, sent_at, closed_at, email_thread_id "
+                f"status, {sort_ts_expr} AS sort_ts, email_thread_id "
                 f"FROM {table} "
-                f"WHERE email_thread_id = ? AND created_at >= ? "
-                f"ORDER BY created_at DESC",
-                (canonical_thread, cutoff),
+                f"WHERE email_thread_id = ? "
+                f"ORDER BY sort_ts DESC",
+                (canonical_thread,),
             ).fetchall()
     except Exception as e:
-        log.debug(
-            "%s dedup lookup skipped (%s): %s",
+        log.warning(
+            "%s dedup lookup failed (%s): %s",
             record_type, canonical_thread[:24], e,
         )
         return None
@@ -1678,6 +1687,84 @@ def _find_active_rfq_by_thread(
     stable key across every reply in a conversation.
     """
     return _find_active_record_by_thread("rfq", thread_id, agency, lookback_days)
+
+
+def _find_active_record_on_thread_any_type(
+    thread_id: str,
+    agency: str = "",
+    lookback_days: int = 90,  # accepted for signature parity; not enforced
+) -> Optional[Dict[str, Any]]:
+    """Cross-table thread match: returns the most-recent active record
+    on this Gmail thread regardless of whether it lives in `rfqs` or
+    `price_checks`.
+
+    Closes the bug class behind the 2026-05-26 Chechi NON-IT orphans:
+    (1) `_find_active_record_by_thread("rfq", ...)` was dead code —
+        it queried `WHERE created_at >= ?` against the `rfqs` table,
+        which has no `created_at` column (rfqs use `received_at` and
+        `updated_at`). Every call raised a SQLite OperationalError
+        that the helper's `except Exception` swallowed → silent None
+        → fallthrough → orphan created. RFQ-side thread dedup was
+        effectively off for every ingest since the helper landed.
+    (2) Even when same-type dedup works, the parent on this thread
+        may live in the OTHER table — a buyer reply that classifies
+        as RFQ-shaped on a PC's thread (or vice versa) was invisible.
+
+    This helper queries BOTH tables in one UNION using each table's
+    actual timestamp columns (`received_at` for rfqs, `created_at` for
+    price_checks), with no created_at cutoff so paranoia-bug class (1)
+    can't recur silently. The `_skip_existing` set is the only state
+    filter — same semantics as the per-type helper.
+
+    Returns the first non-skipped match (newest first), with an extra
+    `record_type` key ("rfq"|"pc") so callers can stamp accurate
+    audit reasons and the right `dedup_of` / `gmail_thread_duplicate_of`.
+    """
+    if not thread_id or not str(thread_id).strip():
+        return None
+    canonical_thread = str(thread_id).strip()
+    canonical_agency = (agency or "").strip().lower()
+    try:
+        from src.core.db import get_db
+    except Exception:
+        return None
+    _skip_existing = {"duplicate", "deleted", "archived"}
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, rfq_number AS number, agency, institution,
+                       status,
+                       COALESCE(received_at, updated_at, '') AS sort_ts,
+                       email_thread_id, 'rfq' AS record_type
+                FROM rfqs
+                WHERE email_thread_id = ?
+                UNION ALL
+                SELECT id, pc_number AS number, agency, institution,
+                       status,
+                       COALESCE(created_at, received_at, '') AS sort_ts,
+                       email_thread_id, 'pc' AS record_type
+                FROM price_checks
+                WHERE email_thread_id = ?
+                ORDER BY sort_ts DESC
+                """,
+                (canonical_thread, canonical_thread),
+            ).fetchall()
+    except Exception as e:
+        log.warning(
+            "cross-table thread dedup lookup failed (%s): %s",
+            canonical_thread[:24], e,
+        )
+        return None
+    for r in rows:
+        existing_agency = (r["agency"] or r["institution"] or "").strip().lower()
+        if canonical_agency and existing_agency and existing_agency != canonical_agency:
+            continue
+        existing_status = (r["status"] or "").strip().lower()
+        if existing_status in _skip_existing:
+            continue
+        return dict(r)
+    return None
 
 
 def _persist_all_attachments(
@@ -2316,6 +2403,47 @@ def _create_record(
                     except Exception as _te:
                         log.debug("pc thread dedup telemetry suppressed: %s", _te)
 
+        # Cross-table fallback. The same-type lookup above can miss for
+        # several reasons (flag off, edge filter, agency-resolution
+        # quirk), and the parent on this thread may live in the OTHER
+        # table entirely. This block is a single-query safety net that
+        # catches BOTH cases — closes the 2026-05-26 Chechi NON-IT
+        # orphan class. Mirrored in the RFQ branch below.
+        if (record.get("status") or "") != "duplicate" and gmail_thread_id:
+            parent_any = _find_active_record_on_thread_any_type(
+                gmail_thread_id,
+                agency=record.get("agency", "") or record.get("institution", ""),
+            )
+            if parent_any:
+                parent_id = parent_any.get("id", "")
+                parent_type = parent_any.get("record_type", "?")
+                parent_status = (parent_any.get("status") or "parsed").strip().lower()
+                _dedup_reason = (
+                    f"auto-dedup [cross-table]: email_thread_id matches "
+                    f"active {parent_type} {parent_id[:12]} "
+                    f"(status={parent_status}) — buyer reply in existing "
+                    f"thread, new pc absorbed"
+                )
+                record["status"] = "duplicate"
+                record["closed_reason"] = _dedup_reason
+                record["closed_at"] = now
+                record["dedup_of"] = parent_id
+                record["gmail_thread_duplicate_of"] = parent_id
+                _hist = record.get("status_history") or []
+                _hist.append({
+                    "from": initial_status,
+                    "to": "duplicate",
+                    "at": now,
+                    "actor": "ingest_pipeline.cross_type",
+                    "reason": _dedup_reason,
+                })
+                record["status_history"] = _hist
+                log.info(
+                    "ingest dedup-at-ingest [pc cross-table]: thread_id=%s "
+                    "collides with %s %s (status=%s) — new pc marked duplicate",
+                    str(gmail_thread_id)[:24], parent_type, parent_id, parent_status,
+                )
+
         from src.api.dashboard import _save_single_pc
         _save_single_pc(record["id"], record)
     else:  # rfq
@@ -2408,6 +2536,49 @@ def _create_record(
                     })
                 except Exception as _te:
                     log.debug("rfq dedup telemetry suppressed: %s", _te)
+
+        # Cross-table fallback. The Chechi NON-IT orphans (2026-05-26)
+        # hit exactly this seam: buyer replied to PC 10846357's thread
+        # with a fillable form attached → classifier marked the reply
+        # RFQ-shaped → same-type dedup queried `rfqs` only and missed
+        # the PC parent → fresh orphan RFQ. This block is a single-query
+        # safety net that finds the parent regardless of which table it
+        # lives in AND catches cases the same-type lookup silently
+        # misses (flag off, edge filter, agency quirk).
+        if (record.get("status") or "") != "duplicate" and gmail_thread_id:
+            parent_any = _find_active_record_on_thread_any_type(
+                gmail_thread_id,
+                agency=record.get("agency", "") or record.get("institution", ""),
+            )
+            if parent_any:
+                parent_id = parent_any.get("id", "")
+                parent_type = parent_any.get("record_type", "?")
+                parent_status = (parent_any.get("status") or "parsed").strip().lower()
+                _dedup_reason = (
+                    f"auto-dedup [cross-table]: email_thread_id matches "
+                    f"active {parent_type} {parent_id[:12]} "
+                    f"(status={parent_status}) — buyer reply in existing "
+                    f"thread, new rfq absorbed"
+                )
+                record["status"] = "duplicate"
+                record["closed_reason"] = _dedup_reason
+                record["closed_at"] = now
+                record["dedup_of"] = parent_id
+                record["gmail_thread_duplicate_of"] = parent_id
+                _hist = record.get("status_history") or []
+                _hist.append({
+                    "from": initial_status,
+                    "to": "duplicate",
+                    "at": now,
+                    "actor": "ingest_pipeline.cross_type",
+                    "reason": _dedup_reason,
+                })
+                record["status_history"] = _hist
+                log.info(
+                    "ingest dedup-at-ingest [rfq cross-table]: thread_id=%s "
+                    "collides with %s %s (status=%s) — new rfq marked duplicate",
+                    str(gmail_thread_id)[:24], parent_type, parent_id, parent_status,
+                )
 
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(record["id"], record)
