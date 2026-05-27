@@ -117,12 +117,10 @@ def test_form_code_in_literal_either_registered_or_explicitly_deferred(code):
     Silent "I added the literal but forgot the renderer" is the gap
     this test closes.
     """
-    KNOWN_DEFERRED = {
-        # CCHCS alternates — port when CCHCS ships them in real bids.
-        "703c", "704c",
-        # Generic CA forms — port from legacy when first needed.
-        "calrecycle_74", "std_204", "std_1000", "dvbe_843", "darfur", "cuf",
-    }
+    # All known FormCode literals were ported through 2026-05-27 batch.
+    # If you add a new FormCode and can't register the renderer yet,
+    # add it here with a comment explaining why.
+    KNOWN_DEFERRED: set = set()
     if code in FORM_REGISTRY:
         return  # registered — OK
     assert code in KNOWN_DEFERRED, (
