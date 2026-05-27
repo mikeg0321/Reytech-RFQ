@@ -1860,7 +1860,13 @@ def _migrate_columns():
         ("rfqs", "form_type", "TEXT DEFAULT ''"),
         # ── Quote number persistence (prevents duplicate allocation) ──
         ("rfqs", "reytech_quote_number", "TEXT DEFAULT ''"),
-        ("rfqs", "shipping_option", "TEXT DEFAULT 'included'"),
+        # Default is empty (= "separate" per QuoteContract semantic, tax applies).
+        # Originally 'included' (commit c50c5c33, Mar 2026), which became
+        # catastrophic when PR #977 made shipping_option=='included' zero
+        # contract.tax_cents — every new RFQ then silently dropped tax in
+        # the PDF. Operators had to flip Ship → FOB Dest manually or eat
+        # the loss. Forward-only fix; existing rows keep their value.
+        ("rfqs", "shipping_option", "TEXT DEFAULT ''"),
         ("rfqs", "shipping_amount", "REAL DEFAULT 0"),
         ("rfqs", "delivery_location", "TEXT DEFAULT ''"),
         # ── Package manifest (items_snapshot added after table existed on Railway) ──

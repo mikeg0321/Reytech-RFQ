@@ -1566,11 +1566,13 @@ def generate_quote(
     if contract is not None:
         try:
             tax = contract.tax_cents / 100.0
-            # Rate label follows the contract; an "included" contract
-            # surfaces "TAX  $0.00" without a percent to signal the
-            # bundled treatment.
+            # Rate label follows the contract. When shipping is bundled
+            # into the vendor price ("included"), the contract zeros tax
+            # (reseller absorbs in the markup). Print "TAX (BUNDLED)" —
+            # NOT bare "TAX" — so the agency sees the deliberate $0
+            # treatment instead of mistaking it for a renderer bug.
             if contract.shipping_option == "included":
-                _tax_label = "TAX"
+                _tax_label = "TAX (BUNDLED)"
             else:
                 _label_rate = contract.tax_rate or rate
                 _tax_label = f"TAX ({_label_rate*100:.2f}%)"
