@@ -55,14 +55,24 @@ def run_all_checks():
         return True, f"DATA_DIR={DATA_DIR} (volume={is_volume})"
     _check("DATA_DIR", check_data_dir)
 
-    # 2. DB exists + critical tables
+    # 2. DB exists + critical tables — VERIFY only, do NOT re-init.
+    # Pre-2026-05-27 this called init_db() defensively, which caused a
+    # second full schema-creation pass at boot (visible in prod log
+    # 04:22:28: `[BOOT:DB] init_db: creating schema...` AFTER
+    # `[BOOT] create_app() complete ✅ (20.8s)`). The actual init_db()
+    # already ran inside create_app() — re-running it here just wastes
+    # ~0.5s and obscures whether the first call really succeeded.
+    # If init_db() failed during boot, the DB file or critical tables
+    # will be missing — both checked below — and the check fails loudly
+    # with the relevant detail. That's the right behavior for a check.
     def check_db():
         db_path = os.path.join(DATA_DIR, "reytech.db")
-        try:
-            from src.core.db import init_db
-            init_db()
-        except Exception as e:
-            return False, f"init_db failed: {e}"
+        if not os.path.exists(db_path):
+            return False, (
+                f"DB file missing at {db_path} — DB initialization "
+                "failed during create_app() boot; check earlier "
+                "[BOOT:DB] logs"
+            )
         conn = sqlite3.connect(db_path, timeout=10)
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         conn.close()
@@ -70,7 +80,10 @@ def run_all_checks():
                      "scprs_po_master", "product_catalog", "audit_trail"]
         missing = [t for t in critical if t not in tables]
         if missing:
-            return False, f"Missing tables: {missing}"
+            return False, (
+                f"Missing tables: {missing} — DB initialization did not complete "
+                "for these. Check create_app() boot logs for the failure."
+            )
         return True, f"{len(tables)} tables, all {len(critical)} critical present"
     _check("DB tables", check_db)
 
