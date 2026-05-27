@@ -62,19 +62,20 @@ class TestCchcsPackageContents:
     CCHCS_REQUIRED = {"703b", "704b", "bidpkg", "quote"}
     INSIDE_BIDPKG = {"dvbe843", "sellers_permit", "calrecycle74", "darfur_act"}
 
-    def test_cchcs_required_forms(self):
-        """CCHCS must require exactly these top-level forms."""
-        # The actual forms vary by agency config, but CCHCS is the strictest
-        try:
-            from src.core.agency_config import load_agency_configs
-            configs = load_agency_configs()
-            cchcs = configs.get("cchcs", {})
-            required = set(cchcs.get("required_forms", []))
-            # At minimum, 703b and 704b should be required
-            assert "703b" in required or "704b" in required, \
-                f"CCHCS missing core forms. Required: {required}"
-        except ImportError:
-            pytest.skip("agency_config not importable")
+    # DELETED 2026-05-27 (Job #1): test_cchcs_required_forms
+    #
+    # This test pinned the CCHCS form set against the legacy
+    # DEFAULT_AGENCY_CONFIGS dict (`load_agency_configs()["cchcs"]`).
+    # That entry was DELETED per §0 LAW 2 (Spine is canonical for
+    # CCHCS). The form contract (703b + 704b + bidpkg + quote) now
+    # lives on the Spine path — see PR #1155 (`src/spine/agency_constants.py`)
+    # and PR #1156 (`AGENCY_CONFIGS["CCHCS"]` bill-to migration), both
+    # of which land on main before PR-B merges.
+    #
+    # The Spine-side equivalent is pinned in
+    # `tests/spine/test_agency_constants.py::test_cchcs_required_forms`.
+    # The remaining tests in this class (dvbe_not_standalone) still
+    # ride the legacy dict and stay valid for other agencies.
 
     def test_dvbe_not_standalone_for_cchcs(self):
         """DVBE 843 should NOT be a standalone required form for CCHCS

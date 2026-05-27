@@ -24,16 +24,20 @@ def _import_agency_config():
 class TestMatchAgency:
     """match_agency() returns (key, config) based on RFQ data."""
 
-    def test_cchcs_by_institution(self):
+    def test_cchcs_by_institution_falls_to_other(self):
+        # Post-§0 Job #1 (2026-05-27): DEFAULT_AGENCY_CONFIGS["cchcs"] DELETED.
+        # CCHCS routes through the Spine — the legacy match_agency() path
+        # no longer resolves CCHCS-class inputs to a CCHCS-named entry.
+        # It falls through to the documented "other" fallback.
         match, _, _, _ = _import_agency_config()
         key, cfg = match({"institution": "California Health Care Facility"})
-        assert key == "cchcs"
-        assert "703b" in cfg["required_forms"] or "703c" in cfg["required_forms"]
+        assert key == "other"
 
-    def test_cdcr_by_agency(self):
+    def test_cdcr_by_agency_falls_to_other(self):
+        # Post-deletion: CDCR no longer routes through legacy cchcs config.
         match, _, _, _ = _import_agency_config()
         key, cfg = match({"agency": "CDCR"})
-        assert key == "cchcs"  # CDCR maps to cchcs config
+        assert key == "other"
 
     def test_calvet_by_email(self):
         match, _, _, _ = _import_agency_config()
@@ -46,12 +50,16 @@ class TestMatchAgency:
         assert key == "calvet_barstow"
         assert "barstow_cuf" in cfg["required_forms"]
 
-    def test_prison_keywords(self):
+    def test_prison_keywords_fall_to_other(self):
+        # Post-deletion: prison-domain keywords no longer resolve to a
+        # CCHCS-named entry via legacy match_agency. "STATE PRISON" is
+        # still a CDCR parent strong-pattern, but with no CCHCS child
+        # config left in DEFAULT_AGENCY_CONFIGS the parent-default
+        # branch falls through to "other".
         match, _, _, _ = _import_agency_config()
-        # These are exact match_patterns from cchcs config (uppercased)
         for keyword in ["CIM", "STATE PRISON", "CORRECTIONAL"]:
             key, cfg = match({"institution": keyword})
-            assert key == "cchcs", f"Failed for keyword: {keyword}"
+            assert key == "other", f"Expected 'other' fallback for keyword {keyword!r}, got {key!r}"
 
     def test_unknown_falls_to_other(self):
         match, _, _, _ = _import_agency_config()
@@ -70,16 +78,22 @@ class TestMatchAgency:
         assert key == "other"
 
     def test_matched_by_field_present(self):
+        # Use a surviving agency (calvet) since CCHCS no longer matches.
+        # Mechanism under test: a successful match copies the cfg and stamps
+        # `matched_by`. The "other" fallback path is bare and does NOT stamp
+        # the field — only pattern/domain/buyer-history matches do.
         match, _, _, _ = _import_agency_config()
-        _, cfg = match({"agency": "CCHCS"})
+        _, cfg = match({"agency": "CALVET"})
         assert "matched_by" in cfg
 
     def test_case_insensitive_matching(self):
+        # Same input in different cases must produce the same key. CCHCS
+        # no longer resolves to a CCHCS-named entry, but both casings still
+        # land on the same "other" fallback — preserving the property.
         match, _, _, _ = _import_agency_config()
         key1, _ = match({"agency": "cchcs"})
         key2, _ = match({"agency": "CCHCS"})
-        # search_text is .upper(), so both should match
-        assert key1 == key2 == "cchcs"
+        assert key1 == key2 == "other"
 
 
 # ── Required Forms ────────────────────────────────────────────────────────────
@@ -94,20 +108,9 @@ class TestRequiredForms:
             assert "required_forms" in cfg, f"Agency '{key}' missing required_forms"
             assert isinstance(cfg["required_forms"], list), f"Agency '{key}' required_forms is not a list"
 
-    def test_cchcs_package_is_minimal(self):
-        """CCHCS = 703B/C + 704B + bid package + quote ONLY.
-        DVBE 843, seller's permit, CalRecycle are INSIDE the bid package."""
-        _, load, _, _ = _import_agency_config()
-        cfg = load()["cchcs"]
-        forms = cfg["required_forms"]
-        # Must have the core forms
-        assert "bidpkg" in forms
-        assert "quote" in forms
-        # 703b or 703c (buyer provides template)
-        assert "703b" in forms or "703c" in forms
-        # These should NOT be standalone — they're inside bidpkg
-        assert "dvbe843" not in forms, "DVBE 843 should be inside bid package, not standalone"
-        assert "sellers_permit" not in forms, "Sellers permit should be inside bid package"
+    # NOTE: test_cchcs_package_is_minimal DELETED per §0 Job #1 acceptance
+    # 2026-05-27. The CCHCS legacy form-list contract moved to the Spine;
+    # this test pinned a now-deleted DEFAULT_AGENCY_CONFIGS["cchcs"] entry.
 
     def test_calvet_has_no_bidpkg(self):
         """CalVet uses individual compliance forms, not a bid package."""
@@ -194,11 +197,16 @@ class TestCdcrDshHierarchy:
     """Two-tier resolver: parent → scoped child. No overlap pattern fires
     without parent context."""
 
-    def test_pvsp_coalinga_cchcs_does_not_match_dsh(self):
+    def test_pvsp_coalinga_does_not_match_dsh(self):
         """THE bug. PVSP in Coalinga, CCHCS buyer at cdcr.ca.gov.
         Pre-fix returned 'dsh' because 'COALINGA' is in DSH's patterns
-        and DSH was prioritized over cchcs in the legacy loop. Now must
-        return 'cchcs' because the cdcr.ca.gov email domain pins parent=CDCR."""
+        and DSH was prioritized over cchcs in the legacy loop.
+
+        Post-§0 Job #1 (2026-05-27): DEFAULT_AGENCY_CONFIGS["cchcs"] is DELETED.
+        The anti-regression invariant the COALINGA-overlap fix delivered
+        STILL HOLDS — a CDCR-domain sender must NOT be mis-routed to DSH.
+        The new fallback is 'other' (legacy substrate no longer routes
+        CCHCS; the Spine does)."""
         match, _, _, _ = _import_agency_config()
         key, cfg = match({
             "agency": "cchcs",
@@ -207,10 +215,11 @@ class TestCdcrDshHierarchy:
             "ship_to": "Pleasant Valley State Prison, 24863 West Jayne Avenue, Coalinga, CA 93210",
             "solicitation_number": "10846357",
         })
-        assert key == "cchcs", (
-            f"Expected cchcs for PVSP/Coalinga CCHCS quote, got {key!r}. "
-            "If this fails again, the COALINGA-as-DSH overlap regressed."
+        assert key != "dsh", (
+            f"PVSP/Coalinga CDCR-domain quote MUST NOT route to DSH; got {key!r}. "
+            "If this fails, the COALINGA-as-DSH overlap regressed."
         )
+        assert key == "other"
 
     def test_bare_coalinga_without_parent_falls_to_other(self):
         """No parent signal + only the ambiguous 'COALINGA' token in text
@@ -247,25 +256,30 @@ class TestCdcrDshHierarchy:
         })
         assert key == "dsh"
 
-    def test_chcf_stockton_cchcs(self):
-        """CHCF Stockton is CCHCS. Stockton isn't a DSH city — no overlap."""
+    def test_chcf_stockton_falls_to_other_not_dsh(self):
+        """CHCF Stockton is a CCHCS facility. Post-§0 Job #1: no legacy
+        CCHCS config, so resolution falls to 'other'. Must NOT mis-route
+        to DSH — the cross-parent invariant is preserved."""
         match, _, _, _ = _import_agency_config()
         key, _ = match({
             "requestor_email": "Marc.Argarin@cdcr.ca.gov",
             "ship_to": "CHCF - California Health Care Facility, 7707 Austin Road, Stockton, CA 95215",
             "solicitation_number": "10843811",
         })
-        assert key == "cchcs"
+        assert key != "dsh"
+        assert key == "other"
 
-    def test_vsp_chowchilla_cchcs(self):
-        """VSP Chowchilla is CCHCS. Chowchilla isn't a DSH city."""
+    def test_vsp_chowchilla_falls_to_other_not_dsh(self):
+        """VSP Chowchilla is a CCHCS facility. Post-§0 Job #1: falls to
+        'other'; must NOT mis-route to DSH."""
         match, _, _, _ = _import_agency_config()
         key, _ = match({
             "requestor_email": "Marc.Argarin@cdcr.ca.gov",
             "ship_to": "VSP - Valley State Prison, 21633 Avenue 24, Chowchilla, CA 93610",
             "solicitation_number": "10847776",
         })
-        assert key == "cchcs"
+        assert key != "dsh"
+        assert key == "other"
 
     def test_parent_registry_shape(self):
         """PARENT_AGENCIES exports the expected parent ids and shapes."""
