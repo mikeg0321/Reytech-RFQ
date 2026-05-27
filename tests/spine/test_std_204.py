@@ -107,7 +107,7 @@ def test_renderer_returns_real_pdf_bytes():
 def test_raises_on_missing_template(monkeypatch):
     import pytest
     from src.spine.agency_forms import fill_std_204_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
 
     monkeypatch.setattr(
         "src.forms.cchcs_attachment_fillers.fill_std204",
@@ -121,7 +121,7 @@ def test_raises_on_non_pdf_output(monkeypatch):
     import io
     import pytest
     from src.spine.agency_forms import fill_std_204_pdf
-    from src.spine.agency_forms.cchcs_703b import SpineFormFillError
+    from src.spine.agency_forms._identity import SpineFormFillError
 
     monkeypatch.setattr(
         "src.forms.cchcs_attachment_fillers.fill_std204",

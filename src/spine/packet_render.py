@@ -22,9 +22,10 @@ CCHCS responsiveness review (the 2026-05-18 "trash" output + Mike's
 21-minute hand-finish). They did not need to exist — the legacy filler
 already filled CCHCS packets correctly. Per
 ``handoff-2026-05-20-legacy-adapter-build`` the fix is this one adapter;
-the Spine renderers are retired at the route layer (the operator-facing
-``/forms/{703b,704b,bidpkg,packet}/pdf`` endpoints all serve the output
-of this adapter — see ``src/api/modules/routes_spine.py``).
+the Spine renderers were DELETED in PR-Job1-D (2026-05-27). The
+operator-facing ``/forms/{703b,704b,bidpkg,packet}/pdf`` endpoints all
+serve the output of this adapter (and its sibling ``forms_render.py``
+for the standalone form set) — see ``src/api/modules/routes_spine.py``.
 
 Dependency boundary
 -------------------

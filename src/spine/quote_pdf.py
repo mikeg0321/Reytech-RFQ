@@ -88,7 +88,7 @@ class SpineRenderMismatchError(SpineValidationError):
 # Reytech identity — values from Mike's existing R26Q39 / R25Q161 quote
 # template. These constants are the source of truth for the Quote PDF
 # letterhead. The 703B/704B/bidpkg renderers use the separate
-# ReytechIdentity dataclass (agency_forms/cchcs_703b.py) because those
+# ReytechIdentity dataclass (agency_forms/_identity.py) because those
 # forms feed AcroForm fields with their own field-naming conventions.
 # Splitting them here keeps Quote PDF letterhead changes from rippling
 # into agency-form fillers (and vice versa).

@@ -198,11 +198,6 @@ lives).
 
 Each adapter delegates to exactly one legacy module:
 
-- **`cchcs_703c.py`** → `src.forms.reytech_filler_v4` (`fill_703c`,
-  `load_config`, `get_pst_date`). Standalone 703C cover sheet for
-  CCHCS bids that arrive with a buyer-supplied 703C template.
-- **`cchcs_704c.py`** → `src.forms.reytech_filler_v4` (`fill_704b`,
-  `load_config`, `get_pst_date`). 704C line-item table.
 - **`calrecycle_74.py`** → `src.forms.cchcs_attachment_fillers`
   (`fill_calrecycle_74`). CalRecycle postconsumer-content certification.
 - **`cuf.py`** → `src.forms.cchcs_attachment_fillers` (`fill_cuf`).
@@ -216,11 +211,21 @@ Each adapter delegates to exactly one legacy module:
 - **`std_204.py`** → `src.forms.cchcs_attachment_fillers`
   (`fill_std204`). STD-204 payee data record.
 
-These eight adapters share the boundary justification of
+These six adapters share the boundary justification of
 `forms_render.py` and `packet_render.py`: re-implementing a verified
 legacy filler to satisfy import purity would force the Spine to depend
 on a *worse, unverified* renderer instead of the audited one. The
 boundary is sanctioned, not reluctantly tolerated.
+
+The CCHCS-specific renderers (`cchcs_{703b,703c,704b,704c,bidpkg}.py`)
+that previously appeared in this list were DELETED in PR-Job1-D
+(2026-05-27, §0 Job #1 deletion gate). Their per-form FORM_REGISTRY
+entry points (`render_703b_pdf` / `render_703c_pdf` / `render_704b_pdf`
+/ `render_704c_pdf` / `render_bidpkg_pdf`) now live inside
+`src/spine/forms_render.py`: same delegation pattern (703B/704B/bidpkg
+through `render_cchcs_forms_via_legacy`; 703C/704C through the
+`_template_resolver` + direct legacy filler call), single home, one
+whitelisted boundary entry.
 
 **Containment.** Every entry above is whitelisted **per file** in
 `_FILE_SCOPED_LEGACY_IMPORTS` in
@@ -232,10 +237,11 @@ that keeps this boundary precise. Extending the list requires
 Architect approval per CLAUDE.md §0 LAW 4.
 
 The Job #1 acceptance criterion that calls for retired-renderer
-deletion (CLAUDE.md §0) is **not** in tension with this section: the
-files retired in 2026-05-20 were from-scratch fillers; the files
-currently on disk are adapters. Job #1 still deletes any
-`agency_forms/` files that are not on the whitelist above.
+deletion (CLAUDE.md §0) is closed by PR-Job1-D (2026-05-27): the
+five CCHCS-specific files (`cchcs_{703b,703c,704b,704c,bidpkg}.py`)
+were DELETED, their per-form FORM_REGISTRY entry points folded into
+`forms_render.py`. The six survivors above are universal state-form
+adapters that no Job #1-class acceptance criterion targeted.
 
 ### CCHCS HTTP entry point — `routes_spine.py` (arch-test covered)
 
@@ -324,16 +330,16 @@ Why it exists: the two shared types historically lived inside
 PR-Job1-D's plan to DELETE the five CCHCS-specific renderers
 (`cchcs_703{b,c}.py`, `cchcs_704{b,c}.py`, `cchcs_bidpkg.py`) would have
 broken every non-CCHCS importer. Moving the types to a neutral module
-FIRST (this PR) lets PR-D delete the CCHCS renderers cleanly.
+FIRST (PR-Job1-D-prep) let PR-Job1-D delete the CCHCS renderers cleanly.
 
 Like `agency_constants.py`, `_identity.py` is NOT an adapter — it has
 **zero** legacy imports (verified by `test_no_legacy_imports`) — so it
 does NOT appear in `_FILE_SCOPED_LEGACY_IMPORTS`. Pure type definitions,
 no I/O, no PDF logic.
 
-`cchcs_703b.py` retains a short-lived backwards-compat re-export
-(`from ._identity import ReytechIdentity, SpineFormFillError`) so any
-straggler import keeps working until PR-D deletes the file outright.
+PR-Job1-D shipped 2026-05-27 and deleted the five CCHCS-specific
+renderer files outright; every importer now reads `ReytechIdentity` /
+`SpineFormFillError` from `_identity.py` directly.
 
 ---
 
