@@ -39,6 +39,7 @@ from src.spine import (
     SUPPORTED_UOM,
     contract_vs_quote,
     find_contract_for_quote,
+    find_links_from,
     init_db,
     iter_quote_ids,
     iter_snapshots,
@@ -1564,6 +1565,127 @@ def make_spine_blueprint(
             "oracle_version": "fixture-v1",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "lines": [suggestion_to_dict(s) for s in suggestions],
+        })
+
+    # ─── POST /spine/quotes/<quote_id>/carry-forward-prices ──────────
+    #
+    # Operator-triggered auto-pricer. Takes validated costs from the
+    # linked PC (highest-confidence quote-link) and carries them onto
+    # the current quote's unpriced lines, matched on normalized MFG#.
+    #
+    # Same pure function the shadow-ingest path uses (auto_pricer.
+    # carry_forward_costs); this just exposes it as an operator action
+    # so the linked-but-not-yet-priced state can be resolved in one
+    # click instead of requiring re-ingest.
+    #
+    # Why this exists (chrome MCP audit 2026-05-26): the next-window
+    # priority queue named this as the highest-leverage step to shorten
+    # per-ship time for the 3 overdue Job #1 RFQs. Each ship saves the
+    # operator from re-typing costs that already live on the prior PC.
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/carry-forward-prices",
+        methods=["POST"],
+    )
+    @_wrap
+    def carry_forward_prices(quote_id: str):
+        from src.spine.auto_pricer import carry_forward_costs
+
+        # Load the target quote (RFQ being edited).
+        try:
+            target = read_quote(db_path, quote_id)
+        except Exception as e:
+            return jsonify({"ok": False, "error": "load_failed",
+                            "detail": str(e)}), 500
+        if target is None:
+            return jsonify({"ok": False, "error": "not_found",
+                            "quote_id": quote_id}), 404
+
+        # Resolve the source PC. Body may pass an explicit override
+        # (`from_pc_id`); otherwise take the highest-confidence link.
+        body = request.get_json(silent=True) or {}
+        from_pc_id = (body.get("from_pc_id") or "").strip()
+
+        if not from_pc_id:
+            try:
+                links = find_links_from(db_path, quote_id)
+            except Exception as e:
+                return jsonify({"ok": False, "error": "link_lookup_failed",
+                                "detail": str(e)}), 500
+            if not links:
+                return jsonify({
+                    "ok": False,
+                    "error": "no_linked_pc",
+                    "quote_id": quote_id,
+                    "hint": "No prior PC is linked to this quote — "
+                            "carry-forward needs a source.",
+                }), 409
+            from_pc_id = links[0]["to_quote_id"]
+
+        if from_pc_id == quote_id:
+            return jsonify({"ok": False, "error": "self_link",
+                            "quote_id": quote_id}), 400
+
+        try:
+            source = read_quote(db_path, from_pc_id)
+        except Exception as e:
+            return jsonify({"ok": False, "error": "source_load_failed",
+                            "from_pc_id": from_pc_id,
+                            "detail": str(e)}), 500
+        if source is None:
+            return jsonify({"ok": False, "error": "source_not_found",
+                            "from_pc_id": from_pc_id}), 404
+
+        # Compute the carry. carry_forward_costs is pure — same inputs
+        # always produce the same (quote, summary). It only carries on
+        # exact MFG# match AND when target line cost_cents == 0.
+        try:
+            new_target, summary = carry_forward_costs(target, source)
+        except Exception as e:
+            return jsonify({"ok": False, "error": "carry_failed",
+                            "detail": str(e)}), 500
+
+        # If nothing was carried, no point writing — return the
+        # summary so the UI can show "0 lines carried" without
+        # incrementing the event log noise.
+        if not summary.get("carried"):
+            return jsonify({
+                "ok": True,
+                "quote_id": quote_id,
+                "source_quote_id": from_pc_id,
+                "wrote": False,
+                "summary": summary,
+            })
+
+        # Persist via the single canonical writer (write_quote enforces
+        # one-writer invariant per §0 LAW 1 + test_one_writer.py).
+        try:
+            persisted = write_quote(
+                db_path,
+                new_target,
+                actor="operator:auto_pricer_button",
+                note=(
+                    f"carry_forward_costs from {from_pc_id}: "
+                    f"carried={len(summary.get('carried', []))} "
+                    f"skipped_already_priced="
+                    f"{len(summary.get('skipped_already_priced', []))} "
+                    f"skipped_no_match="
+                    f"{len(summary.get('skipped_no_match', []))}"
+                ),
+            )
+        except Exception as e:
+            return jsonify({"ok": False, "error": "write_failed",
+                            "detail": str(e)}), 500
+
+        return jsonify({
+            "ok": True,
+            "quote_id": quote_id,
+            "source_quote_id": from_pc_id,
+            "wrote": True,
+            "updated_at": persisted.updated_at.isoformat()
+                          if hasattr(persisted.updated_at, "isoformat")
+                          else str(persisted.updated_at),
+            "summary": summary,
         })
 
     # ─── GET /spine/quotes/<quote_id>/snapshot/<sid>/pdf ──────────────

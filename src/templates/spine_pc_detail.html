@@ -355,6 +355,16 @@
         💾 Save
       </button>
 
+      {# Auto-pricer button — carries validated costs from the linked PC #}
+      {# (highest-confidence quote-link) onto unpriced lines on exact MFG# #}
+      {# match. Only enabled while the quote is editable. #}
+      {% if quote.status in ("parsed", "priced") %}
+        <button type="button" id="spine-carry-prices-btn"
+                title="Carry validated costs from the linked PC onto any unpriced lines (exact MFG# match only). No-op if the lines are already priced.">
+          ⚡ Carry Prices from PC
+        </button>
+      {% endif %}
+
       {% if quote.status == "finalized" %}
         <button type="button" class="snapshot-btn" id="spine-snapshot-btn">
           📌 Snapshot &amp; Lock
@@ -934,6 +944,75 @@
         }
       } catch (e) {
         showResult('err', 'Network error: ' + e.message);
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // Carry Prices button — POSTs /carry-forward-prices which calls the
+  // pure auto_pricer.carry_forward_costs on the target quote +
+  // highest-confidence linked PC. Returns a summary; reload on success
+  // so the row-by-row cost fields reflect the new state.
+  const carryBtn = document.getElementById('spine-carry-prices-btn');
+  if (carryBtn) {
+    carryBtn.addEventListener('click', async function(){
+      const btn = this;
+      btn.disabled = true;
+      showResult('ok', 'Looking up linked PC and carrying validated costs…');
+      try {
+        const resp = await fetch(
+          '/spine/quotes/' + encodeURIComponent(quoteId) + '/carry-forward-prices',
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          }
+        );
+        const text = await resp.text();
+        let parsed;
+        try { parsed = JSON.parse(text); } catch (e) { parsed = { raw: text }; }
+
+        if (resp.status === 200 && parsed.ok) {
+          const s = parsed.summary || {};
+          const carried = (s.carried || []).length;
+          const alreadyPriced = (s.skipped_already_priced || []).length;
+          const noMatch = (s.skipped_no_match || []).length;
+          const noMfg = (s.skipped_no_mfg || []).length;
+          const deltas = (s.deltas || []).length;
+
+          if (!parsed.wrote) {
+            showResult('ok',
+              '0 lines carried (nothing to do — all lines either ' +
+              'already priced or no MFG# match on the linked PC). ' +
+              'source=' + parsed.source_quote_id);
+            btn.disabled = false;
+            return;
+          }
+
+          let msg = '✓ Carried ' + carried + ' line(s) from ' +
+                    parsed.source_quote_id + '. ';
+          if (alreadyPriced) msg += alreadyPriced + ' already priced. ';
+          if (noMatch) msg += noMatch + ' no SCPRS/MFG match. ';
+          if (noMfg) msg += noMfg + ' no MFG# on line. ';
+          if (deltas) msg += deltas + ' price delta(s) flagged. ';
+          msg += 'Reloading…';
+          showResult('ok', msg);
+          setTimeout(function(){ window.location.reload(); }, 600);
+        } else if (resp.status === 409 && parsed.error === 'no_linked_pc') {
+          showResult('err',
+            'No linked PC. Carry-forward needs a prior PC to source ' +
+            'costs from. Use the auto-linker or operator-link first.');
+          btn.disabled = false;
+        } else {
+          showResult('err',
+            'Carry-forward failed: HTTP ' + resp.status + ' — ' +
+            (parsed.error || 'unknown') + '\n\n' +
+            (parsed.detail || JSON.stringify(parsed, null, 2)));
+          btn.disabled = false;
+        }
+      } catch (e) {
+        showResult('err', 'Network error during carry-forward: ' + e.message);
         btn.disabled = false;
       }
     });
