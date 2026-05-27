@@ -18,7 +18,6 @@ Usage:
 import sys
 import os
 import json
-import sqlite3
 import logging
 import argparse
 import time
@@ -81,10 +80,23 @@ def is_relevant_item(description: str, reytech_won: bool = False) -> bool:
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH, timeout=30); conn.execute("PRAGMA busy_timeout=5000")
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    """Open a connection to reytech.db using the canonical pragma policy.
+
+    Delegates to src.core.db._make_connection — single source of truth for
+    timeout/WAL/synchronous/foreign_keys/busy_timeout. Prior to 2026-05-27
+    this opened a connection directly with busy_timeout=5000ms, six times
+    shorter than src.core.db's 30000ms. The intel rebuild — the longest
+    write transaction in the system (45-60s across 5 tables, 38k+ rows) —
+    ran with the shortest lock-wait of any writer, so competing writers
+    (upsert_quote, record_price, workflow_runs, PDF metadata stamp) tripped
+    'database is locked' even with WAL + 3-attempt retry. See PR #1138's
+    intel_freshness_gate for the upstream half of the substrate fix; this
+    closes the downstream half by making the rebuild's lock-wait match
+    everyone else's. Follow-up sprint: ~60 other sqlite3.connect call
+    sites across src/ and scripts/ still need the same delegation.
+    """
+    from src.core.db import _make_connection
+    return _make_connection()
 
 
 # ── Step 1: Pull new data (optional) ────────────────────────────────────────
