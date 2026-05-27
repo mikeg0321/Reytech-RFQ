@@ -26,8 +26,10 @@ from typing import Any, Dict, Iterable, Optional
 
 log = logging.getLogger("reytech.cchcs_detector")
 
-# Tag value for the packet_type field — referenced by the route
-# (routes_cchcs_packet.py) and the matcher when scoping searches.
+# Tag value for the packet_type field — referenced by the matcher when
+# scoping searches. (The legacy routes_cchcs_packet.py route was DELETED
+# 2026-05-27 per §0 Job #1; Spine canonical packet route is
+# /spine/quotes/<id>/forms/packet/pdf.)
 PACKET_TYPE_CCHCS = "cchcs_non_it"
 
 

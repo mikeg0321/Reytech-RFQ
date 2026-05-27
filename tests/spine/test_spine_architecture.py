@@ -161,6 +161,48 @@ def _is_legacy_import(module: str) -> bool:
     return False
 
 
+def _collect_legacy_import_offenders(
+    files: list[Path],
+    whitelist_by_filename: dict[str, set[str]] | dict[str, frozenset[str]],
+    is_legacy: "callable[[str], bool]" = _is_legacy_import,
+) -> list[tuple[str, int, str]]:
+    """Walk `files` with the AST and return any non-whitelisted legacy imports.
+
+    Shared by `test_no_legacy_imports` (Spine files — `is_legacy` defaults
+    to "anything under src.* outside src.spine.*") and
+    `test_cchcs_routes_no_legacy_imports` (CCHCS HTTP entry point — passes
+    a stricter check covering only `src.core.*` and `src.forms.*`, the
+    two seams Job #1 acceptance names). Same per-file + per-module
+    precision in both — whitelist is keyed by basename and module name
+    is matched exact (no prefix-tolerance).
+    """
+    offenders: list[tuple[str, int, str]] = []
+    for fp in files:
+        try:
+            tree = ast.parse(_read(fp))
+        except SyntaxError as e:
+            pytest.fail(f"{fp}: SyntaxError: {e}")
+
+        allowed = whitelist_by_filename.get(fp.name, frozenset())
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if is_legacy(alias.name) and alias.name not in allowed:
+                        offenders.append((str(fp), node.lineno, f"import {alias.name}"))
+            elif isinstance(node, ast.ImportFrom):
+                if (
+                    node.module
+                    and is_legacy(node.module)
+                    and node.module not in allowed
+                ):
+                    names = ", ".join(a.name for a in node.names)
+                    offenders.append(
+                        (str(fp), node.lineno, f"from {node.module} import {names}")
+                    )
+    return offenders
+
+
 def test_no_legacy_imports():
     """Spine files must not import from legacy modules.
 
@@ -169,30 +211,9 @@ def test_no_legacy_imports():
     src.forms.reytech_filler_v4 would re-couple the substrates and
     defeat the carve-out.
     """
-    offenders: list[tuple[str, int, str]] = []
-    for fp in _spine_py_files():
-        try:
-            tree = ast.parse(_read(fp))
-        except SyntaxError as e:
-            pytest.fail(f"{fp.relative_to(SPINE_DIR.parent.parent)}: SyntaxError: {e}")
-
-        allowed = _FILE_SCOPED_LEGACY_IMPORTS.get(fp.name, frozenset())
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if _is_legacy_import(alias.name) and alias.name not in allowed:
-                        offenders.append((str(fp), node.lineno, f"import {alias.name}"))
-            elif isinstance(node, ast.ImportFrom):
-                if (
-                    node.module
-                    and _is_legacy_import(node.module)
-                    and node.module not in allowed
-                ):
-                    names = ", ".join(a.name for a in node.names)
-                    offenders.append(
-                        (str(fp), node.lineno, f"from {node.module} import {names}")
-                    )
+    offenders = _collect_legacy_import_offenders(
+        _spine_py_files(), _FILE_SCOPED_LEGACY_IMPORTS
+    )
 
     if offenders:
         msg = "\n".join(f"  {f}:{ln}: {what}" for f, ln, what in offenders)
@@ -553,4 +574,92 @@ def test_convergence_baseline_not_silently_raised():
         assert baseline[key] <= cap, (
             f"convergence_baseline.json[{key}] = {baseline[key]} exceeds the "
             f"2026-05-21 ceiling of {cap}. The baseline only ratchets DOWN."
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 7. CCHCS routes (Spine HTTP entry point) — zero legacy imports.
+# ──────────────────────────────────────────────────────────────────────
+#
+# CLAUDE.md §0 Job #1 acceptance (2026-05-27): "0 imports from src/core/
+# in the CCHCS quote path." `test_no_legacy_imports` covers src/spine/
+# proper; the HTTP entry point lives one level out, in
+# src/api/modules/routes_spine.py. This test extends the same precision
+# to that file so any new src.core.* / src.forms.* import in the Spine
+# HTTP layer fails the build.
+#
+# Scope note: routes_spine.py is the Flask wiring layer, NOT a Spine
+# internal module — it legitimately imports `src.api.shared` (the
+# blueprint + auth decorator) and `src.spine_bridge` (the bridge layer
+# that maps legacy rows into Spine state). The Spine purity rule
+# (`test_no_legacy_imports`) intentionally does NOT apply here. What
+# Job #1 acceptance bans is specifically `src.core.*` and `src.forms.*`
+# imports — the two legacy substrate seams.
+
+_CCHCS_ROUTE_FILES: tuple[Path, ...] = (
+    Path(__file__).resolve().parents[2] / "src" / "api" / "modules" / "routes_spine.py",
+)
+
+# Per-FILE sanctioned legacy imports for CCHCS route files. Same shape
+# as `_FILE_SCOPED_LEGACY_IMPORTS` (Spine) — keyed by basename, value is
+# the exact set of module names allowed in that file.
+#
+# routes_spine.py imports `src.core.paths.DATA_DIR` (function-scoped at
+# the SPINE_DB_PATH fallback) — this was already in production before
+# Job #1 began and is the wiring layer's path constant, not a Spine
+# correctness dependency. Documented in SPINE_CHARTER.md "Sanctioned
+# Boundary".
+_ROUTE_FILE_SCOPED_LEGACY_IMPORTS: dict[str, frozenset[str]] = {
+    "routes_spine.py": frozenset({"src.core.paths"}),
+}
+
+# Legacy-substrate prefixes Job #1 names as forbidden in the CCHCS quote
+# path. Stricter than `_is_legacy_import` (which flags everything under
+# src.* outside src.spine.*) because route files live in src.api and
+# legitimately depend on src.api.shared / src.spine_bridge wiring.
+_CCHCS_LEGACY_PREFIXES = ("src.core.", "src.forms.")
+
+
+def _is_cchcs_legacy_import(module: str) -> bool:
+    """True if `module` is a Job-#1-forbidden legacy substrate import.
+
+    Exact match on a legacy root (e.g. `src.core`) or any submodule of
+    one (e.g. `src.core.tax_resolver`). Hyphenated stdlib / pydantic
+    / third-party imports never match.
+    """
+    if module is None:
+        return False
+    return module in ("src.core", "src.forms") or module.startswith(_CCHCS_LEGACY_PREFIXES)
+
+
+def test_cchcs_routes_no_legacy_imports():
+    """CCHCS route files must not import from legacy substrate modules.
+
+    The Spine HTTP entry point is part of the "CCHCS quote path" named
+    in §0 Job #1 acceptance. Any new src.core.* or src.forms.* import
+    here re-couples the Spine HTTP layer to legacy and must be either:
+      (a) removed (preferred — move the dependency into src.spine_bridge
+          or a Spine helper), or
+      (b) explicitly sanctioned in `_ROUTE_FILE_SCOPED_LEGACY_IMPORTS`
+          AND documented in `src/spine/SPINE_CHARTER.md`.
+
+    The whitelist is per-basename + per-module exact match — same
+    precision as `test_no_legacy_imports`.
+    """
+    offenders = _collect_legacy_import_offenders(
+        list(_CCHCS_ROUTE_FILES),
+        _ROUTE_FILE_SCOPED_LEGACY_IMPORTS,
+        is_legacy=_is_cchcs_legacy_import,
+    )
+
+    if offenders:
+        msg = "\n".join(f"  {f}:{ln}: {what}" for f, ln, what in offenders)
+        pytest.fail(
+            "CCHCS route files must not import legacy substrate modules "
+            "(src.core.* / src.forms.*). Offenders:\n"
+            + msg
+            + "\n\nIf this import is genuinely necessary, add it to "
+            "_ROUTE_FILE_SCOPED_LEGACY_IMPORTS in "
+            "tests/spine/test_spine_architecture.py AND document the "
+            "dependency in src/spine/SPINE_CHARTER.md."
         )

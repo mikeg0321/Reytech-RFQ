@@ -237,6 +237,74 @@ files retired in 2026-05-20 were from-scratch fillers; the files
 currently on disk are adapters. Job #1 still deletes any
 `agency_forms/` files that are not on the whitelist above.
 
+### CCHCS HTTP entry point — `routes_spine.py` (arch-test covered)
+
+> Added 2026-05-27 (Job #1 PR-Job1-E). Architect approval recorded in
+> the ticket itself.
+
+The CCHCS HTTP layer (`src/api/modules/routes_spine.py`) lives outside
+`src/spine/` — it is the Flask wiring that registers the Spine's
+routes — but it IS named in the CLAUDE.md §0 Job #1 acceptance ("0
+imports from `src/core/` in the CCHCS quote path"). To make that
+acceptance a forcing function rather than a checklist item,
+`test_cchcs_routes_no_legacy_imports` (in
+`tests/spine/test_spine_architecture.py`) extends the same arch-test
+precision to that file.
+
+Scope of the wiring-layer test (stricter / narrower than the Spine's
+own `test_no_legacy_imports`):
+
+- **Forbidden:** any `src.core.*` or `src.forms.*` import — the two
+  legacy substrate roots Job #1 names.
+- **Allowed without ceremony:** `src.api.shared` (the shared blueprint
+  + auth decorator), `src.spine_bridge` (the legacy→Spine state
+  bridge), `src.spine.*` (the Spine itself), and stdlib / pydantic /
+  third-party.
+
+One sanctioned legacy import is currently whitelisted in
+`_ROUTE_FILE_SCOPED_LEGACY_IMPORTS`:
+
+- **`routes_spine.py`** → `src.core.paths` (`DATA_DIR` only, used as
+  the function-scoped fallback for `SPINE_DB_PATH` when the env var is
+  unset). This import predates Job #1 and is a path constant, not a
+  Spine correctness dependency. The existing in-line comment at the
+  callsite already documents this as "the wiring layer, not src/spine/".
+
+Adding a new `src.core.*` or `src.forms.*` import to `routes_spine.py`
+fails the build. The remedy is to push the dependency down into
+`src.spine_bridge` or a Spine helper — same delete-before-add
+discipline that governs every other Spine seam.
+
+### Spine-native agency constants — `agency_constants.py`
+
+> Added 2026-05-27 (Job #1 prerequisite, ticket PR-Job1-A0). Architect
+> approval recorded in the PR introducing the module per §0 LAW 4.
+
+`src/spine/agency_constants.py` holds the canonical agency-level
+constants the Spine ingest needs to satisfy §0 LAW 6 ("the
+EmailContract carries every answer at ingest") WITHOUT importing from
+the legacy substrate. It is NOT an adapter — it has **zero** legacy
+imports — so it does NOT appear in `_FILE_SCOPED_LEGACY_IMPORTS`.
+
+Why it exists: `src/spine_bridge/ingest.py::_resolve_canonical_bill_to`
+used to read CCHCS bill-to from `src.forms.quote_generator.AGENCY_CONFIGS`.
+Job #1 plans to DELETE `AGENCY_CONFIGS["CCHCS"]`; doing that without
+first promoting the canonical values to a Spine-native module would
+silently strip `bill_to_*` from every new CCHCS EmailContract — a LAW 6
+violation. Promoting the constants FIRST (this module) keeps LAW 6
+intact across the deletion.
+
+Scope (LAW 1 / LAW 4 discipline): this module carries ONLY the
+constants the Spine ingest needs. It is NOT a generic "agency
+registry" / "config substrate" / fourth substrate — those would
+require Architect AND Closer sign-off (LAW 4). Today it carries the
+CCHCS canonical bill-to; CDCR / CalVet / DSH / DGS continue to read
+from the legacy table until their own migration tickets follow the
+same pattern.
+
+Pinning: `tests/spine/test_agency_constants.py` pins the byte-for-byte
+values and the frozen-dataclass shape so future drift breaks loudly.
+
 ---
 
 ## Cannibalization Roadmap

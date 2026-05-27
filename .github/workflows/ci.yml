@@ -220,7 +220,6 @@ jobs:
             tests/test_utilization.py \
             tests/test_railway_deploy_watcher.py \
             tests/test_cchcs_packet_filler.py::TestAttachmentSplicing \
-            tests/test_cchcs_packet_route.py \
             tests/test_facility_registry.py \
             tests/test_tax_resolver.py \
             tests/test_quote_generator_facility_resolve.py \

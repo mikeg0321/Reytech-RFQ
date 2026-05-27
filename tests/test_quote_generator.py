@@ -86,10 +86,18 @@ class TestAgencyDetection:
 
 class TestAgencyConfigs:
 
-    def test_cchcs_no_bill_to_no_permit(self):
-        cfg = AGENCY_CONFIGS["CCHCS"]
-        assert cfg["show_bill_to"] is True
-        assert cfg["show_permit"] is True
+    def test_cchcs_not_in_agency_configs(self):
+        """PR-Job1-A (2026-05-27): The CCHCS entry was DELETED from
+        AGENCY_CONFIGS per §0 LAW 2. CCHCS canonical bill-to now lives
+        in `src/spine/agency_constants.py` (promoted by PR-Job1-A0,
+        commit 1ccf9c22). This test pins the deletion — any future
+        re-add of an `AGENCY_CONFIGS["CCHCS"]` entry must explicitly
+        delete this test, surfacing the LAW 2 regression at PR review.
+        """
+        assert "CCHCS" not in AGENCY_CONFIGS, (
+            "AGENCY_CONFIGS['CCHCS'] must remain deleted — Spine is the "
+            "canonical CCHCS quote path. See src/spine/agency_constants.py."
+        )
 
     def test_cdcr_has_bill_to_and_permit(self):
         cfg = AGENCY_CONFIGS["CDCR"]

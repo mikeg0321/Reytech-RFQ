@@ -316,12 +316,23 @@ def _sanitize_for_cid(s: str) -> str:
 
 def _resolve_canonical_bill_to(agency: str | None) -> tuple[str | None, str | None, str | None]:
     """Return (bill_to_name, bill_to_email, bill_to_address) for a
-    canonical agency code by looking up the legacy AGENCY_CONFIGS.
+    canonical agency code.
 
-    Legacy stores bill_to_name + bill_to_lines (4-5 strings: street(s),
-    city/state/zip, sometimes an email as the last line). We pop the
-    last line if it's email-shaped, then "\\n"-join the rest as the
-    single bill_to_address string the Spine model holds.
+    CCHCS reads from the Spine-native `src.spine.agency_constants`
+    module (Architect-approved per §0 LAW 4, ticket PR-Job1-A0, 2026-05-27).
+    This is the Job #1 prerequisite: Job #1's deletion of
+    `AGENCY_CONFIGS["CCHCS"]` would silently strip bill_to_* from every
+    new CCHCS EmailContract if the Spine still depended on the legacy
+    entry. The Spine now owns the CCHCS bill-to answer.
+
+    Other agencies (CDCR, CalVet, DSH, DGS) continue to read from the
+    legacy AGENCY_CONFIGS table — they are OUT OF SCOPE for Job #1 and
+    will migrate to Spine-native constants under their own tickets.
+
+    Legacy AGENCY_CONFIGS stores bill_to_name + bill_to_lines (4-5
+    strings: street(s), city/state/zip, sometimes an email as the last
+    line). We pop the last line if it's email-shaped, then "\\n"-join
+    the rest as the single bill_to_address string the Spine model holds.
 
     §0 LAW 6: this MUST run AT INGEST so the EmailContract carries the
     answer the renderer needs — no incremental render-time lookup. The
@@ -330,12 +341,17 @@ def _resolve_canonical_bill_to(agency: str | None) -> tuple[str | None, str | No
     quote.facility, which is the bug this resolver closes (caught by
     Mike on Duffey rfq_89bb9a3e PDF on 2026-05-26).
 
-    Returns (None, None, None) when the agency isn't in AGENCY_CONFIGS
-    so the caller can fall back to raw-dict values without breaking
-    ingest for non-CCHCS agencies that aren't migrated yet.
+    Returns (None, None, None) when the agency is unknown so the caller
+    can fall back to raw-dict values without breaking ingest for
+    non-migrated agencies.
     """
     if not agency:
         return None, None, None
+    if agency == "CCHCS":
+        from src.spine.agency_constants import cchcs_bill_to_tuple
+        name, email, address_lines = cchcs_bill_to_tuple()
+        address = "\n".join(address_lines) or None
+        return name, email, address
     try:
         from src.forms.quote_generator import AGENCY_CONFIGS
     except Exception:
