@@ -6038,7 +6038,6 @@ _ROUTE_MODULES = [
     "routes_v1",              # MCP-ready /api/v1/ endpoints for external AI agents
     "routes_search",          # Universal search across all record types
     "routes_intelligence",    # Intelligence layer: documents, NL query, compliance matrix
-    "routes_cchcs_packet",    # CCHCS Non-IT RFQ Packet generation (Phase 4 — fills 18-page packet end to end)
     "routes_feature_flags",   # P0 resilience Item C: runtime flag admin endpoints
     "routes_health",          # Quoting Health Dashboard: /health/quoting + /api/health/quoting
     "routes_observed_sends",  # PR-G2 (item 23): admin endpoints for observed-send detector / store
