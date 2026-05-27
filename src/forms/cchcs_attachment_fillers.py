@@ -625,6 +625,112 @@ def fill_std204(
     )
 
 
+def fill_std_1000(
+    reytech_info: Dict[str, Any],
+    parsed: Dict[str, Any],
+) -> Optional[io.BytesIO]:
+    """Fill CA STD 1000 GenAI Disclosure Form.
+
+    Reytech does not use GenAI in the products supplied — tick "No"
+    on the GenAI-usage question, fill identity fields + sol#,
+    skip the GenAI-specific blocks per the form's "If No, skip to
+    Signature section" instruction.
+
+    Spine-side wrapper at src/spine/agency_forms/std_1000.py.
+    """
+    path = _template_path("std1000_blank.pdf")
+    if not path:
+        return None
+    sol = _sol_number(parsed)
+    firm = reytech_info.get("company_name", "Reytech Inc.")
+    phone = reytech_info.get("phone", "")
+    street = reytech_info.get("street", "")
+    city = reytech_info.get("city", "")
+    state = reytech_info.get("state", "CA")
+    zip_code = reytech_info.get("zip", "")
+    today = _today_mmddyyyy()
+
+    text_updates = {
+        "Business Name": firm,
+        "Business Telephone Number": phone,
+        "Business Address": street,
+        "City": city,
+        "State": state,
+        "Zip Code": zip_code,
+        "Date": today,
+        "Solicitation  Contract Number": sol,
+        "Contract / Description of Purchase":
+            reytech_info.get("description_of_goods",
+                             "Medical/Office supplies"),
+    }
+    # Tick "No" — the form's "If No, skip to Signature" instruction
+    # means we leave items 1-6 blank.
+    checkbox_updates = {
+        "No If no skip to Signature section of this form": True,
+    }
+    return _fill_and_serialize(
+        path,
+        text_updates,
+        checkbox_updates,
+        signature_targets=("Signature",),
+    )
+
+
+def fill_cuf(
+    reytech_info: Dict[str, Any],
+    parsed: Dict[str, Any],
+) -> Optional[io.BytesIO]:
+    """Fill CV 012 Commercially Useful Function (CUF) form.
+
+    Reytech is a DVBE-certified supplier of goods; for the 6 CUF
+    questions the answer is "Yes" — we perform the function ourselves
+    (purchase inventory, manage logistics, deliver). Radio button
+    indices `/1` map to "Yes" per the form's NameTree (Adobe XFA
+    convention used by CV 012). 0 = unselected, 1 = first option (Yes).
+
+    Spine-side wrapper at src/spine/agency_forms/cuf.py.
+    """
+    path = _template_path("cv012_cuf_blank.pdf")
+    if not path:
+        return None
+    sol = _sol_number(parsed)
+    firm = reytech_info.get("company_name", "Reytech Inc.")
+    owner = reytech_info.get("representative", "Michael Guadan")
+    title = reytech_info.get("title", "Owner")
+    cert = reytech_info.get("cert_number", "2002605")
+    cert_exp = reytech_info.get("cert_expiration", "")
+    today = _today_mmddyyyy()
+
+    text_updates = {
+        "form1[0].#subform[0].SolicitationNumber[0]": sol,
+        "form1[0].#subform[0].DoingBusinessAs[0]": firm,
+        "form1[0].#subform[0].OSDSRefNumber[0]": cert,
+        "form1[0].#subform[0].ExpirationDate[0]": cert_exp,
+        "form1[0].#subform[1].AuthorizedRepresentative[0]": owner,
+        "form1[0].#subform[1].Title[0]": title,
+        "form1[0].#subform[1].PrintedName[0]": owner,
+        "form1[0].#subform[1].Date[0]": today,
+    }
+    # All 6 CUF radios = "Yes" (Reytech performs the work directly).
+    # The form's radio NameTree uses "/1" for the Yes option per the
+    # XFA convention; the existing _apply_checkbox_updates handles
+    # both "true" and "/1" mappings through _best_on_state.
+    checkbox_updates = {
+        "form1[0].#subform[0].RadioButtonList[0]": True,
+        "form1[0].#subform[0].RadioButtonList[1]": True,
+        "form1[0].#subform[0].RadioButtonList[2]": True,
+        "form1[0].#subform[0].RadioButtonList[3]": True,
+        "form1[0].#subform[0].RadioButtonList[4]": True,
+        "form1[0].#subform[0].RadioButtonList[5]": True,
+    }
+    return _fill_and_serialize(
+        path,
+        text_updates,
+        checkbox_updates,
+        signature_targets=(),  # CV 012 signature is the PrintedName text
+    )
+
+
 def fill_ca_civil_rights(
     reytech_info: Dict[str, Any],
     parsed: Dict[str, Any],
