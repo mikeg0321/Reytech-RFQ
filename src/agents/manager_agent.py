@@ -209,41 +209,36 @@ def _get_pending_approvals() -> list:
     except Exception as _e:
         log.debug("suppressed: %s", _e)
 
-    # 7. Pending price checks (parsed, no quote yet) — these are real work items
+    # 7. Pending price checks (parsed, no quote yet) — real work items.
+    # Reads via `get_pending_user_facing_pcs()` — the single source of
+    # truth shared with `workflow_tester.test_manager_brief_includes_pcs`.
+    # Pre-2026-05-27 this read DAL-first with JSON fallback while
+    # workflow_tester read JSON only; the two diverged in prod
+    # (`WORKFLOW FAIL: Manager brief shows 0 PC approvals but 3
+    # unpriced PCs exist` 2026-05-27 04:23:48). Sharing one helper
+    # closes the substrate-singleness gap by construction.
     try:
-        pcs_src = get_all_price_checks(include_test=False) if _HAS_DB_DAL else {}
-        # Fall back to JSON if DB is empty (DB may not be migrated yet or PC table empty)
-        if not pcs_src:
-            pcs_src = _load_json("price_checks.json", {})
-        if isinstance(pcs_src, dict):
-            # Use canonical filter — only show standalone PCs, not auto-price PCs from RFQs
-            try:
-                from src.api.dashboard import _is_user_facing_pc
-                _pc_filter = _is_user_facing_pc
-            except ImportError:
-                _pc_filter = lambda pc: pc.get("source") not in ("email_auto_draft", "email_auto") and not pc.get("rfq_id")
-            pending_pcs = [
-                (k, v) for k, v in pcs_src.items()
-                if v.get("status") in ("parsed", "new")
-                and _pc_filter(v)
-                and not v.get("is_test")
-            ]
-            # Sort by due date
-            pending_pcs.sort(key=lambda x: x[1].get("due_date", "9999"))
-            for pc_id, pc in pending_pcs[:8]:
-                due = pc.get("due_date", "")
-                pc_num = pc.get("pc_number") or pc.get("solicitation_number") or pc_id[:10]
-                inst = pc.get("institution") or pc.get("agency") or "Unknown"
-                requestor = pc.get("requestor") or pc.get("requestor_email") or ""
-                items_n = pc.get("total_items", len(pc.get("items", [])) if isinstance(pc.get("items"), list) else 0)
-                approvals.append({
-                    "type": "pc_pending", "icon": "📋",
-                    "title": f"Price Check #{pc_num} — needs a quote",
-                    "detail": f"{inst}{' · ' + requestor if requestor else ''}{' · ' + str(items_n) + ' item' + ('s' if items_n != 1 else '') if items_n else ''}{' · Due ' + due if due else ''}",
-                    "age": _age_str(pc.get("created_at", "")),
-                    "action_url": f"/pricecheck/{pc_id}",
-                    "action_label": "Price & Quote",
-                })
+        from src.api.data_layer import get_pending_user_facing_pcs
+        pending_pcs_dict = get_pending_user_facing_pcs()
+        # Sort by due date
+        pending_pcs = sorted(
+            pending_pcs_dict.items(),
+            key=lambda kv: kv[1].get("due_date", "9999"),
+        )
+        for pc_id, pc in pending_pcs[:8]:
+            due = pc.get("due_date", "")
+            pc_num = pc.get("pc_number") or pc.get("solicitation_number") or pc_id[:10]
+            inst = pc.get("institution") or pc.get("agency") or "Unknown"
+            requestor = pc.get("requestor") or pc.get("requestor_email") or ""
+            items_n = pc.get("total_items", len(pc.get("items", [])) if isinstance(pc.get("items"), list) else 0)
+            approvals.append({
+                "type": "pc_pending", "icon": "📋",
+                "title": f"Price Check #{pc_num} — needs a quote",
+                "detail": f"{inst}{' · ' + requestor if requestor else ''}{' · ' + str(items_n) + ' item' + ('s' if items_n != 1 else '') if items_n else ''}{' · Due ' + due if due else ''}",
+                "age": _age_str(pc.get("created_at", "")),
+                "action_url": f"/pricecheck/{pc_id}",
+                "action_label": "Price & Quote",
+            })
     except Exception as _e:
         log.debug("PC approvals failed: %s", _e)
 

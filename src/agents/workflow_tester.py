@@ -416,21 +416,22 @@ def test_notification_badge_accuracy() -> list:
 # ═══════════════════════════════════════════════════════════════════════
 
 def test_manager_brief_includes_pcs() -> list:
-    """Manager brief must surface pending price checks, not just RFQs."""
+    """Manager brief must surface pending price checks, not just RFQs.
+
+    Reads pending PCs via the shared `get_pending_user_facing_pcs()`
+    helper — same source `manager_agent._get_pending_approvals` reads.
+    Pre-2026-05-27 this read JSON directly while manager_agent read
+    DAL-first; the two diverged in prod (2026-05-27 04:23:48
+    `WORKFLOW FAIL: Manager brief shows 0 PC approvals but 3 unpriced
+    PCs exist`). Now both call the same helper → any divergence is a
+    real bug in manager_agent's emit loop (e.g. the 8-row truncation
+    cap), not a substrate-sourcing artifact.
+    """
     results = []
     try:
-        pcs = _load_json("price_checks.json", {})
-        try:
-            from src.api.dashboard import _is_user_facing_pc
-            _pc_filter = _is_user_facing_pc
-        except ImportError:
-            _pc_filter = lambda pc: pc.get("source") not in ("email_auto_draft", "email_auto") and not pc.get("rfq_id") and not pc.get("is_auto_draft")
-        pending_pcs = [
-            v for v in pcs.values()
-            if v.get("status") in ("parsed", "new")
-            and _pc_filter(v)
-            and not v.get("is_test")
-        ]
+        from src.api.data_layer import get_pending_user_facing_pcs
+        pending_pcs_dict = get_pending_user_facing_pcs()
+        pending_pcs = list(pending_pcs_dict.values())
         if not pending_pcs:
             results.append(_result("brief_pc_visibility", PASS, "No pending PCs to check"))
             return results

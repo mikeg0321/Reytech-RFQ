@@ -781,6 +781,55 @@ def _is_user_facing_pc(pc: dict) -> bool:
     return False
 
 
+def get_pending_user_facing_pcs() -> dict:
+    """Return {pc_id: pc_dict} for all PCs that should appear as
+    pending-approval work items.
+
+    Single source of truth for "pending PCs operator needs to act on"
+    — both `src.agents.manager_agent._get_pending_approvals` (section 7)
+    and `src.agents.workflow_tester.test_manager_brief_includes_pcs`
+    call THIS, so they cannot drift.
+
+    Pre-2026-05-27 bug: manager_agent read DAL-first with JSON fallback;
+    workflow_tester read JSON only. When DAL had different rows than
+    JSON (DAL migration in flight), they diverged — workflow_tester
+    saw 3 unpriced PCs that manager_agent showed as 0 approvals
+    (prod log 2026-05-27 04:23:48:
+     `WORKFLOW FAIL [80/100]: Manager brief shows 0 PC approvals but
+     3 unpriced PCs exist`).
+
+    Source-of-truth precedence: DAL first (canonical post-migration),
+    JSON fallback if DAL returns empty. If both have rows we trust DAL
+    — JSON is the legacy mirror. Filter pipeline:
+      - status in {"parsed", "new"} — actionable, not yet quoted
+      - _is_user_facing_pc(pc) — operator-visible filter
+      - not pc.get("is_test")
+    """
+    pcs_src = {}
+    try:
+        from src.core.db import get_all_price_checks
+        pcs_src = get_all_price_checks(include_test=False) or {}
+    except Exception:
+        pcs_src = {}
+    if not pcs_src:
+        # JSON fallback — read the on-disk mirror directly. Matches the
+        # manager_agent._load_json pattern but inlined to avoid the
+        # circular import (manager_agent imports from data_layer).
+        try:
+            with open(os.path.join(DATA_DIR, "price_checks.json")) as _f:
+                pcs_src = json.load(_f)
+        except Exception:
+            pcs_src = {}
+    if not isinstance(pcs_src, dict):
+        return {}
+    return {
+        k: v for k, v in pcs_src.items()
+        if v.get("status") in ("parsed", "new")
+        and _is_user_facing_pc(v)
+        and not v.get("is_test")
+    }
+
+
 def _get_pc_items(pc):
     """Get items from a PC regardless of storage format."""
     items = pc.get("items", [])
