@@ -365,3 +365,46 @@ def test_coleman_buyer_template_end_to_end_produces_passing_qa():
     runs the full fill_704b path with agency=cchcs and asserts the
     output PDF passes the QA gate. Lift xfail when fixture lands."""
     raise NotImplementedError("waiting on buyer template fixture")
+
+
+# ── Path A INCOMPLETE — pin the discovered second-order bug ──────────
+
+
+@pytest.mark.xfail(reason=(
+    "PR #1173's Path A demotes the STRATEGY (RFQ_PREFILLED → RFQ_FULL) "
+    "but does NOT swap the input TEMPLATE — fill_704b still receives "
+    "the buyer's 362-field prefilled template path from form_info. "
+    "Writer now writes buyer-owned fields (QTYRow1, ITEM NUMBERRow2) "
+    "per RFQ_FULL contract, and verify_buyer_fields_untouched "
+    "correctly flags the overwrites. \n\n"
+    "Prod evidence 2026-05-28 07:10 UTC (rfq_5a55f1b5 regenerate "
+    "post-#1173 deploy, prod log via railway):\n"
+    "  704B strategy override agency=cchcs: rfq_prefilled → rfq_full  ← override DID fire\n"
+    "  Form QA ISSUE: Buyer field 'QTYRow1' was overwritten: '19' → '1'\n"
+    "  Form QA ISSUE: Buyer field 'QTYRow2' was overwritten: '2' → '1'\n"
+    "  Form QA ISSUE: Buyer field 'ITEM NUMBERRow2' was overwritten: 'LF03699' → '8700-0893-01'\n\n"
+    "Two fix paths — needs Architect (Mike) decision before any 4th attempt:\n"
+    "  Option A2 (extend Path A): when override fires, also swap input_path \n"
+    "      to canonical data/templates/704b_blank.pdf AND clear template_path \n"
+    "      in form_info so verify_buyer_fields_untouched doesn't fire false \n"
+    "      positives. PLUS aggregate line_items by SKU upstream (else 21 \n"
+    "      facility rows of qty=1 overflow canonical's 15-row capacity).\n"
+    "  Option B (substrate): JS-strip on buyer template clone, keep \n"
+    "      RFQ_PREFILLED, preserve buyer's prefilled aggregated rows. \n"
+    "      Most architecturally correct but largest scope.\n\n"
+    "Three Strikes Rule (CLAUDE.md §4): PRs #1170, #1171, #1173 are three \n"
+    "consecutive incomplete fixes on this same 704b QA failure for \n"
+    "Coleman. STOP — fresh session with Architect decision required.\n\n"
+    "Lift condition: Option A2 or B ships. Then this test (re-implemented \n"
+    "to invoke the full fill_704b path on the buyer template with \n"
+    "agency=cchcs) must assert the output PDF passes ALL QA sub-checks \n"
+    "including verify_buyer_fields_untouched."
+))
+def test_path_a_does_not_overwrite_buyer_template_fields():
+    """Pinning xfail for the Path A incompleteness discovered post-deploy.
+    When Option A2 or Option B ships, lift this xfail and assert end-to-end
+    that no buyer-field-untouched issues fire on a CCHCS regenerate."""
+    raise NotImplementedError(
+        "Path A is incomplete — see xfail reason. Architectural decision "
+        "needed (Option A2 vs Option B) before a 4th fix attempt."
+    )
