@@ -71,7 +71,38 @@ operator memory, or by a renderer default. Renderers iterate
 — and price is resolved **catalog-first** (catalog cost is the basis;
 SCPRS is a ceiling, Amazon is reference, never cost). When the email is
 ambiguous, ingest records the gap as a contract field and **blocks the
-quote** — it never papers over it. Every agency migration (Job #1
+quote** — it never papers over it.
+
+**READ THE WHOLE CONTRACT — EVERY TIME, NO EXCEPTIONS. (The hardest
+rule in this file.)** Ingest MUST read the full email **body** AND
+**every attachment**, in full. No skipping by file type, no capping at
+N files, no flag that disables coverage, no "non-RFQ-shaped" heuristic
+that silently drops a file. Every attachment ends in exactly one of two
+states: **parsed into the contract**, or **explicitly classified as
+non-RFQ with a recorded reason**. A file that produced neither is a
+bug, not a default. The contract's own cross-references are **mandatory
+reading orders**: when any parsed form points elsewhere — "see attached
+distribution list", "supplemental", "schedule", "see attachment", or
+names another form — ingest MUST locate and parse that target before
+the contract is considered complete. Rendering or sending a response
+whose own forms reference an attachment ingest never parsed is
+forbidden and **BLOCKS the quote**. Incident 2026-05-28 (Coleman
+10842771): the 704B row 4 read `***PLEASE SEE ATTACHED DISTRIBUTION
+LIST`; the supplemental **AMS 701B** distribution list (21 facilities,
+full addresses, per-facility qty) WAS in the contract, but ingest
+mis-modeled its 21 rows as 21 phantom line items and **discarded the
+facility / address / zip columns** — yielding a single-facility ship-to
+and single-jurisdiction tax on a 21-jurisdiction order. The north star
+carried the answer; the parser threw the columns away. **Teeth
+(non-negotiable):** this law is enforced by a forcing function — ingest
+records a per-attachment disposition manifest, and the send-gate +
+`test_ingest_reads_all_attachments` FAIL THE BUILD when (a) any
+attachment has no recorded disposition, or (b) a parsed form carries a
+cross-reference whose target was never parsed. A docs-only restatement
+of this rule without that forcing function does NOT satisfy it (see the
+"3 months" history under the Prime Directive).
+
+Every agency migration (Job #1
 onward) must prove its `EmailContract` carries that agency's full
 requirement set before that agency's legacy path is deleted.
 
