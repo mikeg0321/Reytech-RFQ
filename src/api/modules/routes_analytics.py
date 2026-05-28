@@ -3595,8 +3595,15 @@ def api_rfq_package_diag(rid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # All available forms that can be included in a package
+# 703A added 2026-05-27 — Coleman sol# 10842771 surfaced the Rev. 03/2025
+# revision. This file is a DUPLICATE of src/core/agency_config.AVAILABLE_FORMS;
+# the duplicate was missed by PR #1163 — the substrate-singleness 8th instance
+# this week. Job #1 follow-up: collapse to a single source (this file should
+# import from src/core/agency_config).
 AVAILABLE_FORMS = [
-    {"id": "703b", "name": "AMS 703B — Request for Quotation", "source": "email", "description": "State RFQ form — comes with email"},
+    {"id": "703a", "name": "AMS 703A — Request for Quotation (Rev. 03/2025)", "source": "email", "description": "Current CCHCS revision — supersedes 703B"},
+    {"id": "703b", "name": "AMS 703B — Request for Quotation (prior revision)", "source": "email", "description": "State RFQ form — comes with email"},
+    {"id": "703c", "name": "AMS 703C — Fair & Reasonable (IT-RFQ variant)", "source": "email", "description": "IT-RFQ alternative to 703B"},
     {"id": "704b", "name": "AMS 704B — Quote Worksheet", "source": "email", "description": "Pricing worksheet — comes with email"},
     {"id": "bidpkg", "name": "Bid Package", "source": "email", "description": "Agency bid package — comes with email"},
     {"id": "quote", "name": "Company Quote (Letterhead)", "source": "generated", "description": "Reytech quote on company letterhead"},
@@ -3621,7 +3628,12 @@ DEFAULT_AGENCY_CONFIGS = {
         "match_patterns": ["CDCR", "CCHCS", "CORRECTIONS", "CORRECTIONAL"],
         "required_forms": [
             # ── Separate standalone attachments ──────────────────────
-            "703b",           # AMS 703B Bidder Info form
+            # 703 trio added 2026-05-27 (Coleman sol# 10842771). Buyer
+            # picks exactly one revision; rev-aware filter at
+            # routes_rfq_gen.py picks the present revision at render time.
+            "703a",           # AMS 703A Rev. 03/2025 (current revision)
+            "703b",           # AMS 703B Bidder Info form (prior revision)
+            "703c",           # AMS 703C IT-RFQ variant
             "704b",           # AMS 704B Pricing worksheet
             "quote",          # Reytech formal quote on letterhead
             # ── RFQ Package: BidPackage template + extras ────────────
