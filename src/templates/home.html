@@ -278,7 +278,7 @@ fetch('/api/awards/pending',{credentials:'same-origin'}).then(r=>r.json()).then(
 var _AGENT_CADENCE_SEC = {
   'email-poller': 120,         // every 2min
   'mike-inbox': 120,            // every 2min
-  'award-monitor': 16200,       // 7:00 AM / 9:30 AM / 12:00 / 17:00 PT
+  'award-tracker': 16200,       // 7:00 AM / 9:30 AM / 12:00 / 17:00 PT — key matches /api/v1/health
   'gmail-sent-watcher': 600,    // every 10min
   'growth-agent': 3600,         // hourly
   'forms-drift': 2592000,       // monthly
@@ -308,11 +308,14 @@ function _refreshAgentStatus(){
   var ts=_agentTriState(ep,'email-poller');
   epDot.style.background=ts.color;
   epTxt.textContent=ts.txt;
-  // Award tracker — tri-state (scheduled cron, not stale-if-never-run)
-  var at=agents['award-monitor']||{};
+  // Award tracker — tri-state (scheduled cron, not stale-if-never-run).
+  // Health endpoint registers this agent as "award-tracker" (dashboard.py
+  // register_restartable). Pre-2026-05-28 the home JS read 'award-monitor'
+  // which never matched, so the dot was permanently gray.
+  var at=agents['award-tracker']||{};
   var atDot=document.getElementById('as-award-dot');
   var atTxt=document.getElementById('as-award-txt');
-  var ats=_agentTriState(at,'award-monitor');
+  var ats=_agentTriState(at,'award-tracker');
   atDot.style.background=ats.color;
   atTxt.textContent=ats.txt;
   // Mike inbox status — read from POLL_STATUS via /api/diag (lightweight GET)
