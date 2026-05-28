@@ -63,3 +63,125 @@
   {% if sub %}<div class="tw-stat-sub">{{ sub }}</div>{% endif %}
 </div>
 {%- endmacro %}
+
+
+{# ═══════════════════════════════════════════════════════════════════════
+   UI/UX REDESIGN MACROS — 2026-05-28
+   Source preview: .claude/skills/run-rfqapp-uiux/redesigns/_components-redesign.html
+   CSS classes:    src/static/styles.css §"UI/UX REDESIGN PALETTE"
+
+   All macros below render via the .r-* class system, so they need
+   styles.css loaded but no Tailwind. They are ADDITIVE to the legacy
+   progress_ring/stat_card macros above — old pages keep working.
+
+   Usage:
+       {% import "_components.html" as ui %}
+       {{ ui.r_kpi("Open RFQs", open_rfq_count, "24 new today", color="accent") }}
+       {{ ui.r_status_badge(quote.status) }}
+       {{ ui.r_agent_chip("Email Poller", state=poll_state, last_run=poll_last) }}
+   ═══════════════════════════════════════════════════════════════════════ #}
+
+
+{# r_kpi — small KPI tile. `color`: '' | 'accent' | 'warn' | 'bad'.
+   `trend` is an optional list of 7 ints 0..100 for a CSS-only sparkline. #}
+{% macro r_kpi(label, value, sub='', color='', trend=None, href=None) -%}
+{%- set _tag = 'a' if href else 'div' -%}
+<{{ _tag }}{% if href %} href="{{ href }}"{% endif %} class="r-kpi"
+  {%- if href %} style="display:block;text-decoration:none"{% endif %}>
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <div class="r-kpi-label">{{ label }}</div>
+    {%- if trend %}
+    <div class="sparkbar" aria-hidden="true">
+      {%- for h in trend %}<i style="height:{{ h }}%"></i>{% endfor %}
+    </div>
+    {%- endif %}
+  </div>
+  <div class="r-kpi-value{% if color %} is-{{ color }}{% endif %}">{{ value }}</div>
+  {%- if sub %}<div class="r-kpi-sub">{{ sub }}</div>{% endif %}
+</{{ _tag }}>
+{%- endmacro %}
+
+
+{# r_status_badge — auto-classifies status strings.
+   Good: won|filled|priced|ready|active|sent|complete|fresh|approved
+   Warn: pending|draft|awaiting|scheduled|review|new
+   Bad:  lost|failed|parse|stale|error|expired|cancelled|rejected
+   Anything else: neutral. Pass icon=false to suppress the dot. #}
+{% macro r_status_badge(status, icon=True) -%}
+{%- set _good = ['won','filled','priced','ready','active','sent','complete','fresh','approved'] -%}
+{%- set _warn = ['pending','draft','awaiting','scheduled','review','new','partial'] -%}
+{%- set _bad  = ['lost','failed','parse','stale','error','expired','cancelled','rejected'] -%}
+{%- set _s = (status or '')|string|lower -%}
+{%- if _s in _good %}{%- set _cls = 'is-good' -%}
+{%- elif _s in _warn %}{%- set _cls = 'is-warn' -%}
+{%- elif _s in _bad %}{%- set _cls = 'is-bad' -%}
+{%- else %}{%- set _cls = 'is-neutral' -%}{%- endif -%}
+<span class="r-badge {{ _cls }}{% if not icon %} no-dot{% endif %}">{{ status|upper }}</span>
+{%- endmacro %}
+
+
+{# r_btn — action button.
+   variant: '' | 'primary' | 'danger' | 'ghost'
+   size:    '' | 'sm'
+   kbd:     optional inline shortcut hint. #}
+{% macro r_btn(label, variant='', size='', icon='', kbd='', href=None, type='button', hx_post=None, hx_target=None) -%}
+{%- set _tag = 'a' if href else 'button' -%}
+<{{ _tag }}
+  {%- if href %} href="{{ href }}"{% else %} type="{{ type }}"{% endif %}
+  {%- if hx_post %} hx-post="{{ hx_post }}"{% endif %}
+  {%- if hx_target %} hx-target="{{ hx_target }}"{% endif %}
+  class="r-btn{% if variant %} r-btn-{{ variant }}{% endif %}{% if size %} r-btn-{{ size }}{% endif %}">
+  {%- if icon %}<span>{{ icon|safe }}</span>{% endif %}
+  <span>{{ label }}</span>
+  {%- if kbd %}<span class="kbd" style="margin-left:4px">{{ kbd }}</span>{% endif %}
+</{{ _tag }}>
+{%- endmacro %}
+
+
+{# r_alert — top-of-page warning strip. Tones: 'warn' | 'bad' | 'info'.
+   `action_label`/`action_href` add an inline link. #}
+{% macro r_alert(message, tone='warn', action_label='', action_href='', dismissable=False) -%}
+{%- set _icon = {'warn':'⚠','bad':'⚠','info':'ⓘ'}.get(tone, '⚠') -%}
+<div class="r-alert is-{{ tone }}">
+  <span>{{ _icon }}</span>
+  <span style="flex:1">{{ message|safe }}</span>
+  {%- if action_label %}<a {% if action_href %}href="{{ action_href }}"{% endif %} style="text-decoration:underline">{{ action_label }} →</a>{% endif %}
+  {%- if dismissable %}<button class="r-btn r-btn-ghost r-btn-sm" type="button" onclick="this.parentElement.style.display='none'">✕</button>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# r_agent_chip — tri-state liveness indicator.
+   state: 'fresh' | 'scheduled' | 'stale'  (closes the "Never run" ambiguity) #}
+{% macro r_agent_chip(name, state='scheduled', last_run='', tooltip='') -%}
+<div class="r-agent is-{{ state }}"{% if tooltip %} title="{{ tooltip }}"{% endif %}>
+  <span class="dot"></span>
+  <span class="name">{{ name }}</span>
+  {%- if last_run %}<span class="time">{{ last_run }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# r_step — single workflow step. state: '' | 'done' | 'now'.
+   Place inside a flex/grid container; the connector lines draw automatically
+   except on the last child. #}
+{% macro r_step(label, sub='', state='') -%}
+<div class="r-step">
+  <div class="r-step-dot{% if state %} is-{{ state }}{% endif %}"></div>
+  <div>
+    <div style="font-size:14px;{% if state == 'done' %}color:var(--r-text){% elif state == 'now' %}color:var(--r-accent);font-weight:600{% else %}color:var(--r-text-muted){% endif %}">{{ label }}</div>
+    {%- if sub %}<div class="num" style="font-size:11px;color:var(--r-text-dim);margin-top:2px">{{ sub }}</div>{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+
+{# r_empty — empty state for queue / table cards. #}
+{% macro r_empty(message, cta_label='', cta_href='', icon='∅') -%}
+<div style="padding:40px;text-align:center">
+  <div style="font-size:32px;color:var(--r-text-dim);margin-bottom:8px">{{ icon }}</div>
+  <div style="font-size:14px;color:var(--r-text-muted);margin-bottom:12px">{{ message }}</div>
+  {%- if cta_label %}<a {% if cta_href %}href="{{ cta_href }}"{% endif %} style="font-size:12px;color:var(--r-accent);text-decoration:underline">{{ cta_label }} →</a>{% endif %}
+</div>
+{%- endmacro %}
+

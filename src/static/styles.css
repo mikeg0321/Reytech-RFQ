@@ -448,3 +448,338 @@ textarea:focus-visible,
 .tw-mt-2{margin-top:8px}
 .tw-mt-3{margin-top:12px}
 .tw-grow{flex:1 1 auto;min-width:0}
+
+
+/* ──────────────────────────────────────────────────────────────────────
+   UI/UX REDESIGN PALETTE — Option B port path (no Tailwind build).
+   Tokens use the --r-* prefix so they coexist with the legacy --bg/--sf/--ac
+   palette during the migration. Pages ported to the new classes (.r-card,
+   .r-kpi, .r-badge, .r-agent, ...) use --r-* vars; legacy pages keep working.
+   Source: .claude/skills/run-rfqapp-uiux/redesigns/styles-redesign.css
+   ──────────────────────────────────────────────────────────────────── */
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. DESIGN TOKENS
+   ════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* Surfaces — slightly cooler than the existing #0f1117 base */
+  --r-bg:          #08090c;
+  --r-bg-elev:     #0f1117;
+  --r-surface:     #16181f;
+  --r-surface-2:   #1c1f28;
+  --r-border:      #262932;
+  --r-border-soft: #1f222b;
+  /* Text */
+  --r-text:        #e5e7eb;
+  --r-text-muted:  #9ca3af;
+  --r-text-dim:    #6b7280;
+  /* Emerald accent */
+  --r-accent:      #10b981;
+  --r-accent-soft: rgba(16,185,129,0.10);
+  --r-accent-edge: rgba(16,185,129,0.25);
+  /* Semantic */
+  --r-warn:      #f59e0b;
+  --r-warn-soft: rgba(245,158,11,0.10);
+  --r-bad:       #ef4444;
+  --r-bad-soft:  rgba(239,68,68,0.10);
+  /* Type */
+  --r-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --r-sans: ui-sans-serif, 'DM Sans', system-ui, -apple-system, sans-serif;
+  /* Radii */
+  --r-radius:    10px;
+  --r-radius-lg: 16px;
+  --r-radius-xl: 20px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. BASE — applied via class so existing pages stay untouched until ported
+   ════════════════════════════════════════════════════════════════════════ */
+.r-app {
+  background: var(--r-bg);
+  color: var(--r-text);
+  font-family: var(--r-sans);
+  min-height: 100vh;
+  font-feature-settings: "ss01", "cv11";
+}
+.r-app a { color: var(--r-accent); text-decoration: none; }
+.r-app input, .r-app select, .r-app button { font-family: inherit; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. TOPNAV — the shell that every page extends through base.html
+   ════════════════════════════════════════════════════════════════════════ */
+.r-topnav {
+  position: sticky; top: 0; z-index: 40;
+  backdrop-filter: blur(10px);
+  background: rgba(8,9,12,0.85);
+  border-bottom: 1px solid var(--r-border);
+}
+.r-topnav-inner {
+  max-width: 1400px; margin: 0 auto;
+  padding: 12px 24px;
+  display: flex; align-items: center; gap: 24px;
+}
+.r-logo { display: flex; align-items: center; gap: 10px; }
+.r-logo-mark {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: linear-gradient(135deg, #34d399, #059669);
+  color: var(--r-bg);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px;
+}
+.r-logo-text { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.r-nav-pills {
+  display: flex; gap: 2px; padding: 4px;
+  border-radius: 9999px;
+  background: var(--r-surface);
+  border: 1px solid var(--r-border);
+  font-size: 12px;
+}
+.r-nav-pill {
+  padding: 6px 16px; border-radius: 9999px;
+  color: var(--r-text-muted); text-decoration: none;
+  transition: color 120ms;
+}
+.r-nav-pill:hover { color: #fff; }
+.r-nav-pill.active { background: var(--r-surface-2); color: #fff; }
+.r-search { flex: 1; max-width: 640px; margin: 0 auto; position: relative; }
+.r-search input {
+  width: 100%; padding: 8px 60px 8px 40px;
+  font-size: 14px; border-radius: 9999px;
+  background: var(--r-surface);
+  border: 1px solid var(--r-border);
+  color: var(--r-text);
+}
+.r-search input:focus { outline: none; border-color: var(--r-accent-edge); }
+.r-search .icon { position: absolute; left: 14px; top: 9px; color: var(--r-text-dim); }
+.r-search .kbd { position: absolute; right: 12px; top: 6px; }
+.r-status { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.r-poll-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--r-accent);
+  box-shadow: 0 0 8px var(--r-accent);
+  animation: r-pulse 2s ease-in-out infinite;
+}
+@keyframes r-pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.5 } }
+.r-main { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   4. UTILITIES — used everywhere
+   ════════════════════════════════════════════════════════════════════════ */
+.num    { font-family: var(--r-mono); font-variant-numeric: tabular-nums; }
+.kbd    {
+  font-family: var(--r-mono); font-size: 10px;
+  padding: 2px 5px; border-radius: 4px;
+  background: var(--r-surface-2); border: 1px solid var(--r-border);
+  color: var(--r-text-muted);
+}
+.lift   { transition: border-color 160ms ease, box-shadow 160ms ease; }
+.lift:hover { border-color: var(--r-accent-edge); }
+.sparkbar { display: inline-flex; gap: 1px; align-items: flex-end; height: 14px; }
+.sparkbar > i { display: inline-block; width: 3px; background: var(--r-accent); border-radius: 1px; opacity: 0.6; }
+.sparkbar > i:last-child { opacity: 1; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   5. CARDS + PANELS
+   ════════════════════════════════════════════════════════════════════════ */
+.r-card {
+  background: var(--r-surface);
+  border: 1px solid var(--r-border);
+  border-radius: var(--r-radius-lg);
+}
+.r-card-tight { padding: 14px 18px; }
+.r-card-pad   { padding: 20px; }
+.r-card-accent {
+  background: linear-gradient(135deg, var(--r-accent-soft), var(--r-surface));
+  border-color: var(--r-accent-edge);
+}
+.r-card-warn  { border-color: var(--r-warn-soft); }
+.r-card-bad   { border-color: rgba(239, 68, 68, 0.2); }
+.r-card-header {
+  padding: 14px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--r-border);
+}
+.r-card-header h3 { font-size: 14px; font-weight: 600; margin: 0; color: var(--r-text); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   6. KPI CARD
+   ════════════════════════════════════════════════════════════════════════ */
+.r-kpi {
+  background: var(--r-surface);
+  border: 1px solid var(--r-border);
+  border-radius: var(--r-radius-lg);
+  padding: 16px;
+  transition: border-color 160ms ease;
+}
+.r-kpi:hover { border-color: var(--r-accent-edge); }
+.r-kpi-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--r-text-muted); }
+.r-kpi-value { font-family: var(--r-mono); font-variant-numeric: tabular-nums; font-size: 24px; font-weight: 600; margin-top: 4px; color: var(--r-text); }
+.r-kpi-value.is-accent { color: var(--r-accent); }
+.r-kpi-value.is-warn   { color: var(--r-warn); }
+.r-kpi-value.is-bad    { color: var(--r-bad); }
+.r-kpi-sub { font-size: 11px; margin-top: 2px; color: var(--r-text-muted); font-variant-numeric: tabular-nums; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   7. STATUS BADGES
+   ════════════════════════════════════════════════════════════════════════ */
+.r-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 9999px;
+  font-size: 10px; font-weight: 500;
+}
+.r-badge::before {
+  content: ''; width: 6px; height: 6px;
+  border-radius: 50%; margin-right: 4px;
+  background: currentColor;
+}
+.r-badge.is-good    { background: var(--r-accent-soft); color: var(--r-accent); }
+.r-badge.is-warn    { background: var(--r-warn-soft);   color: var(--r-warn); }
+.r-badge.is-bad     { background: var(--r-bad-soft);    color: var(--r-bad); }
+.r-badge.is-neutral { background: rgba(156, 163, 175, 0.10); color: var(--r-text-muted); }
+.r-badge.no-dot::before { display: none; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   8. BUTTONS
+   ════════════════════════════════════════════════════════════════════════ */
+.r-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; font-size: 14px; font-weight: 500;
+  border-radius: var(--r-radius);
+  background: var(--r-surface-2); border: 1px solid var(--r-border);
+  color: var(--r-text); cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.r-btn:hover { background: var(--r-surface); border-color: var(--r-accent-edge); }
+.r-btn-primary {
+  background: var(--r-accent); border-color: var(--r-accent); color: #fff;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.20);
+}
+.r-btn-primary:hover { background: #34d399; }
+.r-btn-danger {
+  background: var(--r-bad-soft); border-color: var(--r-bad); color: var(--r-bad);
+}
+.r-btn-ghost { background: transparent; border-color: transparent; color: var(--r-text-muted); }
+.r-btn-sm { padding: 5px 10px; font-size: 12px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   9. TABLES
+   ════════════════════════════════════════════════════════════════════════ */
+.r-table {
+  width: 100%; font-size: 14px;
+  border-collapse: collapse;
+}
+.r-table thead tr {
+  color: var(--r-text-dim);
+  border-bottom: 1px solid var(--r-border);
+}
+.r-table th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 500; padding: 12px 8px; text-align: left;
+}
+.r-table th.is-right { text-align: right; }
+.r-table tbody tr { border-bottom: 1px solid var(--r-border-soft); }
+.r-table tbody tr:hover { background: rgba(28, 31, 40, 0.6); }
+.r-table td { padding: 12px 8px; }
+.r-table td.is-right { text-align: right; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   10. AGENT CHIP (tri-state)
+   ════════════════════════════════════════════════════════════════════════ */
+.r-agent {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  background: var(--r-bg-elev);
+  border: 1px solid var(--r-border-soft);
+  border-radius: var(--r-radius);
+  font-size: 12px;
+  transition: border-color 160ms ease;
+}
+.r-agent .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.r-agent.is-fresh     .dot { background: var(--r-accent); box-shadow: 0 0 6px var(--r-accent); }
+.r-agent.is-scheduled .dot { background: var(--r-text-dim); }
+.r-agent.is-stale     .dot { background: var(--r-bad);    box-shadow: 0 0 6px var(--r-bad); }
+.r-agent.is-stale          { border-color: rgba(239, 68, 68, 0.3); }
+.r-agent .name { color: var(--r-text); }
+.r-agent .time { margin-left: auto; font-size: 10px; font-family: var(--r-mono); color: var(--r-text-dim); }
+.r-agent.is-stale .time   { color: var(--r-bad); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   11. WORKFLOW STEP LINE (PriceCheck detail, Orders timeline)
+   ════════════════════════════════════════════════════════════════════════ */
+.r-step      { display: flex; align-items: center; gap: 12px; position: relative; }
+.r-step::before {
+  content: ''; position: absolute;
+  left: 7px; top: 18px; bottom: -12px;
+  width: 1px; background: var(--r-border);
+}
+.r-step:last-child::before { display: none; }
+.r-step-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--r-surface-2);
+  border: 2px solid var(--r-border);
+  position: relative; z-index: 1;
+}
+.r-step-dot.is-done { background: var(--r-accent); border-color: var(--r-accent); }
+.r-step-dot.is-now  {
+  background: var(--r-bg); border-color: var(--r-accent);
+  box-shadow: 0 0 8px var(--r-accent);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   12. ALERT BANNER
+   ════════════════════════════════════════════════════════════════════════ */
+.r-alert {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; border-radius: var(--r-radius);
+  font-size: 12px;
+}
+.r-alert.is-warn { background: var(--r-warn-soft); border: 1px solid rgba(245, 158, 11, 0.20); color: #fcd34d; }
+.r-alert.is-bad  { background: var(--r-bad-soft);  border: 1px solid rgba(239, 68, 68, 0.30); color: #fca5a5; }
+.r-alert.is-info { background: var(--r-accent-soft); border: 1px solid var(--r-accent-edge); color: var(--r-accent); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   13. TOGGLE
+   ════════════════════════════════════════════════════════════════════════ */
+.r-toggle {
+  appearance: none; width: 32px; height: 18px;
+  background: var(--r-surface-2);
+  border-radius: 9999px;
+  position: relative; cursor: pointer;
+  transition: background 120ms;
+  border: 1px solid var(--r-border);
+}
+.r-toggle:checked { background: var(--r-accent); border-color: var(--r-accent); }
+.r-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #fff;
+  transition: transform 120ms;
+}
+.r-toggle:checked::after { transform: translateX(14px); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   14. GRID HELPERS — for the Bento-style layouts the previews use
+   ════════════════════════════════════════════════════════════════════════ */
+.r-grid     { display: grid; gap: 16px; }
+.r-grid-2   { grid-template-columns: 1fr 1fr; }
+.r-grid-3   { grid-template-columns: repeat(3, 1fr); }
+.r-grid-4   { grid-template-columns: repeat(4, 1fr); }
+.r-grid-5   { grid-template-columns: repeat(5, 1fr); }
+.r-grid-6   { grid-template-columns: repeat(6, 1fr); }
+.r-grid-2-3 { grid-template-columns: 2fr 1fr; }
+.r-grid-3-1 { grid-template-columns: 3fr 1fr; }
+@media (max-width: 900px) {
+  .r-grid-2, .r-grid-3, .r-grid-4, .r-grid-5, .r-grid-6,
+  .r-grid-2-3, .r-grid-3-1 { grid-template-columns: 1fr; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   15. PRINT — preserve the screenshots without dark-mode flashbang on paper
+   ════════════════════════════════════════════════════════════════════════ */
+@media print {
+  .r-app { background: #fff; color: #111; }
+  .r-card, .r-kpi { background: #f8f8f8; border-color: #ddd; }
+  .r-poll-dot { animation: none; background: #888; box-shadow: none; }
+}
