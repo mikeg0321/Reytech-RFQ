@@ -4680,6 +4680,7 @@ def _api_rfq_confirm_pc_link_locked(rid):
     qty_changed_entries = [s for s in summary if s["qty_changed"]]
     r["pc_diff"] = {
         "ported": promote_result["promoted"],
+        "matched": promote_result.get("matched", promote_result["promoted"]),
         "qty_changed": qty_changed_entries,
         "added": [],
         "removed": [],

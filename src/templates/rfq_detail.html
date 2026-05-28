@@ -403,7 +403,15 @@
     {% if r.get('linked_pc_match_reason') %} <span style="color:#8b949e;font-size:12px">· {{ r.linked_pc_match_reason }}</span>{% endif %}
     {% if r.get('pc_diff') %}
      <span style="color:#8b949e;margin-left:8px">·</span>
-     <span style="color:#3fb950;margin-left:4px">{{r.pc_diff.get('ported',0)}} prices ported</span>
+     {% set _ported = r.pc_diff.get('ported', 0) %}
+     {% set _matched = r.pc_diff.get('matched', _ported) %}
+     {% if _ported > 0 %}
+      <span style="color:#3fb950;margin-left:4px">{{_ported}} price{{'' if _ported == 1 else 's'}} ported</span>
+     {% else %}
+      {# Linked/matched but no usable cost/bid landed — PC not yet priced.
+         Don't render a green success the operator can't trust. #}
+      <span style="color:#d29922;margin-left:4px">⚠ {{_matched}} matched · 0 prices ported (PC not priced)</span>
+     {% endif %}
      {% if r.pc_diff.get('added') %}
       <span style="color:#d29922;margin-left:8px">+{{r.pc_diff.added|length}} new item{{'' if r.pc_diff.added|length == 1 else 's'}}</span>
      {% endif %}
