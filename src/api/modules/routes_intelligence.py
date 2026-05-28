@@ -29,7 +29,14 @@ log = logging.getLogger("reytech.routes_intelligence")
 @bp.route("/api/quotes/expiring", methods=["GET"])
 @auth_required
 def api_quotes_expiring():
-    """Get quotes expiring within 7 days."""
+    """Get quotes expiring within 7 days.
+
+    Drops rows that expired more than 7 days ago (``days_remaining < -7``)
+    so the home banner doesn't render ``R26Q16 — 0 days left`` for a
+    quote that actually expired 70 days back. 2026-05-28 audit P0 — the
+    client-side filter in ``renderExpiring`` hid these from display but
+    they still counted toward the response payload.
+    """
     try:
         from src.core.db import get_db
         from datetime import datetime, timedelta
@@ -47,7 +54,10 @@ def api_quotes_expiring():
             d = dict(row)
             try:
                 exp = datetime.fromisoformat(d["expires_at"])
-                d["days_remaining"] = max(0, (exp - now).days)
+                delta_days = (exp - now).days
+                if delta_days < -7:
+                    continue
+                d["days_remaining"] = max(0, delta_days)
                 d["severity"] = "critical" if d["days_remaining"] <= 3 else "warning"
             except (ValueError, TypeError):
                 d["days_remaining"] = -1

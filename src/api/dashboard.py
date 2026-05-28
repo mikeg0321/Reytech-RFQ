@@ -109,16 +109,44 @@ def _save_pending_pos():
     atomic_json_save(os.path.join(DATA_DIR, "pending_po_reviews.json"),
                      _pending_po_reviews)
 
-def _dedupe_pending_pos(entries: list) -> list:
-    """Collapse duplicate PO entries by po_number, keeping the one with
-    the richest data (highest total / most items). Discards entries with
-    an empty or missing po_number — those are parse failures, not
-    actionable PO awards, and letting them sit in the queue clogs up the
-    home banner with "PO#? $0.00" noise.
+def _normalize_po_number(po_num: str) -> str:
+    """Normalize a PO number for dedup-key comparison.
 
-    2026-04-12 incident: 80 pending POs on prod collapsed to 6 uniques
-    after dedupe, because _add_pending_po appended on every detection
-    without checking for an existing entry with the same po_number.
+    Strips non-alphanumerics and leading zeros so format variants of
+    the same PO collapse: ``8955-000076737``, ``0000076737``, and
+    ``76737-`` all map to ``895576737`` / ``76737``. Matches the
+    client-side normalizer in home.html so server + display agree.
+    """
+    import re
+    norm = re.sub(r"[^a-zA-Z0-9]", "", po_num or "")
+    return norm.lstrip("0")
+
+
+def _is_phantom_po(entry: dict) -> bool:
+    """A phantom is an entry where the parser only got a PO number — no
+    total, no buyer, no agency. These rendered as ``PO#xxxxx $0.00`` in
+    the home banner with no actionable context, so we filter them out.
+    """
+    try:
+        total = float(entry.get("total") or 0)
+    except (TypeError, ValueError):
+        total = 0
+    buyer = (entry.get("buyer") or "").strip()
+    agency = (entry.get("agency") or "").strip()
+    return total == 0 and not buyer and not agency
+
+
+def _dedupe_pending_pos(entries: list) -> list:
+    """Collapse duplicate PO entries by NORMALIZED po_number, keeping the
+    one with the richest data (highest total / most items). Discards
+    entries with an empty/missing po_number AND entries that are phantom
+    rows (total==0 AND no buyer AND no agency).
+
+    2026-04-12 incident: 80 pending POs collapsed to 6 uniques because
+    _add_pending_po appended on every detection without dedup.
+    2026-05-28 audit P0: extended dedup to use a NORMALIZED key so
+    format variants (``8955-000076737`` vs ``0000076737`` vs ``76737-``)
+    collapse to one canonical bucket instead of three banner entries.
     """
     by_po = {}
     for entry in entries:
@@ -127,9 +155,14 @@ def _dedupe_pending_pos(entries: list) -> list:
         po_num = (entry.get("po_number") or "").strip()
         if not po_num or po_num.lower() == "none":
             continue
-        existing = by_po.get(po_num)
+        if _is_phantom_po(entry):
+            continue
+        norm = _normalize_po_number(po_num)
+        if not norm:
+            continue
+        existing = by_po.get(norm)
         if existing is None:
-            by_po[po_num] = entry
+            by_po[norm] = entry
             continue
         # Prefer the entry with a non-zero total; tie-break on item count,
         # then fall back to the newer detected_at timestamp.
@@ -142,7 +175,7 @@ def _dedupe_pending_pos(entries: list) -> list:
             ts = e.get("detected_at") or ""
             return (1 if total > 0 else 0, items, ts)
         if _score(entry) > _score(existing):
-            by_po[po_num] = entry
+            by_po[norm] = entry
     # Preserve detection order (oldest first) so /awards renders stable.
     return sorted(
         by_po.values(),
