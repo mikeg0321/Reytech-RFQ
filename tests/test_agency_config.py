@@ -314,3 +314,58 @@ def test_cchcs_legacy_regenerate_path_resolves_not_other():
     # Email-domain fallback
     key2, _ = match_agency({"requestor_email": "buyer@cdcr.ca.gov"})
     assert key2 == "cchcs", f"Expected cchcs via email domain, got {key2}"
+
+
+# ── Substrate singleness — collapsed duplicates (2026-05-27 PR #1165 follow-up) ─
+
+class TestSubstrateSingleness:
+    """Pin against the re-emergence of duplicate substrate seams.
+
+    Class lesson: when two files own the same concept (AVAILABLE_FORMS,
+    DEFAULT_AGENCY_CONFIGS, match_agency), a change to one silently bypasses
+    the other. Each assertion below catches a specific re-divergence.
+
+    Incident this guards against: 2026-05-27 Coleman sol# 10842771 — 703A was
+    added to canonical AVAILABLE_FORMS by PR #1163 but a duplicate copy in
+    routes_analytics.py was missed, so /settings/packages UI didn't render
+    703A and the cchcs agency_package_configs DB row was seeded without 703a
+    in required_forms. The render dispatcher computed `_req_forms` without
+    any 703 entry. The bug class is the duplicate's existence, not its
+    contents.
+    """
+
+    def test_routes_analytics_available_forms_is_canonical(self):
+        """routes_analytics.AVAILABLE_FORMS must BE the canonical object,
+        not a copy. `is` identity (not `==`) is the right check — a copy
+        can drift; the same object cannot."""
+        from src.core.agency_config import AVAILABLE_FORMS as canonical
+        from src.api.modules.routes_analytics import AVAILABLE_FORMS as routes_copy
+        assert routes_copy is canonical, (
+            "routes_analytics.AVAILABLE_FORMS must be the canonical list "
+            "from src.core.agency_config. If you see this fail, someone "
+            "redeclared the list — collapse it back to a single import."
+        )
+
+    def test_canonical_available_forms_has_source_field(self):
+        """Every entry must carry a `source` value so /settings/packages
+        renders the right icon (📧 / 📄 / ⚡ / 📎) per form. The render
+        template at agency_packages.html:63 reads `form.source`."""
+        from src.core.agency_config import AVAILABLE_FORMS
+        valid_sources = {"email", "template", "generated", "static"}
+        for f in AVAILABLE_FORMS:
+            assert "source" in f, f"Form {f['id']} missing 'source' field"
+            assert f["source"] in valid_sources, (
+                f"Form {f['id']} has unknown source {f['source']!r}; "
+                f"must be one of {valid_sources}"
+            )
+
+    def test_canonical_available_forms_contains_703_trio(self):
+        """703A/703B/703C must all be in canonical AVAILABLE_FORMS. Pinned
+        2026-05-27 after Coleman sol# 10842771 walked the substrate gap."""
+        from src.core.agency_config import AVAILABLE_FORMS
+        ids = {f["id"] for f in AVAILABLE_FORMS}
+        for required in ("703a", "703b", "703c"):
+            assert required in ids, (
+                f"{required!r} missing from AVAILABLE_FORMS — every new "
+                f"703 revision lives here, not in a route module."
+            )

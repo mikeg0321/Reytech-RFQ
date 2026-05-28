@@ -34,21 +34,26 @@ AVAILABLE_FORMS = [
     # 2026-05-21. 703B = prior revision. 703C = IT-RFQ variant
     # (Fair & Reasonable). Each buyer attaches exactly one of the three;
     # the render seam picks the present revision from `templates` keys.
-    {"id": "703a", "name": "AMS 703A", "desc": "RFQ Pricing Form (Rev. 03/2025)"},
-    {"id": "703b", "name": "AMS 703B", "desc": "RFQ Pricing Form (prior revision)"},
-    {"id": "703c", "name": "AMS 703C", "desc": "Fair & Reasonable Form (IT-RFQ variant)"},
-    {"id": "704b", "name": "AMS 704B", "desc": "Quote Worksheet"},
-    {"id": "bidpkg", "name": "Bid Package", "desc": "Agency Bid Package"},
-    {"id": "quote", "name": "Reytech Quote", "desc": "Formal quote on letterhead"},
-    {"id": "std204", "name": "STD 204", "desc": "Payee Data Record"},
-    {"id": "std205", "name": "STD 205", "desc": "Payee Supplemental"},
-    {"id": "sellers_permit", "name": "Seller's Permit", "desc": "CA Seller's Permit"},
-    {"id": "dvbe843", "name": "DVBE 843", "desc": "DVBE Declarations"},
-    {"id": "cv012_cuf", "name": "CV 012 CUF", "desc": "CalVet Commercially Useful Function"},
-    {"id": "bidder_decl", "name": "Bidder Declaration", "desc": "GSPD-05-105"},
-    {"id": "darfur_act", "name": "Darfur Act", "desc": "DGS PD 1"},
-    {"id": "calrecycle74", "name": "CalRecycle 74", "desc": "Postconsumer Recycled Content"},
-    {"id": "std1000", "name": "STD 1000", "desc": "GenAI Reporting / Disclosure"},
+    #
+    # `source` is consumed by the operator /settings/packages UI to label
+    # each form ("📧 From email", "📄 Fill template", "⚡ Auto-generated",
+    # "📎 Static copy"). Added 2026-05-27 when routes_analytics.AVAILABLE_FORMS
+    # was collapsed into this canonical list — see agency_packages.html:63.
+    {"id": "703a", "name": "AMS 703A", "desc": "RFQ Pricing Form (Rev. 03/2025)", "source": "email"},
+    {"id": "703b", "name": "AMS 703B", "desc": "RFQ Pricing Form (prior revision)", "source": "email"},
+    {"id": "703c", "name": "AMS 703C", "desc": "Fair & Reasonable Form (IT-RFQ variant)", "source": "email"},
+    {"id": "704b", "name": "AMS 704B", "desc": "Quote Worksheet", "source": "email"},
+    {"id": "bidpkg", "name": "Bid Package", "desc": "Agency Bid Package", "source": "email"},
+    {"id": "quote", "name": "Reytech Quote", "desc": "Formal quote on letterhead", "source": "generated"},
+    {"id": "std204", "name": "STD 204", "desc": "Payee Data Record", "source": "template"},
+    {"id": "std205", "name": "STD 205", "desc": "Payee Supplemental", "source": "generated"},
+    {"id": "sellers_permit", "name": "Seller's Permit", "desc": "CA Seller's Permit", "source": "static"},
+    {"id": "dvbe843", "name": "DVBE 843", "desc": "DVBE Declarations", "source": "generated"},
+    {"id": "cv012_cuf", "name": "CV 012 CUF", "desc": "CalVet Commercially Useful Function", "source": "template"},
+    {"id": "bidder_decl", "name": "Bidder Declaration", "desc": "GSPD-05-105", "source": "generated"},
+    {"id": "darfur_act", "name": "Darfur Act", "desc": "DGS PD 1", "source": "generated"},
+    {"id": "calrecycle74", "name": "CalRecycle 74", "desc": "Postconsumer Recycled Content", "source": "template"},
+    {"id": "std1000", "name": "STD 1000", "desc": "GenAI Reporting / Disclosure", "source": "template"},
     # AMS 708 — CCHCS/CDCR replacement for STD 1000. 2026-05-12: rfq_0ebe242f
     # email contract explicitly: "New GENAI form (AMS 708) required in RFQ
     # packages moving forward / STD 1000 can no longer be accepted". The
@@ -56,15 +61,15 @@ AVAILABLE_FORMS = [
     # the standalone filler logs absence and skips. The 708 fields inside
     # the bid package PDF (when the buyer ships one with 708_* AcroForm
     # fields) are unaffected.
-    {"id": "ams708", "name": "AMS 708", "desc": "Generative AI Use Disclosure (replaces STD 1000)"},
-    {"id": "drug_free", "name": "Drug-Free STD 21", "desc": "Drug-Free Workplace"},
-    {"id": "barstow_cuf", "name": "Barstow CUF", "desc": "Barstow facility CUF"},
-    {"id": "obs_1600", "name": "OBS 1600", "desc": "Food Product Certification"},
-    {"id": "w9", "name": "W-9", "desc": "IRS W-9 Tax Form"},
-    {"id": "dsh_attA", "name": "DSH Attachment A", "desc": "Vendor Information"},
-    {"id": "dsh_attB", "name": "DSH Attachment B", "desc": "Bidder Declaration"},
-    {"id": "dsh_attC", "name": "DSH Attachment C", "desc": "Darfur / Certifications"},
-    {"id": "cchcs_it_rfq", "name": "CCHCS IT RFQ", "desc": "CDCR/CCHCS IT Goods & Services RFQ (Non-Cloud)"},
+    {"id": "ams708", "name": "AMS 708", "desc": "Generative AI Use Disclosure (replaces STD 1000)", "source": "template"},
+    {"id": "drug_free", "name": "Drug-Free STD 21", "desc": "Drug-Free Workplace", "source": "generated"},
+    {"id": "barstow_cuf", "name": "Barstow CUF", "desc": "Barstow facility CUF", "source": "generated"},
+    {"id": "obs_1600", "name": "OBS 1600", "desc": "Food Product Certification", "source": "template"},
+    {"id": "w9", "name": "W-9", "desc": "IRS W-9 Tax Form", "source": "static"},
+    {"id": "dsh_attA", "name": "DSH Attachment A", "desc": "Vendor Information", "source": "email"},
+    {"id": "dsh_attB", "name": "DSH Attachment B", "desc": "Bidder Declaration", "source": "email"},
+    {"id": "dsh_attC", "name": "DSH Attachment C", "desc": "Darfur / Certifications", "source": "email"},
+    {"id": "cchcs_it_rfq", "name": "CCHCS IT RFQ", "desc": "CDCR/CCHCS IT Goods & Services RFQ (Non-Cloud)", "source": "email"},
 ]
 
 # Patterns in email body/PDF text that indicate a specific form is required
