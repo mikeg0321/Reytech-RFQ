@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -58,17 +58,28 @@ _DATE_COLUMN: Dict[str, str] = {
     "audit_trail": "created_at",
     "recommendation_audit": "recorded_at",
     "utilization_events": "created_at",
+    "usage_events": "timestamp",
+    "notifications": "created_at",
     "lifecycle_events": "occurred_at",
 }
 
 
 # Tables the cron may purge automatically. lifecycle_events is
 # DELIBERATELY absent — compliance/audit-trail use case per handoff.
+#
+# 2026-05-28 (Mr. Wolf DB bloat audit): added `usage_events` and
+# `notifications`. `usage_events` (226K rows / 15.7 MB on prod) is
+# the unpurged sibling of the already-covered `utilization_events`
+# — same shape, different name, only one was wired in. `notifications`
+# (79K rows / 26 MB) is a pure in-app notification log with no
+# retention contract at all.
 AUTO_PURGE_ALLOWLIST = frozenset({
     "email_log",
     "audit_trail",
     "recommendation_audit",
     "utilization_events",
+    "usage_events",
+    "notifications",
 })
 
 
@@ -89,9 +100,81 @@ RETENTION_POLICY: Dict[str, int] = {
     "audit_trail": 90,          # 3mo of field-change history.
     "recommendation_audit": 90,  # 3mo of pricing-recommendation logs.
     "utilization_events": 30,   # Feature-use telemetry — 30d trend.
+    "usage_events": 30,         # Page/api/action telemetry. 30d covers
+                                # the get_usage_stats default window.
+    "notifications": 60,        # 60d in-app notification history. UI
+                                # surfaces "recent" only.
     "lifecycle_events": 365,    # Compliance trail — 1yr safety floor
                                 # if Phase 2 ever opts it in.
 }
+
+
+# Substrate-singleness pin (2026-05-28). Event-log-shaped tables are
+# the bug class that produced the bloat audit: a new "_events" /
+# "_log" / "notifications" table ships, retention has no entry for
+# it, the cron leaves it alone forever, and 6 months later the table
+# is the dominant DB offender.
+#
+# `event_shaped_tables()` enumerates `sqlite_master` and flags every
+# table whose NAME matches a log-shape pattern. The companion test
+# in `tests/test_db_retention.py` asserts each such table is in
+# AUTO_PURGE_ALLOWLIST or COMPLIANCE_OPT_IN_ALLOWLIST. Adding a new
+# `*_log` / `*_events` table without a retention entry fails the
+# build. The next deferral is intentional + visible, not silent.
+_EVENT_SHAPED_NAME_PATTERNS: Tuple[str, ...] = (
+    "_log",
+    "_events",
+    "_history",
+    "audit_",       # audit_trail, audit_log
+    "_audit",       # recommendation_audit, price_audit
+    "_telemetry",
+    "_heartbeat",
+    "notifications",
+)
+
+
+def event_shaped_tables(
+    conn: Optional[sqlite3.Connection] = None,
+) -> List[str]:
+    """Return user tables whose name matches a log-shape pattern.
+
+    Used by the substrate pin test. Matches are substring-based on
+    `_EVENT_SHAPED_NAME_PATTERNS`. Excludes sqlite_* internal tables.
+
+    Some matched tables may be in COMPLIANCE_OPT_IN_ALLOWLIST rather
+    than AUTO_PURGE_ALLOWLIST — the pin only requires *some*
+    classification, not specifically auto-purge.
+    """
+    own_conn = False
+    if conn is None:
+        try:
+            from src.core.db import get_db
+        except Exception:
+            return []
+        ctx = get_db()
+        conn = ctx.__enter__()
+        own_conn = True
+
+    try:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+            "ORDER BY name"
+        ).fetchall()
+        names = [
+            (r["name"] if isinstance(r, sqlite3.Row) else r[0])
+            for r in rows
+        ]
+        return sorted([
+            n for n in names
+            if any(pat in n for pat in _EVENT_SHAPED_NAME_PATTERNS)
+        ])
+    finally:
+        if own_conn:
+            try:
+                ctx.__exit__(None, None, None)
+            except Exception:
+                pass
 
 
 # Validate at import time so a typo in any allowlist trips boot
