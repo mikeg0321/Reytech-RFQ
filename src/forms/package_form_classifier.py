@@ -15,8 +15,18 @@ Extracting both call sites onto this single helper:
 
 The order of checks below is significant: more specific patterns
 must come before generic substrings (e.g. `barstow` before `cuf`,
-`703b/703c` before plain `703`). When in doubt: list the
+each 703 revision before plain `703`). When in doubt: list the
 facility-specific or solicitation-specific token first.
+
+703 revision identity (added 2026-05-27 after the Coleman 10842771
+incident): `703a`, `703b`, and `703c` are THREE DISTINCT form_ids in
+`AVAILABLE_FORMS` (`src/core/agency_config.py`). Pre-2026-05-27 this
+file collapsed `703c → 703b` and had NO `703a` check at all — the
+buyer's 703A Rev. 03/2025 PDF was written to disk but tagged
+`"unknown"`, and Form QA reported `703a` missing on every Coleman
+package even though the file was bundled into the merged Package PDF.
+Keep these as three distinct return values so the next 703 revision
+(703D, etc.) lands in one obvious place.
 """
 from __future__ import annotations
 
@@ -31,8 +41,14 @@ def classify_package_filename(filename: str) -> str:
     name = (filename or "").lower()
     if "quote" in name and "704" not in name:
         return "quote"
-    if "703b" in name or "703c" in name:
+    # 703 family: each revision is a distinct form_id. List most-specific
+    # variants explicitly so the next revision adds a single new branch.
+    if "703a" in name:
+        return "703a"
+    if "703b" in name:
         return "703b"
+    if "703c" in name:
+        return "703c"
     if "704b" in name:
         return "704b"
     if "calrecycle" in name:
