@@ -30,8 +30,13 @@ def drain_skips() -> list[SkipReason]:
     return drained
 
 AVAILABLE_FORMS = [
-    {"id": "703b", "name": "AMS 703B", "desc": "RFQ Pricing Form"},
-    {"id": "703c", "name": "AMS 703C", "desc": "Fair & Reasonable Form"},
+    # 703A = current CCHCS revision (Rev. 03/2025) — see Coleman sol# 10842771
+    # 2026-05-21. 703B = prior revision. 703C = IT-RFQ variant
+    # (Fair & Reasonable). Each buyer attaches exactly one of the three;
+    # the render seam picks the present revision from `templates` keys.
+    {"id": "703a", "name": "AMS 703A", "desc": "RFQ Pricing Form (Rev. 03/2025)"},
+    {"id": "703b", "name": "AMS 703B", "desc": "RFQ Pricing Form (prior revision)"},
+    {"id": "703c", "name": "AMS 703C", "desc": "Fair & Reasonable Form (IT-RFQ variant)"},
     {"id": "704b", "name": "AMS 704B", "desc": "Quote Worksheet"},
     {"id": "bidpkg", "name": "Bid Package", "desc": "Agency Bid Package"},
     {"id": "quote", "name": "Reytech Quote", "desc": "Formal quote on letterhead"},
@@ -84,6 +89,7 @@ FORM_TEXT_PATTERNS = {
     "drug_free":    ["DRUG-FREE", "DRUG FREE WORKPLACE"],
     "obs_1600":     ["OBS 1600", "FOOD PRODUCT", "AGRICULTURAL PRODUCT"],
     "quote":        ["YOUR QUOTE", "YOUR BID", "PRICE QUOTE", "QUOTATION"],
+    "703a":         ["703A", "703-A", "AMS 703A", "AMS 703-A"],
     "703b":         ["703B", "703-B", "AMS 703B", "AMS 703-B"],
     "703c":         ["703C", "703-C", "AMS 703C", "FAIR AND REASONABLE"],
     "704b":         ["704B", "704-B", "AMS 704B", "AMS 704-B"],
@@ -187,9 +193,24 @@ DEFAULT_AGENCY_CONFIGS = {
             "SAN QUENTIN", "PELICAN BAY", "CORCORAN", "AVENAL",
             "CCHCS.CA.GOV", "CDCR.CA.GOV",
         ],
-        "required_forms": ["703b", "704b", "bidpkg", "quote"],
+        # All three 703 revisions are listed because the buyer chooses which
+        # to attach (703A = Rev. 03/2025 current; 703B = prior; 703C = IT-RFQ).
+        # The rev-aware filter at routes_rfq_gen.py near `_uploaded_tmpls`
+        # drops the missing-revision entries from the rendered set — only
+        # the present one renders. Without all three listed here, the
+        # filter has nothing to pick from on a non-default revision.
+        #
+        # sellers_permit deliberately NOT in required_forms — it lives
+        # INSIDE the bid-package PDF concatenation (per CLAUDE.md Form
+        # Filling Guard Rails: "DVBE 843, seller's permit, CalRecycle
+        # are INSIDE the bid package. Never generate standalone."), pinned
+        # by tests/test_agency_config.py::test_cchcs_package_is_minimal.
+        # If a CCHCS package ships without the permit page, the bug is
+        # in the bid-package builder (src/forms/reytech_filler_v4.py::
+        # fill_bid_package), not here.
+        "required_forms": ["703a", "703b", "703c", "704b", "bidpkg", "quote"],
         "primary_response_form": "704b",
-        "optional_forms": ["703c", "dvbe843", "bidder_decl", "calrecycle74",
+        "optional_forms": ["dvbe843", "bidder_decl", "calrecycle74",
                            "sellers_permit", "std204", "std1000", "ams708"],
         "notes": "LEGACY Regenerate path only. Authoritative CCHCS bill-to data "
                  "lives in src/spine/agency_constants.py per PR #1155. Restored "
