@@ -369,3 +369,43 @@ class TestSubstrateSingleness:
                 f"{required!r} missing from AVAILABLE_FORMS — every new "
                 f"703 revision lives here, not in a route module."
             )
+
+    def test_routes_analytics_default_agency_configs_is_canonical(self):
+        """routes_analytics.DEFAULT_AGENCY_CONFIGS must BE the canonical
+        dict, not a copy. Mirrors the AVAILABLE_FORMS identity pin above.
+
+        Seam #2 closure 2026-05-27: the prior duplicate at
+        routes_analytics.py:3617 drifted from canonical — missing 703a/c
+        on cchcs (PR #1165 patched), narrower match_patterns across every
+        agency, stale dsh shape (703b/704b instead of dsh_attA/B/C), and
+        referenced 'genai_708' which is not a registered form_id.
+        Collapsing to a single import + this identity test prevents
+        re-divergence; the next 5 agencies (cdfa/dca/chp/edd/judicial)
+        landed in canonical first so the collapse didn't lose support.
+        """
+        from src.core.agency_config import DEFAULT_AGENCY_CONFIGS as canonical
+        from src.api.modules.routes_analytics import DEFAULT_AGENCY_CONFIGS as routes_copy
+        assert routes_copy is canonical, (
+            "routes_analytics.DEFAULT_AGENCY_CONFIGS must be the canonical "
+            "dict from src.core.agency_config. If this fails, someone "
+            "redeclared the dict — collapse it back to a single import."
+        )
+
+    def test_canonical_default_agency_configs_covers_all_12(self):
+        """The full agency set must live in canonical so the import
+        collapse doesn't silently shrink coverage. Pinned 2026-05-27
+        as part of seam #2 close — the prior duplicate was the only
+        source for cdfa/dca/chp/edd/judicial."""
+        from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
+        required_keys = {
+            "calvet", "calvet_barstow", "cchcs", "dsh", "dgs", "calfire",
+            "cdfa", "dca", "chp", "edd", "judicial", "other",
+        }
+        missing = required_keys - set(DEFAULT_AGENCY_CONFIGS.keys())
+        assert not missing, (
+            f"Canonical DEFAULT_AGENCY_CONFIGS missing agencies: {missing}. "
+            f"Each must declare match_patterns + required_forms + "
+            f"primary_response_form + the standard markup/payment/shipping "
+            f"fields. The routes_analytics duplicate that previously held "
+            f"these was collapsed in PR seam-#2 (2026-05-27)."
+        )
