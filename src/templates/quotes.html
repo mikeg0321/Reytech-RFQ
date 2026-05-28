@@ -2,342 +2,351 @@
 {% block title %}Quotes Database — Reytech{% endblock %}
 
 {% block content %}
-     <!-- Header -->
-     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <h2 style="margin:0;font-size:20px;font-weight:700">📋 Quotes Database</h2>
-      <div style="display:flex;gap:8px;align-items:center">
-       <span id="award-tracker-tile" style="display:none;font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);font-family:'JetBrains Mono',monospace" title="Click to refresh"></span>
-       <button type="button" id="award-audit-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="runAwardAuditNow(this)" title="Run SCPRS audit now (force-check pending quotes against SCPRS for losses)">🏆 Audit Now</button>
-       <button type="button" id="reconcile-po-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="reconcilePoPrompt()" title="Manually attach a PO number to a pending quote (recovery for the markQuote silent no-op window Feb 17 → Apr 15)">📝 Reconcile PO</button>
-       <button type="button" id="oracle-backfill-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="runOracleBackfill(this)" title="Feed all historical won/lost data through oracle calibration — makes future pricing smarter">🧠 Backfill Oracle</button>
-       <a href="/pipeline" class="btn btn-s" style="font-size:14px;font-weight:600">🔄 Pipeline</a>
-       <a href="/growth-intel" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth</a>
-      </div>
-     </div>
+{# 2026-05-28 UI/UX redesign port. Server context preserved:
+   stat_total, stat_won, stat_lost, stat_pending, stat_won_total,
+   stat_win_rate, has_filter, q, status_filter, agency_filter,
+   since_filter, page, total_pages, total_quotes, rows_html (safe).
+   JS preserved: awardTrackerTile, reconcilePoPrompt, runOracleBackfill,
+   runAwardAuditNow, pdfPreviewModal. All data-testid + data-chip-*
+   attrs preserved for existing tests. Modal DOM ids preserved. #}
 
-     <!-- KPI Cards — scoped to active filter when any facet is set -->
-     {% if has_filter %}
-     <div data-testid="quotes-kpis-filtered-indicator"
-          style="font-size:11px;color:var(--tx2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">
-      Stats scoped to current filter
-     </div>
-     {% endif %}
-     <div data-testid="quotes-kpi-grid"
-          data-kpi-scope="{{ 'filtered' if has_filter else 'global' }}"
-          style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
-      {% for val, label, color in [
-        (stat_total, 'Total', 'var(--ac)'),
-        (stat_won, 'Won', '#3fb950'),
-        (stat_lost, 'Lost', '#f85149'),
-        (stat_pending, 'Pending', '#d29922'),
-        ("${:,.0f}".format(stat_won_total), 'Won $', '#3fb950'),
-        (stat_win_rate|string + '%', 'Win Rate', '#3fb950' if stat_win_rate >= 50 else '#d29922' if stat_win_rate >= 30 else '#f85149'),
-      ] %}
-      <div class="card" style="text-align:center;padding:12px;margin:0">
-       <div style="font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}};line-height:1">{{val}}</div>
-       <div style="font-size:13px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">{{label}}</div>
-      </div>
-      {% endfor %}
-     </div>
+<div class="r-app">
 
-     {# ── Chip-URL helper — build a URL that changes one facet while
-           preserving the others. Keeps deep links honest and lets the
-           operator stack filters (status × agency × since × search). #}
-     {% macro chip_href(override={}) -%}
-       ?{% set pairs = [
-         ('q', override.q if 'q' in override else q),
-         ('status', override.status if 'status' in override else status_filter),
-         ('agency', override.agency if 'agency' in override else agency_filter),
-         ('since', override.since if 'since' in override else since_filter),
-       ] -%}
-       {%- for k, v in pairs if v -%}{{ k }}={{ v|urlencode }}{% if not loop.last %}&{% endif %}{% endfor -%}
-     {%- endmacro %}
+  <!-- Header + action cluster -->
+  <div style="display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap">
+    <div>
+      <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em">Quotes Database</h1>
+      <p style="margin:4px 0 0;font-size:14px;color:var(--r-text-muted)">All quotes · won/lost/pending tracking · SCPRS audit</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span id="award-tracker-tile" class="num" style="display:none;font-size:11px;padding:6px 12px;border-radius:8px;border:1px solid var(--r-border);background:var(--r-bg-elev)" title="Click to refresh"></span>
+      <button type="button" id="award-audit-btn" class="r-btn r-btn-sm" onclick="runAwardAuditNow(this)" title="Run SCPRS audit now (force-check pending quotes against SCPRS for losses)">🏆 Audit Now</button>
+      <button type="button" id="reconcile-po-btn" class="r-btn r-btn-sm" onclick="reconcilePoPrompt()" title="Manually attach a PO number to a pending quote">📝 Reconcile PO</button>
+      <button type="button" id="oracle-backfill-btn" class="r-btn r-btn-sm" onclick="runOracleBackfill(this)" title="Feed all historical won/lost data through oracle calibration">🧠 Backfill Oracle</button>
+      <a href="/pipeline" class="r-btn r-btn-sm" style="text-decoration:none">🔄 Pipeline</a>
+      <a href="/growth-intel" class="r-btn r-btn-sm" style="text-decoration:none">🚀 Growth</a>
+    </div>
+  </div>
 
-     <!-- Status chip row — one-click status filter -->
-     <div role="group" aria-label="Quick status filter" data-testid="quotes-status-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-      {% for chip_key, chip_label in [
-        ('', 'All'),
-        ('pending', '⏳ Pending'),
-        ('won', '✅ Won'),
-        ('lost', '❌ Lost'),
-        ('sent', '📤 Sent'),
-        ('expired', '⏰ Expired'),
-      ] %}
-      <a href="{{ chip_href({'status': chip_key}) }}"
-         data-chip-status="{{ chip_key or 'all' }}"
-         class="quote-chip{% if status_filter == chip_key %} quote-chip-active{% endif %}"
-         style="text-decoration:none;padding:4px 12px;border-radius:999px;border:1px solid var(--bd);color:var(--tx2);font-size:12px;{% if status_filter == chip_key %}background:var(--tx);color:var(--bg);border-color:var(--tx);font-weight:600;{% endif %}">
-        {{ chip_label }}
-      </a>
-      {% endfor %}
-     </div>
+  {% if has_filter %}
+  <div data-testid="quotes-kpis-filtered-indicator"
+       style="font-size:10px;color:var(--r-text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em">
+    Stats scoped to current filter
+  </div>
+  {% endif %}
 
-     <!-- Agency chip row — canonical set only. We deliberately don't union
-          in `agencies_in_set` because when the operator is already filtered
-          to one agency, the unfiltered extras would collapse and any
-          typo/stale agency would become unreachable. -->
-     {% set _agency_keys = ['CDCR', 'CCHCS', 'CalVet', 'DGS', 'DSH'] %}
-     <div role="group" aria-label="Filter by agency" data-testid="quotes-agency-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center">
-      <span style="font-size:11px;color:var(--tx2);margin-right:4px">Agency:</span>
-      <a href="{{ chip_href({'agency': ''}) }}"
-         data-chip-agency="all"
-         class="quote-chip{% if not agency_filter %} quote-chip-active{% endif %}"
-         style="text-decoration:none;padding:3px 10px;border-radius:999px;border:1px solid var(--bd);color:var(--tx2);font-size:11px;{% if not agency_filter %}background:var(--tx);color:var(--bg);border-color:var(--tx);font-weight:600;{% endif %}">All</a>
-      {% for a in _agency_keys %}
-      <a href="{{ chip_href({'agency': a}) }}"
-         data-chip-agency="{{ a }}"
-         class="quote-chip{% if agency_filter == a %} quote-chip-active{% endif %}"
-         style="text-decoration:none;padding:3px 10px;border-radius:999px;border:1px solid var(--bd);color:var(--tx2);font-size:11px;{% if agency_filter == a %}background:var(--tx);color:var(--bg);border-color:var(--tx);font-weight:600;{% endif %}">{{ a }}</a>
-      {% endfor %}
-     </div>
+  {# 6 KPIs — same server vars, .r-kpi visual. #}
+  <div data-testid="quotes-kpi-grid"
+       data-kpi-scope="{{ 'filtered' if has_filter else 'global' }}"
+       class="r-grid r-grid-6" style="margin-bottom:14px">
+    <div class="r-kpi"><div class="r-kpi-label">Total</div><div class="r-kpi-value is-accent">{{ stat_total }}</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Won</div><div class="r-kpi-value is-accent">{{ stat_won }}</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Lost</div><div class="r-kpi-value is-bad">{{ stat_lost }}</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Pending</div><div class="r-kpi-value" style="color:var(--r-warn)">{{ stat_pending }}</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Won $</div><div class="r-kpi-value is-accent">${{ "{:,.0f}".format(stat_won_total) }}</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Win rate</div>
+      <div class="r-kpi-value" style="color:{{ 'var(--r-accent)' if stat_win_rate >= 50 else 'var(--r-warn)' if stat_win_rate >= 30 else 'var(--r-bad)' }}">{{ stat_win_rate }}%</div>
+    </div>
+  </div>
 
-     <!-- Time + Search row -->
-     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-      <a href="{{ chip_href({'since': '' if since_filter == '24h' else '24h'}) }}"
-         data-testid="quotes-since-24h"
-         data-chip-since="{{ '24h' if since_filter == '24h' else 'all' }}"
-         class="quote-chip{% if since_filter == '24h' %} quote-chip-active{% endif %}"
-         title="Show only quotes generated in the last 24 hours"
-         style="text-decoration:none;padding:4px 12px;border-radius:999px;border:1px solid var(--bd);color:var(--tx2);font-size:12px;{% if since_filter == '24h' %}background:var(--tx);color:var(--bg);border-color:var(--tx);font-weight:600;{% endif %}">
-        ⏱ Last 24h
-      </a>
-      <form method="get" style="display:flex;gap:8px;flex:1;min-width:240px">
-       {# Hidden fields preserve chip state when submitting a new search. #}
-       {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
-       {% if agency_filter %}<input type="hidden" name="agency" value="{{ agency_filter }}">{% endif %}
-       {% if since_filter %}<input type="hidden" name="since" value="{{ since_filter }}">{% endif %}
-       <input name="q" value="{{ q }}" placeholder="Search quotes, institutions, items, part numbers, RFQ #..." aria-label="Search quotes" style="flex:1;min-width:240px;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
-       <button type="submit" class="btn btn-p" style="padding:10px 18px;font-size:13px">🔍 Search</button>
-      </form>
-     </div>
+  {# Chip-URL helper — preserves the other facets when changing one. #}
+  {% macro chip_href(override={}) -%}
+    ?{% set pairs = [
+      ('q', override.q if 'q' in override else q),
+      ('status', override.status if 'status' in override else status_filter),
+      ('agency', override.agency if 'agency' in override else agency_filter),
+      ('since', override.since if 'since' in override else since_filter),
+    ] -%}
+    {%- for k, v in pairs if v -%}{{ k }}={{ v|urlencode }}{% if not loop.last %}&{% endif %}{% endfor -%}
+  {%- endmacro %}
 
-     <!-- Quotes Table — flush, full width -->
-     <div class="card" style="padding:0;overflow-x:auto">
-      <table class="home-tbl" style="min-width:900px">
-       <thead><tr>
-        <th style="width:80px">Quote #</th><th style="width:100px">Date</th><th style="width:70px">Agency</th><th>Institution</th><th style="width:100px">RFQ #</th>
-        <th style="text-align:right;width:90px">Total</th><th style="width:50px;text-align:center">Items</th><th style="width:80px;text-align:center">Status</th><th style="width:100px;text-align:center">Actions</th>
-       </tr></thead>
-       <tbody>{% if rows_html %}{{ rows_html|safe }}{% else %}<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>{% endif %}</tbody>
-      </table>
-     </div>
-     {% if total_pages|default(1) > 1 %}
-     <div style="display:flex;justify-content:center;align-items:center;gap:8px;padding:12px;font-size:14px">
-      {% if page|default(1) > 1 %}
-      <a href="?page={{ page - 1 }}&q={{ q|default('') }}&agency={{ agency_filter|default('') }}&status={{ status_filter|default('') }}&since={{ since_filter|default('') }}" class="btn" style="padding:6px 14px;font-size:13px">Previous</a>
-      {% endif %}
-      <span style="color:var(--tx2)">Page {{ page|default(1) }} of {{ total_pages|default(1) }} ({{ total_quotes|default(0) }} quotes)</span>
-      {% if page|default(1) < total_pages|default(1) %}
-      <a href="?page={{ page + 1 }}&q={{ q|default('') }}&agency={{ agency_filter|default('') }}&status={{ status_filter|default('') }}&since={{ since_filter|default('') }}" class="btn" style="padding:6px 14px;font-size:13px">Next</a>
-      {% endif %}
-     </div>
-     {% endif %}
+  <!-- Status chips -->
+  <div role="group" aria-label="Quick status filter" data-testid="quotes-status-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+    {% for chip_key, chip_label in [
+      ('', 'All'),
+      ('pending', '⏳ Pending'),
+      ('won', '✅ Won'),
+      ('lost', '❌ Lost'),
+      ('sent', '📤 Sent'),
+      ('expired', '⏰ Expired'),
+    ] %}
+    <a href="{{ chip_href({'status': chip_key}) }}"
+       data-chip-status="{{ chip_key or 'all' }}"
+       class="quote-chip{% if status_filter == chip_key %} quote-chip-active{% endif %}"
+       style="text-decoration:none;padding:5px 14px;border-radius:9999px;border:1px solid var(--r-border-soft);color:var(--r-text-muted);font-size:12px;transition:all 120ms;{% if status_filter == chip_key %}background:var(--r-text);color:var(--r-bg);border-color:var(--r-text);font-weight:600;{% endif %}">
+      {{ chip_label }}
+    </a>
+    {% endfor %}
+  </div>
 
-     <!-- PDF Preview Modal — shared, opened by .quote-preview-btn rows -->
-     <div id="pdf-preview-backdrop" role="presentation"
-          style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;align-items:center;justify-content:center;padding:24px">
-      <div role="dialog" aria-modal="true" aria-labelledby="pdf-preview-title"
-           style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;width:min(900px,95vw);height:min(90vh,900px);display:flex;flex-direction:column;overflow:hidden">
-       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--bd)">
-        <div id="pdf-preview-title" style="font-size:14px;font-weight:600;color:var(--tx)">📄 Quote PDF</div>
+  <!-- Agency chips -->
+  {% set _agency_keys = ['CDCR', 'CCHCS', 'CalVet', 'DGS', 'DSH'] %}
+  <div role="group" aria-label="Filter by agency" data-testid="quotes-agency-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center">
+    <span style="font-size:10px;color:var(--r-text-dim);margin-right:4px;text-transform:uppercase;letter-spacing:.08em">Agency</span>
+    <a href="{{ chip_href({'agency': ''}) }}"
+       data-chip-agency="all"
+       class="quote-chip{% if not agency_filter %} quote-chip-active{% endif %}"
+       style="text-decoration:none;padding:4px 12px;border-radius:9999px;border:1px solid var(--r-border-soft);color:var(--r-text-muted);font-size:11px;{% if not agency_filter %}background:var(--r-text);color:var(--r-bg);border-color:var(--r-text);font-weight:600;{% endif %}">All</a>
+    {% for a in _agency_keys %}
+    <a href="{{ chip_href({'agency': a}) }}"
+       data-chip-agency="{{ a }}"
+       class="quote-chip{% if agency_filter == a %} quote-chip-active{% endif %}"
+       style="text-decoration:none;padding:4px 12px;border-radius:9999px;border:1px solid var(--r-border-soft);color:var(--r-text-muted);font-size:11px;{% if agency_filter == a %}background:var(--r-text);color:var(--r-bg);border-color:var(--r-text);font-weight:600;{% endif %}">{{ a }}</a>
+    {% endfor %}
+  </div>
+
+  <!-- Time + Search -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    <a href="{{ chip_href({'since': '' if since_filter == '24h' else '24h'}) }}"
+       data-testid="quotes-since-24h"
+       data-chip-since="{{ '24h' if since_filter == '24h' else 'all' }}"
+       class="quote-chip{% if since_filter == '24h' %} quote-chip-active{% endif %}"
+       title="Show only quotes generated in the last 24 hours"
+       style="text-decoration:none;padding:5px 14px;border-radius:9999px;border:1px solid var(--r-border-soft);color:var(--r-text-muted);font-size:12px;{% if since_filter == '24h' %}background:var(--r-text);color:var(--r-bg);border-color:var(--r-text);font-weight:600;{% endif %}">
+      ⏱ Last 24h
+    </a>
+    <form method="get" style="display:flex;gap:8px;flex:1;min-width:280px">
+      {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+      {% if agency_filter %}<input type="hidden" name="agency" value="{{ agency_filter }}">{% endif %}
+      {% if since_filter %}<input type="hidden" name="since" value="{{ since_filter }}">{% endif %}
+      <input name="q" value="{{ q }}" placeholder="Search quotes, institutions, items, part numbers, RFQ #…" aria-label="Search quotes"
+             style="flex:1;min-width:240px;padding:9px 14px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:9999px;color:var(--r-text);font-size:13px">
+      <button type="submit" class="r-btn r-btn-primary" style="padding:9px 18px">🔍 Search</button>
+    </form>
+  </div>
+
+  <!-- Quotes table (rows_html is server-rendered HTML) -->
+  <div class="r-card" style="padding:0;overflow-x:auto">
+    <table class="home-tbl" style="width:100%;min-width:960px;font-size:13px;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--r-border)">
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:90px">Quote #</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:110px">Date</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:80px">Agency</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500">Institution</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:110px">RFQ #</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:100px">Total</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:60px">Items</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:90px">Status</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:110px">Actions</th>
+      </tr></thead>
+      <tbody>{% if rows_html %}{{ rows_html|safe }}{% else %}<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--r-text-muted)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>{% endif %}</tbody>
+    </table>
+  </div>
+
+  {% if total_pages|default(1) > 1 %}
+  <div style="display:flex;justify-content:center;align-items:center;gap:12px;padding:14px;font-size:13px">
+    {% if page|default(1) > 1 %}
+    <a href="?page={{ page - 1 }}&q={{ q|default('') }}&agency={{ agency_filter|default('') }}&status={{ status_filter|default('') }}&since={{ since_filter|default('') }}" class="r-btn r-btn-sm" style="text-decoration:none">‹ Previous</a>
+    {% endif %}
+    <span class="num" style="color:var(--r-text-muted)">Page {{ page|default(1) }} of {{ total_pages|default(1) }} ({{ total_quotes|default(0) }} quotes)</span>
+    {% if page|default(1) < total_pages|default(1) %}
+    <a href="?page={{ page + 1 }}&q={{ q|default('') }}&agency={{ agency_filter|default('') }}&status={{ status_filter|default('') }}&since={{ since_filter|default('') }}" class="r-btn r-btn-sm" style="text-decoration:none">Next ›</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- PDF Preview Modal — same DOM ids as legacy -->
+  <div id="pdf-preview-backdrop" role="presentation"
+       style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:2000;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(4px)">
+    <div role="dialog" aria-modal="true" aria-labelledby="pdf-preview-title"
+         style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:14px;width:min(900px,95vw);height:min(90vh,900px);display:flex;flex-direction:column;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--r-border)">
+        <div id="pdf-preview-title" style="font-size:14px;font-weight:600;color:var(--r-text)">📄 Quote PDF</div>
         <div style="display:flex;gap:6px;align-items:center">
-         <a id="pdf-preview-open" href="#" target="_blank" rel="noopener"
-            class="btn btn-s" style="font-size:12px;padding:4px 10px">↗ Open in Tab</a>
-         <button id="pdf-preview-close" type="button" aria-label="Close"
-                 style="background:none;border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:14px;padding:2px 10px;border-radius:6px">✕</button>
+          <a id="pdf-preview-open" href="#" target="_blank" rel="noopener" class="r-btn r-btn-sm" style="text-decoration:none">↗ Open in Tab</a>
+          <button id="pdf-preview-close" type="button" aria-label="Close" class="r-btn r-btn-sm">✕</button>
         </div>
-       </div>
-       <iframe id="pdf-preview-iframe" src="about:blank"
-               style="flex:1;border:none;background:var(--sf2)" title="Quote PDF preview"></iframe>
       </div>
-     </div>
+      <iframe id="pdf-preview-iframe" src="about:blank" style="flex:1;border:none;background:var(--r-bg-elev)" title="Quote PDF preview"></iframe>
+    </div>
+  </div>
+
+</div>
 {% endblock %}
 
 {% block scripts %}
-     <script>
-     // Award tracker health tile + manual audit trigger.
-     // Surfaces the existing /api/intel/award-tracker/* endpoints so a
-     // silently-broken background job (cf. markQuote) shows up loudly here.
-     (function awardTrackerTile(){
-       var tile = document.getElementById('award-tracker-tile');
-       if (!tile) return;
-       var COLORS = {
-         ok:          {bg: 'rgba(63,185,80,.10)',  fg: '#3fb950', label: '🟢'},
-         stale:       {bg: 'rgba(210,153,34,.10)', fg: '#d29922', label: '🟡'},
-         dead:        {bg: 'rgba(248,113,113,.10)',fg: '#f85149', label: '🔴'},
-         not_started: {bg: 'rgba(248,113,113,.10)',fg: '#f85149', label: '🔴'},
-         no_run_yet:  {bg: 'rgba(139,148,160,.10)',fg: '#8b949e', label: '⚪'},
-       };
-       function fmtSince(sec){
-         if (sec == null) return 'never';
-         if (sec < 60) return Math.round(sec) + 's ago';
-         if (sec < 3600) return Math.round(sec/60) + 'm ago';
-         if (sec < 86400) return Math.round(sec/3600) + 'h ago';
-         return Math.round(sec/86400) + 'd ago';
-       }
-       function refresh(){
-         fetch('/api/intel/award-tracker/status', {credentials: 'same-origin'})
-           .then(function(r){return r.json()})
-           .then(function(s){
-             if (!s || s.ok === false) {
-               tile.style.display = 'inline-block';
-               tile.textContent = '🔴 award-tracker error';
-               tile.style.background = COLORS.dead.bg;
-               tile.style.color = COLORS.dead.fg;
-               return;
-             }
-             var c = COLORS[s.health] || COLORS.no_run_yet;
-             tile.style.display = 'inline-block';
-             tile.style.background = c.bg;
-             tile.style.color = c.fg;
-             var bits = [c.label, 'Award tracker: ' + s.health];
-             if (s.staleness_seconds != null) bits.push('last ' + fmtSince(s.staleness_seconds));
-             if (s.eligible_quotes != null) bits.push(s.eligible_quotes + ' eligible');
-             if (s.total_losses_detected) bits.push(s.total_losses_detected + ' losses');
-             tile.textContent = bits.join(' · ');
-             tile.title = JSON.stringify({
-               last_run: s.last_run, eligible: s.eligible_quotes,
-               wins: s.total_wins_detected, losses: s.total_losses_detected,
-               in_window: (s.schedule||{}).in_check_window,
-             }, null, 2);
-           })
-           .catch(function(e){
-             tile.style.display = 'inline-block';
-             tile.textContent = '🔴 status fetch failed';
-             tile.style.background = COLORS.dead.bg;
-             tile.style.color = COLORS.dead.fg;
-           });
-       }
-       tile.addEventListener('click', refresh);
-       refresh();
-       window._refreshAwardTrackerTile = refresh;
-     })();
+<script>
+// Award tracker tile — unchanged. Surfaces /api/intel/award-tracker/status.
+(function awardTrackerTile(){
+  var tile = document.getElementById('award-tracker-tile');
+  if (!tile) return;
+  var COLORS = {
+    ok:          {bg: 'rgba(16,185,129,.10)',  fg: 'var(--r-accent)', label: '🟢'},
+    stale:       {bg: 'rgba(245,158,11,.10)',  fg: 'var(--r-warn)',   label: '🟡'},
+    dead:        {bg: 'rgba(239,68,68,.10)',   fg: 'var(--r-bad)',    label: '🔴'},
+    not_started: {bg: 'rgba(239,68,68,.10)',   fg: 'var(--r-bad)',    label: '🔴'},
+    no_run_yet:  {bg: 'rgba(156,163,175,.10)', fg: 'var(--r-text-muted)', label: '⚪'},
+  };
+  function fmtSince(sec){
+    if (sec == null) return 'never';
+    if (sec < 60) return Math.round(sec) + 's ago';
+    if (sec < 3600) return Math.round(sec/60) + 'm ago';
+    if (sec < 86400) return Math.round(sec/3600) + 'h ago';
+    return Math.round(sec/86400) + 'd ago';
+  }
+  function refresh(){
+    fetch('/api/intel/award-tracker/status', {credentials: 'same-origin'})
+      .then(function(r){return r.json()})
+      .then(function(s){
+        if (!s || s.ok === false) {
+          tile.style.display = 'inline-block';
+          tile.textContent = '🔴 award-tracker error';
+          tile.style.background = COLORS.dead.bg;
+          tile.style.color = COLORS.dead.fg;
+          return;
+        }
+        var c = COLORS[s.health] || COLORS.no_run_yet;
+        tile.style.display = 'inline-block';
+        tile.style.background = c.bg;
+        tile.style.color = c.fg;
+        var bits = [c.label, 'Award tracker: ' + s.health];
+        if (s.staleness_seconds != null) bits.push('last ' + fmtSince(s.staleness_seconds));
+        if (s.eligible_quotes != null) bits.push(s.eligible_quotes + ' eligible');
+        if (s.total_losses_detected) bits.push(s.total_losses_detected + ' losses');
+        tile.textContent = bits.join(' · ');
+        tile.title = JSON.stringify({
+          last_run: s.last_run, eligible: s.eligible_quotes,
+          wins: s.total_wins_detected, losses: s.total_losses_detected,
+          in_window: (s.schedule||{}).in_check_window,
+        }, null, 2);
+      })
+      .catch(function(e){
+        tile.style.display = 'inline-block';
+        tile.textContent = '🔴 status fetch failed';
+        tile.style.background = COLORS.dead.bg;
+        tile.style.color = COLORS.dead.fg;
+      });
+  }
+  tile.addEventListener('click', refresh);
+  refresh();
+  window._refreshAwardTrackerTile = refresh;
+})();
 
-     window.reconcilePoPrompt = function(){
-       var qn = window.prompt('Quote number to mark WON\n(e.g. R26Q500):');
-       if (!qn || !qn.trim()) return;
-       qn = qn.trim();
-       var po = window.prompt('PO number for ' + qn + ':');
-       if (!po || !po.trim()) return;
-       po = po.trim();
-       var notes = window.prompt('Notes (optional):', 'manual recon — markQuote was silent no-op') || '';
-       rtConfirm('Mark ' + qn + ' as WON with PO ' + po + '?', function(){
-         var body = {po_number: po, quote_number: qn, notes: notes};
-         fetch('/api/quotes/reconcile-po', {
-           method: 'POST', credentials: 'same-origin',
-           headers: {'Content-Type': 'application/json'},
-           body: JSON.stringify(body)
-         }).then(function(r){
-           if (r.status === 409) {
-             return r.json().then(function(d){
-               if (window.confirm('Quote already ' + d.current_status + ' (PO: ' + (d.current_po_number || 'none') + '). Overwrite?')) {
-                 body.force = true;
-                 return fetch('/api/quotes/reconcile-po', {
-                   method: 'POST', credentials: 'same-origin',
-                   headers: {'Content-Type': 'application/json'},
-                   body: JSON.stringify(body)
-                 }).then(function(r2){return r2.json()});
-               }
-               return null;
-             });
-           }
-           return r.json();
-         }).then(function(d){
-           if (!d) return;
-           if (d.ok) {
-             alert('✅ Reconciled: ' + d.quote_number + ' → WON (PO ' + d.po_number + ')');
-             location.reload();
-           } else {
-             alert('❌ ' + (d.error || 'unknown error'));
-           }
-         }).catch(function(e){ alert('Network error: ' + e); });
-       }, 0);
-     };
+window.reconcilePoPrompt = function(){
+  var qn = window.prompt('Quote number to mark WON\n(e.g. R26Q500):');
+  if (!qn || !qn.trim()) return;
+  qn = qn.trim();
+  var po = window.prompt('PO number for ' + qn + ':');
+  if (!po || !po.trim()) return;
+  po = po.trim();
+  var notes = window.prompt('Notes (optional):', 'manual recon — markQuote was silent no-op') || '';
+  rtConfirm('Mark ' + qn + ' as WON with PO ' + po + '?', function(){
+    var body = {po_number: po, quote_number: qn, notes: notes};
+    fetch('/api/quotes/reconcile-po', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(r){
+      if (r.status === 409) {
+        return r.json().then(function(d){
+          if (window.confirm('Quote already ' + d.current_status + ' (PO: ' + (d.current_po_number || 'none') + '). Overwrite?')) {
+            body.force = true;
+            return fetch('/api/quotes/reconcile-po', {
+              method: 'POST', credentials: 'same-origin',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(body)
+            }).then(function(r2){return r2.json()});
+          }
+          return null;
+        });
+      }
+      return r.json();
+    }).then(function(d){
+      if (!d) return;
+      if (d.ok) {
+        alert('✓ Reconciled: ' + d.quote_number + ' → WON (PO ' + d.po_number + ')');
+        location.reload();
+      } else {
+        alert('✕ ' + (d.error || 'unknown error'));
+      }
+    }).catch(function(e){ alert('Network error: ' + e); });
+  }, 0);
+};
 
-     window.runOracleBackfill = function(btn){
-       if (btn) { btn._origText = btn.textContent; btn.textContent = '⏳ Backfilling...'; btn.disabled = true; }
-       fetch('/api/oracle/backfill-all', {
-         method: 'POST', credentials: 'same-origin',
-         headers: {'Content-Type': 'application/json'},
-         body: JSON.stringify({})
-       }).then(function(r){return r.json()}).then(function(d){
-         if (btn) { btn.disabled = false; btn.textContent = btn._origText || '🧠 Backfill Oracle'; }
-         var won = (d && d.quotes_won) || 0;
-         var lost = (d && d.quotes_lost) || 0;
-         var cal = (d && d.calibrations_written) || 0;
-         var errs = (d && d.errors) ? d.errors.length : 0;
-         alert('Oracle backfill complete:\n  Won quotes: ' + won + '\n  Lost quotes: ' + lost + '\n  Calibrations written: ' + cal + (errs ? '\n  Errors: ' + errs : ''));
-         if (window._refreshAwardTrackerTile) window._refreshAwardTrackerTile();
-       }).catch(function(e){
-         if (btn) { btn.disabled = false; btn.textContent = btn._origText || '🧠 Backfill Oracle'; }
-         alert('Backfill error: ' + e);
-       });
-     };
+window.runOracleBackfill = function(btn){
+  if (btn) { btn._origText = btn.textContent; btn.textContent = '⏳ Backfilling…'; btn.disabled = true; }
+  fetch('/api/oracle/backfill-all', {
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  }).then(function(r){return r.json()}).then(function(d){
+    if (btn) { btn.disabled = false; btn.textContent = btn._origText || '🧠 Backfill Oracle'; }
+    var won = (d && d.quotes_won) || 0;
+    var lost = (d && d.quotes_lost) || 0;
+    var cal = (d && d.calibrations_written) || 0;
+    var errs = (d && d.errors) ? d.errors.length : 0;
+    alert('Oracle backfill complete:\n  Won quotes: ' + won + '\n  Lost quotes: ' + lost + '\n  Calibrations written: ' + cal + (errs ? '\n  Errors: ' + errs : ''));
+    if (window._refreshAwardTrackerTile) window._refreshAwardTrackerTile();
+  }).catch(function(e){
+    if (btn) { btn.disabled = false; btn.textContent = btn._origText || '🧠 Backfill Oracle'; }
+    alert('Backfill error: ' + e);
+  });
+};
 
-     window.runAwardAuditNow = function(btn){
-       if (btn) {
-         btn._origText = btn.textContent;
-         btn.textContent = '⏳ Auditing...';
-         btn.disabled = true;
-       }
-       fetch('/api/intel/award-tracker/run', {
-         method: 'POST',
-         credentials: 'same-origin',
-         headers: {'Content-Type': 'application/json'},
-         body: JSON.stringify({force: true})
-       }).then(function(r){return r.json()}).then(function(d){
-         if (btn) {
-           btn.disabled = false;
-           btn.textContent = btn._origText || '🏆 Audit Now';
-         }
-         var checked = (d && d.checked) || 0;
-         var matches = (d && d.matches) || 0;
-         var losses = (d && d.losses) || 0;
-         alert('Audit complete:\n  checked: ' + checked + '\n  matches: ' + matches + '\n  losses: ' + losses + (d && d.error ? '\n  error: ' + d.error : ''));
-         if (window._refreshAwardTrackerTile) window._refreshAwardTrackerTile();
-         if (matches > 0 || losses > 0) location.reload();
-       }).catch(function(e){
-         if (btn) {
-           btn.disabled = false;
-           btn.textContent = btn._origText || '🏆 Audit Now';
-         }
-         alert('Audit error: ' + e);
-       });
-     };
+window.runAwardAuditNow = function(btn){
+  if (btn) {
+    btn._origText = btn.textContent;
+    btn.textContent = '⏳ Auditing…';
+    btn.disabled = true;
+  }
+  fetch('/api/intel/award-tracker/run', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({force: true})
+  }).then(function(r){return r.json()}).then(function(d){
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn._origText || '🏆 Audit Now';
+    }
+    var checked = (d && d.checked) || 0;
+    var matches = (d && d.matches) || 0;
+    var losses = (d && d.losses) || 0;
+    alert('Audit complete:\n  checked: ' + checked + '\n  matches: ' + matches + '\n  losses: ' + losses + (d && d.error ? '\n  error: ' + d.error : ''));
+    if (window._refreshAwardTrackerTile) window._refreshAwardTrackerTile();
+    if (matches > 0 || losses > 0) location.reload();
+  }).catch(function(e){
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn._origText || '🏆 Audit Now';
+    }
+    alert('Audit error: ' + e);
+  });
+};
 
-     // PDF preview modal — delegated click handler so dynamically-rendered rows work.
-     (function pdfPreviewModal(){
-       var backdrop = document.getElementById('pdf-preview-backdrop');
-       var iframe   = document.getElementById('pdf-preview-iframe');
-       var title    = document.getElementById('pdf-preview-title');
-       var openBtn  = document.getElementById('pdf-preview-open');
-       var closeBtn = document.getElementById('pdf-preview-close');
-       if (!backdrop || !iframe) return;
-       function open(url, qn){
-         iframe.src = url;
-         if (openBtn) openBtn.href = url;
-         if (title)   title.textContent = '📄 Quote PDF' + (qn ? ' — ' + qn : '');
-         backdrop.style.display = 'flex';
-         document.body.style.overflow = 'hidden';
-       }
-       function close(){
-         backdrop.style.display = 'none';
-         iframe.src = 'about:blank';
-         document.body.style.overflow = '';
-       }
-       document.addEventListener('click', function(e){
-         var btn = e.target.closest && e.target.closest('.quote-preview-btn');
-         if (!btn) return;
-         e.preventDefault();
-         var url = btn.getAttribute('data-pdf-url');
-         var qn  = btn.getAttribute('data-quote-num') || '';
-         if (url) open(url, qn);
-       });
-       if (closeBtn) closeBtn.addEventListener('click', close);
-       backdrop.addEventListener('click', function(e){ if (e.target === backdrop) close(); });
-       document.addEventListener('keydown', function(e){
-         if (e.key === 'Escape' && backdrop.style.display === 'flex') close();
-       });
-     })();
-     </script>
+// PDF preview modal — same DOM ids, delegated click handler unchanged.
+(function pdfPreviewModal(){
+  var backdrop = document.getElementById('pdf-preview-backdrop');
+  var iframe   = document.getElementById('pdf-preview-iframe');
+  var title    = document.getElementById('pdf-preview-title');
+  var openBtn  = document.getElementById('pdf-preview-open');
+  var closeBtn = document.getElementById('pdf-preview-close');
+  if (!backdrop || !iframe) return;
+  function open(url, qn){
+    iframe.src = url;
+    if (openBtn) openBtn.href = url;
+    if (title)   title.textContent = '📄 Quote PDF' + (qn ? ' — ' + qn : '');
+    backdrop.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function close(){
+    backdrop.style.display = 'none';
+    iframe.src = 'about:blank';
+    document.body.style.overflow = '';
+  }
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest && e.target.closest('.quote-preview-btn');
+    if (!btn) return;
+    e.preventDefault();
+    var url = btn.getAttribute('data-pdf-url');
+    var qn  = btn.getAttribute('data-quote-num') || '';
+    if (url) open(url, qn);
+  });
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', function(e){ if (e.target === backdrop) close(); });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && backdrop.style.display === 'flex') close();
+  });
+})();
+</script>
 {% endblock %}
