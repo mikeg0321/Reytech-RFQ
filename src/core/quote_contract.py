@@ -195,13 +195,22 @@ class QuoteContract:
 
     @property
     def tax_cents(self) -> int:
-        # When shipping is bundled INTO the vendor unit price
-        # ("included"), tax to the agency = $0 — the reseller absorbs
-        # the sales tax inside its markup. This is Mike's 3-month rule
-        # (RFQ e02b7fa6 PVSP 2026-05-13 was the canonical drift case:
-        # Quote PDF stamped $322 tax against a $0 canonical).
-        if self.shipping_option == "included":
-            return 0
+        # Tax is computed unconditionally from subtotal × rate. The prior
+        # `shipping_option == "included" → 0` shortcut (PR #1120 era) was
+        # wrong for the actual Reytech workflow: the formal Reytech Quote
+        # PDF carries tax as a separate line even when shipping is bundled
+        # into the unit price; the 704B form-fill is the ONE place that
+        # suppresses the tax line, per the buyer's own form text ("Do not
+        # include sales tax. If awarded, applicable sales tax will be added
+        # to the resulting purchase order." — AMS 704B header). The KPI
+        # strip + formal Quote PDF must show the math; the 704B renderer
+        # in src/forms/cchcs_attachment_fillers.py fills only the
+        # MERCHANDISE SUBTOTAL field and does not touch tax.
+        #
+        # Reframed 2026-05-27 after Coleman sol# 10842771 reproduced the
+        # PR #1120 class with `shipping_option == included` blocking the
+        # tax math Mike needed for the formal quote.
+        #
         # Integer math: subtotal × bps ÷ 10000, rounded half-to-even.
         # Matches standard CA sales-tax rounding convention.
         return round(self.subtotal_cents * self.tax_rate_bps / 10000)
