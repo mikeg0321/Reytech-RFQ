@@ -257,7 +257,17 @@ ROW_FIELD_TEMPLATES_704B = {
     "description": "ITEM DESCRIPTION PRODUCT SPECIFICATION{suffix}",
     "substituted": "SUBSTITUTED ITEM Include manufacturer part number andor reference number{suffix}",
     "unit_price": "PRICE PER UNIT{suffix}",
+    # Row-level extension column. Buyer-supplied 704B templates use TWO
+    # different field names across variants — `SUBTOTAL{suffix}` on the
+    # canonical Reytech blank, `EXTENSION{suffix}` on pre-filled variants
+    # (including some with a broken JS-calculated extension that displays
+    # the unit price instead of qty × unit_price — see Coleman 10842771
+    # / rfq_5a55f1b5, Form QA "Row 1: 19.0 × $1564.57 = $29726.83, but
+    # extension shows $1564.57" 2026-05-28). The filler writes BOTH so
+    # whichever name the template has gets our explicit computed value —
+    # and an EXPLICIT field value overrides any JS-calculated default.
     "subtotal": "SUBTOTAL{suffix}",
+    "extension": "EXTENSION{suffix}",
 }
 
 
@@ -769,10 +779,22 @@ def build_704_item_fields(
             if price_field:
                 values[price_field] = f"{price:,.2f}" if convention == "704a" else f"{price:.2f}"
 
-            ext_key = "extension" if convention == "704a" else "subtotal"
-            ext_field = _fname(ext_key)
-            if ext_field:
-                values[ext_field] = f"{extension:,.2f}" if convention == "704a" else f"{extension:.2f}"
+            # Row-level extension. 704A has one canonical field name
+            # (`EXTENSIONRow{n}`). 704B templates vary — write to BOTH
+            # `SUBTOTAL{suffix}` and `EXTENSION{suffix}` so whichever the
+            # template has gets our explicit qty × unit_price value
+            # (and overrides any broken template JS calc — see Coleman
+            # 10842771 row math regression 2026-05-28).
+            if convention == "704a":
+                ext_field = _fname("extension")
+                if ext_field:
+                    values[ext_field] = f"{extension:,.2f}"
+            else:
+                ext_fmt = f"{extension:.2f}"
+                for _ext_key in ("subtotal", "extension"):
+                    _ef = _fname(_ext_key)
+                    if _ef:
+                        values[_ef] = ext_fmt
 
         # ── QTY/UOM (strategies that allow it) ──
         if strategy.writes_qty_uom:

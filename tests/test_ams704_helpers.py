@@ -433,3 +433,160 @@ class TestBuildPcSubstituteText:
         item = {"mfg_number": "X" * 200}
         out = build_pc_substitute_text(item)
         assert len(out) <= 120
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# build_704_item_fields() — Coleman 10842771 row-extension regression
+# ═══════════════════════════════════════════════════════════════════════════
+
+class _FakeProfile:
+    """Minimal stand-in for TemplateProfile used by build_704_item_fields.
+
+    Only the fields/methods that `build_704_item_fields` actually reads
+    are implemented. Real `TemplateProfile` does a lot of PDF
+    introspection at construction; we bypass that here because we're
+    testing the field-name math, not the PDF parsing.
+    """
+
+    def __init__(self, pg1_count: int, pg2_suffixed_count: int = 0):
+        self._pg1 = list(range(1, pg1_count + 1))
+        self._pg2_suf = list(range(1, pg2_suffixed_count + 1))
+        self.is_prefilled = False
+        self.prefilled_item_rows: dict = {}
+
+    @property
+    def pg1_row_count(self):
+        return len(self._pg1)
+
+    @property
+    def pg2_rows_suffixed(self):
+        return self._pg2_suf
+
+    @property
+    def pg2_rows_plain(self):
+        return []
+
+    @property
+    def field_names(self):
+        return []
+
+    def row_field_suffix(self, slot: int):
+        if slot <= len(self._pg1):
+            return f"Row{self._pg1[slot - 1]}"
+        p2 = slot - len(self._pg1)
+        if p2 <= len(self._pg2_suf):
+            return f"Row{self._pg2_suf[p2 - 1]}_2"
+        return None
+
+    def row_page_number(self, slot: int):
+        if slot <= len(self._pg1):
+            return 1
+        return 2 if slot <= len(self._pg1) + len(self._pg2_suf) else 0
+
+    def validate_mapping(self, _values):
+        return []
+
+
+class TestBuild704BItemFieldsRowExtension:
+    """Coleman 10842771 (rfq_5a55f1b5) shipped a 704B where Row 1's
+    extension column displayed `$1564.57` (the unit price) instead of
+    `$29,726.83` (qty=19 × $1564.57). Form QA log line 2026-05-28
+    04:48:40 UTC:
+
+        Row 1: 19.0 × $1564.57 = $29726.83, but extension shows $1564.57
+
+    Diagnosis: buyer-supplied 704B templates name the row-extension
+    field two ways — `SUBTOTAL{suffix}` on the canonical Reytech blank,
+    `EXTENSION{suffix}` on pre-filled variants (some with a JS calc that
+    displays unit_price instead of qty × unit_price). The filler wrote
+    only `SUBTOTAL{suffix}`; if the buyer template uses `EXTENSION` the
+    explicit value never landed and any broken JS default survived.
+
+    Fix: write the computed extension to BOTH `SUBTOTAL{suffix}` AND
+    `EXTENSION{suffix}` — whichever the template has gets the explicit
+    value, and any JS-calculated default is overridden by an explicit
+    field value.
+    """
+
+    def test_704b_writes_extension_to_both_field_names(self):
+        """The Coleman regression — qty=19, price=$1564.57 must land
+        in BOTH `SUBTOTALRow1` and `EXTENSIONRow1` as $29,726.83."""
+        from src.forms.ams704_helpers import build_704_item_fields, FillStrategy
+
+        profile = _FakeProfile(pg1_count=15)
+        items = [{
+            "line_number": 1,
+            "description": "ZOLL R Series Defibrillator",
+            "qty": 19,
+            "uom": "EA",
+            "unit_price": 1564.57,
+            "supplier_cost": 1200.00,
+            "mfg_number": "30310000400000XX",
+        }]
+
+        result = build_704_item_fields(
+            profile, items, FillStrategy.RFQ_FULL, convention="704b"
+        )
+
+        # Both field names must carry the computed extension.
+        assert result.field_values.get("SUBTOTALRow1") == "29726.83", (
+            f"SUBTOTALRow1 should be 29726.83 (19 × 1564.57); "
+            f"got {result.field_values.get('SUBTOTALRow1')!r}"
+        )
+        assert result.field_values.get("EXTENSIONRow1") == "29726.83", (
+            f"EXTENSIONRow1 should be 29726.83 (Coleman regression — "
+            f"row math was visible-wrong because the field was unwritten "
+            f"on buyer-variant 704B templates). "
+            f"Got {result.field_values.get('EXTENSIONRow1')!r}"
+        )
+        # Per-unit price still only goes to PRICE PER UNIT — must NOT
+        # be in the extension fields.
+        assert result.field_values.get("PRICE PER UNITRow1") == "1564.57"
+        assert result.field_values["SUBTOTALRow1"] != result.field_values["PRICE PER UNITRow1"], (
+            "extension MUST differ from unit_price on qty>1 rows — "
+            "the prod bug was extension == unit_price"
+        )
+
+    def test_704b_row_extension_dual_write_on_every_row(self):
+        """Not just row 1 — every priced row writes to both names."""
+        from src.forms.ams704_helpers import build_704_item_fields, FillStrategy
+
+        profile = _FakeProfile(pg1_count=15)
+        items = [
+            {"line_number": i, "qty": i + 1, "uom": "EA",
+             "unit_price": 100.00, "description": f"Item {i}"}
+            for i in range(1, 4)
+        ]
+
+        result = build_704_item_fields(
+            profile, items, FillStrategy.RFQ_FULL, convention="704b"
+        )
+
+        # Row 1: qty=2, unit_price=100 → extension=200
+        assert result.field_values["SUBTOTALRow1"] == "200.00"
+        assert result.field_values["EXTENSIONRow1"] == "200.00"
+        # Row 2: qty=3 → 300
+        assert result.field_values["SUBTOTALRow2"] == "300.00"
+        assert result.field_values["EXTENSIONRow2"] == "300.00"
+        # Row 3: qty=4 → 400
+        assert result.field_values["SUBTOTALRow3"] == "400.00"
+        assert result.field_values["EXTENSIONRow3"] == "400.00"
+
+    def test_704a_still_only_writes_extension_field(self):
+        """704A (Price Check) is unchanged — single extension field."""
+        from src.forms.ams704_helpers import build_704_item_fields, FillStrategy
+
+        profile = _FakeProfile(pg1_count=11, pg2_suffixed_count=8)
+        items = [{"line_number": 1, "qty": 5, "uom": "EA",
+                  "unit_price": 20.00, "description": "Test"}]
+
+        result = build_704_item_fields(
+            profile, items, FillStrategy.PC_FULL, convention="704a"
+        )
+
+        # 704A uses EXTENSIONRow{n} (canonical) and does NOT have a
+        # SUBTOTAL row field. The 704B dual-write must not bleed over.
+        assert result.field_values.get("EXTENSIONRow1") == "100.00"
+        assert "SUBTOTALRow1" not in result.field_values, (
+            "SUBTOTAL is a 704B-only field — 704A must not write to it"
+        )
