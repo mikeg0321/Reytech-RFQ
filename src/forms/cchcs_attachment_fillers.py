@@ -520,50 +520,69 @@ def fill_calrecycle_74(
     parsed: Dict[str, Any],
 ) -> Optional[io.BytesIO]:
     """Fill CalRecycle 74 Postconsumer Recycled-Content Certification.
-    Mirrors each packet line item into its own row (Row1..Row6) with
-    0% postconsumer + N/A SABRC code. Template has 6 rows max."""
+
+    DELEGATES TO `reytech_filler_v4.fill_calrecycle_standalone` which
+    handles >6 line items via reportlab overlay + overflow pages.
+
+    Reframed 2026-05-27 (Coleman sol# 10842771, 21-line RFQ): the prior
+    implementation hardcoded `line_items[:6]` because the AcroForm
+    template caps at 6 rows. That silently dropped items 7-21 on the
+    Coleman package. The standalone path in reytech_filler_v4 already
+    paginates correctly (verified by tests/test_calrecycle_multipage_overflow.py).
+    This is the bridge that brings packet-path callers onto that
+    implementation without rewriting the standalone.
+    """
     path = _template_path("calrecycle_74_blank.pdf")
     if not path:
         return None
+
     sol = _sol_number(parsed)
     firm = reytech_info.get("company_name", "Reytech Inc.")
     address = reytech_info.get("address", "")
     phone = reytech_info.get("phone", "")
     owner = reytech_info.get("representative", "Michael Guadan")
     title = reytech_info.get("title", "Owner")
-    compliance = reytech_info.get("compliance", {}) or {}
-    pct = compliance.get("postconsumer_recycled_percent", "0%")
-    sabrc = compliance.get("sabrc_product_category", "N/A")
-    today = _today_mmddyyyy()
+    line_items = (parsed or {}).get("line_items", []) or []
 
-    text_updates: Dict[str, str] = {
-        "ContractorCompany Name": firm,
-        "Address": address,
-        "Phone_2": phone,
-        "Print Name": owner,
-        "Title": title,
-        "Date": today,
+    # Adapt to fill_calrecycle_standalone's expected shapes.
+    rfq_data: Dict[str, Any] = {
+        "solicitation_number": sol or "",
+        "sign_date": _today_mmddyyyy(),
+        "line_items": line_items,
+    }
+    config: Dict[str, Any] = {
+        "company": {
+            "name": firm,
+            "address": address,
+            "phone": phone,
+            "owner": owner,
+            "title": title,
+        }
     }
 
-    # Loop line items into rows 1..6 (template capacity)
-    line_items = (parsed or {}).get("line_items", []) or []
-    for i, item in enumerate(line_items[:6], 1):
-        desc = (item.get("description") or "").strip()[:120]
-        text_updates[f"Purchase Order  RFQ  RFP  IFB  Cal Card Order Row{i}"] = sol or "RFQ"
-        text_updates[f"Item Row{i}"] = str(item.get("row_index") or i)
-        text_updates[f"Product or Services DescriptionRow{i}"] = desc
-        text_updates[f"1Percent Postconsumer Recycled Content MaterialRow{i}"] = pct
-        text_updates[f"2SABRC Product Category CodeRow{i}"] = sabrc
-
-    # No SABRC-compliant checkboxes ticked (0% postconsumer = not compliant)
-    checkbox_updates: Dict[str, Any] = {}
-
-    return _fill_and_serialize(
-        path,
-        text_updates,
-        checkbox_updates,
-        signature_targets=("Signature",),  # template signature is a text widget
-    )
+    # Write to a temp output file, read bytes back into BytesIO.
+    import tempfile
+    tmp_dir = tempfile.mkdtemp(prefix="calrecycle_pkt_")
+    out_path = os.path.join(tmp_dir, "calrecycle_74.pdf")
+    try:
+        from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
+        fill_calrecycle_standalone(path, rfq_data, config, out_path)
+        if not os.path.exists(out_path):
+            log.warning("CalRecycle delegate produced no output at %s", out_path)
+            return None
+        with open(out_path, "rb") as fh:
+            return io.BytesIO(fh.read())
+    except Exception as _e:
+        log.error("CalRecycle standalone delegation failed: %s", _e, exc_info=True)
+        return None
+    finally:
+        # Best-effort cleanup of the temp dir.
+        try:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+            os.rmdir(tmp_dir)
+        except Exception as _ce:
+            log.debug("calrecycle temp cleanup: %s", _ce)
 
 
 def fill_std204(
