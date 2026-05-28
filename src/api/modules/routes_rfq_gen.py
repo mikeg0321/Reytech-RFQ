@@ -1945,22 +1945,58 @@ def generate_rfq_package(rid):
             # contractually required for CCHCS bids — Mike couldn't
             # ship without it.
             try:
+                # PR-AV-AC12 surface — extended 2026-05-27 to admit 703A
+                # (Rev. 03/2025) alongside 703B (prior) and 703C (IT-RFQ).
+                # Coleman sol# 10842771 buyer attached 703A; the prior
+                # filename ladder dropped it and the renderer fell back
+                # to an empty 703B. Also reads both `attachment` and
+                # `buyer_attachment` categories — manual-upload writer
+                # uses the former; ingest pipeline uses the latter.
                 _av_703_attached = False
                 _av_704_attached = False
-                for _f in list_rfq_files(rid, category="buyer_attachment") or []:
-                    _fn = (_f.get("filename") or "").upper()
-                    if "703B" in _fn or "703C" in _fn or "FAIR_AND_REASONABLE" in _fn:
-                        _av_703_attached = True
-                    if "704B" in _fn or "QUOTE_WORKSHEET" in _fn:
-                        _av_704_attached = True
-                if _av_703_attached and "703b" not in _uploaded_tmpls and "703c" not in _uploaded_tmpls:
-                    _uploaded_tmpls.append("703c")  # 703c implies 703b — filter handles
-                    t.step("PR-AV-AC12: pre-filter surfaced buyer 703 attachment")
+                _av_703_slot = None  # 703a / 703b / 703c — whichever buyer sent
+                _seen_categories = ("buyer_attachment", "attachment")
+                _seen_filenames: set = set()
+                for _cat in _seen_categories:
+                    for _f in list_rfq_files(rid, category=_cat) or []:
+                        _fn = (_f.get("filename") or "").upper()
+                        if _fn in _seen_filenames:
+                            continue
+                        _seen_filenames.add(_fn)
+                        if "703A" in _fn:
+                            _av_703_attached = True
+                            _av_703_slot = _av_703_slot or "703a"
+                        elif "703B" in _fn:
+                            _av_703_attached = True
+                            _av_703_slot = _av_703_slot or "703b"
+                        elif "703C" in _fn or "FAIR_AND_REASONABLE" in _fn:
+                            _av_703_attached = True
+                            _av_703_slot = _av_703_slot or "703c"
+                        if "704B" in _fn or "QUOTE_WORKSHEET" in _fn:
+                            _av_704_attached = True
+                if _av_703_attached and not any(s in _uploaded_tmpls for s in ("703a", "703b", "703c")):
+                    _uploaded_tmpls.append(_av_703_slot or "703c")
+                    t.step(f"PR-AV-AC12: pre-filter surfaced buyer 703 attachment (slot={_av_703_slot or '703c'})")
                 if _av_704_attached and "704b" not in _uploaded_tmpls:
                     _uploaded_tmpls.append("704b")
                     t.step("PR-AV-AC12: pre-filter surfaced buyer 704 attachment")
             except Exception as _ac12_e:
                 log.debug("PR-AV-AC12 buyer-attachment surface failed: %s", _ac12_e)
+            # Rev-aware 703 filter — added 2026-05-27 for Coleman 10842771.
+            # CCHCS now lists all three revisions (703a/703b/703c) in
+            # required_forms because each buyer attaches exactly one. Drop
+            # the missing revisions from the raw list so the renderer
+            # iterates only what the buyer actually sent.
+            _present_703 = next(
+                (slot for slot in ("703a", "703b", "703c") if slot in _uploaded_tmpls),
+                None,
+            )
+            if _present_703 is not None:
+                _req_forms_raw = [
+                    f for f in _req_forms_raw
+                    if not (f.startswith("703") and f != _present_703)
+                ]
+                t.step(f"Rev-aware filter: present 703 revision = {_present_703}; dropped siblings")
             _req_forms_filtered = filter_required_forms_by_shape(
                 _req_forms_raw, _rfq_shape, uploaded_templates=_uploaded_tmpls,
             )
@@ -1986,7 +2022,10 @@ def generate_rfq_package(rid):
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms: {', '.join(sorted(_req_forms))}")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
-            _req_forms = {"703b", "704b", "bidpkg", "quote"}
+            # Fallback lists all three 703 revisions; rev-aware filter
+            # above already narrowed to the present one. If filter ran
+            # and no 703 was uploaded, the renderer will skip silently.
+            _req_forms = {"703a", "703b", "703c", "704b", "bidpkg", "quote"}
             _opt_forms = set()
             _agency_key = "cchcs"
             _agency_cfg = {"name": "CCHCS / CDCR (fallback)", "required_forms": list(_req_forms)}

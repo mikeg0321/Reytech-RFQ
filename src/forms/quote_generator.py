@@ -1619,10 +1619,14 @@ def generate_quote(
             # in deploy logs and audit_trail. Renderer still emits the
             # canonical value — operator never ships a wrong tax.
             contract_rate = contract.tax_rate or rate or 0.0
-            if contract.shipping_option == "included":
-                tax = 0.0
-                _tax_label = "TAX (BUNDLED)"
-            elif contract_rate > 0 and subtotal > 0:
+            # Reframed 2026-05-27 (Coleman sol# 10842771): tax computes
+            # unconditionally. The prior `shipping_option == "included"`
+            # zeroing was wrong — formal Reytech Quote PDF always shows
+            # tax as a separate line per Mike's workflow ("the formal
+            # quote does the TAX thats why thats needed"). The 704B
+            # renderer suppresses the tax line at its own seam per the
+            # buyer's "Do not include sales tax" rule on AMS 704B.
+            if contract_rate > 0 and subtotal > 0:
                 tax = round(subtotal * contract_rate, 2)
                 _tax_label = f"TAX ({contract_rate*100:.2f}%)"
             else:
