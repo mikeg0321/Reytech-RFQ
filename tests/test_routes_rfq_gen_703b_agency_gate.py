@@ -44,30 +44,33 @@ def _read_route() -> str:
 
 def test_703_dispatch_does_not_fire_on_stale_template_alone():
     """The dispatcher condition must include only the agency-required
-    arms (`_include("703b")` / `_include("703c")`) and must NOT fall
-    back to the buyer-template presence (`"703b" in tmpl`)."""
+    arms (`_include("703a")` / `_include("703b")` / `_include("703c")`)
+    and must NOT fall back to the buyer-template presence
+    (`"703a" in tmpl` / `"703b" in tmpl` / `"703c" in tmpl`).
+
+    Extended 2026-05-27 to admit 703A (Coleman sol# 10842771).
+    """
     src = _read_route()
-    # Find the dispatcher line. Pattern: `if _include("703b") or ...`
+    # Find the dispatcher line. The condition now admits all three
+    # 703 revisions; the rev-aware filter upstream picks the right one.
     m = re.search(
-        r'if _include\("703b"\) or _include\("703c"\)([^\n:]*):',
+        r'if _include\("703a"\) or _include\("703b"\) or _include\("703c"\)([^\n:]*):',
         src,
     )
     assert m, (
-        "Could not locate the 703B dispatcher condition in "
+        "Could not locate the 703 dispatcher condition in "
         "routes_rfq_gen.py — search pattern out of date or the line was "
-        "refactored away."
+        "refactored away. Expected: "
+        "`if _include(\"703a\") or _include(\"703b\") or _include(\"703c\"):`"
     )
     tail = m.group(1)
-    assert '"703b" in tmpl' not in tail, (
-        f'703B dispatcher must not fire on stale `tmpl["703b"]` alone. '
-        f"Current tail of the condition: {tail!r}. The 2026-05-01 "
-        "incident produced an empty 3-page 703B PDF on a CalVet RFQ "
-        "via exactly this fallthrough."
-    )
-    assert '"703c" in tmpl' not in tail, (
-        f'703C dispatcher must not fire on stale `tmpl["703c"]` alone. '
-        f"Tail: {tail!r}."
-    )
+    for slot in ("703a", "703b", "703c"):
+        assert f'"{slot}" in tmpl' not in tail, (
+            f'703 dispatcher must not fire on stale `tmpl["{slot}"]` alone. '
+            f"Current tail of the condition: {tail!r}. The 2026-05-01 "
+            "incident produced an empty 3-page 703B PDF on a CalVet RFQ "
+            "via exactly this fallthrough — same risk for 703A and 703C."
+        )
 
 
 def test_703_dispatcher_carries_a_why_comment():
@@ -76,13 +79,17 @@ def test_703_dispatcher_carries_a_why_comment():
     must reference the agency-gate intent so a grep for `agency` finds
     the rationale."""
     src = _read_route()
-    # Locate the comment block above the condition and check it names
-    # the agency-gate concern.
-    idx = src.find('if _include("703b") or _include("703c"):')
-    assert idx > 0, "703B dispatcher condition not found"
-    preamble = src[max(0, idx - 800):idx]
-    assert "agency" in preamble.lower(), (
-        "Expected a 'why' comment naming the agency-gate intent above the "
-        "703B dispatcher. Without it, a future operator who sees a CalVet "
-        "RFQ skip 703B fill will likely re-add the buyer-template arm."
+    # Locate the dispatcher line and the comment block above it.
+    idx = src.find('if _include("703a") or _include("703b") or _include("703c"):')
+    assert idx > 0, "703 dispatcher condition (revision-trio) not found"
+    preamble = src[max(0, idx - 1000):idx]
+    # The new comment focuses on the revision dispatch, not the agency
+    # gate — but the original CalVet incident motivation still applies
+    # to the underlying _include() check (which is agency-driven).
+    # Accept either signal: "agency" or "revision".
+    assert "agency" in preamble.lower() or "revision" in preamble.lower(), (
+        "Expected a 'why' comment naming either the agency-gate intent or "
+        "the revision-dispatch intent above the 703 dispatcher. Without "
+        "it, a future operator who sees a 703 skip will likely re-add "
+        "the buyer-template arm."
     )

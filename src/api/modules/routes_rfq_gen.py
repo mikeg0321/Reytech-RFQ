@@ -1855,13 +1855,20 @@ def generate_rfq_package(rid):
         # ── DB Fallback: if template files don't exist on disk (post-redeploy),
         # reconstruct them from rfq_files DB table ──
         db_files = list_rfq_files(rid, category="template")
-        type_map = {"703b": "703b", "704b": "704b", "bidpkg": "bidpkg", "bid_package": "bidpkg"}
+        # 703a admitted 2026-05-27 — Coleman sol# 10842771 (Rev. 03/2025).
+        type_map = {"703a": "703a", "703b": "703b", "703c": "703c",
+                    "704b": "704b", "bidpkg": "bidpkg", "bid_package": "bidpkg"}
         for db_f in db_files:
-            # Determine template type from filename or file_type
+            # Determine template type from filename or file_type.
+            # Order matters: 703B contains "703" so check 703A/703C first.
             ft = db_f.get("file_type", "").lower().replace("template_", "")
             fname = db_f.get("filename", "").lower()
             ttype = None
-            if "703b" in ft or "703b" in fname:
+            if "703a" in ft or "703a" in fname:
+                ttype = "703a"
+            elif "703c" in ft or "703c" in fname:
+                ttype = "703c"
+            elif "703b" in ft or "703b" in fname:
                 ttype = "703b"
             elif "704b" in ft or "704b" in fname:
                 ttype = "704b"
@@ -2163,7 +2170,11 @@ def generate_rfq_package(rid):
         # populate `tmpl` in time for `_has_703` / `_has_704` checks.
         try:
             _av4_missing = []
-            for _slot in ("703b", "703c", "704b"):
+            # 703a added 2026-05-27 — Coleman sol# 10842771 buyer attached
+            # the Rev. 03/2025 revision; AV-4 promote was 703b/703c-only and
+            # silently skipped the file, so the 703 dispatch downstream
+            # found nothing in tmpl and rendered no 703 at all.
+            for _slot in ("703a", "703b", "703c", "704b"):
                 if _slot in tmpl and os.path.exists(tmpl.get(_slot, "")):
                     continue
                 _av4_missing.append(_slot)
@@ -2200,6 +2211,9 @@ def generate_rfq_package(rid):
                     # Mirror identify_attachments() ordering: 703C before
                     # 703B (filename "703C" also contains "703" substring;
                     # check the specific marker first).
+                    # 703A admitted 2026-05-27 (Coleman sol# 10842771).
+                    # Filename-substring order matters: 703B contains "703",
+                    # so check the more-specific markers (703A/703C/F&R) first.
                     _slot_hit = None
                     if ("703C" in _fname
                             or "FAIR_AND_REASONABLE" in _fname
@@ -2208,6 +2222,8 @@ def generate_rfq_package(rid):
                     elif "704B" in _fname or "QUOTE_WORKSHEET" in _fname \
                             or "WORKSHEET" in _fname or "QUOTE WORKSHEET" in _fname:
                         _slot_hit = "704b"
+                    elif "703A" in _fname:
+                        _slot_hit = "703a"
                     elif "703B" in _fname:
                         _slot_hit = "703b"
                     if not _slot_hit or _slot_hit not in _av4_missing:
@@ -2243,14 +2259,16 @@ def generate_rfq_package(rid):
         # single-package PDF instead of separate forms), we cannot fabricate
         # one. Drop it from the required set and generate the rest. Operator
         # can upload and re-generate if they need the missing form.
-        _buyer_templates = {"703b", "703c", "704b"}
+        _buyer_templates = {"703a", "703b", "703c", "704b"}
         _skipped_templates = []
         for _ft in list(_req_forms):
             if _ft not in _buyer_templates:
                 continue
-            if _ft in ("703b", "703c"):
-                _has_703 = (("703b" in tmpl and os.path.exists(tmpl.get("703b", "")))
-                            or ("703c" in tmpl and os.path.exists(tmpl.get("703c", ""))))
+            if _ft in ("703a", "703b", "703c"):
+                _has_703 = any(
+                    s in tmpl and os.path.exists(tmpl.get(s, ""))
+                    for s in ("703a", "703b", "703c")
+                )
                 if not _has_703:
                     _req_forms.discard(_ft)
                     _skipped_templates.append(_ft.upper())
@@ -2279,7 +2297,7 @@ def generate_rfq_package(rid):
             from src.forms.profile_registry import check_template_profile_matches
             _profile_slots = {
                 _slot: tmpl[_slot]
-                for _slot in ("703b", "703c", "704b")
+                for _slot in ("703a", "703b", "703c", "704b")
                 if _slot in tmpl and os.path.exists(tmpl.get(_slot, ""))
             }
             if _profile_slots:
@@ -2316,9 +2334,16 @@ def generate_rfq_package(rid):
         # 14 form_qa registry checks. Only attempt 703B/703C fill when the
         # agency actually requires those forms — buyer-uploaded templates
         # alone are not authorization to write a form the agency doesn't ship.
-        if _include("703b") or _include("703c"):
-            _703_key = "703c" if "703c" in tmpl else "703b"
-            _703_label = "703C" if _703_key == "703c" else "703B"
+        # 703 dispatch — admits all three revisions 2026-05-27 (Coleman
+        # sol# 10842771). The buyer attaches exactly one of 703A/B/C; we
+        # pick the present revision from `tmpl` (populated by AV-4 promote
+        # above) and label/fill accordingly.
+        if _include("703a") or _include("703b") or _include("703c"):
+            _703_key = next(
+                (k for k in ("703a", "703b", "703c") if k in tmpl),
+                "703b",  # fallback for legacy callers without tmpl keys
+            )
+            _703_label = {"703a": "703A", "703b": "703B", "703c": "703C"}[_703_key]
             # Phase 0 emergency: if operator uploaded a manual 703B (mirroring
             # the manual_704b mechanism), preserve it instead of overwriting
             # via auto-fill. Closes the 2026-05-06 RFQ a5b09b56 incident
