@@ -633,8 +633,13 @@ function reviewCurrent(verdict){
   var item=document.querySelector('.rv-form-item[data-form-id="'+_currentFormId+'"]');
   if(item){
    item.dataset.verdict=verdict;
-   item.querySelector('.rv-icon').textContent=verdict==='approved'?'✅':'❌';
-   var b=item.querySelector('.rv-badge');b.textContent=verdict.toUpperCase();b.className='rv-badge rv-badge-'+verdict;
+   // Null-safe per JS guard rail — the checklist row has .rv-icon but no
+   // .rv-badge (badge only lives in the floating bar). The old
+   // unconditional `.rv-badge` deref threw a TypeError here, silently
+   // aborting reviewCurrent BEFORE updateProgress + auto-advance ran —
+   // which is why next-doc advance never worked (Coleman #7).
+   var ic=item.querySelector('.rv-icon'); if(ic) ic.textContent=verdict==='approved'?'✅':'❌';
+   var b=item.querySelector('.rv-badge'); if(b){ b.textContent=verdict.toUpperCase(); b.className='rv-badge rv-badge-'+verdict; }
   }
   // Sync floating bar
   var fb = document.querySelector('.rv-float-form[data-form-id="'+_currentFormId+'"]');
@@ -644,8 +649,25 @@ function reviewCurrent(verdict){
   }
   document.getElementById('rv-review-notes').value='';
   updateProgress();
-  var next=document.querySelector('.rv-form-item[data-verdict="pending"]');
-  if(next)next.click();
+  // Coleman punch-list #7: auto-advance to the NEXT reviewable pending
+  // form. Skip rows with no file / .missing — clicking those is a no-op
+  // (onclick only fires selectForm when a filename exists) and would
+  // strand the operator on a blank preview. Walk forward from the
+  // current row, wrapping once; when nothing reviewable remains, focus
+  // the Finalize button instead of leaving a dead selection.
+  var _items=Array.prototype.slice.call(document.querySelectorAll('.rv-form-item[data-form-id]'));
+  var _cur=-1;
+  for(var _i=0;_i<_items.length;_i++){ if(_items[_i].dataset.formId===_currentFormId){_cur=_i;break;} }
+  var _next=null;
+  for(var _k=1;_k<=_items.length;_k++){
+   var _cand=_items[(_cur+_k)%_items.length];
+   if(_cand && _cand.dataset.verdict==='pending' && _cand.dataset.filename && !_cand.classList.contains('missing')){_next=_cand;break;}
+  }
+  if(_next){ _next.click(); }
+  else {
+   var _fb=document.getElementById('rv-finalize-btn');
+   if(_fb && !_fb.disabled){ _fb.focus(); }
+  }
  });
 }
 
