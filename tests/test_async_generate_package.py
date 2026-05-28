@@ -341,3 +341,66 @@ def test_generate_package_handler_actually_resolves_flask_app(app, auth_client, 
         assert "messages" in result
     finally:
         task_consumer._FLASK_APP = None
+
+
+# ── Frontend wiring pins (rfq_detail.html) ────────────────────────────
+#
+# The backend async path (above) shipped in PR #1182/#1186, but the UI
+# still POSTed the form synchronously — so operators kept hitting the
+# 105s ERR_CONNECTION_RESET on large packages. This block pins the
+# frontend half: both generate triggers must go through the async
+# fetch/poll helper, and the old synchronous `form.submit()` to
+# generate-package must be gone. A revert to sync would re-open the
+# Coleman 10842771 incident, so these guard it loudly.
+
+
+def _rfq_detail_src() -> str:
+    import os
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(here, "src", "templates", "rfq_detail.html")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def test_frontend_generate_triggers_are_async():
+    """Both generate entry points (_doGenerate + regeneratePackage) must
+    route through the async helper, not submit the form synchronously."""
+    src = _rfq_detail_src()
+    # The async helper exists and both triggers call it.
+    assert "function _generatePackageAsync(" in src
+    assert src.count("_generatePackageAsync()") >= 2, (
+        "Both _doGenerate() and regeneratePackage() must call "
+        "_generatePackageAsync()."
+    )
+    # The poll/complete/overlay helpers are present.
+    for fn in ("_pollGenJob", "_onGenComplete", "_showGenOverlay",
+               "_setGenOverlayHint", "_genOverlayError"):
+        assert f"function {fn}(" in src, f"missing helper {fn}"
+
+
+def test_frontend_no_sync_generate_package_submit():
+    """The old synchronous redirect-after-POST to generate-package is the
+    bug. It must not reappear: no code path may set form.action to
+    generate-package and call .submit()."""
+    src = _rfq_detail_src()
+    assert "f.action='/rfq/'+RID+'/generate-package'" not in src, (
+        "Sync _doGenerate path regressed — re-opens the 105s "
+        "ERR_CONNECTION_RESET incident (Coleman 10842771)."
+    )
+    assert "form.action='/rfq/'+RID+'/generate-package'" not in src, (
+        "Sync regeneratePackage path regressed — re-opens the 105s "
+        "ERR_CONNECTION_RESET incident (Coleman 10842771)."
+    )
+
+
+def test_frontend_async_request_matches_backend_contract():
+    """The fetch must send Accept: application/json (the header the route
+    keys its 202 dispatch on) and poll the status_url the route returns."""
+    src = _rfq_detail_src()
+    assert "'Accept':'application/json'" in src, (
+        "Async POST must send Accept: application/json — the route's "
+        "async branch keys on best_match(...) == 'application/json'."
+    )
+    # Polls the status endpoint the 202 hands back.
+    assert "/api/jobs/" in src
+    assert "_pollGenJob(d.status_url" in src
