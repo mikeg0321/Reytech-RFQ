@@ -3594,32 +3594,22 @@ def api_rfq_package_diag(rid):
 # AGENCY PACKAGE SETTINGS — Configure which forms each agency requires
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# All available forms that can be included in a package
-# 703A added 2026-05-27 — Coleman sol# 10842771 surfaced the Rev. 03/2025
-# revision. This file is a DUPLICATE of src/core/agency_config.AVAILABLE_FORMS;
-# the duplicate was missed by PR #1163 — the substrate-singleness 8th instance
-# this week. Job #1 follow-up: collapse to a single source (this file should
-# import from src/core/agency_config).
-AVAILABLE_FORMS = [
-    {"id": "703a", "name": "AMS 703A — Request for Quotation (Rev. 03/2025)", "source": "email", "description": "Current CCHCS revision — supersedes 703B"},
-    {"id": "703b", "name": "AMS 703B — Request for Quotation (prior revision)", "source": "email", "description": "State RFQ form — comes with email"},
-    {"id": "703c", "name": "AMS 703C — Fair & Reasonable (IT-RFQ variant)", "source": "email", "description": "IT-RFQ alternative to 703B"},
-    {"id": "704b", "name": "AMS 704B — Quote Worksheet", "source": "email", "description": "Pricing worksheet — comes with email"},
-    {"id": "bidpkg", "name": "Bid Package", "source": "email", "description": "Agency bid package — comes with email"},
-    {"id": "quote", "name": "Company Quote (Letterhead)", "source": "generated", "description": "Reytech quote on company letterhead"},
-    {"id": "std204", "name": "STD 204 — Payee Data Record", "source": "template", "description": "Standard vendor info form"},
-    {"id": "sellers_permit", "name": "Seller's Permit", "source": "static", "description": "California seller's permit copy"},
-    {"id": "dvbe843", "name": "DVBE 843 — DVBE Declarations", "source": "generated", "description": "Disabled Veteran Business Enterprise declarations"},
-    {"id": "cv012_cuf", "name": "CV 012 — CUF Certification", "source": "template", "description": "Cal Vet Commercially Useful Function certification"},
-    {"id": "barstow_cuf", "name": "Barstow CUF", "source": "generated", "description": "VHC-Barstow facility-specific CUF"},
-    {"id": "bidder_decl", "name": "GSPD-05-106 — Bidder Declaration", "source": "generated", "description": "DGS bidder declaration form"},
-    {"id": "darfur_act", "name": "DGS PD 1 — Darfur Act", "source": "generated", "description": "Darfur Contracting Act certification"},
-    {"id": "calrecycle74", "name": "CalRecycle 74", "source": "template", "description": "CalRecycle recycled content certification"},
-    {"id": "std1000", "name": "STD 1000 — GenAI Reporting", "source": "template", "description": "Generative AI usage disclosure"},
-    {"id": "std205", "name": "STD 205 — Payee Supplement", "source": "generated", "description": "Payee data record supplement"},
-    {"id": "drug_free", "name": "STD 21 — Drug-Free Workplace", "source": "generated", "description": "Drug-free workplace certification"},
-    {"id": "food_cert", "name": "Food Safety Certification", "source": "generated", "description": "Food handling/safety certification"},
-]
+# AVAILABLE_FORMS — operator /settings/packages catalog. SINGLE-SOURCED from
+# src/core/agency_config.AVAILABLE_FORMS as of 2026-05-27 (PR #1165 follow-up).
+#
+# History: this module previously redeclared its own 18-entry list, which was
+# silently drifting from the canonical 27-entry list in agency_config. PR #1163
+# added 703A to the canonical list but missed this duplicate; the operator's
+# /settings/packages UI didn't render the 703A checkbox, and the cchcs
+# agency_package_configs DB row was seeded from this duplicate (missing 703a/703c
+# in required_forms). The combined effect surfaced as "the app doesn't even
+# know it has a 703A" — Coleman sol# 10842771, 2026-05-27 evening — even
+# though 703A was registered in 8+ other places (form_registry, form_classifier,
+# profiles/703a_reytech_standard.yaml, etc.).
+#
+# This collapse closes the 8th substrate-singleness instance in 16 days.
+# DEFAULT_AGENCY_CONFIGS below is the next seam to collapse (separate PR).
+from src.core.agency_config import AVAILABLE_FORMS  # noqa: F401  re-exported for downstream readers
 
 # Default agency configs (used to seed the DB)
 DEFAULT_AGENCY_CONFIGS = {
