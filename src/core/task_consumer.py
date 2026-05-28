@@ -83,6 +83,79 @@ def _handle_run_connector(payload: dict) -> dict:
     return result
 
 
+def _handle_generate_package(payload: dict) -> dict:
+    """Run the heavy RFQ package generation work in the background.
+
+    Re-invokes ``generate_rfq_package`` via a Flask ``test_request_context``
+    so the existing 1800-LOC route handler runs unchanged. The
+    ``X-Async-Worker: 1`` header on the synthetic request prevents the
+    route's Accept-header async branch from re-enqueueing (infinite-loop
+    guard). Decorators are peeled because the enqueuer already
+    authenticated when accepting the original POST.
+
+    Closes the long-running-post gap for the 105s
+    ``POST /rfq/<id>/generate-package`` route (Coleman 10842771
+    2026-05-28 incident — browser saw ERR_CONNECTION_RESET at Railway
+    edge proxy ~100s while server kept generating).
+
+    Returns:
+        Dict with ``redirect`` (where the operator should go), ``messages``
+        (list of ``{category, text}`` flashes captured from the route),
+        and ``rfq_id``. The frontend polls ``/api/jobs/<id>`` until status
+        is ``completed`` then navigates to ``redirect``.
+    """
+    rid = payload.get("rfq_id")
+    if not rid:
+        raise ValueError("generate_package payload missing rfq_id")
+    form_data = payload.get("form_data", {})
+    force = bool(payload.get("force", False))
+
+    # Deferred imports keep this module importable in non-web contexts
+    # (CI, scripts) where dashboard.app may not be available.
+    from src.api.dashboard import app
+    from src.api.modules.routes_rfq_gen import generate_rfq_package
+
+    # Peel @auth_required + @safe_route so we bypass auth (already
+    # authenticated upstream) AND surface exceptions to task_queue's
+    # retry/fail logic instead of being swallowed by safe_route's
+    # JSON-error wrapper.
+    inner = generate_rfq_package
+    while hasattr(inner, "__wrapped__"):
+        inner = inner.__wrapped__
+
+    query_string = "force=1" if force else ""
+    with app.test_request_context(
+        path=f"/rfq/{rid}/generate-package",
+        method="POST",
+        data=form_data,
+        query_string=query_string,
+        headers={"X-Async-Worker": "1", "Accept": "text/html"},
+    ):
+        # Make the actor available for downstream audit/trace.
+        from flask import g
+        g.user = payload.get("actor", "task_queue_worker")
+
+        response = inner(rid)
+
+        # Capture flashes that the inner route emitted so the operator
+        # can see "Package ready" / "Unpriced rows" / etc.
+        from flask import get_flashed_messages
+        messages = list(get_flashed_messages(with_categories=True))
+
+        # Extract the redirect URL — the inner route returns a 302
+        # Response on success (review-package) or on the unpriced-gate
+        # bounce (back to the RFQ page).
+        redirect_url = None
+        if hasattr(response, "location") and response.location:
+            redirect_url = response.location
+
+    return {
+        "redirect": redirect_url,
+        "messages": [{"category": cat, "text": txt} for cat, txt in messages],
+        "rfq_id": rid,
+    }
+
+
 TASK_HANDLERS = {
     "submit_rfq": _handle_submit_rfq,
     "trigger_price_check": _handle_trigger_price_check,
@@ -90,6 +163,7 @@ TASK_HANDLERS = {
     "mark_order_shipped": _handle_mark_order_shipped,
     "price_rfq": _handle_price_rfq,
     "run_connector": _handle_run_connector,
+    "generate_package": _handle_generate_package,
 }
 
 
