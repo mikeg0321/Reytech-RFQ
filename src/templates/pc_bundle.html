@@ -3,26 +3,27 @@
 
 {% block content %}
 <style>
- body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg,#0d1117);color:var(--tx,#c9d1d9);margin:0;padding:20px;font-size:15px;line-height:1.5}
- .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:12px 0}
+ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:transparent;color:var(--r-text,#c9d1d9);margin:0;padding:20px;font-size:15px;line-height:1.5}
+ .card{background:var(--r-surface,#16181f);border:1px solid var(--r-border,#262932);border-radius:8px;padding:20px;margin:12px 0}
  table{width:100%;border-collapse:collapse}
- th,td{padding:8px 10px;border:1px solid #30363d;text-align:left;font-size:14px}
- th{background:#21262d;font-size:13px;text-transform:uppercase;color:#8b949e;white-space:nowrap;letter-spacing:0.3px}
+ th,td{padding:8px 10px;border:1px solid var(--r-border,#262932);text-align:left;font-size:14px}
+ th{background:var(--r-surface-2,#1c1f28);font-size:13px;text-transform:uppercase;color:var(--r-text-muted,#9ca3af);white-space:nowrap;letter-spacing:0.3px}
  .btn{padding:9px 18px;border-radius:6px;border:none;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block;margin:4px;font-size:14px}
- .btn-p{background:#1f6feb;color:#fff} .btn-g{background:#238636;color:#fff} .btn-v{background:#8957e5;color:#fff} .btn-sm{padding:6px 14px;font-size:13px}
- a{color:#58a6ff} h1{margin:0;font-size:24px} .meta{color:#8b949e;font-size:15px}
+ .btn-p{background:var(--r-accent,#10b981);color:#fff} .btn-g{background:var(--r-accent,#10b981);color:#fff} .btn-v{background:#8957e5;color:#fff} .btn-sm{padding:6px 14px;font-size:13px}
+ a{color:var(--r-accent,#10b981)} h1{margin:0;font-size:24px} .meta{color:var(--r-text-muted,#9ca3af);font-size:15px}
  .status{padding:3px 8px;border-radius:4px;font-size:13px;font-weight:600;vertical-align:middle}
- .progress-bar{background:#21262d;border-radius:6px;height:10px;overflow:hidden;flex:1}
- .progress-fill{background:linear-gradient(90deg,#238636,#3fb950);height:100%;border-radius:6px;transition:width .3s}
- .bundle-header{background:linear-gradient(135deg,#1a1a3e,#0d1117);border:1px solid rgba(137,87,229,.3);border-radius:12px;padding:20px 24px;margin-bottom:16px}
+ .progress-bar{background:var(--r-surface-2,#1c1f28);border-radius:6px;height:10px;overflow:hidden;flex:1}
+ .progress-fill{background:linear-gradient(90deg,#059669,#10b981);height:100%;border-radius:6px;transition:width .3s}
+ .bundle-header{background:linear-gradient(135deg,#1a1a3e,#08090c);border:1px solid rgba(137,87,229,.3);border-radius:12px;padding:20px 24px;margin-bottom:16px}
  .kpi{text-align:center;padding:12px 0}
- .kpi-val{font-size:28px;font-weight:800;color:#e6edf3}
- .kpi-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+ .kpi-val{font-size:28px;font-weight:800;color:var(--r-text,#e5e7eb)}
+ .kpi-label{font-size:12px;color:var(--r-text-muted,#9ca3af);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
 </style>
 
+<div class="r-app">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
- <a href="/" style="color:#8b949e;font-size:13px;text-decoration:none">&larr; Dashboard</a>
- <span style="color:#30363d">/</span>
+ <a href="/" style="color:var(--r-text-muted);font-size:13px;text-decoration:none">&larr; Dashboard</a>
+ <span style="color:var(--r-border)">/</span>
  <span style="color:#bc8cff;font-size:14px;font-weight:600">Bundle {{ bundle_id }}</span>
 </div>
 
@@ -51,7 +52,7 @@
     &#x2B07; Download Bundle PDF
    </a>
    {% endif %}
-   <span style="width:1px;height:24px;background:#30363d;margin:0 4px"></span>
+   <span style="width:1px;height:24px;background:var(--r-border);margin:0 4px"></span>
    <button class="btn btn-p" id="convertEachBtn" onclick="convertEachToRFQ(this)">
     &#x1F4E4; Convert Each &rarr; Separate RFQs
    </button>
@@ -73,7 +74,7 @@
   <div class="kpi-label">Total Items</div>
  </div></div>
  <div class="card" style="margin:0"><div class="kpi">
-  <div class="kpi-val" style="color:{% if total_priced == total_items and total_items > 0 %}#3fb950{% elif total_priced > 0 %}#d29922{% else %}#f85149{% endif %}">{{ total_priced }}/{{ total_items }}</div>
+  <div class="kpi-val" style="color:{% if total_priced == total_items and total_items > 0 %}var(--r-accent){% elif total_priced > 0 %}var(--r-warn){% else %}var(--r-bad){% endif %}">{{ total_priced }}/{{ total_items }}</div>
   <div class="kpi-label">Items Priced</div>
  </div></div>
  <div class="card" style="margin:0"><div class="kpi">
@@ -85,11 +86,11 @@
 <!-- Progress bar -->
 <div class="card" style="margin:0 0 16px 0;padding:14px 20px">
  <div style="display:flex;align-items:center;gap:12px">
-  <span style="font-size:13px;color:#8b949e;white-space:nowrap">Pricing Progress</span>
+  <span style="font-size:13px;color:var(--r-text-muted);white-space:nowrap">Pricing Progress</span>
   <div class="progress-bar">
    <div class="progress-fill" style="width:{% if total_items > 0 %}{{ (total_priced / total_items * 100)|round|int }}{% else %}0{% endif %}%"></div>
   </div>
-  <span style="font-size:13px;font-weight:700;color:#e6edf3;white-space:nowrap">
+  <span style="font-size:13px;font-weight:700;color:var(--r-text);white-space:nowrap">
    {% if total_items > 0 %}{{ (total_priced / total_items * 100)|round|int }}%{% else %}0%{% endif %}
   </span>
  </div>
@@ -100,7 +101,7 @@
 
 <!-- PC Table -->
 <div class="card">
- <div style="font-size:16px;font-weight:700;color:#e6edf3;margin-bottom:12px">Price Checks in Bundle</div>
+ <div style="font-size:16px;font-weight:700;color:var(--r-text);margin-bottom:12px">Price Checks in Bundle</div>
  <table>
   <thead>
    <tr>
@@ -123,19 +124,19 @@
    {% set sub = namespace(val=0) %}
    {% for it in items %}{% if it.get('unit_price') %}{% set sub.val = sub.val + (it.unit_price|float * (it.qty|default(1)|int)) %}{% endif %}{% endfor %}
    <tr style="cursor:pointer" onclick="location.href='/pricecheck/{{ pc.id }}'">
-    <td style="text-align:center;color:#8b949e">{{ loop.index }}</td>
+    <td style="text-align:center;color:var(--r-text-muted)">{{ loop.index }}</td>
     <td><a href="/pricecheck/{{ pc.id }}" style="font-weight:600">{{ pc.pc_number|default('(blank)') }}</a></td>
     <td>{{ pc.institution|default('--') }}</td>
     <td style="text-align:center">{{ items|length }}</td>
-    <td style="text-align:center;color:{% if priced|length == items|length and items|length > 0 %}#3fb950{% elif priced|length > 0 %}#d29922{% else %}#f85149{% endif %}">
+    <td style="text-align:center;color:{% if priced|length == items|length and items|length > 0 %}var(--r-accent){% elif priced|length > 0 %}var(--r-warn){% else %}var(--r-bad){% endif %}">
      {{ priced|length }}/{{ items|length }}
     </td>
     <td style="text-align:right;font-family:monospace">${{ "%.2f"|format(sub.val) }}</td>
     <td style="text-align:center">
      {% set st = pc.status|default('new') %}
-     <span class="status" style="background:{% if st == 'sent' %}rgba(52,211,153,.15);color:#3fb950{% elif st == 'draft' %}rgba(79,140,255,.15);color:#58a6ff{% elif st == 'parsed' %}rgba(210,153,34,.15);color:#d29922{% else %}rgba(139,148,158,.1);color:#8b949e{% endif %}">{{ st|upper }}</span>
+     <span class="status" style="background:{% if st == 'sent' %}rgba(52,211,153,.15);color:var(--r-accent){% elif st == 'draft' %}rgba(79,140,255,.15);color:#58a6ff{% elif st == 'parsed' %}rgba(210,153,34,.15);color:var(--r-warn){% else %}rgba(139,148,158,.1);color:var(--r-text-muted){% endif %}">{{ st|upper }}</span>
     </td>
-    <td style="text-align:center;color:#8b949e;font-size:13px">{{ pc.page_start|default(0)|int + 1 }}-{{ pc.page_end|default(0)|int + 1 }}</td>
+    <td style="text-align:center;color:var(--r-text-muted);font-size:13px">{{ pc.page_start|default(0)|int + 1 }}-{{ pc.page_end|default(0)|int + 1 }}</td>
     <td style="text-align:center">
      <a href="/pricecheck/{{ pc.id }}" class="btn btn-sm" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2);padding:4px 10px;font-size:12px">Open</a>
     </td>
@@ -147,10 +148,11 @@
 
 {% if bundle_pdf_exists %}
 <div class="card">
- <div style="font-size:16px;font-weight:700;color:#e6edf3;margin-bottom:12px">Generated Bundle PDF</div>
- <iframe src="/api/pricecheck/download/{{ bundle_pdf_name }}" style="width:100%;height:600px;border:1px solid #30363d;border-radius:8px"></iframe>
+ <div style="font-size:16px;font-weight:700;color:var(--r-text);margin-bottom:12px">Generated Bundle PDF</div>
+ <iframe src="/api/pricecheck/download/{{ bundle_pdf_name }}" style="width:100%;height:600px;border:1px solid var(--r-border);border-radius:8px"></iframe>
 </div>
 {% endif %}
+</div>
 
 <script>
 var _bundleId = {{ bundle_id|tojson }};

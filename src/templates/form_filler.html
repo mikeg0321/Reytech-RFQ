@@ -2,33 +2,34 @@
 {% block title %}Form Filler — Bid Package{% endblock %}
 {% block content %}
 <style>
-.ff-card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px;margin-bottom:16px}
+.ff-card{background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:20px;margin-bottom:16px}
 .ff-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:900px){.ff-grid{grid-template-columns:1fr}}
-.ff-label{font-size:13px;color:var(--tx2);margin-bottom:4px}
-.ff-input{width:100%;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px}
-.ff-input:focus{outline:none;border-color:var(--ac)}
+.ff-label{font-size:13px;color:var(--r-text-muted);margin-bottom:4px}
+.ff-input{width:100%;padding:8px 12px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px}
+.ff-input:focus{outline:none;border-color:var(--r-accent)}
 .ff-btn{padding:10px 24px;border-radius:8px;font-weight:600;cursor:pointer;border:none;font-size:14px;transition:all .2s}
-.ff-btn-primary{background:var(--ac);color:#fff}
+.ff-btn-primary{background:var(--r-accent);color:#fff}
 .ff-btn-primary:hover{filter:brightness(1.15)}
 .ff-btn-green{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
 .ff-btn-green:hover{background:rgba(34,197,94,.25)}
 .item-row{display:grid;grid-template-columns:60px 1fr 80px 40px;gap:8px;align-items:center;margin-bottom:6px}
-.item-row input{padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:5px;color:var(--tx);font-size:13px}
+.item-row input{padding:6px 10px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:5px;color:var(--r-text);font-size:13px}
 .item-row .remove-btn{cursor:pointer;color:#ef4444;font-size:18px;text-align:center;border:none;background:none}
 .food-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600}
 .food-badge.yes{background:rgba(34,197,94,.15);color:#22c55e}
 .food-badge.no{background:rgba(156,163,175,.15);color:#9ca3af}
-.result-area{margin-top:16px;padding:16px;background:var(--sf2);border-radius:8px;display:none}
+.result-area{margin-top:16px;padding:16px;background:var(--r-surface-2);border-radius:8px;display:none}
 .forms-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .form-chip{padding:4px 10px;background:rgba(59,130,246,.12);color:#3b82f6;border-radius:5px;font-size:14px}
-.category-ref{font-size:14px;color:var(--tx2);line-height:1.6}
-.category-ref td{padding:2px 8px;border-bottom:1px solid var(--bd)}
-.category-ref th{padding:4px 8px;text-align:left;border-bottom:2px solid var(--bd);font-size:14px;text-transform:uppercase;color:var(--tx2)}
+.category-ref{font-size:14px;color:var(--r-text-muted);line-height:1.6}
+.category-ref td{padding:2px 8px;border-bottom:1px solid var(--r-border)}
+.category-ref th{padding:4px 8px;text-align:left;border-bottom:2px solid var(--r-border);font-size:14px;text-transform:uppercase;color:var(--r-text-muted)}
 </style>
 
+<div class="r-app">
 <h2 style="margin-bottom:4px">📋 Bid Package Form Filler</h2>
-<p style="color:var(--tx2);margin-bottom:16px">Auto-fill CDCR bid package forms. Food items get OBS 1600 Agricultural Food Product codes. All standard forms (CUF, Darfur, DVBE, CalRecycle, Drug-Free) are pre-filled with Reytech info.</p>
+<p style="color:var(--r-text-muted);margin-bottom:16px">Auto-fill CDCR bid package forms. Food items get OBS 1600 Agricultural Food Product codes. All standard forms (CUF, Darfur, DVBE, CalRecycle, Drug-Free) are pre-filled with Reytech info.</p>
 
 <div class="ff-grid">
  <div>
@@ -53,15 +54,15 @@
     <button class="ff-btn ff-btn-green" onclick="addItem()" style="padding:6px 14px;font-size:13px" aria-label="Add Item">+ Add Item</button>
    </div>
    
-   <div class="item-row" style="font-size:14px;color:var(--tx2);font-weight:600">
+   <div class="item-row" style="font-size:14px;color:var(--r-text-muted);font-weight:600">
     <div>LINE #</div><div>DESCRIPTION</div><div>FOOD?</div><div></div>
    </div>
    <div id="itemsList"></div>
    
-   <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap">
+   <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--r-border);display:flex;gap:8px;flex-wrap:wrap">
     <button class="ff-btn ff-btn-primary" onclick="classifyItems()" aria-label="Classify Food Items">🔍 Classify Food Items</button>
     <button class="ff-btn ff-btn-primary" onclick="fillAndDownload()" style="background:#22c55e" aria-label="Fill & Download PDF">📄 Fill & Download PDF</button>
-    <button class="ff-btn" onclick="loadFromRFQ()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" aria-label="Load from RFQ">📥 Load from RFQ</button>
+    <button class="ff-btn" onclick="loadFromRFQ()" style="background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border)" aria-label="Load from RFQ">📥 Load from RFQ</button>
    </div>
   </div>
 
@@ -74,7 +75,7 @@
  <div>
   <div class="ff-card">
    <h3 style="margin-bottom:8px">🌾 Agricultural Food Category Codes</h3>
-   <p style="font-size:14px;color:var(--tx2);margin-bottom:8px">OBS 1600 (Rev. 1/26) — CDCR/CCHCS</p>
+   <p style="font-size:14px;color:var(--r-text-muted);margin-bottom:8px">OBS 1600 (Rev. 1/26) — CDCR/CCHCS</p>
    <table class="category-ref" style="width:100%">
     <tr><th>Code</th><th>Category</th><th>Examples</th></tr>
     <tr><td>1</td><td>Coffee, Tea</td><td>Beans, Decaf, Ground, Instant</td></tr>
@@ -105,7 +106,7 @@
     <span class="form-chip">✅ CalRecycle 74</span>
     <span class="form-chip">🌾 OBS 1600 Food Cert</span>
    </div>
-   <p style="font-size:14px;color:var(--tx2);margin-top:8px">
+   <p style="font-size:14px;color:var(--r-text-muted);margin-top:8px">
     All forms pre-filled with Reytech Inc. info, signature, FEIN, cert #2002605.<br>
     Food items auto-classified into CDCR category codes.<br>
     CA-Grown: <strong>No</strong> | Percentage: <strong>N/A</strong> (processed food default).
@@ -114,7 +115,7 @@
 
   <div class="ff-card">
    <h3 style="margin-bottom:8px">💡 Quick Tips</h3>
-   <ul style="font-size:13px;color:var(--tx2);padding-left:16px;line-height:1.8">
+   <ul style="font-size:13px;color:var(--r-text-muted);padding-left:16px;line-height:1.8">
     <li>Non-food items (gloves, supplies) are <strong>skipped</strong> on OBS 1600</li>
     <li>Processed food always = <strong>No</strong> for CA-Grown</li>
     <li>Max 18 food items per OBS 1600 page</li>
@@ -123,6 +124,7 @@
    </ul>
   </div>
  </div>
+</div>
 </div>
 
 <script>

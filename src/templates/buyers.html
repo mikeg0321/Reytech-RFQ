@@ -1,74 +1,76 @@
 {% extends "base.html" %}
 {% block title %}Buyers — SCPRS Outreach{% endblock %}
 {% block content %}
+<div class="r-app">
 <div style="max-width:1400px;margin:0 auto;padding:0 16px">
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
  <div>
-  <h2 style="margin:0;color:var(--tx)">🎯 SCPRS Buyers</h2>
-  <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Every buyer in SCPRS who purchases items you can supply. Click → Draft outreach email.</p>
+  <h2 style="margin:0;color:var(--r-text)">🎯 SCPRS Buyers</h2>
+  <p style="margin:4px 0 0;color:var(--r-text-muted);font-size:14px">Every buyer in SCPRS who purchases items you can supply. Click → Draft outreach email.</p>
  </div>
  <div style="display:flex;gap:8px;align-items:center">
-  <select id="agencyFilter" onchange="loadBuyers()" style="padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+  <select id="agencyFilter" onchange="loadBuyers()" style="padding:8px 12px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px">
    <option value="">All Agencies</option>
   </select>
-  <input id="searchInput" placeholder="Filter by name, email, item..." oninput="filterTable()" style="padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;width:220px">
-  <span id="buyerCount" style="color:var(--tx2);font-size:14px"></span>
+  <input id="searchInput" placeholder="Filter by name, email, item..." oninput="filterTable()" style="padding:8px 12px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px;width:220px">
+  <span id="buyerCount" style="color:var(--r-text-muted);font-size:14px"></span>
  </div>
 </div>
 
 <!-- Stats bar -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px">
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:var(--ac)" id="s-buyers">—</div><div style="font-size:12px;color:var(--tx2)">Buyers with Email</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:#3fb950" id="s-spend">—</div><div style="font-size:12px;color:var(--tx2)">Total Spend</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:#d2a8ff" id="s-overlap">—</div><div style="font-size:12px;color:var(--tx2)">Buy Items We Sell</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:#fbbf24" id="s-agencies">—</div><div style="font-size:12px;color:var(--tx2)">Agencies</div></div>
+ <div class="r-card r-card-pad" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:var(--r-accent)" id="s-buyers">—</div><div style="font-size:12px;color:var(--r-text-muted)">Buyers with Email</div></div>
+ <div class="r-card r-card-pad" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:var(--r-accent)" id="s-spend">—</div><div style="font-size:12px;color:var(--r-text-muted)">Total Spend</div></div>
+ <div class="r-card r-card-pad" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:#d2a8ff" id="s-overlap">—</div><div style="font-size:12px;color:var(--r-text-muted)">Buy Items We Sell</div></div>
+ <div class="r-card r-card-pad" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:var(--r-warn)" id="s-agencies">—</div><div style="font-size:12px;color:var(--r-text-muted)">Agencies</div></div>
 </div>
 
 <!-- Buyer list -->
-<div class="card" style="padding:0;overflow:hidden">
+<div class="r-card r-card-pad" style="padding:0;overflow:hidden">
  <table style="width:100%;border-collapse:collapse;font-size:14px" id="buyerTable">
-  <thead><tr style="background:var(--sf2)">
-   <th style="text-align:left;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Buyer</th>
-   <th style="text-align:left;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Agency / Institution</th>
-   <th style="text-align:right;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">POs</th>
-   <th style="text-align:right;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Spend</th>
-   <th style="text-align:left;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Items We Can Supply</th>
-   <th style="text-align:center;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Outreach</th>
+  <thead><tr style="background:var(--r-surface-2)">
+   <th style="text-align:left;padding:12px;color:var(--r-text-muted);font-size:12px;text-transform:uppercase">Buyer</th>
+   <th style="text-align:left;padding:12px;color:var(--r-text-muted);font-size:12px;text-transform:uppercase">Agency / Institution</th>
+   <th style="text-align:right;padding:12px;color:var(--r-text-muted);font-size:12px;text-transform:uppercase">POs</th>
+   <th style="text-align:right;padding:12px;color:var(--r-text-muted);font-size:12px;text-transform:uppercase">Spend</th>
+   <th style="text-align:left;padding:12px;color:var(--r-text-muted);font-size:12px;text-transform:uppercase">Items We Can Supply</th>
+   <th style="text-align:center;padding:12px;color:var(--r-text-muted);font-size:12px;text-transform:uppercase">Outreach</th>
   </tr></thead>
   <tbody id="buyerBody">
-   <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--tx2)">Loading buyers...</td></tr>
+   <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--r-text-muted)">Loading buyers...</td></tr>
   </tbody>
  </table>
 </div>
 
 <!-- Email Draft Modal -->
 <div id="emailModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
- <div style="background:var(--crd);border:1px solid var(--bd);border-radius:12px;padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto">
+ <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:12px;padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-   <h3 style="margin:0;color:var(--tx)" id="modalTitle">Draft Outreach Email</h3>
-   <button onclick="closeModal()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+   <h3 style="margin:0;color:var(--r-text)" id="modalTitle">Draft Outreach Email</h3>
+   <button onclick="closeModal()" style="background:none;border:none;color:var(--r-text-muted);font-size:20px;cursor:pointer">✕</button>
   </div>
   <div style="margin-bottom:12px">
-   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">To:</label>
-   <input id="emailTo" style="width:100%;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px" readonly>
+   <label style="font-size:13px;color:var(--r-text-muted);display:block;margin-bottom:4px">To:</label>
+   <input id="emailTo" style="width:100%;padding:10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px" readonly>
   </div>
   <div style="margin-bottom:12px">
-   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">Subject:</label>
-   <input id="emailSubject" style="width:100%;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+   <label style="font-size:13px;color:var(--r-text-muted);display:block;margin-bottom:4px">Subject:</label>
+   <input id="emailSubject" style="width:100%;padding:10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px">
   </div>
   <div style="margin-bottom:16px">
-   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">Body:</label>
-   <textarea id="emailBody" rows="14" style="width:100%;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;line-height:1.5;resize:vertical"></textarea>
+   <label style="font-size:13px;color:var(--r-text-muted);display:block;margin-bottom:4px">Body:</label>
+   <textarea id="emailBody" rows="14" style="width:100%;padding:10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px;line-height:1.5;resize:vertical"></textarea>
   </div>
   <div style="display:flex;gap:8px;justify-content:flex-end">
-   <button onclick="copyEmail()" class="btn" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:10px 20px" aria-label="Copy">📋 Copy</button>
-   <button onclick="openInMail()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px" aria-label="Open in Mail">📧 Open in Mail</button>
-   <button onclick="saveToOutbox()" class="btn" style="background:#3fb950;color:#fff;font-size:14px;padding:10px 20px" aria-label="Save to Outbox">💾 Save to Outbox</button>
+   <button onclick="copyEmail()" class="r-btn" style="background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);font-size:14px;padding:10px 20px" aria-label="Copy">📋 Copy</button>
+   <button onclick="openInMail()" class="r-btn r-btn-primary" style="background:var(--r-accent);color:#fff;font-size:14px;padding:10px 20px" aria-label="Open in Mail">📧 Open in Mail</button>
+   <button onclick="saveToOutbox()" class="r-btn" style="background:var(--r-accent);color:#fff;font-size:14px;padding:10px 20px" aria-label="Save to Outbox">💾 Save to Outbox</button>
   </div>
  </div>
 </div>
 
+</div>
 </div>
 
 <script>
@@ -81,7 +83,7 @@ function loadBuyers(){
  var agency=document.getElementById('agencyFilter').value;
  var url='/api/buyers'+(agency?'?agency='+agency:'');
  fetch(url,{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
-  if(!d.ok){document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="color:#f85149;padding:20px">'+escH(d.error)+'</td></tr>';return}
+  if(!d.ok){document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="color:var(--r-bad);padding:20px">'+escH(d.error)+'</td></tr>';return}
 
   _allBuyers=d.buyers||[];
   var s=d.stats||{};
@@ -106,7 +108,7 @@ function loadBuyers(){
 
   renderBuyers(_allBuyers);
  }).catch(function(e){
-  document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="color:#f85149;padding:20px">Error: '+escH(e.message)+'</td></tr>';
+  document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="color:var(--r-bad);padding:20px">Error: '+escH(e.message)+'</td></tr>';
  });
 }
 
@@ -124,25 +126,25 @@ function filterTable(){
 
 function renderBuyers(buyers){
  if(!buyers.length){
-  document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--tx2)">No buyers found. Run SCPRS backfill first: <a href="/intel/competitors" style="color:var(--ac)">Competitor Intel → Backfill 2025</a></td></tr>';
+  document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--r-text-muted)">No buyers found. Run SCPRS backfill first: <a href="/intel/competitors" style="color:var(--r-accent)">Competitor Intel → Backfill 2025</a></td></tr>';
   return;
  }
  var html='';
  buyers.forEach(function(b){
   var overlap=b.overlap_items||[];
   var overlapHtml=overlap.length
-   ? overlap.map(function(it){return '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;background:rgba(63,185,80,.12);color:#3fb950;margin:1px">'+escH(it)+'</span>'}).join('')
-   : '<span style="color:var(--tx2);font-size:12px">—</span>';
+   ? overlap.map(function(it){return '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;background:rgba(63,185,80,.12);color:var(--r-accent);margin:1px">'+escH(it)+'</span>'}).join('')
+   : '<span style="color:var(--r-text-muted);font-size:12px">—</span>';
 
-  html+='<tr style="border-bottom:1px solid var(--bd);cursor:pointer" onmouseover="this.style.background=\'rgba(79,140,255,.04)\'" onmouseout="this.style.background=\'\'">'
-   +'<td style="padding:10px 12px"><div style="font-weight:600;color:var(--tx)">'+escH(b.buyer_name||'Unknown')+'</div>'
-   +'<div style="font-size:12px;color:var(--ac)"><a href="mailto:'+escH(b.buyer_email)+'" style="color:var(--ac)">'+escH(b.buyer_email)+'</a></div></td>'
-   +'<td style="padding:10px 12px"><div style="color:var(--tx)">'+escH(b.agency||'')+'</div><div style="font-size:12px;color:var(--tx2)">'+escH(b.institution||'')+'</div></td>'
+  html+='<tr style="border-bottom:1px solid var(--r-border);cursor:pointer" onmouseover="this.style.background=\'rgba(79,140,255,.04)\'" onmouseout="this.style.background=\'\'">'
+   +'<td style="padding:10px 12px"><div style="font-weight:600;color:var(--r-text)">'+escH(b.buyer_name||'Unknown')+'</div>'
+   +'<div style="font-size:12px;color:var(--r-accent)"><a href="mailto:'+escH(b.buyer_email)+'" style="color:var(--r-accent)">'+escH(b.buyer_email)+'</a></div></td>'
+   +'<td style="padding:10px 12px"><div style="color:var(--r-text)">'+escH(b.agency||'')+'</div><div style="font-size:12px;color:var(--r-text-muted)">'+escH(b.institution||'')+'</div></td>'
    +'<td style="padding:10px 12px;text-align:right;font-family:monospace">'+b.po_count+'</td>'
-   +'<td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:600;color:#3fb950">'+fmt$(b.total_spend)+'</td>'
+   +'<td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:600;color:var(--r-accent)">'+fmt$(b.total_spend)+'</td>'
    +'<td style="padding:10px 12px;max-width:300px">'+overlapHtml+'</td>'
    +'<td style="padding:10px 12px;text-align:center">'
-   +'<button onclick="event.stopPropagation();draftEmail('+JSON.stringify(b).replace(/"/g,'&quot;')+')" style="padding:6px 14px;background:var(--ac);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Draft Email">📧 Draft Email</button>'
+   +'<button onclick="event.stopPropagation();draftEmail('+JSON.stringify(b).replace(/"/g,'&quot;')+')" style="padding:6px 14px;background:var(--r-accent);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Draft Email">📧 Draft Email</button>'
    +'</td></tr>';
  });
  document.getElementById('buyerBody').innerHTML=html;
