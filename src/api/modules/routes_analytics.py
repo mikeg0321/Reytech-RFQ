@@ -3611,108 +3611,17 @@ def api_rfq_package_diag(rid):
 # DEFAULT_AGENCY_CONFIGS below is the next seam to collapse (separate PR).
 from src.core.agency_config import AVAILABLE_FORMS  # noqa: F401  re-exported for downstream readers
 
-# Default agency configs (used to seed the DB)
-DEFAULT_AGENCY_CONFIGS = {
-    "cchcs": {
-        "name": "CCHCS / CDCR",
-        "match_patterns": ["CDCR", "CCHCS", "CORRECTIONS", "CORRECTIONAL"],
-        "required_forms": [
-            # ── Separate standalone attachments ──────────────────────
-            # 703 trio added 2026-05-27 (Coleman sol# 10842771). Buyer
-            # picks exactly one revision; rev-aware filter at
-            # routes_rfq_gen.py picks the present revision at render time.
-            "703a",           # AMS 703A Rev. 03/2025 (current revision)
-            "703b",           # AMS 703B Bidder Info form (prior revision)
-            "703c",           # AMS 703C IT-RFQ variant
-            "704b",           # AMS 704B Pricing worksheet
-            "quote",          # Reytech formal quote on letterhead
-            # ── RFQ Package: BidPackage template + extras ────────────
-            # NOTE: bidpkg already contains CDCR Terms, CalRecycle 74,
-            # CUF MC-345, DVBE 843, GenAI AMS 708, Drug-Free STD 21,
-            # Voluntary Stats PD 802.
-            # Darfur Act is also embedded in bidpkg — no standalone needed.
-            # Bidder Declaration (GSPD-05-105) is embedded in bidpkg — no standalone GSPD-05-106.
-            "bidpkg",         # CDCR combined template (all forms above)
-            "sellers_permit", # CA Seller's Permit (static copy)
-        ],
-        "optional_forms": [],
-        # RULE: std204 is a SEPARATE standalone attachment, NOT in this package.
-        # RULE: dvbe843/calrecycle74/drug_free/cuf_cchcs are inside bidpkg — never add here.
-        "notes": "California Correctional Health Care Services. AMS 703B/704B + full supporting docs.",
-    },
-    "calvet": {
-        "name": "Cal Vet / DVA",
-        "match_patterns": ["CALVET", "CAL VET", "CVA", "VHC", "VETERANS"],
-        "required_forms": ["quote", "calrecycle74", "bidder_decl", "dvbe843", "darfur_act", "cv012_cuf", "std204", "std1000", "sellers_permit"],
-        "optional_forms": ["barstow_cuf"],
-        "notes": "California Department of Veterans Affairs. No AMS 703B/704B — uses Reytech quote + compliance forms.",
-    },
-    "dgs": {
-        "name": "DGS",
-        "match_patterns": ["DGS", "GENERAL SERVICES"],
-        "required_forms": ["quote", "std204", "sellers_permit", "dvbe843", "bidder_decl", "darfur_act"],
-        "optional_forms": ["std1000"],
-        "notes": "Department of General Services. No AMS forms — uses their own bid format.",
-    },
-    "calfire": {
-        "name": "CAL FIRE",
-        "match_patterns": ["CALFIRE", "CAL FIRE", "FORESTRY"],
-        "required_forms": ["quote", "std204", "sellers_permit", "dvbe843"],
-        "optional_forms": ["bidder_decl", "darfur_act"],
-        "notes": "California Department of Forestry and Fire Protection.",
-    },
-    "dsh": {
-        "name": "DSH — Dept of State Hospitals",
-        "match_patterns": ["DSH", "STATE HOSPITAL", "NAPA STATE",
-                          "ATASCADERO", "PATTON", "COALINGA",
-                          "METROPOLITAN"],
-        "required_forms": ["703b", "704b", "quote", "bidpkg", "sellers_permit", "genai_708"],
-        "optional_forms": ["std205", "w9"],
-        "notes": "Uses same AMS forms as CCHCS/CDCR.",
-    },
-    "cdfa": {
-        "name": "CDFA — Dept of Food & Agriculture",
-        "match_patterns": ["CDFA", "FOOD AND AGRICULTURE", "FOOD & AGRICULTURE"],
-        "required_forms": ["quote", "std204", "sellers_permit", "bidder_decl", "darfur_act"],
-        "optional_forms": ["dvbe843", "obs_1600", "w9"],
-        "notes": "DGS-style forms.",
-    },
-    "dca": {
-        "name": "DCA — Dept of Consumer Affairs",
-        "match_patterns": ["DCA", "CONSUMER AFFAIRS"],
-        "required_forms": ["quote", "std204", "sellers_permit", "bidder_decl", "darfur_act"],
-        "optional_forms": ["dvbe843", "w9"],
-        "notes": "Standard DGS forms.",
-    },
-    "chp": {
-        "name": "CHP — CA Highway Patrol",
-        "match_patterns": ["CHP", "HIGHWAY PATROL"],
-        "required_forms": ["quote", "std204", "sellers_permit", "dvbe843", "bidder_decl", "darfur_act"],
-        "optional_forms": ["w9"],
-        "notes": "DGS-standard procurement forms.",
-    },
-    "edd": {
-        "name": "EDD — Employment Development Dept",
-        "match_patterns": ["EDD", "EMPLOYMENT DEVELOPMENT"],
-        "required_forms": ["quote", "std204", "sellers_permit", "bidder_decl"],
-        "optional_forms": ["dvbe843", "darfur_act", "w9"],
-        "notes": "Standard DGS forms.",
-    },
-    "judicial": {
-        "name": "Judicial Branch",
-        "match_patterns": ["JUDICIAL", "SUPERIOR COURT", "COURTS"],
-        "required_forms": ["quote", "sellers_permit"],
-        "optional_forms": ["std204", "w9"],
-        "notes": "Judicial branch has own procurement. Minimal forms.",
-    },
-    "other": {
-        "name": "Other / Unknown",
-        "match_patterns": [],
-        "required_forms": ["quote", "std204", "sellers_permit"],
-        "optional_forms": ["dvbe843", "bidder_decl"],
-        "notes": "Default config for unrecognized agencies. Minimal forms.",
-    },
-}
+# Default agency configs — IMPORTED from canonical src/core/agency_config
+# 2026-05-27 (seam #2 collapse, follow-up to PR #1166's AVAILABLE_FORMS
+# collapse). The duplicate local declaration that lived here drifted from
+# canonical: it (a) was missing 703a/703c on cchcs (PR #1165 patched
+# tonight), (b) had narrower match_patterns on every agency, (c) had a
+# stale dsh shape (703b/704b instead of canonical's dsh_attA/B/C), and
+# (d) referenced "genai_708" which is not a registered form_id (canonical
+# uses "ams708"). Pinning test in tests/test_agency_config.py asserts
+# IDENTITY (`is`, not `==`) so the same object cannot be re-duplicated.
+# See [[reference_rfqapp_architecture_docs_and_substrate_seams]] seam #2.
+from src.core.agency_config import DEFAULT_AGENCY_CONFIGS  # noqa: E402,F401
 
 
 def _load_agency_configs():
