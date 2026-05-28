@@ -142,6 +142,74 @@ class TestSeven03RevisionIdentity:
         )
 
 
+# ── Substrate-singleness: no inline classifier copies ───────────
+
+class TestNoInlineClassifierDivergence:
+    """Pin substrate singleness — the filename→form_id mapping lives
+    in exactly ONE place: `src/forms/package_form_classifier.py`.
+
+    Background: through 2026-05-27 there were THREE inline copies of
+    this chain — `routes_rfq_gen.py`, `routes_rfq.py`, and
+    `form_qa.py::verify_package_completeness`. The third copy was
+    missing the 703A check entirely AND collapsed 703C → 703b.
+    On Coleman 10842771 (CCHCS, AMS 703A Rev. 03/2025) Form QA reported
+    "Required form not generated: 703a" on every package even though
+    the 703A PDF was on disk and in the merged Package. PR #1169
+    consolidated all three onto `classify_package_filename`.
+
+    These tests fail loudly if a future edit re-inlines a 703-classifier
+    branch, or if the two remaining classifiers (canonical + the
+    grandfathered DSH AttA/B/C fallback in form_qa) drift apart.
+    """
+
+    def test_form_qa_classifier_matches_canonical_for_all_known_files(self):
+        """Cross-check: `verify_package_completeness` must produce the
+        SAME form_id as `classify_package_filename` for every filename
+        in the canonical set. DSH attachments are the only sanctioned
+        exception (legacy substring fallback inside form_qa).
+
+        If this test fails, the two classifier paths have drifted —
+        which is the substrate-singleness sin this pin exists to catch.
+        """
+        from src.forms.form_qa import verify_package_completeness
+
+        # Every canonical filename we care about. Add new forms here
+        # as `AVAILABLE_FORMS` grows.
+        canonical_filenames = [
+            "10842771_703A_Reytech.pdf",
+            "10842771_703B_Reytech.pdf",
+            "10842771_703C_Reytech.pdf",
+            "10842771_704B_Reytech.pdf",
+            "RFQ_BidPkg_Reytech.pdf",
+            "RFQ_CalRecycle74_Reytech.pdf",
+            "RFQ_BidderDecl_Reytech.pdf",
+            "RFQ_DVBE843_Reytech.pdf",
+            "RFQ_DarfurAct_Reytech.pdf",
+            "RFQ_SellersPermit_Reytech.pdf",
+            "RFQ_CV012_CUF_Reytech.pdf",
+            "RFQ_BarstowCUF_Reytech.pdf",
+            "RFQ_Quote_Reytech.pdf",
+            "RFQ_STD204_Reytech.pdf",
+            "RFQ_STD1000_Reytech.pdf",
+        ]
+
+        result = verify_package_completeness(
+            "cchcs", {"unused"}, canonical_filenames, has_bid_package=False
+        )
+        verify_ids = {g["filename"]: g["form_id"] for g in result.get("generated", [])}
+
+        for fn in canonical_filenames:
+            canonical = classify_package_filename(fn)
+            actual = verify_ids.get(fn)
+            assert actual == canonical, (
+                f"DIVERGENCE on {fn!r}: "
+                f"classify_package_filename={canonical!r} but "
+                f"verify_package_completeness={actual!r}. "
+                "The two paths have re-diverged — re-consolidate "
+                "onto the canonical classifier."
+            )
+
+
 # ── Property: ordering invariant ─────────────────────────────────
 
 def test_specific_facility_cuf_wins_over_generic_cuf():
