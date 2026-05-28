@@ -1,34 +1,35 @@
 {% extends "base.html" %}
 {% block title %}QuickBooks Integration{% endblock %}
 {% block content %}
-<style>@keyframes skeleton-pulse{0%{opacity:.6}50%{opacity:.3}100%{opacity:.6}}.skeleton{background:var(--bd);border-radius:4px;animation:skeleton-pulse 1.5s ease-in-out infinite}.skeleton-line{height:14px;margin:8px 0;border-radius:4px}</style>
+<style>@keyframes skeleton-pulse{0%{opacity:.6}50%{opacity:.3}100%{opacity:.6}}.skeleton{background:var(--r-border);border-radius:4px;animation:skeleton-pulse 1.5s ease-in-out infinite}.skeleton-line{height:14px;margin:8px 0;border-radius:4px}</style>
+<div class="r-app">
 <div class="card" style="margin-bottom:16px">
  <div style="display:flex;justify-content:space-between;align-items:center">
   <h1 style="margin:0;font-size:24px">💰 QuickBooks Integration</h1>
   <div style="display:flex;gap:8px">
-   <button onclick="syncVendors(this)" class="btn btn-sm" style="background:#238636;color:#fff;padding:6px 14px;border:none;border-radius:6px;cursor:pointer" aria-label="Sync Vendors">🔄 Sync Vendors</button>
-   <button onclick="runDiagnose()" class="btn btn-sm" style="background:#21262d;color:#58a6ff;padding:6px 14px;border:1px solid #30363d;border-radius:6px;cursor:pointer" aria-label="Diagnose">🔧 Diagnose</button>
+   <button onclick="syncVendors(this)" class="btn btn-sm" style="background:var(--r-accent);color:#fff;padding:6px 14px;border:none;border-radius:6px;cursor:pointer" aria-label="Sync Vendors">🔄 Sync Vendors</button>
+   <button onclick="runDiagnose()" class="btn btn-sm" style="background:var(--r-border);color:var(--r-accent);padding:6px 14px;border:1px solid var(--r-border);border-radius:6px;cursor:pointer" aria-label="Diagnose">🔧 Diagnose</button>
   </div>
  </div>
- <div id="qbStatus" style="margin-top:8px;font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+ <div id="qbStatus" style="margin-top:8px;font-size:14px;color:var(--r-text-muted)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
 </div>
 
 <!-- Financial Overview -->
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
  <div class="card" style="padding:16px;text-align:center" id="card-revenue">
-  <div style="font-size:13px;color:#8b949e;text-transform:uppercase">Revenue (P&L)</div>
-  <div style="font-size:28px;font-weight:700;color:#3fb950" id="pnl-revenue">—</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">Revenue (P&L)</div>
+  <div style="font-size:28px;font-weight:700;color:var(--r-accent)" id="pnl-revenue">—</div>
  </div>
  <div class="card" style="padding:16px;text-align:center" id="card-ar">
-  <div style="font-size:13px;color:#8b949e;text-transform:uppercase">A/R Outstanding</div>
-  <div style="font-size:28px;font-weight:700;color:#f0883e" id="ar-total">—</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">A/R Outstanding</div>
+  <div style="font-size:28px;font-weight:700;color:var(--r-warn)" id="ar-total">—</div>
  </div>
  <div class="card" style="padding:16px;text-align:center" id="card-invoices">
-  <div style="font-size:13px;color:#8b949e;text-transform:uppercase">Open Invoices</div>
-  <div style="font-size:28px;font-weight:700;color:#58a6ff" id="inv-count">—</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">Open Invoices</div>
+  <div style="font-size:28px;font-weight:700;color:var(--r-accent)" id="inv-count">—</div>
  </div>
  <div class="card" style="padding:16px;text-align:center" id="card-payments">
-  <div style="font-size:13px;color:#8b949e;text-transform:uppercase">Recent Payments</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">Recent Payments</div>
   <div style="font-size:28px;font-weight:700;color:#a78bfa" id="pay-count">—</div>
  </div>
 </div>
@@ -37,40 +38,41 @@
  <!-- Recent Invoices -->
  <div class="card" style="padding:16px">
   <h3 style="margin:0 0 12px 0;font-size:16px">📄 Recent Invoices</h3>
-  <div id="invoices-list" style="font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+  <div id="invoices-list" style="font-size:14px;color:var(--r-text-muted)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 
  <!-- Vendors -->
  <div class="card" style="padding:16px">
-  <h3 style="margin:0 0 12px 0;font-size:16px">🏢 QB Vendors <span id="vendor-count" style="color:#8b949e;font-size:13px"></span></h3>
-  <div id="vendors-list" style="font-size:14px;color:#8b949e;max-height:400px;overflow-y:auto"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+  <h3 style="margin:0 0 12px 0;font-size:16px">🏢 QB Vendors <span id="vendor-count" style="color:var(--r-text-muted);font-size:13px"></span></h3>
+  <div id="vendors-list" style="font-size:14px;color:var(--r-text-muted);max-height:400px;overflow-y:auto"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 
  <!-- Recent Payments -->
  <div class="card" style="padding:16px">
   <h3 style="margin:0 0 12px 0;font-size:16px">💵 Recent Payments</h3>
-  <div id="payments-list" style="font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+  <div id="payments-list" style="font-size:14px;color:var(--r-text-muted)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 
  <!-- Customers -->
  <div class="card" style="padding:16px">
-  <h3 style="margin:0 0 12px 0;font-size:16px">👥 QB Customers <span id="cust-count" style="color:#8b949e;font-size:13px"></span></h3>
-  <div id="customers-list" style="font-size:14px;color:#8b949e;max-height:400px;overflow-y:auto"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+  <h3 style="margin:0 0 12px 0;font-size:16px">👥 QB Customers <span id="cust-count" style="color:var(--r-text-muted);font-size:13px"></span></h3>
+  <div id="customers-list" style="font-size:14px;color:var(--r-text-muted);max-height:400px;overflow-y:auto"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 </div>
 
 <!-- A/R Aging -->
 <div class="card" style="padding:16px;margin-top:16px">
  <h3 style="margin:0 0 12px 0;font-size:16px">📊 A/R Aging Summary</h3>
- <div id="aging-table" style="font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+ <div id="aging-table" style="font-size:14px;color:var(--r-text-muted)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
 </div>
 
 <!-- Diagnose Modal -->
 <div id="diagnose-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:none;align-items:center;justify-content:center">
- <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;width:90%;max-width:600px;max-height:80vh;overflow-y:auto">
-  <div style="display:flex;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0;color:#c9d1d9">🔧 QB Diagnostic</h3><button onclick="document.getElementById('diagnose-modal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button></div>
-  <pre id="diagnose-output" style="background:#0d1117;padding:12px;border-radius:6px;font-size:13px;color:#c9d1d9;white-space:pre-wrap;overflow-x:auto"></pre>
+ <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:20px;width:90%;max-width:600px;max-height:80vh;overflow-y:auto">
+  <div style="display:flex;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0;color:var(--r-text)">🔧 QB Diagnostic</h3><button onclick="document.getElementById('diagnose-modal').style.display='none'" style="background:none;border:none;color:var(--r-text-muted);font-size:20px;cursor:pointer">✕</button></div>
+  <pre id="diagnose-output" style="background:var(--r-bg);padding:12px;border-radius:6px;font-size:13px;color:var(--r-text);white-space:pre-wrap;overflow-x:auto"></pre>
  </div>
+</div>
 </div>
 
 <script>
@@ -83,10 +85,10 @@
    var s=d.status;
    var connected=s.configured && s.has_token;
    el.innerHTML=connected
-    ? '<span style="color:#3fb950">✅ Connected</span> · Realm: '+(s.realm_id||'?')+' · Vendors cached: '+(s.vendors_cached||0)
-    : '<span style="color:#f85149">❌ Not connected</span> — <a href="/api/qb/connect" style="color:#58a6ff">Connect QuickBooks</a>';
+    ? '<span style="color:var(--r-accent)">✅ Connected</span> · Realm: '+(s.realm_id||'?')+' · Vendors cached: '+(s.vendors_cached||0)
+    : '<span style="color:var(--r-bad)">❌ Not connected</span> — <a href="/api/qb/connect" style="color:var(--r-accent)">Connect QuickBooks</a>';
   } else {
-   el.innerHTML='<span style="color:#f85149">QB module not available</span>';
+   el.innerHTML='<span style="color:var(--r-bad)">QB module not available</span>';
   }
  }).catch(()=>{document.getElementById('qbStatus').textContent='Failed to load status'});
 
@@ -110,12 +112,12 @@
  fetch('/api/qb/invoices?status=open&limit=10').then(r=>r.json()).then(d=>{
   var el=document.getElementById('invoices-list');
   if(d.ok && d.invoices && d.invoices.length){
-   var html='<table style="width:100%;font-size:14px"><tr style="color:#8b949e;font-size:12px;text-transform:uppercase"><th style="text-align:left;padding:4px">Invoice#</th><th>Customer</th><th style="text-align:right">Amount</th><th>Due</th></tr>';
+   var html='<table style="width:100%;font-size:14px"><tr style="color:var(--r-text-muted);font-size:12px;text-transform:uppercase"><th style="text-align:left;padding:4px">Invoice#</th><th>Customer</th><th style="text-align:right">Amount</th><th>Due</th></tr>';
    d.invoices.slice(0,10).forEach(function(inv){
-    html+='<tr><td style="padding:4px;color:#58a6ff;font-family:monospace">#'+(inv.DocNumber||'?')+'</td>';
+    html+='<tr><td style="padding:4px;color:var(--r-accent);font-family:monospace">#'+(inv.DocNumber||'?')+'</td>';
     html+='<td style="padding:4px">'+(inv.CustomerRef?.name||'')+'</td>';
     html+='<td style="padding:4px;text-align:right;font-weight:700">$'+(Number(inv.TotalAmt||0).toLocaleString())+'</td>';
-    html+='<td style="padding:4px;color:#8b949e">'+(inv.DueDate||'')+'</td></tr>';
+    html+='<td style="padding:4px;color:var(--r-text-muted)">'+(inv.DueDate||'')+'</td></tr>';
    });
    html+='</table>';
    el.innerHTML=html;
@@ -134,9 +136,9 @@
     var name=v.CompanyName||v.DisplayName||'?';
     var email=(v.PrimaryEmailAddr||{}).Address||'';
     var balance=v.Balance||0;
-    html+='<div style="padding:6px 0;border-bottom:1px solid #21262d;display:flex;justify-content:space-between">';
-    html+='<div><b>'+name+'</b>'+(email?' <span style="color:#8b949e">'+email+'</span>':'')+'</div>';
-    if(balance>0) html+='<span style="color:#f0883e;font-weight:600">$'+Number(balance).toLocaleString()+'</span>';
+    html+='<div style="padding:6px 0;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between">';
+    html+='<div><b>'+name+'</b>'+(email?' <span style="color:var(--r-text-muted)">'+email+'</span>':'')+'</div>';
+    if(balance>0) html+='<span style="color:var(--r-warn);font-weight:600">$'+Number(balance).toLocaleString()+'</span>';
     html+='</div>';
    });
    el.innerHTML=html;
@@ -152,9 +154,9 @@
    document.getElementById('pay-count').textContent=d.payments.length;
    var html='';
    d.payments.slice(0,10).forEach(function(p){
-    html+='<div style="padding:6px 0;border-bottom:1px solid #21262d;display:flex;justify-content:space-between">';
-    html+='<div>'+(p.CustomerRef?.name||'Payment')+' <span style="color:#8b949e;font-size:13px">'+( p.TxnDate||'')+'</span></div>';
-    html+='<span style="color:#3fb950;font-weight:700">$'+Number(p.TotalAmt||0).toLocaleString()+'</span>';
+    html+='<div style="padding:6px 0;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between">';
+    html+='<div>'+(p.CustomerRef?.name||'Payment')+' <span style="color:var(--r-text-muted);font-size:13px">'+( p.TxnDate||'')+'</span></div>';
+    html+='<span style="color:var(--r-accent);font-weight:700">$'+Number(p.TotalAmt||0).toLocaleString()+'</span>';
     html+='</div>';
    });
    el.innerHTML=html;
@@ -173,9 +175,9 @@
    d.customers.slice(0,20).forEach(function(c){
     var name=c.CompanyName||c.DisplayName||'?';
     var balance=c.Balance||0;
-    html+='<div style="padding:6px 0;border-bottom:1px solid #21262d;display:flex;justify-content:space-between">';
+    html+='<div style="padding:6px 0;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between">';
     html+='<b>'+name+'</b>';
-    if(balance>0) html+='<span style="color:#f0883e;font-weight:600">$'+Number(balance).toLocaleString()+' due</span>';
+    if(balance>0) html+='<span style="color:var(--r-warn);font-weight:600">$'+Number(balance).toLocaleString()+' due</span>';
     html+='</div>';
    });
    el.innerHTML=html;
@@ -188,7 +190,7 @@
  fetch('/api/qb/aging').then(r=>r.json()).then(d=>{
   var el=document.getElementById('aging-table');
   if(d.ok && d.aging){
-   el.innerHTML='<pre style="font-size:14px;color:#c9d1d9">'+JSON.stringify(d.aging,null,2).substring(0,2000)+'</pre>';
+   el.innerHTML='<pre style="font-size:14px;color:var(--r-text)">'+JSON.stringify(d.aging,null,2).substring(0,2000)+'</pre>';
    if(d.aging.total) document.getElementById('ar-total').textContent='$'+Number(d.aging.total||0).toLocaleString();
   } else {
    el.textContent='No aging data available';
