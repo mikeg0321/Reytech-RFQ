@@ -441,7 +441,17 @@ def home():
         if v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced"):
             return True
         # Zero items and has a real PC/solicitation number — keep.
-        if (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown", "RFQ"):
+        # Mirror the RFQ filter: also reject placeholder words like
+        # "NON-IT" / "PAYMENT" / "ATTACHED" that the ingest classifier
+        # rejects (`_SOL_PLACEHOLDER_WORDS`). Without this, legacy PC
+        # orphans with `solicitation_number="NON-IT"` survive the
+        # display filter the same way RFQ orphans did before this PR.
+        try:
+            from src.core.request_classifier import _SOL_PLACEHOLDER_WORDS as _SPW
+        except Exception:
+            _SPW = frozenset()
+        _sol = (v.get("solicitation_number") or v.get("pc_number", "") or "").strip()
+        if _sol and _sol not in ("unknown", "RFQ") and _sol.upper() not in _SPW:
             return True
         return False
     user_pcs = {k: v for k, v in user_pcs.items() if _keep_pc(v)}
@@ -635,10 +645,32 @@ def home():
     # so partial-write statuses don't disappear from the queue.
     all_rfqs = load_rfqs()
     active_rfqs = {k: v for k, v in all_rfqs.items() if is_active_queue(v)}
-    # Filter ghost RFQs: 0 items + no real solicitation
+    # Filter ghost RFQs: 0 items + no real solicitation.
+    #
+    # Reuses the canonical placeholder blocklist from the ingest
+    # classifier (`_SOL_PLACEHOLDER_WORDS` in `request_classifier.py`)
+    # so the display filter cannot drift from the invariant the parser
+    # enforces. PR #1095 (2026-05-26) rejected digit-less sol# captures
+    # at INGEST so the 703B title text "REQUEST FOR QUOTATION: NON-IT
+    # GOODS" never gets stored AS the sol#. But rows ingested BEFORE
+    # that fix still have `solicitation_number="NON-IT"` (or
+    # "IT-GOODS" / "PAYMENT" / etc) in the DB — they survived the
+    # display filter because the deny list didn't mirror the
+    # classifier's invariant. Coleman → Chechi `#NON-IT` orphan was
+    # still visible on the home queue 2026-05-28; this filter hides
+    # legacy orphans without deleting them.
+    from src.core.request_classifier import _SOL_PLACEHOLDER_WORDS
+    _SOL_DENY_BASE = {"", "unknown", "RFQ"}
+    def _is_real_sol(rec):
+        sol = (rec.get("solicitation_number") or rec.get("rfq_number") or "").strip()
+        if sol in _SOL_DENY_BASE:
+            return False
+        if sol.upper() in _SOL_PLACEHOLDER_WORDS:
+            return False
+        return bool(sol)
     active_rfqs = {k: v for k, v in active_rfqs.items()
                    if len(v.get("line_items", v.get("items", []))) > 0
-                   or (v.get("solicitation_number") or v.get("rfq_number", "")) not in ("", "unknown", "RFQ")}
+                   or _is_real_sol(v)}
     # Ghost-detection filter + dedup by solicitation number (audit E
     # addendum): Mike's 2026-04-23 screenshot showed #10840486
     # appearing twice (once as "CA STATE PRISON SACRAMENTO"

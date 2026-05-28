@@ -269,3 +269,83 @@ class TestLegitRecordsStillRender:
         html = _fetch_home(client)
         assert "/rfq/rfq-a" in html
         assert "/rfq/rfq-b" in html
+
+
+class TestNonItPlaceholderOrphansHidden:
+    """Pre-PR-#1095 ingests stored 703B-title fragments as solicitation
+    numbers ("NON-IT", "IT-GOODS", "GOODS", "PAYMENT", "ATTACHED"...).
+    PR #1095 closed the ingest path; this filter closes the DISPLAY
+    path so legacy orphans no longer pollute the operator queue. Pin
+    every word in the canonical placeholder set so a future filter
+    refactor cannot silently drop the coverage.
+
+    Trigger: Mike screenshot 2026-05-28 of `#NON-IT` cchcs Mohammad
+    Chechi row, 0 items, 200h overdue — same orphan class PRs #1095 +
+    #1128 were "supposed to fix" but never cleaned up at display time.
+    """
+
+    def test_chechi_non_it_orphan_hidden(self, client, temp_data_dir):
+        """The exact 2026-05-28 prod orphan: cchcs, Mohammad Chechi,
+        sol# stored as `NON-IT` from the 703B title text, 0 items
+        parsed. Must NOT appear on home."""
+        orphan = _mk_rfq(
+            "rfq_chechi_nonit",
+            rfq_number="NON-IT",
+            solicitation_number="NON-IT",
+            buyer_name="Mohammad Chechi",
+            institution="CCHCS",
+            line_items=[],  # parser produced 0 items — typical for this orphan
+        )
+        _seed_records(temp_data_dir, rfqs={orphan["id"]: orphan})
+        html = _fetch_home(client)
+        assert "/rfq/rfq_chechi_nonit" not in html, (
+            "Chechi NON-IT orphan leaked into the home queue. "
+            "Display filter must mirror _SOL_PLACEHOLDER_WORDS from "
+            "request_classifier.py — see PR #1095 invariant."
+        )
+
+    @pytest.mark.parametrize("placeholder", [
+        "NON-IT", "IT-GOODS", "GOODS", "PAYMENT", "ATTACHED",
+        "QUOTATION", "REQUEST", "RFQ", "SOLICITATION", "UNKNOWN",
+    ])
+    def test_every_placeholder_word_hides_zero_item_orphan(
+        self, client, temp_data_dir, placeholder
+    ):
+        """Pin substrate singleness — every word the ingest classifier
+        rejects must also be hidden by the display filter. If this test
+        fails, the display deny list has drifted from the canonical
+        `_SOL_PLACEHOLDER_WORDS`."""
+        rid = f"rfq_orphan_{placeholder.lower().replace('-','_')}"
+        orphan = _mk_rfq(
+            rid,
+            rfq_number=placeholder,
+            solicitation_number=placeholder,
+            line_items=[],
+        )
+        _seed_records(temp_data_dir, rfqs={orphan["id"]: orphan})
+        html = _fetch_home(client)
+        assert f"/rfq/{rid}" not in html, (
+            f"Orphan with sol#={placeholder!r} leaked into the home "
+            f"queue. Display filter is out of sync with "
+            f"_SOL_PLACEHOLDER_WORDS — see PR #1095."
+        )
+
+    def test_real_sol_number_with_zero_items_still_shows(
+        self, client, temp_data_dir
+    ):
+        """The filter must NOT over-block: a 0-item RFQ with a real
+        digit-bearing sol# is a parse failure that needs operator
+        review and must stay visible (the `_keep_pc` / RFQ predicate's
+        sole point)."""
+        real = _mk_rfq(
+            "rfq_real_zero_items",
+            rfq_number="10842999",
+            solicitation_number="10842999",  # real digit-bearing sol#
+            line_items=[],  # parser failed to find items
+        )
+        _seed_records(temp_data_dir, rfqs={real["id"]: real})
+        html = _fetch_home(client)
+        assert "/rfq/rfq_real_zero_items" in html, (
+            "RFQ with a real digit-bearing sol# must stay visible "
+            "even with 0 items — operator needs to fix the parse."
+        )
