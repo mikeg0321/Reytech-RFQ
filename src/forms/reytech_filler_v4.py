@@ -126,6 +126,13 @@ SIGN_FIELDS = {
     "Bidder Signature",    # AMS 703B Rev. 03/2025 alternate name
     "703B_Bidder Signature",  # prefixed variant
     "BidderSignature",     # no-space variant
+    # AMS 703A — Rev. 03/2025 SB-DVBE Option form. Has a /Sig form field
+    # named "703A_Signature" on page 0. mirror_fill_from_prior_pdf copies
+    # form-field /V values only and doesn't render graphics into /Sig
+    # fields, so the 703A historically shipped unsigned (Coleman 10842771
+    # punch-list 2026-05-28). Whitelisting here makes _overlay_signature
+    # draw the signature image onto the field's /Rect.
+    "703A_Signature",
     # Standalone forms
     "Signature",           # CalRecycle 74 standalone + STD 1000 standalone
     "Signature3",          # STD 205 Payee Data Record Supplement
@@ -1673,6 +1680,47 @@ def fill_703a(input_path, rfq_data, config, output_path):
         f"  ✓ 703A filled via mirror_fill from prior {fallback} submission "
         f"({sol}, {len(overrides)} overrides applied)"
     )
+
+    # ── Signature overlay (Coleman 10842771 punch-list 2026-05-28) ──
+    # `mirror_fill_from_prior_pdf` copies form-field /V values only —
+    # /Sig fields and content-stream graphics from the prior 703B are
+    # NOT carried over. The target 703A therefore ships UNSIGNED unless
+    # we draw the signature here.
+    #
+    # Two-path overlay, mirroring fill_703b's strategy:
+    #   * /Sig form field present (703A Rev. 03/2025 has
+    #     `703A_Signature`): use the writer-based `_overlay_signature`
+    #     which draws SIGNATURE_PATH onto the field's /Rect for any
+    #     name in SIGN_FIELDS. Requires 703A_Signature to be
+    #     whitelisted — see SIGN_FIELDS at the top of this module.
+    #   * No /Sig field (legacy/buyer-variant 703A): fall back to
+    #     `_703b_overlay_signature` which scans for the "Bidder
+    #     Signature" label via pdfminer and draws above it.
+    #
+    # Per CLAUDE.md "Never double-sign" guard rail, only ONE path
+    # fires per fill.
+    try:
+        _reader_sig = PdfReader(output_path)
+        _has_sig_field = False
+        for _pg in _reader_sig.pages:
+            if "/Annots" in _pg:
+                for _ann in _pg["/Annots"]:
+                    _obj = _ann.get_object()
+                    if str(_obj.get("/FT", "")) == "/Sig":
+                        _has_sig_field = True
+                        break
+            if _has_sig_field:
+                break
+        if _has_sig_field:
+            _sig_writer = PdfWriter()
+            _sig_writer.append(_reader_sig)
+            _overlay_signature(_sig_writer, sign_date)
+            with open(output_path, "wb") as _f:
+                _sig_writer.write(_f)
+        else:
+            _703b_overlay_signature(output_path, sign_date)
+    except Exception as _se:
+        log.warning("fill_703a: signature overlay failed (%s) — 703A ships unsigned", _se)
 
 
 def fill_obs1600_fields(rfq_data, config, food_items=None):
