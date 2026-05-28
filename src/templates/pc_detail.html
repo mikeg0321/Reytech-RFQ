@@ -2,8 +2,17 @@
 {% block title %}PC {{ pcid }} — Reytech{% endblock %}
 
 {% block content %}
+{# 2026-05-28 UI/UX redesign — MINIMAL-touch port for pc_detail.html
+   (6,389 LOC, the highest-traffic operator screen). Wrapping content
+   in .r-app + scoping the legacy body-level styles to .pc-app instead
+   of body{} so the new shell tokens (var --r-bg) win at the body
+   level while the page's pricing oracle, items table, and SCPRS
+   lookup JS stay 100% untouched. A full visual port is a separate
+   PR. Source preview reference:
+   .claude/skills/run-rfqapp-uiux/redesigns/pricecheck-detail.html #}
+<div class="r-app pc-app">
 <style>
-     body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg,#0d1117);color:var(--tx,#c9d1d9);margin:0;padding:20px;font-size:16px;line-height:1.5;zoom:1.25}
+     .pc-app{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:transparent;color:var(--r-text,#c9d1d9);margin:0;padding:20px;font-size:16px;line-height:1.5;zoom:1.25}
      .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:12px 0}
      table{width:100%;border-collapse:collapse}
      th,td{padding:9px 12px;border:1px solid #30363d;text-align:left;font-size:14px}
@@ -6384,6 +6393,7 @@ function submitPcMarkSent(ev) {
     .catch(function(e){ console.debug('growth-signals fetch failed:', e); });
 })();
 </script>
+</div> {# end .r-app wrapper #}
     </body></html>
 
 {% endblock %}

@@ -10,6 +10,29 @@
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 <link rel="stylesheet" href="/static/styles.css">
 <script src="/static/vendor/chart.umd.min.js" defer></script>
+<style>
+/* 2026-05-28 UI/UX redesign — shell visual overlay.
+   Minimal-touch: align legacy .hdr + body bg with the new --r-* palette
+   without rewriting markup. All event handlers (pollNow, resyncAll,
+   toggleNotifPanel, More dropdown, deadline sidebar) untouched. Ported
+   page content keeps wrapping in <div class="r-app"> for the full new
+   look; un-ported pages inherit just the shell lift below. */
+body { background: var(--r-bg, #08090c); }
+.hdr {
+  background: rgba(8,9,12,0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--r-border, #262932);
+}
+.hdr-btn { transition: border-color 160ms ease, background 120ms ease; }
+.hdr-btn:hover { border-color: var(--r-accent-edge, rgba(16,185,129,0.25)); }
+.hdr-btn.hdr-active {
+  border-color: var(--r-accent, #10b981);
+  background: var(--r-accent-soft, rgba(16,185,129,0.10));
+  color: #34d399;
+}
+.notif-bell:hover { border-color: var(--r-accent-edge, rgba(16,185,129,0.25)); }
+.ctr { max-width: 1400px; }
+</style>
 {% block head_extra %}{% endblock %}
 <style>html{overflow-anchor:none;scroll-padding-top:70px}table input,table textarea,table select{scroll-margin-top:70px}</style>
 <style>
