@@ -399,3 +399,106 @@ class TestValidateAgainstRequirements:
         from src.forms.form_qa import validate_against_requirements
         result = validate_against_requirements([], "not json", {})
         assert result["gaps"] == []
+
+
+# ── LAW 6 substrate: attachment filenames are scanned for form patterns ────
+# Added 2026-05-27 after Coleman sol# 10842771 surfaced the gap. The buyer's
+# 703A revision marker lived in the attached PDF filename, NOT the email body.
+# Without this, `_detect_forms()` missed 703a entirely on every CCHCS RFQ.
+# Closes the LAW 6 spec: "ingest reads ALL attached documents".
+
+class TestAttachmentFilenameScanning:
+    """LAW 6 substrate: email body + attachment filenames are BOTH the
+    source of truth for required forms. The buyer's email + their attached
+    PDF filenames together are the canonical specification of the response.
+    """
+
+    def test_703a_from_attachment_filename(self):
+        """Coleman sol# 10842771 scenario: 703A marker in attachment
+        filename only. extract_requirements must pick it up."""
+        from src.agents.requirement_extractor import extract_requirements
+        result = extract_requirements(
+            email_body="Please quote per attached.",
+            subject="RFQ 10842771",
+            attachments=[
+                {"filename": "PR 10842771 - AMS 703A - REQUEST FOR QUOTATION.pdf"},
+            ],
+        )
+        assert "703a" in result.forms_required, (
+            "703a must be detected from attachment filename — pinned by "
+            "Coleman sol# 10842771 substrate convergence 2026-05-27."
+        )
+
+    def test_703b_from_filename(self):
+        from src.agents.requirement_extractor import extract_requirements
+        result = extract_requirements(
+            email_body="See attached.",
+            subject="",
+            attachments=[{"filename": "AMS 703B Rev 2024.pdf"}],
+        )
+        assert "703b" in result.forms_required
+
+    def test_703c_from_filename(self):
+        from src.agents.requirement_extractor import extract_requirements
+        result = extract_requirements(
+            email_body="See attached.",
+            subject="",
+            attachments=[{"filename": "AMS 703C - Fair_and_Reasonable.pdf"}],
+        )
+        assert "703c" in result.forms_required
+
+    def test_704b_from_filename(self):
+        from src.agents.requirement_extractor import extract_requirements
+        result = extract_requirements(
+            email_body="",
+            subject="",
+            attachments=[{"filename": "AMS 704B Quote Worksheet.pdf"}],
+        )
+        assert "704b" in result.forms_required
+
+    def test_coleman_full_email_extracts_all_forms(self):
+        """End-to-end Coleman scenario: body lists 6 forms, attachments
+        carry 703A + 704B + Bid Package + Distribution List. Expected
+        extraction: all 9 form_ids surface to requirements_json."""
+        from src.agents.requirement_extractor import extract_requirements
+        result = extract_requirements(
+            email_body=(
+                "Please attach the following required forms: "
+                "CalRecycle 74 (Required), GSPD-05-105 BIDDER DECLARATION (Required), "
+                "DGS PD 1 DARFUR (Required), CCHCS-MC-345 COMMERCIALLY USEFUL FUNCTION (Required), "
+                "SELLERS PERMIT (Required), DGS PD 843 DVBE (Required, if applicable)"
+            ),
+            subject="AMS 703A — RFQ Coleman 10842771",
+            attachments=[
+                {"filename": "PR 10842771 - AMS 703A - REQUEST FOR QUOTATION.pdf"},
+                {"filename": "PR 10842771 - AMS 704B - CCHCS Acquisition Quote Worksheet.pdf"},
+                {"filename": "BID PACKAGE _ FORMS (Under 100k).pdf"},
+                {"filename": "PR 10842771 - DELIVERY DISTRIBUTION LIST.pdf"},
+            ],
+        )
+        # Every form the buyer asked for + every form the attachments name
+        expected = {"703a", "704b", "bidder_decl", "calrecycle74", "cv012_cuf",
+                    "darfur_act", "dvbe843", "sellers_permit"}
+        missing = expected - set(result.forms_required)
+        assert not missing, (
+            f"Coleman LAW 6 extraction missed forms: {missing}. "
+            f"Got: {sorted(result.forms_required)}"
+        )
+
+    def test_no_attachments_does_not_break(self):
+        """No-attachment case must still work (body-only extraction)."""
+        from src.agents.requirement_extractor import extract_requirements
+        result = extract_requirements(
+            email_body="Please submit STD 204 and DVBE 843.",
+            subject="Bid request",
+            attachments=None,
+        )
+        assert "std204" in result.forms_required
+        assert "dvbe843" in result.forms_required
+
+    def test_empty_everything_returns_empty(self):
+        """LAW 6 guard: empty body + empty subject + empty attachments
+        returns empty RFQRequirements (no false positives)."""
+        from src.agents.requirement_extractor import extract_requirements
+        result = extract_requirements("", "", [])
+        assert result.forms_required == []

@@ -112,11 +112,33 @@ def extract_requirements(
     Returns:
         RFQRequirements — never raises, always returns a result.
     """
-    if not email_body and not subject:
+    if not email_body and not subject and not (attachments or []):
         return RFQRequirements()
 
     attachments = attachments or []
     combined_text = f"Subject: {subject}\n\n{email_body}" if subject else email_body
+
+    # LAW 6 substrate fix 2026-05-27 — include attachment filenames as
+    # scannable text. The 703A revision marker on Coleman sol# 10842771
+    # lived in the filename "PR 10842771 - AMS 703A - REQUEST FOR
+    # QUOTATION.pdf", NOT in the email body. Without this, _detect_forms()
+    # never saw "703A" because the body just listed bid-package contents
+    # (CalRecycle 74, GSPD-05-105, etc.). FORM_TEXT_PATTERNS already
+    # includes "703A" / "703B" / "703C" / "704B" / "AMS 703A" patterns;
+    # appending the filename block makes them match. Each filename gets
+    # its own "[Attachment: ...]" marker so the FORM_TEXT_PATTERNS
+    # substring match in _detect_forms catches uppercased filename tokens.
+    # Closes the LAW 6 substrate gap: "ingest reads ALL attached
+    # documents and outlines the requirements with an attached document
+    # (must read all) or in the body of the email" — Mike 2026-05-27.
+    if attachments:
+        _filenames_text = "\n".join(
+            f"[Attachment: {a.get('filename') if isinstance(a, dict) else str(a)}]"
+            for a in attachments
+            if (a.get("filename") if isinstance(a, dict) else str(a))
+        )
+        if _filenames_text:
+            combined_text = f"{combined_text}\n{_filenames_text}" if combined_text else _filenames_text
 
     # Try Claude first
     result = _extract_with_claude(combined_text, attachments)
