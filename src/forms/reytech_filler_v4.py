@@ -1058,25 +1058,7 @@ def fill_704b(input_path, rfq_data, config, output_path):
     from src.forms.ams704_helpers import FillStrategy, build_704_item_fields
     _profile = get_profile(input_path)
 
-    # Agency-aware strategy selection. CCHCS demotes RFQ_PREFILLED
-    # to RFQ_FULL to bypass buyer-uploaded templates with broken
-    # AcroForm JS calcs (Coleman 10842771 incident 2026-05-28).
-    # See FillStrategy.for_rfq_with_agency_override for the rationale.
-    _agency_lc = str(
-        (rfq_data or {}).get("agency")
-        or (rfq_data or {}).get("_classification", {}).get("agency", "")
-    ).lower()
-    _strategy_default = FillStrategy.for_rfq(is_prefilled=_profile.is_prefilled)
-    _strategy = FillStrategy.for_rfq_with_agency_override(
-        is_prefilled=_profile.is_prefilled, agency=_agency_lc
-    )
-    if _strategy != _strategy_default:
-        log.warning(
-            "704B strategy override agency=%s: %s → %s "
-            "(see FillStrategy.for_rfq_with_agency_override docstring)",
-            _agency_lc, _strategy_default.value, _strategy.value,
-        )
-
+    _strategy = FillStrategy.for_rfq(is_prefilled=_profile.is_prefilled)
     print(f"  704B layout (TemplateProfile): pg0={_profile.pg1_row_count} rows, "
           f"pg1={len(_profile.pg2_rows_suffixed)}_2+{len(_profile.pg2_rows_plain)} plain")
     print(f"  704B strategy: {_strategy.value}")

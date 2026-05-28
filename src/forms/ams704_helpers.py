@@ -219,40 +219,6 @@ class FillStrategy(Enum):
             return cls.RFQ_PREFILLED
         return cls.RFQ_FULL
 
-    @classmethod
-    def for_rfq_with_agency_override(
-        cls, is_prefilled: bool, agency: str = ""
-    ) -> "FillStrategy":
-        """Like for_rfq, but with agency-specific demotions for
-        buyer-uploaded templates known to ship with broken AcroForm
-        JavaScript calc fields that override our explicit value writes.
-
-        Currently demotes:
-        - CCHCS: RFQ_PREFILLED → RFQ_FULL. Buyer-uploaded CCHCS 704B
-          variants (Coleman 10842771, 2026-05-28 incident) carry a
-          JS calc on the EXTENSION column that defaults to row-1's
-          unit_price for every row. Our explicit /V writes land but
-          the JS overrides on viewer re-render; verify_704b_computations
-          then reads the post-JS value and the QA gate fires. Canonical
-          Reytech blank (RFQ_FULL path) carries no JS and produces the
-          known-good output Mike shipped to Coleman 2026-05-27. Until
-          a substrate fix (Path B: JS-strip on template clone) ships,
-          this override is the safe path. See:
-          - tests/test_coleman_10842771_canary.py
-          - tests/fixtures/coleman_10842771/704b_golden_pre_pr1170.pdf
-          - memory [[canary-rfq-gates-mark-sent]]
-          - memory [[no-blind-guess-on-pdf-field-names]]
-
-        Returns:
-            FillStrategy — either the agency-overridden value or the
-            default for_rfq() result.
-        """
-        base = cls.for_rfq(is_prefilled)
-        if str(agency).lower() == "cchcs" and base == cls.RFQ_PREFILLED:
-            return cls.RFQ_FULL
-        return base
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # ROW FIELD NAME TEMPLATES
 # ═══════════════════════════════════════════════════════════════════════════
@@ -797,6 +763,26 @@ def build_704_item_fields(
         from src.core.pricing_math import extension_of as _ext_of
         price = li.unit_price
         qty = li.qty
+
+        # Under RFQ_PREFILLED on a buyer-prefilled template, the buyer is
+        # authoritative on QTY — `strategy.writes_qty_uom` is False so we
+        # never overwrite the prefilled QTYRow{n}. Our row extension must
+        # therefore be buyer_qty × unit_price, not li.qty × unit_price.
+        # Upstream line_items may carry per-facility qty=1 entries while
+        # the buyer's prefilled QTYRow{n} carries the actual line-item
+        # quantity (e.g. Coleman 10842771: QTYRow1=19, QTYRow2=2). Reading
+        # the buyer's qty here closes the substrate bug class that
+        # verify_704b_computations correctly surfaced 2026-05-28.
+        if strategy == FillStrategy.RFQ_PREFILLED and profile.is_prefilled:
+            _bq_raw = (profile.field_values.get(f"QTY{row_suffix}", "") or "").strip()
+            if _bq_raw:
+                try:
+                    _bq = float(_bq_raw.replace(",", ""))
+                    if _bq > 0:
+                        qty = _bq
+                except ValueError:
+                    pass
+
         extension = _ext_of(raw_item) if isinstance(raw_item, dict) else round(price * qty, 2)
         if extension <= 0 and price > 0 and qty > 0:
             # extension_of returned 0 (no_bid filter or LineItem-only path);
@@ -805,6 +791,16 @@ def build_704_item_fields(
             # pricing math has nothing usable. Subtotal will skip these
             # via the post-loop subtotal_of() call.
             extension = round(price * qty, 2)
+        # If qty was overridden from buyer's prefilled QTY, recompute
+        # extension against buyer_qty × unit_price (extension_of derives
+        # qty from raw_item, not our local qty).
+        if (
+            strategy == FillStrategy.RFQ_PREFILLED
+            and profile.is_prefilled
+            and qty != li.qty
+            and price > 0
+        ):
+            extension = round(qty * price, 2)
 
         if price > 0:
             items_priced += 1
