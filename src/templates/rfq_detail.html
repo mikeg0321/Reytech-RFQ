@@ -4001,9 +4001,7 @@ function fillBidPackage(){
 
 function regeneratePackage(){
  if(!confirm('⚠️ REGENERATE PACKAGE?\n\nThis will:\n• Delete all previously generated files\n• Re-fill all state forms with current data\n• Generate a new Reytech Quote\n• Replace all download links\n\nAre you sure?'))return;
- var form=document.getElementById('pf');
- form.action='/rfq/'+RID+'/generate-package';
- form.submit();
+ _generatePackageAsync();
 }
 
 // ── F3: QA Gate — ALWAYS show approval popup before generating ──
@@ -4022,9 +4020,110 @@ function runQaCheck(){
 }
 function _doGenerate(){
  if(!confirm('Generate the full RFQ package?\n\nThis will fill all state forms, generate a quote, and create a merged PDF package.'))return;
- var f=document.getElementById('pf');
- f.action='/rfq/'+RID+'/generate-package';
- f.submit();
+ _generatePackageAsync();
+}
+
+// ── Async generate-package (long-running-post rule, UI half) ──────────────
+// Package generation takes 80-120s. A synchronous form POST is cut off by
+// Railway's edge proxy at ~100s — the browser sees ERR_CONNECTION_RESET even
+// though the server keeps generating (Coleman 10842771 incident 2026-05-28).
+// The backend async path (PR #1182 + #1186) returns 202 {job_id, status_url}
+// when the POST carries `Accept: application/json`; we poll /api/jobs/<id>
+// until the task finishes, then navigate to result.redirect. Result shape is
+// owned by task_consumer._handle_generate_package:
+//   { redirect: <url|null>, messages: [{category, text}], rfq_id }
+// Every generate trigger (primary button, sticky bar, Cmd/Ctrl+Enter, and the
+// QA-popup "Proceed") funnels through _doGenerate()/regeneratePackage(), so
+// converting these two is sufficient.
+function _generatePackageAsync(){
+ var form=document.getElementById('pf');
+ if(!form){ alert('Could not find the pricing form on this page. Reload and try again.'); return; }
+ _showGenOverlay('Generating package…','Filling state forms, building the Reytech Quote, and merging the PDF package. This can take up to 2 minutes — leave this tab open.');
+ var fd=new FormData(form);
+ fetch('/rfq/'+RID+'/generate-package',{
+   method:'POST',
+   headers:{'Accept':'application/json'},
+   body:fd,
+   credentials:'same-origin'
+ }).then(function(resp){
+   if(resp.status===401){ _genOverlayError('Session expired — reload the page and sign in again. Your pricing is saved.'); return null; }
+   if(resp.status!==202){
+     // The unpriced-row hard gate (and any other pre-dispatch bounce) returns
+     // a 302/HTML, which fetch follows transparently — never the 202 JSON.
+     _genOverlayError('Could not start generation. Every line item needs a unit price first — fix any unpriced rows on this page, then click Generate again.');
+     return null;
+   }
+   return resp.json();
+ }).then(function(d){
+   if(!d) return;
+   if(!d.ok||!d.job_id){ _genOverlayError('Generation did not start: '+((d&&d.error)?d.error:'unexpected server response')+'.'); return; }
+   _pollGenJob(d.status_url||('/api/jobs/'+d.job_id),0);
+ }).catch(function(e){
+   _genOverlayError('Network error starting generation: '+e.message+'. Your pricing is saved — try again.');
+ });
+}
+
+function _pollGenJob(statusUrl,attempts){
+ // Poll every 1.5s; safety cap ~5 min (200 attempts) so a stuck worker can't
+ // spin the overlay forever.
+ if(attempts>200){ _genOverlayError('Generation is taking longer than expected. Reload the page in a minute — the package may have finished on the server.'); return; }
+ fetch(statusUrl,{credentials:'same-origin'}).then(function(r){
+   if(r.status===404){ _genOverlayError('Lost track of the generation job. Reload the page to check whether the package finished.'); return null; }
+   return r.json();
+ }).then(function(d){
+   if(!d) return;
+   var st=d.status;
+   if(st==='completed'){ _onGenComplete(d.result); }
+   else if(st==='failed'){ _genOverlayError('Generation failed: '+(d.error||'unknown error')+'. Your pricing is saved — try again or check the logs.'); }
+   else {
+     _setGenOverlayHint(st==='running'?'Working… filling forms and building the package.':'Queued — starting shortly.');
+     setTimeout(function(){ _pollGenJob(statusUrl,attempts+1); },1500);
+   }
+ }).catch(function(){
+   // Transient network blip — keep polling rather than aborting.
+   setTimeout(function(){ _pollGenJob(statusUrl,attempts+1); },2000);
+ });
+}
+
+function _onGenComplete(result){
+ result=result||{};
+ // The worker captured the inner route's flashes. An error-category flash
+ // means a hard gate bounced (e.g. unpriced rows) — surface it instead of
+ // silently redirecting the operator back to the same page.
+ var msgs=result.messages||[];
+ var errs=msgs.filter(function(m){ return m && (m.category==='error'||m.category==='danger'); });
+ if(errs.length){ _genOverlayError(errs.map(function(m){ return m.text; }).join(' ')); return; }
+ _setGenOverlayHint('Done — opening your package…');
+ window.location.href=result.redirect||('/rfq/'+RID);
+}
+
+// ── Generate overlay (self-contained; legacy --* tokens) ──
+function _showGenOverlay(title,hint){
+ var ex=document.getElementById('gen-overlay'); if(ex) ex.remove();
+ if(!document.getElementById('gen-overlay-style')){
+   var s=document.createElement('style'); s.id='gen-overlay-style';
+   s.textContent='@keyframes genspin{to{transform:rotate(360deg)}}'; document.head.appendChild(s);
+ }
+ var ov=document.createElement('div');
+ ov.id='gen-overlay'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-live','polite');
+ ov.style.cssText='position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center';
+ ov.innerHTML='<div style="background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:30px 34px;max-width:440px;width:90%;text-align:center;box-shadow:0 12px 48px rgba(0,0,0,.5)">'
+   +'<div id="gen-overlay-spinner" style="width:46px;height:46px;margin:0 auto 18px;border:4px solid var(--bd);border-top-color:var(--ac);border-radius:50%;animation:genspin 1s linear infinite"></div>'
+   +'<div id="gen-overlay-title" style="font-size:17px;font-weight:700;color:var(--tx);margin-bottom:8px"></div>'
+   +'<div id="gen-overlay-hint" style="font-size:13px;color:var(--tx2);line-height:1.5"></div>'
+   +'<div id="gen-overlay-actions" style="margin-top:18px;display:none"></div>'
+   +'</div>';
+ document.body.appendChild(ov);
+ document.getElementById('gen-overlay-title').textContent=title;
+ document.getElementById('gen-overlay-hint').textContent=hint;
+}
+function _setGenOverlayHint(hint){ var el=document.getElementById('gen-overlay-hint'); if(el) el.textContent=hint; }
+function _genOverlayError(msg){
+ var sp=document.getElementById('gen-overlay-spinner'); if(sp) sp.style.display='none';
+ var t=document.getElementById('gen-overlay-title'); if(t){ t.textContent='⚠️ Generation problem'; t.style.color='var(--rd, #f85149)'; }
+ var h=document.getElementById('gen-overlay-hint'); if(h) h.textContent=msg;
+ var a=document.getElementById('gen-overlay-actions');
+ if(a){ a.style.display='block'; a.innerHTML='<button type="button" class="btn" onclick="var o=document.getElementById(\'gen-overlay\');if(o)o.remove()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);padding:10px 22px;font-weight:600;border-radius:6px" aria-label="Close">Close</button>'; }
 }
 // Null-safe close used by the QA popup's X button + backdrop + action
 // buttons. Was: every close site repeated `getElementById(...).remove()`
