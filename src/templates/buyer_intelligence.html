@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Buyer Intelligence — Reytech{% endblock %}
 {% block content %}
+<div class="r-app">
 
 {% macro stat(value, label, color='#58a6ff', suffix='') -%}
-  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:22px;font-weight:700;color:{{ color }};font-family:monospace">{{ value }}{{ suffix }}</div>
-    <div style="font-size:12px;color:var(--tx2,#8b949e)">{{ label }}</div>
+    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">{{ label }}</div>
   </div>
 {%- endmacro %}
 
@@ -15,9 +16,9 @@
     {% for d in [90, 180, 365, 730] %}
       <a href="/buyer-intelligence?days={{d}}"
          style="padding:6px 14px;border-radius:6px;font-size:13px;
-                background:{% if days == d %}#1f6feb{% else %}var(--sf2,#161b22){% endif %};
-                color:{% if days == d %}#fff{% else %}var(--tx2,#8b949e){% endif %};
-                text-decoration:none;border:1px solid var(--bd,#30363d)">
+                background:{% if days == d %}#1f6feb{% else %}var(--r-surface-2,#161b22){% endif %};
+                color:{% if days == d %}#fff{% else %}var(--r-text-muted,#8b949e){% endif %};
+                text-decoration:none;border:1px solid var(--r-border,#30363d)">
         {{ d }}d
       </a>
     {% endfor %}
@@ -49,7 +50,7 @@
           <span style="color:{% if rate_pct >= 60 %}#3fb950{% elif rate_pct >= 30 %}#d29922{% else %}#f85149{% endif %}">{{ rate_pct }}%</span>
           ({{ capture_summary.captured }} / {{ capture_summary.total }} quotes in last {{ capture_summary.days }}d)
         </div>
-        <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:2px">
+        <div style="font-size:13px;color:var(--r-text-muted,#8b949e);margin-top:2px">
           {% if rate_pct < 60 %}
             Below 60% — outreach rankings have high noise. Mark quotes
             as <code>won</code>/<code>lost</code> after PO awards to
@@ -68,14 +69,14 @@
 {% if capture_gap %}
   <div class="card" style="margin-bottom:14px;border-left:4px solid #f85149">
     <div class="card-t">🔴 Capture gap — {{ capture_gap|length }} institution{{ 's' if capture_gap|length != 1 else '' }} with stuck quotes</div>
-    <div style="margin-top:6px;font-size:12px;color:var(--tx2,#8b949e)">
+    <div style="margin-top:6px;font-size:12px;color:var(--r-text-muted,#8b949e)">
       Quotes that were sent ≥30 days ago but never marked
       <code>won</code>/<code>lost</code>. Every stuck quote biases the
       buyer-intelligence rankings — resolve them to sharpen the signal.
     </div>
     <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
       <thead>
-        <tr style="color:var(--tx2,#8b949e);text-align:left">
+        <tr style="color:var(--r-text-muted,#8b949e);text-align:left">
           <th style="padding:6px 4px">Institution</th>
           <th style="padding:6px 4px;text-align:right">Stuck</th>
           <th style="padding:6px 4px;text-align:right">$ exposed</th>
@@ -84,18 +85,18 @@
       </thead>
       <tbody>
         {% for g in capture_gap %}
-        <tr style="border-top:1px solid var(--bd,#30363d)">
+        <tr style="border-top:1px solid var(--r-border,#30363d)">
           <td style="padding:6px 4px;font-weight:700">{{ g.institution|upper }}</td>
           <td style="padding:6px 4px;text-align:right;color:#f85149;font-weight:700">{{ g.stuck_count }}</td>
           <td style="padding:6px 4px;text-align:right;font-family:monospace">${{ '{:,.0f}'.format(g.stuck_dollars) }}</td>
-          <td style="padding:6px 4px;text-align:right;font-family:monospace;color:var(--tx2,#8b949e)">
+          <td style="padding:6px 4px;text-align:right;font-family:monospace;color:var(--r-text-muted,#8b949e)">
             {% if g.oldest_age_days is not none %}{{ g.oldest_age_days }}d{% else %}--{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:12px;color:var(--tx2,#8b949e)">
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:12px;color:var(--r-text-muted,#8b949e)">
       Resolve via <a href="/quotes?status=sent" style="color:#58a6ff">/quotes?status=sent</a> ·
       JSON feed at <a href="/api/oracle/capture-gap" style="color:#58a6ff">/api/oracle/capture-gap</a>
     </div>
@@ -105,7 +106,7 @@
 {% if outreach %}
   <div class="card" style="margin-bottom:14px;border-left:4px solid #d29922">
     <div class="card-t">📬 Reach out — {{ outreach|length }} buyer{{ 's' if outreach|length != 1 else '' }} gone quiet ≥{{ silence_days }}d</div>
-    <div style="margin-top:6px;font-size:12px;color:var(--tx2,#8b949e)">
+    <div style="margin-top:6px;font-size:12px;color:var(--r-text-muted,#8b949e)">
       Historical buyers with no new quote activity in the window. Ranked by
       lost-revenue potential (avg quote $ × debiased win rate × total quotes).
       <strong>Debiased</strong> means win_rate is computed on captured
@@ -116,7 +117,7 @@
     </div>
     <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
       <thead>
-        <tr style="color:var(--tx2,#8b949e);text-align:left">
+        <tr style="color:var(--r-text-muted,#8b949e);text-align:left">
           <th style="padding:6px 4px">Institution</th>
           <th style="padding:6px 4px;text-align:right">Total</th>
           <th style="padding:6px 4px;text-align:right">Captured</th>
@@ -129,7 +130,7 @@
       </thead>
       <tbody>
         {% for r in outreach %}
-        <tr style="border-top:1px solid var(--bd,#30363d)">
+        <tr style="border-top:1px solid var(--r-border,#30363d)">
           <td style="padding:6px 4px;font-weight:700">{{ r.institution|upper }}</td>
           <td style="padding:6px 4px;text-align:right">{{ r.total_quotes }}</td>
           <td style="padding:6px 4px;text-align:right;color:{% if r.capture_rate >= 0.6 %}#3fb950{% elif r.capture_rate >= 0.3 %}#d29922{% else %}#f85149{% endif %};font-family:monospace">
@@ -138,7 +139,7 @@
           <td style="padding:6px 4px;text-align:right;color:#3fb950">{{ r.won }}</td>
           <td style="padding:6px 4px;text-align:right;font-weight:700;font-family:monospace">
             {% if r.win_rate is none %}
-              <span style="color:var(--tx2,#8b949e)">?</span>
+              <span style="color:var(--r-text-muted,#8b949e)">?</span>
             {% else %}
               <span style="color:{% if r.win_rate >= 0.6 %}#3fb950{% elif r.win_rate >= 0.4 %}#d29922{% else %}#f85149{% endif %}">{{ (r.win_rate * 100)|round(0)|int }}%</span>
             {% endif %}
@@ -154,7 +155,7 @@
         {% endfor %}
       </tbody>
     </table>
-    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:12px;color:var(--tx2,#8b949e)">
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:12px;color:var(--r-text-muted,#8b949e)">
       JSON feed:
       <a href="/api/oracle/outreach-triggers?silence_days={{silence_days}}" style="color:#58a6ff">/api/oracle/outreach-triggers</a>
       · window:
@@ -167,7 +168,7 @@
 
 {% if not buyers %}
   <div class="card">
-    <div style="color:var(--tx2,#8b949e);font-size:14px">
+    <div style="color:var(--r-text-muted,#8b949e);font-size:14px">
       No buyers with win/loss history in the last {{days}} days. Once quotes start
       getting marked <code>won</code> or <code>lost</code>, they'll show up here
       with an inferred response curve and an EV-maximizing markup recommendation.
@@ -178,7 +179,7 @@
     <div class="card-t">Top buyers by quote volume</div>
     <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
       <thead>
-        <tr style="color:var(--tx2,#8b949e);text-align:left">
+        <tr style="color:var(--r-text-muted,#8b949e);text-align:left">
           <th style="padding:8px 4px">Institution</th>
           <th style="padding:8px 4px;text-align:right">Quotes</th>
           <th style="padding:8px 4px;text-align:right">Won</th>
@@ -191,7 +192,7 @@
       </thead>
       <tbody>
         {% for b in buyers %}
-        <tr style="border-top:1px solid var(--bd,#30363d);cursor:pointer"
+        <tr style="border-top:1px solid var(--r-border,#30363d);cursor:pointer"
             onclick="showCurve({{ loop.index0 }})">
           <td style="padding:8px 4px;font-weight:700">{{ b.institution|upper }}</td>
           <td style="padding:8px 4px;text-align:right">{{ b.total_quotes }}</td>
@@ -203,31 +204,31 @@
             {% if b.sufficient and b.optimal_markup_pct is not none %}
               <span style="color:#3fb950;font-weight:700">{{ b.optimal_markup_pct }}%</span>
             {% else %}
-              <span style="color:var(--tx2,#8b949e)">--</span>
+              <span style="color:var(--r-text-muted,#8b949e)">--</span>
             {% endif %}
           </td>
           <td style="padding:8px 4px;text-align:right;font-family:monospace">
             {% if b.sufficient and b.win_probability is not none %}
               {{ (b.win_probability * 100)|round(0)|int }}%
             {% else %}
-              <span style="color:var(--tx2,#8b949e)">--</span>
+              <span style="color:var(--r-text-muted,#8b949e)">--</span>
             {% endif %}
           </td>
           <td style="padding:8px 4px;text-align:right;font-family:monospace">
             {% if b.sufficient and b.expected_value is not none %}
               {{ b.expected_value }}
             {% else %}
-              <span style="color:var(--tx2,#8b949e)">--</span>
+              <span style="color:var(--r-text-muted,#8b949e)">--</span>
             {% endif %}
           </td>
-          <td style="padding:8px 4px;color:var(--tx2,#8b949e);font-size:12px">
+          <td style="padding:8px 4px;color:var(--r-text-muted,#8b949e);font-size:12px">
             {{ b.last_quote_at[:10] if b.last_quote_at else '--' }}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:12px;color:var(--tx2,#8b949e)">
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:12px;color:var(--r-text-muted,#8b949e)">
       Click any row to see the full win-rate curve. "Optimal markup" is the markup
       where markup × P(win) is maximized over [15%, 60%]. Shows "--" when sample
       size is below the 8-quote threshold.
@@ -239,6 +240,7 @@
     <div id="curveBody" style="margin-top:12px"></div>
   </div>
 {% endif %}
+</div>
 
 <script>
 // Inline JSON blob — the route already fetched every curve so we can render
@@ -258,7 +260,7 @@ function showCurve(idx) {
 
   if (!b.sufficient || !b.curve || !b.curve.buckets || !b.curve.buckets.length) {
     body.innerHTML =
-      '<div style="color:var(--tx2,#8b949e);font-size:13px">' +
+      '<div style="color:var(--r-text-muted,#8b949e);font-size:13px">' +
       'Not enough data to fit a curve yet (' + (b.total_quotes || 0) +
       ' quotes). Threshold is 8 won+lost quotes in the window.' +
       '</div>';
@@ -277,26 +279,26 @@ function showCurve(idx) {
 
   var html = '';
   html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
-  html += '  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">';
+  html += '  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">';
   html += '    <div style="font-size:22px;font-weight:700;color:#3fb950;font-family:monospace">' + b.optimal_markup_pct + '%</div>';
-  html += '    <div style="font-size:12px;color:var(--tx2,#8b949e)">Recommended markup</div>';
+  html += '    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Recommended markup</div>';
   html += '  </div>';
-  html += '  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">';
+  html += '  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">';
   html += '    <div style="font-size:22px;font-weight:700;color:#58a6ff;font-family:monospace">' + Math.round((b.win_probability || 0) * 100) + '%</div>';
-  html += '    <div style="font-size:12px;color:var(--tx2,#8b949e)">P(win) at optimum</div>';
+  html += '    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">P(win) at optimum</div>';
   html += '  </div>';
-  html += '  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">';
+  html += '  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">';
   html += '    <div style="font-size:22px;font-weight:700;color:#d2a8ff;font-family:monospace">' + (b.expected_value || 0) + '</div>';
-  html += '    <div style="font-size:12px;color:var(--tx2,#8b949e)">Expected value</div>';
+  html += '    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Expected value</div>';
   html += '  </div>';
-  html += '  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">';
+  html += '  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">';
   html += '    <div style="font-size:22px;font-weight:700;color:#79c0ff;font-family:monospace">' + (b.curve.total_samples || 0) + '</div>';
-  html += '    <div style="font-size:12px;color:var(--tx2,#8b949e)">Sample size</div>';
+  html += '    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Sample size</div>';
   html += '  </div>';
   html += '</div>';
 
   html += '<table style="width:100%;font-size:13px;border-collapse:collapse">';
-  html += '  <thead><tr style="color:var(--tx2,#8b949e);text-align:left">';
+  html += '  <thead><tr style="color:var(--r-text-muted,#8b949e);text-align:left">';
   html += '    <th style="padding:6px 4px">Markup range</th>';
   html += '    <th style="padding:6px 4px;text-align:right">Samples</th>';
   html += '    <th style="padding:6px 4px;text-align:right">Wins</th>';
@@ -308,18 +310,18 @@ function showCurve(idx) {
     var bk = b.curve.buckets[i];
     var pct = bk.win_rate === null || bk.win_rate === undefined ? '--' : Math.round((bk.win_rate || 0) * 100) + '%';
     var barWidth = Math.round(((bk.samples || 0) / maxCount) * 100);
-    var wrColor = bk.win_rate === null || bk.win_rate === undefined ? 'var(--tx2,#8b949e)'
+    var wrColor = bk.win_rate === null || bk.win_rate === undefined ? 'var(--r-text-muted,#8b949e)'
                 : bk.win_rate >= 0.6 ? '#3fb950'
                 : bk.win_rate >= 0.4 ? '#d29922'
                 : '#f85149';
     var isOptimal = (b.optimal_markup_pct >= bk.markup_min && b.optimal_markup_pct < bk.markup_max);
-    html += '<tr style="border-top:1px solid var(--bd,#30363d)' + (isOptimal ? ';background:#0d3c1f' : '') + '">';
+    html += '<tr style="border-top:1px solid var(--r-border,#30363d)' + (isOptimal ? ';background:#0d3c1f' : '') + '">';
     html += '  <td style="padding:6px 4px;font-family:monospace">' + bk.markup_min + '% – ' + bk.markup_max + '%' + (isOptimal ? ' ★' : '') + '</td>';
     html += '  <td style="padding:6px 4px;text-align:right">' + (bk.samples || 0) + '</td>';
     html += '  <td style="padding:6px 4px;text-align:right;color:#3fb950">' + (bk.wins || 0) + '</td>';
     html += '  <td style="padding:6px 4px;text-align:right;color:' + wrColor + ';font-weight:700">' + pct + '</td>';
     html += '  <td style="padding:6px 4px">';
-    html += '    <div style="height:10px;background:var(--sf2,#161b22);border-radius:5px;overflow:hidden">';
+    html += '    <div style="height:10px;background:var(--r-surface-2,#161b22);border-radius:5px;overflow:hidden">';
     html += '      <div style="width:' + barWidth + '%;height:100%;background:#58a6ff"></div>';
     html += '    </div>';
     html += '  </td>';

@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Observed Sends — Reytech{% endblock %}
 {% block content %}
+<div class="r-app">
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap">
   <div>
     <h1 style="margin:0">Observed Sends</h1>
-    <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:4px">
+    <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">
       Outbound RFQ-quote messages detected in your Sent folder, matched
       back to existing RFQ/PC records. Confirm to attach the
       gmail_message_id to the record; reject to dismiss; backup to
@@ -17,9 +18,9 @@
       <a href="/admin/observed-sends?status={{ s if s != 'all' else '' }}"
          data-testid="filter-{{ s }}"
          style="padding:6px 14px;border-radius:6px;font-size:13px;
-                background:{% if status_filter == s or (s == 'all' and not status_filter) %}#1f6feb{% else %}var(--sf2,#161b22){% endif %};
-                color:{% if status_filter == s or (s == 'all' and not status_filter) %}#fff{% else %}var(--tx2,#8b949e){% endif %};
-                text-decoration:none;border:1px solid var(--bd,#30363d)">
+                background:{% if status_filter == s or (s == 'all' and not status_filter) %}#1f6feb{% else %}var(--r-surface-2){% endif %};
+                color:{% if status_filter == s or (s == 'all' and not status_filter) %}#fff{% else %}var(--r-text-muted){% endif %};
+                text-decoration:none;border:1px solid var(--r-border)">
         {{ s }}{% if s == 'all' %} ({{ total_count }}){% endif %}
       </a>
     {% endfor %}
@@ -31,13 +32,13 @@
   <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
     <div style="flex:1;min-width:200px">
       <strong style="color:#58a6ff">🔎 Scan Sent folder</strong>
-      <div style="font-size:12px;color:var(--tx2,#8b949e);margin-top:2px">
+      <div style="font-size:12px;color:var(--r-text-muted);margin-top:2px">
         Look back N days, match outbound messages to existing records,
         save matches as <code>pending</code> for review.
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
-      <label style="font-size:13px;color:var(--tx2,#8b949e)">days</label>
+      <label style="font-size:13px;color:var(--r-text-muted)">days</label>
       <input id="scanDays" type="number" min="1" max="90" value="14"
              data-testid="scan-days"
              style="width:70px;padding:5px 8px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px">
@@ -55,19 +56,19 @@
 <div class="card" style="padding:0;overflow:hidden">
   <table style="width:100%;border-collapse:collapse">
     <thead>
-      <tr style="background:var(--sf2,#161b22);border-bottom:1px solid var(--bd,#30363d)">
-        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Status</th>
-        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Subject / To</th>
-        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Match → Record</th>
-        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Conf</th>
-        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--tx2,#8b949e)">Sent</th>
-        <th style="padding:8px 10px;text-align:right;font-size:12px;color:var(--tx2,#8b949e)">Actions</th>
+      <tr style="background:var(--r-surface-2);border-bottom:1px solid var(--r-border)">
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--r-text-muted)">Status</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--r-text-muted)">Subject / To</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--r-text-muted)">Match → Record</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--r-text-muted)">Conf</th>
+        <th style="padding:8px 10px;text-align:left;font-size:12px;color:var(--r-text-muted)">Sent</th>
+        <th style="padding:8px 10px;text-align:right;font-size:12px;color:var(--r-text-muted)">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for r in rows %}
       <tr id="row-{{ r.id }}" data-testid="obs-row-{{ r.id }}"
-          style="border-bottom:1px solid var(--bd,#30363d)">
+          style="border-bottom:1px solid var(--r-border)">
         <td style="padding:10px;vertical-align:top">
           {% if r.status == 'pending' %}
             <span style="background:#d2992233;color:#d29922;padding:2px 8px;border-radius:10px;font-size:11px">⏳ pending</span>
@@ -86,7 +87,7 @@
         </td>
         <td style="padding:10px;vertical-align:top;max-width:380px">
           <div style="font-size:13px;font-weight:500">{{ r.subject|default('(no subject)') }}</div>
-          <div style="font-size:11px;color:var(--tx2,#8b949e);margin-top:2px">
+          <div style="font-size:11px;color:var(--r-text-muted);margin-top:2px">
             → {{ r.to_email|default('?') }}
           </div>
           {% if r.thread_id %}
@@ -95,21 +96,21 @@
           {% endif %}
         </td>
         <td style="padding:10px;vertical-align:top">
-          <div style="font-size:11px;color:var(--tx2,#8b949e)">{{ r.match_signal|default('?')|replace('_', ' ') }}</div>
+          <div style="font-size:11px;color:var(--r-text-muted)">{{ r.match_signal|default('?')|replace('_', ' ') }}</div>
           <div style="font-size:13px;font-family:monospace">
             {% if r.match_value %}<span style="color:#d29922">{{ r.match_value }}</span> →{% endif %}
             {% if r.matched_record_id %}
               <a href="{{ '/pricecheck/' + r.matched_record_id if r.matched_record_kind == 'pc' else '/rfq/' + r.matched_record_id }}"
                  style="color:#58a6ff;text-decoration:none">{{ r.matched_record_id }}</a>
             {% else %}
-              <em style="color:var(--tx2,#8b949e)">(no match)</em>
+              <em style="color:var(--r-text-muted)">(no match)</em>
             {% endif %}
           </div>
         </td>
         <td style="padding:10px;vertical-align:top;font-size:13px;font-family:monospace">
           {% if r.confidence %}{{ '%0.2f'|format(r.confidence) }}{% else %}—{% endif %}
         </td>
-        <td style="padding:10px;vertical-align:top;font-size:11px;color:var(--tx2,#8b949e)">
+        <td style="padding:10px;vertical-align:top;font-size:11px;color:var(--r-text-muted)">
           {{ r.sent_at|default('—') }}
         </td>
         <td style="padding:10px;vertical-align:top;text-align:right">
@@ -133,8 +134,8 @@
         </td>
       </tr>
       {% if r.notes %}
-      <tr style="border-bottom:1px solid var(--bd,#30363d)" data-testid="notes-{{ r.id }}">
-        <td colspan="6" style="padding:0 10px 8px 10px;font-size:11px;color:var(--tx2,#8b949e);font-family:monospace;white-space:pre-wrap">{{ r.notes }}</td>
+      <tr style="border-bottom:1px solid var(--r-border)" data-testid="notes-{{ r.id }}">
+        <td colspan="6" style="padding:0 10px 8px 10px;font-size:11px;color:var(--r-text-muted);font-family:monospace;white-space:pre-wrap">{{ r.notes }}</td>
       </tr>
       {% endif %}
       {% endfor %}
@@ -143,15 +144,17 @@
 </div>
 {% else %}
 <div class="card" style="padding:30px;text-align:center" data-testid="empty-state">
-  <div style="font-size:18px;color:var(--tx2,#8b949e)">No observations
+  <div style="font-size:18px;color:var(--r-text-muted)">No observations
     {% if status_filter %}with status <strong>{{ status_filter }}</strong>{% endif %}.
   </div>
-  <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:6px">
+  <div style="font-size:13px;color:var(--r-text-muted);margin-top:6px">
     Click <strong>Run Scan</strong> above to look at the last 14 days
     of Sent.
   </div>
 </div>
 {% endif %}
+
+</div>
 
 {# ── Inline action handlers ───────────────────────────────────────── #}
 <script>
