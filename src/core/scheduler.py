@@ -8,12 +8,13 @@ Wraps existing daemon threads with observability:
 - GET /api/scheduler/status — full job dashboard
 """
 
+import gzip
+import logging
 import os
-import time
 import shutil
 import sqlite3
 import threading
-import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Callable
 
@@ -356,8 +357,15 @@ def run_backup(data_dir: str = None) -> dict:
         return {"ok": False, "error": "Database file not found"}
 
     now = datetime.now(timezone.utc)
-    filename = f"reytech_{now.strftime('%Y%m%d_%H%M%S')}.db"
+    # 2026-05-28: gzip backups. SQLite files compress 5-8× with gzip;
+    # a 2GB DB → ~300-400 MB per snapshot. The existing
+    # `_rotate_backups` already filters both `.db` and `.db.gz` so the
+    # rotation policy is unchanged.
+    filename = f"reytech_{now.strftime('%Y%m%d_%H%M%S')}.db.gz"
     backup_path = os.path.join(backup_dir, filename)
+    # sqlite3.backup() needs a real DB target — write to a temp `.db`,
+    # gzip-copy to the final path, then remove the temp.
+    tmp_path = backup_path + ".tmp.db"
 
     try:
         # VACUUM disabled — DB is 577MB, VACUUM needs 2x memory (1.2GB)
@@ -380,10 +388,15 @@ def run_backup(data_dir: str = None) -> dict:
 
         # Use sqlite3 backup API (safe, consistent snapshot)
         src_conn = sqlite3.connect(db_path, timeout=30)
-        dst_conn = sqlite3.connect(backup_path, timeout=15)
+        dst_conn = sqlite3.connect(tmp_path, timeout=15)
         src_conn.backup(dst_conn)
         dst_conn.close()
         src_conn.close()
+
+        # Compress to final path
+        with open(tmp_path, "rb") as f_in, \
+                gzip.open(backup_path, "wb", compresslevel=6) as f_out:
+            shutil.copyfileobj(f_in, f_out)
 
         size = os.path.getsize(backup_path)
         log.info("Backup created: %s (%s)", filename, _fmt_size(size))
@@ -404,6 +417,14 @@ def run_backup(data_dir: str = None) -> dict:
         log.error("Backup failed: %s", e)
         heartbeat("db-backup", success=False, error=str(e))
         return {"ok": False, "error": str(e)}
+    finally:
+        # Always clean up the temp DB — a mid-run failure must not
+        # strand multi-GB files.
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError as _e:
+                log.debug("daily backup: temp cleanup suppressed: %s", _e)
 
 
 def _rotate_backups(backup_dir: str, keep_daily: int = 7, keep_weekly: int = 4):

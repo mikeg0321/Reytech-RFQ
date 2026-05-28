@@ -25,6 +25,7 @@ from src.core.db_retention import (
     purge_older_than,
     run_daily_purge,
     bloat_report,
+    event_shaped_tables,
     AUTO_PURGE_ALLOWLIST,
     COMPLIANCE_OPT_IN_ALLOWLIST,
     RETENTION_POLICY,
@@ -34,7 +35,7 @@ from src.core.db_retention import (
 
 
 def _new_conn() -> sqlite3.Connection:
-    """Sandbox SQLite in memory with the 5 retention-target tables."""
+    """Sandbox SQLite in memory with the 7 retention-target tables."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript("""
@@ -57,6 +58,18 @@ def _new_conn() -> sqlite3.Connection:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT NOT NULL,
             feature TEXT
+        );
+        CREATE TABLE usage_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT,
+            timestamp TEXT NOT NULL,
+            page TEXT
+        );
+        CREATE TABLE notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            event_type TEXT,
+            title TEXT
         );
         CREATE TABLE lifecycle_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -358,3 +371,94 @@ def test_run_daily_purge_table_error_does_not_block_others(monkeypatch):
     assert len(summary["errors"]) == 1
     assert summary["errors"][0]["table"] == "audit_trail"
     assert "lifecycle_events" in COMPLIANCE_OPT_IN_ALLOWLIST
+
+
+# ─── 2026-05-28 Mr. Wolf DB bloat coverage ────────────────────────
+
+def test_usage_events_in_auto_purge_allowlist():
+    """usage_events shipped 2026-04-XX as the sibling of
+    utilization_events but was never wired into retention. On 2026-05-28
+    audit it had 226K rows / 15.7 MB. Pin its inclusion so the next
+    audit doesn't find it on the dominant-offenders list again."""
+    assert "usage_events" in AUTO_PURGE_ALLOWLIST
+    assert "usage_events" in RETENTION_POLICY
+    assert _DATE_COLUMN["usage_events"] == "timestamp"
+
+
+def test_notifications_in_auto_purge_allowlist():
+    """notifications was 79K rows / 26 MB on 2026-05-28 audit. Pin
+    its inclusion + the 60d retention default."""
+    assert "notifications" in AUTO_PURGE_ALLOWLIST
+    assert "notifications" in RETENTION_POLICY
+    assert _DATE_COLUMN["notifications"] == "created_at"
+    assert RETENTION_POLICY["notifications"] >= 30
+
+
+def test_usage_events_actually_purged():
+    """End-to-end: seed old + new rows, run live purge, only new survive."""
+    conn = _new_conn()
+    _seed_old_and_new(conn, "usage_events", "timestamp",
+                      old_rows=10, new_rows=3)
+    r = purge_older_than("usage_events", days=30,
+                         dry_run=False, conn=conn)
+    assert r["deleted"] == 10
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM usage_events").fetchone()[0]
+    assert remaining == 3
+
+
+def test_notifications_actually_purged():
+    """End-to-end: seed old + new rows, run live purge, only new survive."""
+    conn = _new_conn()
+    _seed_old_and_new(conn, "notifications", "created_at",
+                      old_rows=8, new_rows=2)
+    r = purge_older_than("notifications", days=60,
+                         dry_run=False, conn=conn)
+    assert r["deleted"] == 8
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM notifications").fetchone()[0]
+    assert remaining == 2
+
+
+# ─── Substrate-singleness pin (2026-05-28) ────────────────────────
+#
+# The bug class: someone adds a new `_log` / `_events` / `_history`
+# table to the schema, retention has no entry for it, the cron leaves
+# it alone forever, and six months later it's the dominant offender.
+#
+# `event_shaped_tables()` enumerates user tables matching log-shape
+# name patterns. This pin asserts each is in AUTO_PURGE_ALLOWLIST or
+# COMPLIANCE_OPT_IN_ALLOWLIST. Adding a `*_events` table without
+# classifying it will fail this test.
+
+def test_event_shaped_table_pattern_catches_known_log_tables():
+    """Smoke-check the pattern hits the canonical log tables."""
+    conn = _new_conn()
+    matched = set(event_shaped_tables(conn=conn))
+    assert "email_log" in matched
+    assert "audit_trail" in matched
+    assert "utilization_events" in matched
+    assert "usage_events" in matched
+    assert "lifecycle_events" in matched
+    assert "notifications" in matched
+    # And does NOT incorrectly flag business-state tables
+    assert "quotes" not in matched
+
+
+def test_event_shaped_tables_all_have_retention_classification():
+    """Substrate pin — any event-shaped table in this DB must be in
+    AUTO_PURGE_ALLOWLIST or COMPLIANCE_OPT_IN_ALLOWLIST. A new
+    `*_log` / `*_events` table shipped without classification will
+    fail this test — by design."""
+    conn = _new_conn()
+    classified = AUTO_PURGE_ALLOWLIST | COMPLIANCE_OPT_IN_ALLOWLIST
+    unclassified = [
+        t for t in event_shaped_tables(conn=conn)
+        if t not in classified
+    ]
+    assert not unclassified, (
+        f"Event-shaped tables missing from retention allowlists: "
+        f"{unclassified}. Add each to AUTO_PURGE_ALLOWLIST "
+        f"(routine purge) or COMPLIANCE_OPT_IN_ALLOWLIST (explicit "
+        f"opt-in only) in src/core/db_retention.py, along with "
+        f"_DATE_COLUMN + RETENTION_POLICY entries.")

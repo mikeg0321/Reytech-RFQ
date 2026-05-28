@@ -14,6 +14,7 @@ Background threads respect scheduler.should_run() for graceful shutdown.
 """
 
 import collections
+import gzip
 import logging
 import os
 import shutil
@@ -31,10 +32,15 @@ log = logging.getLogger("reytech.ops")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_hourly_backup(data_dir: str = None) -> dict:
-    """Create a SQLite backup using .backup API.
+    """Create a SQLite backup using .backup API, gzip-compressed.
 
-    Rotation: keep 6 hourly snapshots (~7.2GB at 1.2GB DB).
-    Verifies integrity after each backup.
+    Rotation: keep 6 hourly snapshots. With reytech.db at ~2 GB the
+    raw .db is ~2 GB; gzip -6 on a SQLite file typically yields
+    5-8× compression → ~250-400 MB per snapshot. 6 snapshots = ~2 GB
+    on disk (vs ~12 GB uncompressed). Verifies integrity after each
+    backup. Old `.db` files (pre-compression era) are preserved by
+    `_rotate_files` because it scans both suffixes; they'll age out
+    naturally as new `.db.gz` snapshots take their slots.
     """
     try:
         from src.core.paths import DATA_DIR
@@ -51,8 +57,11 @@ def run_hourly_backup(data_dir: str = None) -> dict:
         return {"ok": False, "error": "Database file not found"}
 
     now = datetime.now(timezone.utc)
-    filename = f"reytech_{now.strftime('%Y%m%d_%H%M%S')}.db"
+    filename = f"reytech_{now.strftime('%Y%m%d_%H%M%S')}.db.gz"
     backup_path = os.path.join(backup_dir, filename)
+    # sqlite3.backup() needs a real DB target — write to a temp `.db`
+    # next to the final path, then gzip-copy + remove the temp.
+    tmp_path = backup_path + ".tmp.db"
 
     try:
         # WAL checkpoint before backup
@@ -65,18 +74,32 @@ def run_hourly_backup(data_dir: str = None) -> dict:
 
         # sqlite3 backup API (consistent snapshot during writes)
         src_conn = sqlite3.connect(db_path, timeout=30)
-        dst_conn = sqlite3.connect(backup_path, timeout=15)
+        dst_conn = sqlite3.connect(tmp_path, timeout=15)
         src_conn.backup(dst_conn)
         dst_conn.close()
         src_conn.close()
 
-        # Quick integrity check on the backup
+        # Compress the temp DB → final .db.gz. compresslevel=6 is the
+        # gzip default — good balance of speed vs ratio.
+        with open(tmp_path, "rb") as f_in, \
+                gzip.open(backup_path, "wb", compresslevel=6) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+        try:
+            os.remove(tmp_path)
+        except OSError as _e:
+            log.warning("hourly backup: could not remove temp %s: %s",
+                        tmp_path, _e)
+
+        # Quick integrity check on the compressed backup
         integrity_ok = verify_backup_integrity(backup_path)
 
         size = os.path.getsize(backup_path)
 
-        # Rotate: keep 6 hourly snapshots
-        _rotate_files(backup_dir, prefix="reytech_", suffix=".db", keep=6)
+        # Rotate: keep 6 hourly snapshots. Scan both legacy `.db` and
+        # current `.db.gz` so old pre-compression files age out.
+        _rotate_files(backup_dir, prefix="reytech_",
+                      suffix=(".db", ".db.gz"), keep=6)
 
         log.info("Hourly backup: %s (%s, integrity=%s)",
                  filename, _fmt_size(size), "OK" if integrity_ok else "FAILED")
@@ -104,6 +127,14 @@ def run_hourly_backup(data_dir: str = None) -> dict:
         except Exception as _e:
             log.debug("suppressed: %s", _e)
         return {"ok": False, "error": str(e)}
+    finally:
+        # Always clean up the intermediate .tmp.db so a mid-run failure
+        # can't strand multi-GB files on the volume.
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError as _e:
+                log.debug("hourly backup: temp cleanup suppressed: %s", _e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -115,12 +146,36 @@ def verify_backup_integrity(backup_path: str) -> bool:
 
     Checks: file exists, header valid, integrity_check passes,
     critical tables exist, quote counter present.
+
+    Transparently handles `.db.gz` by decompressing to a temp file
+    before verification — the gzip writer is the canonical backup
+    shape since 2026-05-28.
     """
     if not os.path.exists(backup_path):
         return False
 
+    db_to_check = backup_path
+    temp_decompressed = None
+    if backup_path.endswith(".gz"):
+        import tempfile
+        fd, temp_decompressed = tempfile.mkstemp(
+            suffix=".verify.db", prefix="reytech_")
+        try:
+            with gzip.open(backup_path, "rb") as f_in, \
+                    os.fdopen(fd, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            db_to_check = temp_decompressed
+        except Exception as e:
+            log.error("Backup decompress failed: %s → %s",
+                      backup_path, e)
+            try:
+                os.remove(temp_decompressed)
+            except OSError:
+                pass
+            return False
+
     try:
-        conn = sqlite3.connect(backup_path, timeout=10)
+        conn = sqlite3.connect(db_to_check, timeout=10)
 
         # Integrity check
         result = conn.execute("PRAGMA integrity_check").fetchone()
@@ -154,6 +209,12 @@ def verify_backup_integrity(backup_path: str) -> bool:
     except Exception as e:
         log.error("Backup verification error: %s → %s", backup_path, e)
         return False
+    finally:
+        if temp_decompressed and os.path.exists(temp_decompressed):
+            try:
+                os.remove(temp_decompressed)
+            except OSError:
+                pass
 
 
 def run_nightly_verification(data_dir: str = None) -> dict:
@@ -168,10 +229,11 @@ def run_nightly_verification(data_dir: str = None) -> dict:
     if not os.path.isdir(backup_dir):
         return {"ok": False, "error": "No backup directory found"}
 
-    # Find latest backup
+    # Find latest backup — accept both legacy .db and current .db.gz
     backups = sorted(
         [f for f in os.listdir(backup_dir)
-         if f.startswith("reytech_") and f.endswith(".db")],
+         if f.startswith("reytech_")
+         and (f.endswith(".db") or f.endswith(".db.gz"))],
         reverse=True
     )
     if not backups:
@@ -182,19 +244,45 @@ def run_nightly_verification(data_dir: str = None) -> dict:
 
     result["checks"]["integrity"] = verify_backup_integrity(latest)
 
-    try:
-        conn = sqlite3.connect(latest, timeout=10)
-        for table in ["quotes", "contacts", "price_history", "app_settings"]:
-            try:
-                count = conn.execute(f"SELECT COUNT(*) FROM [{table}]").fetchone()[0]
-                result["checks"][f"{table}_count"] = count
-            except Exception as _ce:
-                log.warning("ops-monitor backup row_count failed for %s: %s", table, _ce)
-                result["checks"][f"{table}_count"] = -1
-        conn.close()
-    except Exception as e:
-        result["ok"] = False
-        result["checks"]["error"] = str(e)
+    # For row-count verification of a .gz backup, decompress to a temp
+    # file. For .db, open directly. Kept inline (vs reusing the verify
+    # helper) so the temp file lives for the duration of the queries.
+    db_to_query = latest
+    temp_for_query = None
+    if latest.endswith(".gz"):
+        import tempfile
+        fd, temp_for_query = tempfile.mkstemp(
+            suffix=".verify.db", prefix="reytech_nightly_")
+        try:
+            with gzip.open(latest, "rb") as f_in, \
+                    os.fdopen(fd, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            db_to_query = temp_for_query
+        except Exception as e:
+            result["ok"] = False
+            result["checks"]["error"] = f"decompress: {e}"
+            db_to_query = None
+
+    if db_to_query:
+        try:
+            conn = sqlite3.connect(db_to_query, timeout=10)
+            for table in ["quotes", "contacts", "price_history", "app_settings"]:
+                try:
+                    count = conn.execute(f"SELECT COUNT(*) FROM [{table}]").fetchone()[0]
+                    result["checks"][f"{table}_count"] = count
+                except Exception as _ce:
+                    log.warning("ops-monitor backup row_count failed for %s: %s", table, _ce)
+                    result["checks"][f"{table}_count"] = -1
+            conn.close()
+        except Exception as e:
+            result["ok"] = False
+            result["checks"]["error"] = str(e)
+
+    if temp_for_query and os.path.exists(temp_for_query):
+        try:
+            os.remove(temp_for_query)
+        except OSError:
+            pass
 
     # Compare size to live DB
     live_db = os.path.join(data_dir, "reytech.db")
@@ -967,11 +1055,21 @@ def _fmt_size(size_bytes: int) -> str:
     return f"{size_bytes:.1f} TB"
 
 
-def _rotate_files(directory: str, prefix: str, suffix: str, keep: int):
-    """Keep the newest `keep` files matching prefix/suffix, delete the rest."""
+def _rotate_files(directory: str, prefix: str, suffix, keep: int):
+    """Keep the newest `keep` files matching prefix/suffix, delete the rest.
+
+    `suffix` accepts either a single string (back-compat) or a tuple
+    of strings — useful when a transition leaves both legacy `.db`
+    and current `.db.gz` files in the same directory.
+    """
+    if isinstance(suffix, str):
+        suffixes = (suffix,)
+    else:
+        suffixes = tuple(suffix)
     try:
         files = sorted(
-            [f for f in os.listdir(directory) if f.startswith(prefix) and f.endswith(suffix)],
+            [f for f in os.listdir(directory)
+             if f.startswith(prefix) and f.endswith(suffixes)],
             reverse=True
         )
         for f in files[keep:]:
