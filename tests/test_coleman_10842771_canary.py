@@ -287,124 +287,191 @@ def test_for_rfq_returns_rfq_full_for_non_prefilled():
     assert FillStrategy.for_rfq(is_prefilled=True) == FillStrategy.RFQ_PREFILLED
 
 
-# ── Path A override pins ──────────────────────────────────────────────
+# ── Falsification pins ────────────────────────────────────────────────
+# PR #1170 + #1173 commit messages claimed (a) buyer templates use
+# `EXTENSION{suffix}` fields and (b) buyer templates carry a JS calc on
+# the EXTENSION column. Direct measurement of the golden file
+# (committed by PR #1173 itself) falsifies both claims. These tests
+# pin those falsifications against the in-repo golden so no future PR
+# can re-fabricate the hypothesis without measurement.
+# See feedback memory: [[no-blind-guess-on-pdf-field-names]] +
+# [[claimed-pdf-js-must-be-dumped]].
 
 
-def test_cchcs_override_demotes_prefilled_to_full():
-    """Coleman 10842771 fix (2026-05-28, Path A). CCHCS buyer-
-    uploaded 704B templates have broken JS calcs that override
-    explicit value writes. Force RFQ_FULL regardless of is_prefilled.
+def test_canonical_704b_template_has_no_extension_row_fields():
+    """Pin the field-name falsification.
+
+    Canonical CCHCS 704B (and the buyer-prefilled variants Mike's
+    desktop dump measured 2026-05-28) use `SUBTOTAL{suffix}` for the
+    row-level extension column. There is no `EXTENSION{suffix}`. PR
+    #1170's dual-write to both was therefore writing to a non-existent
+    field every fill. A PR adding `EXTENSION{suffix}` back to the
+    writer must commit a fixture proving such a template exists.
+    """
+    reader = PdfReader(str(GOLDEN_704B))
+    fields = reader.get_fields() or {}
+
+    extension_fields = sorted(k for k in fields if k.startswith("EXTENSION"))
+    assert extension_fields == [], (
+        f"Golden 704B must contain ZERO EXTENSION* row fields "
+        f"(canonical template uses SUBTOTAL{{suffix}} exclusively). "
+        f"Found: {extension_fields}. If a new template variant "
+        f"introduces EXTENSION* fields, that is its own fixture — "
+        f"do NOT add EXTENSION* to this golden."
+    )
+    subtotal_fields = sorted(k for k in fields if k.startswith("SUBTOTAL"))
+    assert len(subtotal_fields) >= 15, (
+        f"Golden 704B must carry the SUBTOTAL{{suffix}} family used by "
+        f"verify_704b_computations + ams704_helpers writer. Found "
+        f"{len(subtotal_fields)}: {subtotal_fields}"
+    )
+
+
+def test_canonical_704b_template_has_no_unexpected_javascript():
+    """Pin the JS falsification.
+
+    PR #1173 commit message: "buyer-uploaded CCHCS 704B variants ...
+    carry a JS calc on the EXTENSION column that defaults to row-1's
+    unit_price for every row." Deep /JS scan of three real buyer
+    templates + this golden showed only 2 entries: `AFDate_FormatEx`
+    and `AFDate_KeystrokeEx` on `Date1_af_date`. The "JS overrides
+    on viewer re-render" mechanism does not exist.
+
+    Per [[claimed-pdf-js-must-be-dumped]]: any future PR claiming
+    JS-side cause for a 704B bug must commit a fresh deep_js_scan
+    that surfaces the alleged code. This test is the floor that
+    fires first.
+    """
+    import collections
+
+    reader = PdfReader(str(GOLDEN_704B))
+    seen: set[int] = set()
+    js_entries: list[str] = []
+    queue = collections.deque([reader.trailer])
+    while queue:
+        obj = queue.popleft()
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        try:
+            obj = obj.get_object() if hasattr(obj, "get_object") else obj
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k == "/JS":
+                    try:
+                        code = v.get_object() if hasattr(v, "get_object") else v
+                    except Exception:
+                        code = ""
+                    js_entries.append(str(code)[:200])
+                queue.append(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                queue.append(v)
+
+    # Acrobat's date-field default formatter pair is allowed; anything
+    # else means a PR shipped a real JS hypothesis and must be checked.
+    disallowed = [j for j in js_entries if "AFDate_" not in j]
+    assert disallowed == [], (
+        f"Golden 704B must contain NO JavaScript except Acrobat's "
+        f"default AFDate_FormatEx / AFDate_KeystrokeEx pair on the "
+        f"Date1_af_date field. Found {len(disallowed)} disallowed "
+        f"entries: {disallowed!r}. If a PR commit message ever claims "
+        f"JavaScript causes a 704B bug, that PR MUST commit a fresh "
+        f"deep_js_scan artifact proving the JS exists "
+        f"(see [[claimed-pdf-js-must-be-dumped]])."
+    )
+
+
+# ── Option C substrate-fix invariant ──────────────────────────────────
+
+
+def test_for_rfq_returns_rfq_prefilled_when_template_is_prefilled():
+    """Strategy floor. Buyer-prefilled templates take the
+    RFQ_PREFILLED path so we never overwrite buyer-owned QTY,
+    descriptions, or ITEM NUMBER. The agency-aware override added by
+    PR #1173 (`for_rfq_with_agency_override`) has been reverted; the
+    substrate fix in `build_704_item_fields` (reading buyer's QTY for
+    the extension computation) closes the bug class instead.
     """
     from src.forms.ams704_helpers import FillStrategy
 
-    # The bug case: prefilled=True + agency=CCHCS → demoted to FULL
-    assert (
-        FillStrategy.for_rfq_with_agency_override(
-            is_prefilled=True, agency="cchcs"
-        )
-        == FillStrategy.RFQ_FULL
-    )
-    # Case-insensitive on agency
-    assert (
-        FillStrategy.for_rfq_with_agency_override(
-            is_prefilled=True, agency="CCHCS"
-        )
-        == FillStrategy.RFQ_FULL
+    assert FillStrategy.for_rfq(is_prefilled=True) == FillStrategy.RFQ_PREFILLED
+    assert FillStrategy.for_rfq(is_prefilled=False) == FillStrategy.RFQ_FULL
+    assert not hasattr(FillStrategy, "for_rfq_with_agency_override"), (
+        "PR #1173's agency override was reverted because its premise "
+        "(JS calc on buyer templates) was falsified — see the JS test "
+        "above. The substrate fix in build_704_item_fields supersedes it."
     )
 
 
-def test_cchcs_override_no_op_when_not_prefilled():
-    """Override is only a DEMOTION — it never PROMOTES. If the
-    template isn't prefilled, for_rfq() already returns RFQ_FULL
-    and the override is a no-op."""
-    from src.forms.ams704_helpers import FillStrategy
+def test_build_704_item_fields_uses_buyer_qty_under_rfq_prefilled():
+    """Option C — substrate bug class closed.
 
-    assert (
-        FillStrategy.for_rfq_with_agency_override(
-            is_prefilled=False, agency="cchcs"
-        )
-        == FillStrategy.RFQ_FULL
+    Pre-fix: under RFQ_PREFILLED, `build_704_item_fields` computed
+    extension = li.qty × li.unit_price. When upstream sent per-facility
+    line_items (qty=1) but buyer's template carried the true line-item
+    quantity in `QTYRow{n}` (e.g. Coleman QTYRow1=19), the SUBTOTAL
+    field was written as 1 × unit_price. verify_704b_computations
+    then read buyer's QTYRow1=19 alongside SUBTOTALRow1=unit_price and
+    correctly flagged the mismatch — the verifier was honest, the
+    writer was wrong.
+
+    Post-fix: under RFQ_PREFILLED + profile.is_prefilled, the writer
+    reads `profile.field_values[f"QTY{row_suffix}"]` and uses it in
+    place of li.qty for the extension. li.unit_price is still our
+    write; buyer's QTY{row_suffix} is preserved (writes_qty_uom=False
+    for RFQ_PREFILLED). Result matches the golden subtotals.
+    """
+    from src.forms.template_registry import get_profile
+    from src.forms.ams704_helpers import build_704_item_fields, FillStrategy
+
+    profile = get_profile(str(GOLDEN_704B))
+    assert profile.is_prefilled, (
+        "Golden 704B has QTYRow1/QTYRow2 set — _detect_prefill should "
+        "flag is_prefilled=True"
+    )
+    assert profile.field_values.get("QTYRow1") == "19", (
+        f"Expected buyer QTYRow1=19, got {profile.field_values.get('QTYRow1')!r}"
+    )
+    assert profile.field_values.get("QTYRow2") == "2"
+
+    # Simulate the per-facility upstream shape that triggered the bug:
+    # 2 line_items, each with qty=1 (= 1 per facility, NOT buyer's total).
+    raw_items = [
+        {"line_number": 1, "qty": 1, "unit_price": 1564.57,
+         "description": "Training Kit, for Zoll R Series Defibrillators"},
+        {"line_number": 2, "qty": 1, "unit_price": 1467.75,
+         "description": "Trainer Airway Mgmt W/ Stand"},
+    ]
+
+    result = build_704_item_fields(
+        profile, raw_items, FillStrategy.RFQ_PREFILLED, convention="704b",
+    )
+
+    assert result.field_values.get("SUBTOTALRow1") == "29726.83", (
+        f"Row1 SUBTOTAL must reflect buyer's QTYRow1=19 × $1564.57 = "
+        f"$29726.83, got {result.field_values.get('SUBTOTALRow1')!r}. "
+        f"If this is back to '1564.57', Option C regressed."
+    )
+    assert result.field_values.get("SUBTOTALRow2") == "2935.50", (
+        f"Row2 SUBTOTAL must reflect buyer's QTYRow2=2 × $1467.75 = "
+        f"$2935.50, got {result.field_values.get('SUBTOTALRow2')!r}."
+    )
+    # Per-unit price is OUR write, unchanged by Option C.
+    assert result.field_values.get("PRICE PER UNITRow1") == "1564.57"
+    assert result.field_values.get("PRICE PER UNITRow2") == "1467.75"
+    # Strategy contract — QTYRow{n} must NOT be in the values dict
+    # under RFQ_PREFILLED. writes_qty_uom=False for PREFILLED.
+    assert "QTYRow1" not in result.field_values, (
+        "RFQ_PREFILLED must not overwrite buyer's QTYRow1. If this "
+        "fires, FillStrategy.writes_qty_uom regressed."
+    )
+    assert "QTYRow2" not in result.field_values
+    assert "ITEM NUMBERRow1" not in result.field_values, (
+        "RFQ_PREFILLED must not overwrite buyer's ITEM NUMBER. "
+        "writes_item_numbers regressed."
     )
 
 
-def test_override_preserves_default_for_non_cchcs_agencies():
-    """The CCHCS override must NOT bleed to CalVet, DSH, DGS, or
-    any other agency. Those agencies may legitimately need the
-    RFQ_PREFILLED path (their buyer templates aren't known to have
-    broken JS calcs). Substrate-boundary pin per the same pattern
-    as PR #1170's test_704a_still_only_writes_extension_field."""
-    from src.forms.ams704_helpers import FillStrategy
-
-    for agency in ("calvet", "dsh", "dgs", "cdcr", "cdfa", "", None):
-        assert (
-            FillStrategy.for_rfq_with_agency_override(
-                is_prefilled=True, agency=agency or ""
-            )
-            == FillStrategy.RFQ_PREFILLED
-        ), f"agency={agency!r} should NOT get the CCHCS demotion"
-        assert (
-            FillStrategy.for_rfq_with_agency_override(
-                is_prefilled=False, agency=agency or ""
-            )
-            == FillStrategy.RFQ_FULL
-        ), f"agency={agency!r} non-prefilled should still be FULL"
-
-
-@pytest.mark.xfail(reason=(
-    "Coleman buyer 704B template not yet checked into fixtures. "
-    "Once tests/fixtures/coleman_10842771/704b_buyer_uploaded.pdf "
-    "exists (copy from /data/uploads/20260526_171611_19e654/ on prod), "
-    "this test runs an end-to-end fill against the buyer template "
-    "and asserts the resulting PDF passes verify_704b_computations "
-    "(with Path A override active OR Path B substrate fix shipped). "
-    "Until then, Path A unit-tested above is sufficient regression "
-    "coverage and the end-to-end is deferred."
-))
-def test_coleman_buyer_template_end_to_end_produces_passing_qa():
-    """End-to-end pin — once the buyer template is in fixtures, this
-    runs the full fill_704b path with agency=cchcs and asserts the
-    output PDF passes the QA gate. Lift xfail when fixture lands."""
-    raise NotImplementedError("waiting on buyer template fixture")
-
-
-# ── Path A INCOMPLETE — pin the discovered second-order bug ──────────
-
-
-@pytest.mark.xfail(reason=(
-    "PR #1173's Path A demotes the STRATEGY (RFQ_PREFILLED → RFQ_FULL) "
-    "but does NOT swap the input TEMPLATE — fill_704b still receives "
-    "the buyer's 362-field prefilled template path from form_info. "
-    "Writer now writes buyer-owned fields (QTYRow1, ITEM NUMBERRow2) "
-    "per RFQ_FULL contract, and verify_buyer_fields_untouched "
-    "correctly flags the overwrites. \n\n"
-    "Prod evidence 2026-05-28 07:10 UTC (rfq_5a55f1b5 regenerate "
-    "post-#1173 deploy, prod log via railway):\n"
-    "  704B strategy override agency=cchcs: rfq_prefilled → rfq_full  ← override DID fire\n"
-    "  Form QA ISSUE: Buyer field 'QTYRow1' was overwritten: '19' → '1'\n"
-    "  Form QA ISSUE: Buyer field 'QTYRow2' was overwritten: '2' → '1'\n"
-    "  Form QA ISSUE: Buyer field 'ITEM NUMBERRow2' was overwritten: 'LF03699' → '8700-0893-01'\n\n"
-    "Two fix paths — needs Architect (Mike) decision before any 4th attempt:\n"
-    "  Option A2 (extend Path A): when override fires, also swap input_path \n"
-    "      to canonical data/templates/704b_blank.pdf AND clear template_path \n"
-    "      in form_info so verify_buyer_fields_untouched doesn't fire false \n"
-    "      positives. PLUS aggregate line_items by SKU upstream (else 21 \n"
-    "      facility rows of qty=1 overflow canonical's 15-row capacity).\n"
-    "  Option B (substrate): JS-strip on buyer template clone, keep \n"
-    "      RFQ_PREFILLED, preserve buyer's prefilled aggregated rows. \n"
-    "      Most architecturally correct but largest scope.\n\n"
-    "Three Strikes Rule (CLAUDE.md §4): PRs #1170, #1171, #1173 are three \n"
-    "consecutive incomplete fixes on this same 704b QA failure for \n"
-    "Coleman. STOP — fresh session with Architect decision required.\n\n"
-    "Lift condition: Option A2 or B ships. Then this test (re-implemented \n"
-    "to invoke the full fill_704b path on the buyer template with \n"
-    "agency=cchcs) must assert the output PDF passes ALL QA sub-checks \n"
-    "including verify_buyer_fields_untouched."
-))
-def test_path_a_does_not_overwrite_buyer_template_fields():
-    """Pinning xfail for the Path A incompleteness discovered post-deploy.
-    When Option A2 or Option B ships, lift this xfail and assert end-to-end
-    that no buyer-field-untouched issues fire on a CCHCS regenerate."""
-    raise NotImplementedError(
-        "Path A is incomplete — see xfail reason. Architectural decision "
-        "needed (Option A2 vs Option B) before a 4th fix attempt."
-    )
