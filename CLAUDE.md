@@ -151,10 +151,12 @@ Make the Spine the ONLY CCHCS quote path, then delete the legacy one.
 
 The Spine must render BOTH CCHCS response formats: the Non-Cloud Packet
 (the buyer's single bundled PDF — already covered by `packet_render.py`)
-AND the standalone set — AMS 703B *or* 703C, AMS 704B, the CDCR Bid
-Package, plus the Reytech Quote (the common format, not yet covered).
-Which 703 and which format applies is declared by the email contract
-(LAW 6) — never guessed.
+AND the standalone set — AMS 703A, 703B, *or* 703C, AMS 704B, the CDCR
+Bid Package, plus the Reytech Quote (the common format, not yet covered).
+Which 703 revision and which format applies is declared by the email
+contract (LAW 6) — never guessed. (703A added 2026-05-27 after Coleman
+solicitation 10842771 surfaced the Rev. 03/2025 form. 703B is the prior
+revision; 703C is the IT-RFQ variant.)
 
 **Acceptance — all required:**
 - 0 imports from `src/core/` in the CCHCS quote path (extend
