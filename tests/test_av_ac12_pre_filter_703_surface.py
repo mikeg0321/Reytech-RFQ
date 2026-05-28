@@ -89,15 +89,30 @@ def test_ac12_scan_runs_before_filter_call():
 
 
 def test_ac12_filename_patterns_present():
+    """AC12 filename ladder must admit ALL three CCHCS 703 revisions.
+
+    Extended 2026-05-27 (Coleman sol# 10842771): the prior ladder
+    matched only 703B/703C/FAIR_AND_REASONABLE. CCHCS shipped 703A
+    (Rev. 03/2025) as the current revision on Coleman 10842771 — the
+    buyer's PDF filename was "PR 10842771 - AMS 703A - REQUEST FOR
+    QUOTATION.pdf". The renderer then fell back to an empty 703B
+    because the AC12 surface didn't recognize 703A.
+    """
     src = TARGET.read_text(encoding="utf-8")
-    ac12_idx = src.find("PR-AV-AC12")
-    block = src[ac12_idx:ac12_idx + 1800]
+    # Anchor at the actual code block (not the explanatory comment) by
+    # looking for the first occurrence of the surface flag init.
+    code_idx = src.find("_av_703_attached = False")
+    assert code_idx > 0, "AC12 surface code block not found"
+    block = src[code_idx:code_idx + 2400]
     # The filename patterns we match against
+    assert '"703A" in _fn' in block, (
+        "AC12 must match buyer attachments named *703A* (current revision)"
+    )
     assert '"703B" in _fn' in block, (
-        "AC12 must match buyer attachments named *703B*"
+        "AC12 must match buyer attachments named *703B* (prior revision)"
     )
     assert '"703C" in _fn' in block, (
-        "AC12 must match buyer attachments named *703C*"
+        "AC12 must match buyer attachments named *703C* (IT-RFQ variant)"
     )
     assert '"FAIR_AND_REASONABLE" in _fn' in block, (
         "AC12 must match buyer attachments named *FAIR_AND_REASONABLE*"
@@ -105,30 +120,49 @@ def test_ac12_filename_patterns_present():
     )
 
 
-def test_ac12_appends_703c_to_uploaded():
-    """Appending '703c' is enough — filter_required_forms_by_shape's
-    own substitution map (L116-117 of request_classifier.py) expands
-    {'703c'} → {'703b', '703c'} so both required-forms variants
-    survive.
+def test_ac12_appends_present_revision_to_uploaded():
+    """AC12 must surface the actually-present 703 revision to
+    uploaded_templates — not a hardcoded fallback. The rev-aware
+    filter at the render seam (added 2026-05-27 for Coleman sol#
+    10842771) picks `_present_703` from `_uploaded_tmpls`; if AC12
+    surfaces the wrong revision the renderer drops the right one.
     """
     src = TARGET.read_text(encoding="utf-8")
-    ac12_idx = src.find("PR-AV-AC12")
-    block = src[ac12_idx:ac12_idx + 1800]
-    assert '_uploaded_tmpls.append("703c")' in block, (
-        "AC12 must append '703c' to uploaded_templates so the "
-        "filter's substitution logic expands it to {703b, 703c}"
+    # Anchor at the actual code block (not the explanatory comment) by
+    # looking for the first occurrence of the surface flag init.
+    code_idx = src.find("_av_703_attached = False")
+    assert code_idx > 0, "AC12 surface code block not found"
+    block = src[code_idx:code_idx + 2400]
+    # The surface must read the detected slot (703a / 703b / 703c)
+    # rather than hardcode 703c.
+    assert "_av_703_slot" in block, (
+        "AC12 must detect which 703 revision the buyer attached, "
+        "not hardcode a fallback slot"
+    )
+    # Must still append SOMETHING to _uploaded_tmpls so the filter sees it.
+    assert "_uploaded_tmpls.append" in block, (
+        "AC12 must append the detected slot to _uploaded_tmpls so "
+        "the rev-aware filter sees the buyer-attached revision"
     )
 
 
-def test_ac12_uses_list_rfq_files_buyer_attachment_category():
-    """The scan must read from category='buyer_attachment' — that's
-    where AV-4 promote also looks. Using the same category keeps the
-    two passes consistent.
+def test_ac12_reads_both_attachment_categories():
+    """The scan must read BOTH category='buyer_attachment' (AV-4
+    promote convention) AND category='attachment' (manual-upload
+    writer convention). Coleman 10842771 surfaced the constant
+    drift: writer uses 'attachment', reader was matching only
+    'buyer_attachment' → manually-uploaded 703A never reached the
+    surface block.
     """
     src = TARGET.read_text(encoding="utf-8")
-    ac12_idx = src.find("PR-AV-AC12")
-    block = src[ac12_idx:ac12_idx + 1800]
-    assert 'list_rfq_files(rid, category="buyer_attachment")' in block, (
-        "AC12 must scan rfq_files with category='buyer_attachment' "
-        "to find the buyer-uploaded 703 / 704 blobs"
+    # Anchor at the actual code block (not the explanatory comment) by
+    # looking for the first occurrence of the surface flag init.
+    code_idx = src.find("_av_703_attached = False")
+    assert code_idx > 0, "AC12 surface code block not found"
+    block = src[code_idx:code_idx + 2400]
+    assert '"buyer_attachment"' in block, (
+        "AC12 must read category='buyer_attachment' for ingest-pipeline rows"
+    )
+    assert '"attachment"' in block, (
+        "AC12 must ALSO read category='attachment' for manual-upload rows"
     )
