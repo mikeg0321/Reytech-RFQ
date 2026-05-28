@@ -1,52 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Locked Costs — Admin{% endblock %}
 {% block content %}
+<div class="r-app">
 <div style="max-width:1200px;margin:0 auto;padding:20px" id="main-content">
 
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
     <div>
-      <h2 style="margin:0;font-size:20px;color:var(--tx)">🔒 Locked Supplier Costs</h2>
-      <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">Pinned costs that override Oracle/web pricing — unlock or extend before they wreck your margin.</p>
+      <h2 style="margin:0;font-size:20px;color:var(--r-text)">🔒 Locked Supplier Costs</h2>
+      <p style="color:var(--r-text-muted);font-size:13px;margin:4px 0 0">Pinned costs that override Oracle/web pricing — unlock or extend before they wreck your margin.</p>
     </div>
     <button onclick="location.reload()" style="padding:6px 14px;background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:6px;font-size:13px;cursor:pointer">Refresh</button>
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:var(--tx)">{{ summary.total|default(0) }}</div>
-      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Total Locked</div>
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:var(--r-text)">{{ summary.total|default(0) }}</div>
+      <div style="font-size:12px;color:var(--r-text-muted);margin-top:4px">Total Locked</div>
     </div>
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px;text-align:center">
       <div style="font-size:28px;font-weight:800;color:#3fb950">{{ summary.active|default(0) }}</div>
-      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Active</div>
+      <div style="font-size:12px;color:var(--r-text-muted);margin-top:4px">Active</div>
     </div>
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px;text-align:center">
       <div style="font-size:28px;font-weight:800;color:#d29922">{{ summary.expiring|default(0) }}</div>
-      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Expiring (≤7d)</div>
+      <div style="font-size:12px;color:var(--r-text-muted);margin-top:4px">Expiring (≤7d)</div>
     </div>
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px;text-align:center">
       <div style="font-size:28px;font-weight:800;color:{{ '#f85149' if summary.expired|default(0) > 0 else '#8b949e' }}">{{ summary.expired|default(0) }}</div>
-      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Expired</div>
+      <div style="font-size:12px;color:var(--r-text-muted);margin-top:4px">Expired</div>
     </div>
   </div>
 
-  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+  <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;overflow:hidden">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead>
-        <tr style="background:var(--bg)">
-          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">Status</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">Description</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">MFG#</th>
-          <th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">Cost</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">Supplier</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">Source</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">Expires</th>
-          <th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--tx2);border-bottom:2px solid var(--bd)">Actions</th>
+        <tr style="background:var(--r-bg)">
+          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">Status</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">Description</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">MFG#</th>
+          <th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">Cost</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">Supplier</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">Source</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">Expires</th>
+          <th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);border-bottom:2px solid var(--r-border)">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for r in rows|default([]) %}
-        <tr style="border-bottom:1px solid var(--bd)" data-desc="{{ r.description }}" data-supplier="{{ r.supplier|default('') }}">
+        <tr style="border-bottom:1px solid var(--r-border)" data-desc="{{ r.description }}" data-supplier="{{ r.supplier|default('') }}">
           <td style="padding:8px 12px">
             {% if r.status == 'active' %}
             <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(63,185,80,.15);color:#3fb950">Active</span>
@@ -57,22 +58,23 @@
             {% endif %}
           </td>
           <td style="padding:8px 12px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ r.description }}">{{ r.description|truncate(60) }}</td>
-          <td style="padding:8px 12px;font-family:monospace;font-size:12px;color:var(--tx2)">{{ r.item_number|default('—') }}</td>
+          <td style="padding:8px 12px;font-family:monospace;font-size:12px;color:var(--r-text-muted)">{{ r.item_number|default('—') }}</td>
           <td style="padding:8px 12px;text-align:right;font-family:monospace;font-weight:600">${{ '%.2f'|format(r.cost|float) }}</td>
           <td style="padding:8px 12px">{{ r.supplier|default('—') }}</td>
-          <td style="padding:8px 12px;color:var(--tx2);font-size:12px">{{ r.source|default('—') }}</td>
-          <td style="padding:8px 12px;color:var(--tx2);font-size:12px;white-space:nowrap">{{ (r.expires_at or '')[:10] or '—' }}</td>
+          <td style="padding:8px 12px;color:var(--r-text-muted);font-size:12px">{{ r.source|default('—') }}</td>
+          <td style="padding:8px 12px;color:var(--r-text-muted);font-size:12px;white-space:nowrap">{{ (r.expires_at or '')[:10] or '—' }}</td>
           <td style="padding:8px 12px;text-align:right;white-space:nowrap">
             <button class="lc-extend-btn" data-days="30" style="padding:3px 9px;background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:5px;font-size:11px;cursor:pointer">+30d</button>
             <button class="lc-unlock-btn" style="padding:3px 9px;background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:5px;font-size:11px;cursor:pointer;margin-left:4px">Unlock</button>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" style="padding:32px;text-align:center;color:var(--tx2)">No costs are currently locked.</td></tr>
+        <tr><td colspan="8" style="padding:32px;text-align:center;color:var(--r-text-muted)">No costs are currently locked.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+</div>
 </div>
 
 <script>
