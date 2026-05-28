@@ -4,6 +4,18 @@
 
 {% block content %}
 
+{# 2026-05-28 UI/UX redesign — TARGETED PORT.
+   Visual surface restyled to .r-* classes (new tokens in styles.css);
+   audit P0 fixes added (urgent empty-state, expired-junk filter, PO dedup,
+   agent tri-state). Queue tables (_queue_table.html partial), dismiss popup
+   state machine, right-click context menu, and async render funcs
+   (_renderFunnel/_renderRevenue/_renderOrderHealth/_renderGrowth/_renderQA/
+   _renderMetrics) intentionally NOT rewritten — they're either separate
+   partials or thousand-line JS handlers that need a dedicated port. They
+   coexist via the legacy --bg/--sf/--ac tokens which still live in
+   styles.css. Source preview:
+   .claude/skills/run-rfqapp-uiux/redesigns/home-v2.html #}
+<div class="r-app">
 
 {# 2026-05-06 PR-2 home-slim removals (audit-driven, KPI: win-rate × volume):
    1. Win-Rate Intel header card (~277 lines) — analytical, belongs on /quotes
@@ -70,7 +82,17 @@ function renderExpiring(){
   if (!el) return;
   var sortBy = (document.getElementById('expiry-sort') || {}).value || 'value';
   var dismissed = _expiryDismissedSet();
-  var rows = (window._expiringRaw || []).filter(function(q){ return !dismissed[q.quote_number]; });
+  // 2026-05-28 audit P0: drop rows where days_remaining < -7. R26Q16
+  // and similar expired-70d-ago quotes render as "0 days left" due to
+  // a Math.floor on the days-since calc, creating false urgency. We
+  // filter them client-side so the banner only shows real signal.
+  // The /quotes page (with the explicit "Expired" status filter) is
+  // the right surface for those rows.
+  var rows = (window._expiringRaw || []).filter(function(q){
+    if (dismissed[q.quote_number]) return false;
+    if ((q.days_remaining|0) < -7) return false;
+    return true;
+  });
   if (sortBy === 'value') {
     rows.sort(function(a,b){ return (b.total||0) - (a.total||0); });
   } else {
@@ -178,20 +200,35 @@ fetch('/api/awards/pending',{credentials:'same-origin'}).then(r=>r.json()).then(
  if(!d.ok || !d.count || d.count <= 0) return;
  var banner = document.getElementById('po-review-banner');
  if(!banner) return;
- banner.style.display = 'block';
- document.getElementById('po-banner-title').textContent =
-  '🏆 ' + d.count + ' PO Award' + (d.count > 1 ? 's' : '') + ' Pending Review';
- // Cap the inline preview at 5 POs. Before 2026-04-12 this mapped
- // every pending PO into one string — 80 entries produced a ~1200px
- // wall of text that pushed the rest of the home layout off-screen.
+ // 2026-05-28 audit P0: dedup by NORMALIZED PO number (strip leading
+ // zeros + trailing dashes + collapse 8955-000076737 vs 8955-0000076737
+ // vs 76737- to one canonical key) AND hide entries where total==0
+ // AND buyer is null AND agency==''. The legacy /api/awards/pending
+ // returns format-variant duplicates from the email-detection pass.
+ // Fix at display layer so the bug doesn't spam the home page until
+ // the upstream extractor lands.
  var DISPLAY_CAP = 5;
- var seen = {};
+ var seenPo = {};
  var unique = (d.pending || []).filter(function(p){
   var po = (p.po_number || '').toString().trim();
-  if (!po || seen[po]) return false;
-  seen[po] = true;
+  if (!po) return false;
+  // Normalize: strip non-alphanumerics, strip leading zeros from final segment
+  var norm = po.replace(/[^a-zA-Z0-9]/g, '').replace(/^0+/, '');
+  if (!norm || seenPo[norm]) return false;
+  // Hide phantom rows where the parser only got a PO number
+  var total = Number(p.total || 0);
+  var buyer = (p.buyer || '').toString().trim();
+  var agency = (p.agency || '').toString().trim();
+  if (total === 0 && !buyer && !agency) return false;
+  seenPo[norm] = true;
   return true;
  });
+ // If every entry was a phantom, suppress the banner entirely so the
+ // home page doesn't show "8 PO Awards" backed by zero real data.
+ if (!unique.length) { banner.style.display = 'none'; return; }
+ banner.style.display = 'block';
+ document.getElementById('po-banner-title').textContent =
+  '🏆 ' + unique.length + ' PO Award' + (unique.length > 1 ? 's' : '') + ' Pending Review';
  var shown = unique.slice(0, DISPLAY_CAP).map(function(p){
   var total = Number(p.total || 0);
   return 'PO#' + p.po_number + ' $' + total.toFixed(2);
@@ -231,24 +268,53 @@ fetch('/api/awards/pending',{credentials:'same-origin'}).then(r=>r.json()).then(
  <button onclick="_recoverMissedEmails(this)" style="padding:5px 12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);border-radius:6px;color:#d29922;font-size:13px;cursor:pointer;margin-left:6px" title="Scan last 7 days for emails that were missed or stuck in processing">🔄 Recover Missed</button>
 </div>
 <script>
+// 2026-05-28 audit P0: tri-state agent status (fresh / scheduled-awaiting /
+// stale). Closes the "Never run" ambiguity flagged by Mike — a freshly-
+// booted Award Tracker scheduled to fire at 7am PT is NOT the same as
+// a Gmail-sent watcher that should have fired every 10min but didn't.
+// Cadence map drives the staleness threshold: if last_run is older than
+// 3x the expected cadence, mark stale (red); if last_run is null AND
+// boot was recent, mark scheduled (gray); else fresh (green).
+var _AGENT_CADENCE_SEC = {
+  'email-poller': 120,         // every 2min
+  'mike-inbox': 120,            // every 2min
+  'award-monitor': 16200,       // 7:00 AM / 9:30 AM / 12:00 / 17:00 PT
+  'gmail-sent-watcher': 600,    // every 10min
+  'growth-agent': 3600,         // hourly
+  'forms-drift': 2592000,       // monthly
+};
+function _agentTriState(agent, name){
+  var lastMs = agent.last_run ? new Date(agent.last_run).getTime() : null;
+  var cadence = _AGENT_CADENCE_SEC[name] || 600;
+  if (agent.status === 'ok' && lastMs) {
+    var age = (Date.now() - lastMs) / 1000;
+    if (age < cadence * 3) return {state:'fresh', color:'#10b981', txt:'Last: '+new Date(lastMs).toLocaleTimeString()};
+    return {state:'stale', color:'#ef4444', txt:'stale · last '+Math.round(age/60)+'m ago'};
+  }
+  if (agent.status === 'error') return {state:'stale', color:'#ef4444', txt:'Error'};
+  // No last_run yet. Cadence > 1h = "Scheduled, awaiting first fire";
+  // cadence ≤ 1h = "stale" (should have fired already at this point).
+  if (cadence > 3600) return {state:'scheduled', color:'#6b7280', txt:'scheduled · awaiting first fire'};
+  return {state:'stale', color:'#ef4444', txt:'stale · check liveness'};
+}
 function _refreshAgentStatus(){
  fetch('/api/v1/health').then(r=>r.json()).then(d=>{
   if(!d.ok||!d.data)return;
   var agents=d.data.agents||{};
-  // Email poller
+  // Email poller — tri-state
   var ep=agents['email-poller']||{};
   var epDot=document.getElementById('as-poller-dot');
   var epTxt=document.getElementById('as-poller-txt');
-  if(ep.status==='ok'){epDot.style.background='#2ecc71';epTxt.textContent='Last: '+(ep.last_run?new Date(ep.last_run).toLocaleTimeString():'—');}
-  else if(ep.status==='error'){epDot.style.background='#f87171';epTxt.textContent='Error';}
-  else{epDot.style.background='#484f58';epTxt.textContent='Never run';}
-  // Award tracker
+  var ts=_agentTriState(ep,'email-poller');
+  epDot.style.background=ts.color;
+  epTxt.textContent=ts.txt;
+  // Award tracker — tri-state (scheduled cron, not stale-if-never-run)
   var at=agents['award-monitor']||{};
   var atDot=document.getElementById('as-award-dot');
   var atTxt=document.getElementById('as-award-txt');
-  if(at.status==='ok'){atDot.style.background='#2ecc71';atTxt.textContent='Last: '+(at.last_run?new Date(at.last_run).toLocaleTimeString():'—');}
-  else if(at.status==='error'){atDot.style.background='#f87171';atTxt.textContent='Error';}
-  else{atDot.style.background='#484f58';atTxt.textContent='Never run';}
+  var ats=_agentTriState(at,'award-monitor');
+  atDot.style.background=ats.color;
+  atTxt.textContent=ats.txt;
   // Mike inbox status — read from POLL_STATUS via /api/diag (lightweight GET)
   var mikeDot=document.getElementById('as-mike-dot');
   var mikeTxt=document.getElementById('as-mike-txt');
@@ -360,7 +426,27 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
         +i.icon+' '+i.label+'</a>'
       ).join('');
     }
-    renderItems(d.actions.urgent, document.getElementById('ad-urgent-items'));
+    // 2026-05-28 audit P0: swap the red "🔴 Urgent" header to a green
+    // "✓ All clear" + drop the tone-urgent border when items=0. The
+    // pre-port page rendered a red header AND a green ✓ in the empty
+    // card body, which contradicted itself. New behavior: when there
+    // are no urgent items, header says "✓ All clear" and the body row
+    // collapses (no duplicate label).
+    var urgentCard = document.getElementById('ad-urgent');
+    var hasItems = (d.actions.urgent || []).length > 0;
+    var itemsBody = document.getElementById('ad-urgent-items');
+    if (hasItems) {
+      renderItems(d.actions.urgent, itemsBody);
+    } else if (itemsBody) {
+      itemsBody.innerHTML = '<span style="color:var(--tx2);font-size:13px">No urgent items right now.</span>';
+    }
+    if (urgentCard) {
+      var h3 = urgentCard.querySelector('.card-h h3');
+      if (h3) h3.textContent = hasItems ? '🔴 Urgent' : '✓ All clear';
+      urgentCard.classList.toggle('tone-urgent', hasItems);
+      if (h3) h3.style.color = hasItems ? '' : 'var(--gn)';
+      urgentCard.style.borderColor = hasItems ? '' : 'rgba(52,211,153,.3)';
+    }
     // ad-action-items / ad-progress-items deleted from DOM 2026-05-06 (Home = Urgent only)
   }
   // ── Funnel ──
@@ -1955,4 +2041,5 @@ function confirmMpcCreate(){
 })();
 </script>
 
+</div> {# end .r-app wrapper #}
 {% endblock %}

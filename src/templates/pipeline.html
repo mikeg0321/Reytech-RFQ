@@ -1,107 +1,127 @@
 {% extends "base.html" %}
 {% block title %}Pipeline — Reytech{% endblock %}
-
 {% block content %}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
- <h2 style="margin:0;font-size:20px;font-weight:700">🔄 Pipeline Dashboard</h2>
- <div style="display:flex;gap:8px">
-  <a href="/growth-intel" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth Engine</a>
-  <a href="/analytics" class="btn btn-s" style="font-size:14px;font-weight:600">📊 Analytics</a>
-  <button onclick="location.reload()" class="btn btn-p" style="font-size:14px" aria-label="Refresh">🔄 Refresh</button>
- </div>
-</div>
+{# 2026-05-28 UI/UX redesign port. Server-rendered context vars preserved
+   verbatim: total_leads, total_quotes, pending, sent, total_pending,
+   total_won, total_orders, lead_to_quote, quote_to_sent, sent_to_won,
+   won_to_invoiced, funnel (pre-rendered HTML), predictions_html, rev.
+   Three client-side fetches preserved verbatim: /api/pipeline/stale-quotes,
+   /api/pipeline/follow-up-queue, /api/pipeline/sales-velocity.
 
-<!-- KPI Strip -->
-<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
- {% for val, label, color in [
-   (total_leads, 'Leads', 'var(--ac)'),
-   (total_quotes, 'Quotes', '#a78bfa'),
-   (pending, 'Pending', 'var(--yl)'),
-   (sent, 'Sent', 'var(--or)'),
-   ("${:,.0f}".format(total_pending), 'Pipeline $', '#4f8cff'),
-   ("${:,.0f}".format(total_won), 'Won $', 'var(--gn)'),
- ] %}
- <div class="card" style="text-align:center;padding:12px">
-  <div style="font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}};line-height:1">{{val}}</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">{{label}}</div>
- </div>
- {% endfor %}
-</div>
+   The `funnel` and `predictions_html` partials are server-rendered by
+   routes_intel.py and still use the legacy --bg/--sf2/--bd palette,
+   which coexists with the new --r-* tokens. Future PR can rewrite the
+   bar() helper for full visual conformity. Source preview:
+   .claude/skills/run-rfqapp-uiux/redesigns/pipeline.html #}
 
-<!-- Revenue Goal Bar -->
-{% if rev %}
-<div class="card" style="margin-bottom:14px;padding:14px 18px">
- <div style="display:flex;align-items:center;gap:12px">
-  <span style="font-size:14px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">📈 Annual Goal</span>
-  <div style="flex:1;background:var(--sf2);border-radius:8px;height:20px;overflow:hidden;position:relative">
-   <div style="background:{{ rev.color }};height:100%;width:{{ rev.pct }}%;border-radius:8px;transition:.3s"></div>
-   <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:600">${{ "{:,.0f}".format(rev.closed) }} / ${{ "{:.0f}".format(rev.goal / 1000000) }}M ({{ "{:.0f}".format(rev.pct) }}%)</span>
+<div class="r-app">
+  <div style="display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+    <div>
+      <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em">Pipeline</h1>
+      <p style="margin:4px 0 0;font-size:14px;color:var(--r-text-muted)">
+        Leads → quotes → sent → won → orders → invoiced · trailing 30d velocity
+      </p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <a href="/growth-intel" class="r-btn r-btn-sm" style="text-decoration:none">🚀 Growth Engine</a>
+      <a href="/analytics" class="r-btn r-btn-sm" style="text-decoration:none">📊 Analytics</a>
+      <button onclick="location.reload()" class="r-btn r-btn-sm" aria-label="Refresh">🔄 Refresh</button>
+    </div>
   </div>
-  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">Gap: <b style="color:#f85149">${{ "{:,.0f}".format(rev.gap) }}</b></span>
-  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">Run rate: <b style="color:{{ '#3fb950' if rev.on_track else '#f85149' }}">${{ "{:,.0f}".format(rev.run_rate) }}/yr</b></span>
- </div>
-</div>
-{% endif %}
 
-<!-- Main 2-column: Funnel + Win Prediction -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
- <div class="card" style="margin:0">
-  <div class="card-t">📊 Sales Funnel</div>
-  {{ funnel|safe }}
-  <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
-   {# Renamed "Win Rate" → "Sent→Won" so the label matches the formula
-      (sent quotes that closed) and stops conflicting with the /quotes
-      page's own headline win rate. Cross-page metric reconciliation is a
-      separate piece of work — see open question #1. #}
-   {% for label, value in [('Lead→Quote', lead_to_quote), ('Quote→Sent', quote_to_sent), ('Sent→Won', sent_to_won), ('Won→Invoiced', won_to_invoiced)] %}
-   <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
-    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">{{ label }}</div>
-    <div style="font-size:16px;font-weight:700{% if label == 'Sent→Won' %};color:var(--gn){% endif %}">{{ value }}{% if value is number %}%{% endif %}</div>
-   </div>
-   {% endfor %}
+  {# KPI strip — 6 cells, server-rendered values. Color semantics:
+     accent=neutral count, warn=pending/sent attention, bad=zeros/loss #}
+  <div class="r-grid r-grid-6" style="margin-bottom:16px">
+    <div class="r-kpi"><div class="r-kpi-label">Leads</div><div class="r-kpi-value is-accent">{{ total_leads }}</div><div class="r-kpi-sub">SCPRS opportunities</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Quotes</div><div class="r-kpi-value">{{ total_quotes }}</div><div class="r-kpi-sub">generated</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Pending</div><div class="r-kpi-value" style="color:var(--r-warn)">{{ pending }}</div><div class="r-kpi-sub">awaiting response</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Sent</div><div class="r-kpi-value" style="color:var(--r-warn)">{{ sent }}</div><div class="r-kpi-sub">active in market</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Pipeline $</div><div class="r-kpi-value is-accent">${{ "{:,.0f}".format(total_pending) }}</div><div class="r-kpi-sub">weighted in-flight</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Won $</div><div class="r-kpi-value is-accent">${{ "{:,.0f}".format(total_won) }}</div><div class="r-kpi-sub">closed-won total</div></div>
   </div>
- </div>
- <div class="card" style="margin:0">
-  <div class="card-t">🎯 Win Prediction — Active Quotes</div>
-  <div style="max-height:350px;overflow-y:auto">
-   {% if predictions_html %}{{ predictions_html|safe }}{% else %}<div style="color:var(--tx2);font-size:14px;padding:12px">No active quotes with predictions yet</div>{% endif %}
-  </div>
- </div>
-</div>
 
-<!-- Stale Quotes + Follow-Up Queue -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
- <div class="card" style="margin:0">
-  <div class="card-t">⏰ Stale Quotes <span id="stale-count" style="font-size:14px;font-weight:500;color:var(--tx2)"></span></div>
-  <div id="stale-list" style="max-height:300px;overflow-y:auto">
-   <div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Loading...</div>
+  {# Annual revenue goal bar — only if route handler computed rev. #}
+  {% if rev %}
+  <div class="r-card r-card-pad" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="min-width:160px">
+        <div class="r-kpi-label">📈 Annual goal</div>
+        <div style="font-size:12px;color:var(--r-text-muted);margin-top:2px">${{ "{:,.0f}".format(rev.closed) }} / ${{ "{:.0f}".format(rev.goal / 1000000) }}M</div>
+      </div>
+      <div style="flex:1;background:var(--r-surface-2);border-radius:8px;height:22px;overflow:hidden;position:relative;min-width:200px">
+        <div style="background:{{ rev.color }};height:100%;width:{{ rev.pct }}%;border-radius:8px;transition:width 0.3s ease"></div>
+        <span class="num" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.5)">{{ "{:.0f}".format(rev.pct) }}%</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px;font-size:12px">
+        <span style="color:var(--r-text-muted)">Gap to goal: <b class="num" style="color:var(--r-bad)">${{ "{:,.0f}".format(rev.gap) }}</b></span>
+        <span style="color:var(--r-text-muted)">Run rate: <b class="num" style="color:{{ 'var(--r-accent)' if rev.on_track else 'var(--r-bad)' }}">${{ "{:,.0f}".format(rev.run_rate) }}/yr</b></span>
+      </div>
+    </div>
   </div>
- </div>
- <div class="card" style="margin:0">
-  <div class="card-t">📬 Follow-Up Queue <span id="followup-count" style="font-size:14px;font-weight:500;color:var(--tx2)"></span></div>
-  <div id="followup-list" style="max-height:300px;overflow-y:auto">
-   <div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Loading...</div>
-  </div>
- </div>
-</div>
+  {% endif %}
 
-<!-- Sales Velocity + Quick Actions -->
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">
- <div class="card" style="margin:0">
-  <div class="card-t">⚡ Sales Velocity</div>
-  <div id="velocity-data" style="min-height:60px">
-   <div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Loading...</div>
+  {# Funnel + win-prediction (server-rendered partials). #}
+  <div class="r-grid r-grid-2" style="margin-bottom:16px">
+    <div class="r-card">
+      <div class="r-card-header"><h3>📊 Sales funnel</h3></div>
+      <div class="r-card-pad">
+        {{ funnel|safe }}
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--r-border-soft);display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          {% for label, value in [('Lead→Quote', lead_to_quote), ('Quote→Sent', quote_to_sent), ('Sent→Won', sent_to_won), ('Won→Invoiced', won_to_invoiced)] %}
+          <div class="r-kpi" style="padding:10px;text-align:center">
+            <div class="r-kpi-label">{{ label }}</div>
+            <div class="r-kpi-value{% if label == 'Sent→Won' %} is-accent{% endif %}" style="font-size:18px">{{ value }}{% if value is number %}%{% endif %}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="r-card">
+      <div class="r-card-header"><h3>🎯 Win prediction · active quotes</h3></div>
+      <div class="r-card-pad" style="max-height:380px;overflow-y:auto">
+        {% if predictions_html %}{{ predictions_html|safe }}{% else %}<div style="color:var(--r-text-muted);font-size:13px;padding:12px">No active quotes with predictions yet</div>{% endif %}
+      </div>
+    </div>
   </div>
- </div>
- <div class="card" style="margin:0">
-  <div class="card-t">⚡ Quick Actions</div>
-  <div style="display:flex;flex-direction:column;gap:8px">
-   <a href="/quotes?status=pending" class="btn btn-s" style="font-size:14px;text-align:center">📋 Pending Quotes ({{ pending }})</a>
-   <a href="/quotes?status=sent" class="btn btn-s" style="font-size:14px;text-align:center">📤 Sent Quotes ({{ sent }})</a>
-   <a href="/orders" class="btn btn-s" style="font-size:14px;text-align:center">📦 Active Orders ({{ total_orders }})</a>
-   <button onclick="fetch('/api/poll-now').then(function(r){return r.json()}).then(function(d){alert(JSON.stringify(d,null,2))})" class="btn btn-p" style="font-size:14px" aria-label="Check Inbox Now">⚡ Check Inbox Now</button>
+
+  {# Stale quotes + follow-up queue (client-fetched). DOM ids preserved. #}
+  <div class="r-grid r-grid-2" style="margin-bottom:16px">
+    <div class="r-card">
+      <div class="r-card-header">
+        <h3>⏰ Stale quotes <span id="stale-count" class="num" style="font-size:12px;font-weight:500;color:var(--r-text-muted);margin-left:4px"></span></h3>
+      </div>
+      <div id="stale-list" class="r-card-pad" style="max-height:320px;overflow-y:auto;padding-top:0">
+        <div style="text-align:center;padding:20px;color:var(--r-text-muted);font-size:13px">Loading…</div>
+      </div>
+    </div>
+    <div class="r-card">
+      <div class="r-card-header">
+        <h3>📬 Follow-up queue <span id="followup-count" class="num" style="font-size:12px;font-weight:500;color:var(--r-text-muted);margin-left:4px"></span></h3>
+      </div>
+      <div id="followup-list" class="r-card-pad" style="max-height:320px;overflow-y:auto;padding-top:0">
+        <div style="text-align:center;padding:20px;color:var(--r-text-muted);font-size:13px">Loading…</div>
+      </div>
+    </div>
   </div>
- </div>
+
+  {# Velocity + quick actions. #}
+  <div class="r-grid r-grid-3-1">
+    <div class="r-card">
+      <div class="r-card-header"><h3>⚡ Sales velocity · trailing window</h3></div>
+      <div id="velocity-data" class="r-card-pad" style="min-height:80px">
+        <div style="text-align:center;padding:20px;color:var(--r-text-muted);font-size:13px">Loading…</div>
+      </div>
+    </div>
+    <div class="r-card">
+      <div class="r-card-header"><h3>⚡ Quick actions</h3></div>
+      <div class="r-card-pad" style="display:flex;flex-direction:column;gap:8px">
+        <a href="/quotes?status=pending" class="r-btn r-btn-sm" style="text-align:center;justify-content:center">📋 Pending quotes ({{ pending }})</a>
+        <a href="/quotes?status=sent" class="r-btn r-btn-sm" style="text-align:center;justify-content:center">📤 Sent quotes ({{ sent }})</a>
+        <a href="/orders" class="r-btn r-btn-sm" style="text-align:center;justify-content:center">📦 Active orders ({{ total_orders }})</a>
+        <button onclick="fetch('/api/poll-now').then(function(r){return r.json()}).then(function(d){alert(JSON.stringify(d,null,2))})" class="r-btn r-btn-primary r-btn-sm" aria-label="Check Inbox Now" style="justify-content:center">⚡ Check inbox now</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -114,17 +134,17 @@ fetch('/api/pipeline/stale-quotes').then(function(r){return r.json()}).then(func
   var html='';
   quotes.slice(0,15).forEach(function(q){
    var days=q.days_stale||q.age_days||0;
-   var clr=days>60?'#f85149':days>30?'#d29922':'var(--tx2)';
-   html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">';
-   html+='<span style="font-family:JetBrains Mono,monospace;font-weight:700;color:'+clr+';min-width:44px">'+days+'d</span>';
-   html+='<a href="/quote/'+(q.quote_number||q.id||'')+'" style="color:var(--ac);text-decoration:none;font-weight:600">'+(q.quote_number||q.id||'?')+'</a>';
-   html+='<span style="color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.institution||q.agency||'')+'</span>';
-   html+='<span style="font-family:JetBrains Mono,monospace">$'+(parseFloat(q.total||q.amount||0)).toLocaleString(undefined,{maximumFractionDigits:0})+'</span>';
+   var clr=days>60?'var(--r-bad)':days>30?'var(--r-warn)':'var(--r-text-muted)';
+   html+='<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--r-border-soft);font-size:13px">';
+   html+='<span class="num" style="font-weight:700;color:'+clr+';min-width:44px">'+days+'d</span>';
+   html+='<a href="/quote/'+(q.quote_number||q.id||'')+'" class="num" style="color:var(--r-accent);text-decoration:none;font-weight:600">'+(q.quote_number||q.id||'?')+'</a>';
+   html+='<span style="color:var(--r-text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.institution||q.agency||'')+'</span>';
+   html+='<span class="num">$'+(parseFloat(q.total||q.amount||0)).toLocaleString(undefined,{maximumFractionDigits:0})+'</span>';
    html+='</div>';
   });
   el.innerHTML=html;
- }else{el.innerHTML='<div style="text-align:center;padding:16px;color:#3fb950;font-weight:600">✅ No stale quotes</div>';}
-}).catch(function(){document.getElementById('stale-list').innerHTML='<div style="padding:12px;color:var(--tx2);font-size:14px">Could not load stale quotes</div>';});
+ }else{el.innerHTML='<div style="text-align:center;padding:20px;color:var(--r-accent);font-weight:600">✓ No stale quotes</div>';}
+}).catch(function(){document.getElementById('stale-list').innerHTML='<div style="padding:12px;color:var(--r-text-muted);font-size:13px">Could not load stale quotes</div>';});
 
 fetch('/api/pipeline/follow-up-queue').then(function(r){return r.json()}).then(function(d){
  var el=document.getElementById('followup-list');
@@ -134,33 +154,34 @@ fetch('/api/pipeline/follow-up-queue').then(function(r){return r.json()}).then(f
   document.getElementById('followup-count').textContent='('+items.length+')';
   var html='';
   items.slice(0,15).forEach(function(q){
-   html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">';
-   html+='<span style="font-size:13px;color:var(--tx2);min-width:70px">'+(q.due||q.date||'')+'</span>';
-   html+='<a href="/quote/'+(q.quote_number||q.id||'')+'" style="color:var(--ac);text-decoration:none;font-weight:600">'+(q.quote_number||q.id||'?')+'</a>';
-   html+='<span style="color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.institution||q.agency||'')+'</span>';
-   html+='<span style="font-size:13px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:#4f8cff;font-weight:600">'+(q.action||q.type||'follow up')+'</span>';
+   html+='<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--r-border-soft);font-size:13px">';
+   html+='<span class="num" style="font-size:12px;color:var(--r-text-muted);min-width:70px">'+(q.due||q.date||'')+'</span>';
+   html+='<a href="/quote/'+(q.quote_number||q.id||'')+'" class="num" style="color:var(--r-accent);text-decoration:none;font-weight:600">'+(q.quote_number||q.id||'?')+'</a>';
+   html+='<span style="color:var(--r-text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.institution||q.agency||'')+'</span>';
+   html+='<span class="r-badge is-good no-dot">'+(q.action||q.type||'follow up')+'</span>';
    html+='</div>';
   });
   el.innerHTML=html;
- }else{el.innerHTML='<div style="text-align:center;padding:16px;color:#3fb950;font-weight:600">✅ No pending follow-ups</div>';}
-}).catch(function(){document.getElementById('followup-list').innerHTML='<div style="padding:12px;color:var(--tx2);font-size:14px">Could not load follow-ups</div>';});
+ }else{el.innerHTML='<div style="text-align:center;padding:20px;color:var(--r-accent);font-weight:600">✓ No pending follow-ups</div>';}
+}).catch(function(){document.getElementById('followup-list').innerHTML='<div style="padding:12px;color:var(--r-text-muted);font-size:13px">Could not load follow-ups</div>';});
 
 fetch('/api/pipeline/sales-velocity').then(function(r){return r.json()}).then(function(d){
  var el=document.getElementById('velocity-data');var v=d||{};
  var metrics=[
-  {v:(v.avg_deal_size||v.avg_value||0),l:'Avg Deal Size',fmt:'$',c:'var(--ac)'},
-  {v:(v.avg_cycle_days||v.cycle_time||0),l:'Avg Cycle (days)',fmt:'',c:'#a78bfa'},
-  {v:(v.deals_per_month||v.monthly_deals||0),l:'Deals/Month',fmt:'',c:'#4f8cff'},
-  {v:(v.velocity||v.score||0),l:'Velocity Score',fmt:'',c:'var(--gn)'}
+  {v:(v.avg_deal_size||v.avg_value||0),l:'Avg deal size',fmt:'$'},
+  {v:(v.avg_cycle_days||v.cycle_time||0),l:'Avg cycle (days)',fmt:''},
+  {v:(v.deals_per_month||v.monthly_deals||0),l:'Deals/month',fmt:''},
+  {v:(v.velocity||v.score||0),l:'Velocity score',fmt:'',accent:true}
  ];
  var html='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">';
  metrics.forEach(function(m){
   var val=typeof m.v==='number'?(m.fmt==='$'?'$'+m.v.toLocaleString(undefined,{maximumFractionDigits:0}):m.v.toLocaleString(undefined,{maximumFractionDigits:1})):m.v;
-  html+='<div style="text-align:center;background:var(--sf2);padding:12px;border-radius:8px">';
-  html+='<div style="font-size:20px;font-weight:700;font-family:JetBrains Mono,monospace;color:'+m.c+'">'+val+'</div>';
-  html+='<div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-top:4px;letter-spacing:.3px">'+m.l+'</div></div>';
+  html+='<div class="r-kpi" style="text-align:center;padding:12px">';
+  html+='<div class="r-kpi-value'+(m.accent?' is-accent':'')+'" style="font-size:20px">'+val+'</div>';
+  html+='<div class="r-kpi-label" style="margin-top:4px">'+m.l+'</div>';
+  html+='</div>';
  });
  html+='</div>';el.innerHTML=html;
-}).catch(function(){document.getElementById('velocity-data').innerHTML='<div style="padding:12px;color:var(--tx2);font-size:14px">Velocity data unavailable</div>';});
+}).catch(function(){document.getElementById('velocity-data').innerHTML='<div style="padding:12px;color:var(--r-text-muted);font-size:13px">Velocity data unavailable</div>';});
 </script>
 {% endblock %}

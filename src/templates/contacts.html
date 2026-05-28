@@ -4,93 +4,114 @@
 
 {% block head_extra %}
 <style>
- .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px}
- table{width:100%;border-collapse:collapse;font-size:14px}
- th{text-align:left;padding:9px 10px;font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);white-space:nowrap;cursor:pointer;user-select:none}
- th:hover{color:var(--tx)}
- td{padding:9px 10px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}
- tr:hover td{background:rgba(79,140,255,.04)}
- .mono{font-family:'JetBrains Mono',monospace}
- .filter-input{padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;font-family:'DM Sans',sans-serif}
- .filter-input:focus{outline:none;border-color:var(--ac)}
+ /* Page-local extras — base styles come from .r-* in styles.css. */
+ #crm-table { width:100%; border-collapse:collapse; font-size:14px }
+ #crm-table th { text-align:left; padding:10px 12px; font-size:10px; color:var(--r-text-dim);
+   text-transform:uppercase; letter-spacing:.08em; border-bottom:1px solid var(--r-border);
+   white-space:nowrap; cursor:pointer; user-select:none; font-weight:500 }
+ #crm-table th:hover { color:#fff }
+ #crm-table td { padding:10px 12px; border-bottom:1px solid var(--r-border-soft); vertical-align:middle }
+ #crm-table tbody tr { cursor:pointer; transition:background 120ms ease }
+ #crm-table tbody tr:hover td { background:rgba(16,185,129,0.04) }
+ .filter-input { padding:8px 12px; background:var(--r-bg-elev); border:1px solid var(--r-border-soft);
+   border-radius:8px; color:var(--r-text); font-size:13px; font-family:ui-sans-serif,system-ui,sans-serif }
+ .filter-input:focus { outline:none; border-color:var(--r-accent-edge) }
 </style>
 {% endblock %}
 
 {% block content %}
+{# 2026-05-28 UI/UX redesign port. Server context vars preserved verbatim:
+   total, agencies, total_spend_fmt, total_activity, won_count, all_cats,
+   all_statuses, has_data, display_contacts (with cid/agency/name/email/
+   cats_lower/cat_list/items_text/spend_fmt/po_count/last/score_pct/
+   sp_color/sc/stat/act_count). JS contract preserved: filterTable,
+   sortTable, syncFromIntel + all data-* attrs the filter reads. #}
 {{ crm_tabs('contacts') }}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px">
- <div>
-  <h1 style="font-size:22px;font-weight:700;margin-bottom:4px">👥 CRM Contacts</h1>
-  <div style="font-size:13px;color:var(--tx2)">All buyers from SCPRS — tagged, scored, with full activity history</div>
- </div>
- <div style="display:flex;gap:8px;flex-wrap:wrap">
-  <button onclick="syncFromIntel(this)" style="padding:8px 16px;border-radius:7px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.1);color:#3fb950;cursor:pointer;font-size:13px;font-weight:600" aria-label="Sync from Intel">🔄 Sync from Intel</button>
-  <a href="/intelligence" style="padding:8px 16px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);text-decoration:none;font-size:13px;font-weight:600">🧠 Run Deep Pull</a>
- </div>
-</div>
 
-<!-- Stats bar -->
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px">
- <div class="card" style="text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Contacts</div><div style="font-size:26px;font-weight:700;color:var(--ac);font-family:monospace">{{ total }}</div></div>
- <div class="card" style="text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Agencies</div><div style="font-size:26px;font-weight:700;color:#a78bfa;font-family:monospace">{{ agencies }}</div></div>
- <div class="card" style="text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Total Spend</div><div style="font-size:22px;font-weight:700;color:#fbbf24;font-family:monospace">{{ total_spend_fmt }}</div></div>
- <div class="card" style="text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Interactions</div><div style="font-size:26px;font-weight:700;color:#fb923c;font-family:monospace">{{ total_activity }}</div></div>
- <div class="card" style="text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Won</div><div style="font-size:26px;font-weight:700;color:#3fb950;font-family:monospace">{{ won_count }}</div></div>
-</div>
+<div class="r-app">
+  <div style="display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+    <div>
+      <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em">CRM Contacts</h1>
+      <p style="margin:4px 0 0;font-size:14px;color:var(--r-text-muted)">All buyers from SCPRS — tagged, scored, with full activity history</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="syncFromIntel(this)" class="r-btn r-btn-sm" style="background:var(--r-accent-soft);color:var(--r-accent);border-color:var(--r-accent-edge)" aria-label="Sync from Intel">🔄 Sync from Intel</button>
+      <a href="/intelligence" class="r-btn r-btn-sm" style="text-decoration:none">🧠 Run Deep Pull</a>
+    </div>
+  </div>
 
-<!-- Filters -->
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
- <input id="search" class="filter-input" placeholder="🔍  Search agency, name, email, items..." aria-label="Search contacts" oninput="filterTable()" style="flex:1;min-width:220px">
- <select id="cat-filter" class="filter-input" aria-label="Filter by category" onchange="filterTable()">
-  <option value="">All Categories</option>{% for c in all_cats %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
- </select>
- <select id="status-filter" class="filter-input" aria-label="Filter by status" onchange="filterTable()">
-  <option value="">All Statuses</option>{% for s in all_statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
- </select>
- <span id="count-label" style="font-size:13px;color:var(--tx2);white-space:nowrap">{{ total }} contacts</span>
-</div>
+  {# 5 KPIs — same server vars, new .r-kpi look. #}
+  <div class="r-grid r-grid-5" style="margin-bottom:16px">
+    <div class="r-kpi"><div class="r-kpi-label">Contacts</div><div class="r-kpi-value is-accent">{{ total }}</div><div class="r-kpi-sub">total in CRM</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Agencies</div><div class="r-kpi-value">{{ agencies }}</div><div class="r-kpi-sub">distinct organizations</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Total spend</div><div class="r-kpi-value" style="color:var(--r-warn)">{{ total_spend_fmt }}</div><div class="r-kpi-sub">lifetime SCPRS volume</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Interactions</div><div class="r-kpi-value" style="color:var(--r-warn)">{{ total_activity }}</div><div class="r-kpi-sub">activity log entries</div></div>
+    <div class="r-kpi"><div class="r-kpi-label">Won</div><div class="r-kpi-value is-accent">{{ won_count }}</div><div class="r-kpi-sub">closed-won quotes</div></div>
+  </div>
 
-<!-- Table -->
-<div class="card" style="overflow-x:auto;padding:0">
- {% if not has_data %}
- <div style="text-align:center;padding:60px 20px;color:var(--tx2)">
-  <div style="font-size:48px;margin-bottom:16px">👥</div>
-  <div style="font-size:18px;font-weight:600;margin-bottom:8px">No contacts yet</div>
-  <div style="font-size:14px;margin-bottom:24px">Run a Deep Pull on the Intelligence page to mine all SCPRS buyers into CRM</div>
-  <a href="/intelligence" style="padding:12px 24px;background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);border-radius:8px;text-decoration:none;font-weight:600">🧠 Go to Intelligence → Run Deep Pull</a>
- </div>
- {% else %}
- <table id="crm-table">
-  <thead><tr>
-   <th onclick="sortTable(0)">Agency / Buyer ↕</th>
-   <th>Email</th>
-   <th>Categories</th>
-   <th>Items Bought</th>
-   <th onclick="sortTable(4)">Spend ↕</th>
-   <th onclick="sortTable(5)">POs · Last Buy ↕</th>
-   <th onclick="sortTable(6)">Score ↕</th>
-   <th>Status</th>
-   <th>Activity</th>
-   <th></th>
-  </tr></thead>
-  <tbody id="crm-tbody">
-  {% for c in display_contacts %}
-  <tr data-agency="{{ c.agency|lower }}" data-name="{{ c.name|lower }}" data-email="{{ c.email|lower }}" data-cats="{{ c.cats_lower }}" data-status="{{ c.stat }}" data-items="{{ c.items_text|lower }}" style="cursor:pointer" onclick="location.href='/growth/prospect/{{ c.cid }}'">
-   <td><div style="font-weight:600;font-size:13px">{{ c.agency|agency_display }}</div><div style="font-size:14px;color:var(--tx2)">{{ c.name }}</div></td>
-   <td style="font-size:14px"><a href="mailto:{{ c.email }}" style="color:var(--ac);font-family:monospace" onclick="event.stopPropagation()">{{ c.email or '—' }}</a></td>
-   <td><div style="display:flex;flex-wrap:wrap;gap:3px">{% for cat, cc in c.cat_list %}<span style="font-size:13px;padding:2px 7px;border-radius:8px;background:{{ cc }}22;color:{{ cc }};border:1px solid {{ cc }}44;white-space:nowrap">{{ cat }}</span> {% endfor %}</div></td>
-   <td style="font-size:14px;color:var(--tx2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.items_text or '—' }}</td>
-   <td class="mono" style="color:#3fb950;font-weight:700">{{ c.spend_fmt }}</td>
-   <td class="mono" style="color:var(--tx2)">{{ c.po_count }} · {{ c.last }}</td>
-   <td><div style="display:flex;align-items:center;gap:6px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:50px;overflow:hidden"><div style="width:{{ c.score_pct }}%;height:100%;background:{{ c.sp_color }};border-radius:3px"></div></div><span style="font-size:14px;font-family:monospace">{{ c.score_pct }}%</span></div></td>
-   <td><span style="padding:3px 10px;border-radius:10px;font-size:14px;font-weight:600;background:{{ c.sc }}22;color:{{ c.sc }};border:1px solid {{ c.sc }}44">{{ c.stat }}</span></td>
-   <td>{% if c.act_count > 0 %}<span style="font-size:14px;background:rgba(79,140,255,.15);color:var(--ac);padding:2px 8px;border-radius:8px">{{ c.act_count }} 📋</span>{% else %}<span style="font-size:14px;color:var(--tx2)">—</span>{% endif %}</td>
-   <td><a href="/growth/prospect/{{ c.cid }}" style="color:var(--ac);font-size:14px;text-decoration:none">View →</a></td>
-  </tr>
-  {% endfor %}
-  </tbody>
- </table>
- {% endif %}
+  {# Filter bar — DOM ids preserved for filterTable() JS. #}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+    <input id="search" class="filter-input" placeholder="🔍  Search agency, name, email, items…" aria-label="Search contacts" oninput="filterTable()" style="flex:1;min-width:240px">
+    <select id="cat-filter" class="filter-input" aria-label="Filter by category" onchange="filterTable()">
+      <option value="">All categories</option>{% for c in all_cats %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+    <select id="status-filter" class="filter-input" aria-label="Filter by status" onchange="filterTable()">
+      <option value="">All statuses</option>{% for s in all_statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <span id="count-label" class="num" style="font-size:12px;color:var(--r-text-muted);white-space:nowrap">{{ total }} contacts</span>
+  </div>
+
+  <div class="r-card" style="overflow-x:auto;padding:0">
+    {% if not has_data %}
+    <div style="text-align:center;padding:60px 20px;color:var(--r-text-muted)">
+      <div style="font-size:48px;margin-bottom:16px">👥</div>
+      <div style="font-size:18px;font-weight:600;margin-bottom:8px;color:var(--r-text)">No contacts yet</div>
+      <div style="font-size:14px;margin-bottom:24px">Run a Deep Pull on the Intelligence page to mine all SCPRS buyers into CRM</div>
+      <a href="/intelligence" class="r-btn r-btn-primary" style="text-decoration:none">🧠 Go to Intelligence → Run Deep Pull</a>
+    </div>
+    {% else %}
+    <table id="crm-table">
+      <thead><tr>
+        <th onclick="sortTable(0)">Agency / Buyer ↕</th>
+        <th>Email</th>
+        <th>Categories</th>
+        <th>Items bought</th>
+        <th onclick="sortTable(4)" style="text-align:right">Spend ↕</th>
+        <th onclick="sortTable(5)">POs · Last buy ↕</th>
+        <th onclick="sortTable(6)">Score ↕</th>
+        <th>Status</th>
+        <th>Activity</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="crm-tbody">
+      {% for c in display_contacts %}
+      <tr data-agency="{{ c.agency|lower }}" data-name="{{ c.name|lower }}" data-email="{{ c.email|lower }}" data-cats="{{ c.cats_lower }}" data-status="{{ c.stat }}" data-items="{{ c.items_text|lower }}" onclick="location.href='/growth/prospect/{{ c.cid }}'">
+        <td>
+          <div style="font-weight:600;font-size:13px;color:var(--r-text)">{{ c.agency|agency_display }}</div>
+          <div style="font-size:13px;color:var(--r-text-muted)">{{ c.name }}</div>
+        </td>
+        <td style="font-size:13px"><a href="mailto:{{ c.email }}" class="num" style="color:var(--r-accent);text-decoration:none" onclick="event.stopPropagation()">{{ c.email or '—' }}</a></td>
+        <td><div style="display:flex;flex-wrap:wrap;gap:4px">{% for cat, cc in c.cat_list %}<span style="font-size:11px;padding:2px 8px;border-radius:9999px;background:{{ cc }}22;color:{{ cc }};border:1px solid {{ cc }}44;white-space:nowrap">{{ cat }}</span> {% endfor %}</div></td>
+        <td style="font-size:13px;color:var(--r-text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.items_text or '—' }}</td>
+        <td class="num" style="text-align:right;color:var(--r-accent);font-weight:600">{{ c.spend_fmt }}</td>
+        <td class="num" style="color:var(--r-text-muted)">{{ c.po_count }} · {{ c.last }}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="background:var(--r-surface-2);border-radius:3px;height:5px;width:50px;overflow:hidden">
+              <div style="width:{{ c.score_pct }}%;height:100%;background:{{ c.sp_color }};border-radius:3px"></div>
+            </div>
+            <span class="num" style="font-size:12px">{{ c.score_pct }}%</span>
+          </div>
+        </td>
+        <td><span style="padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:600;background:{{ c.sc }}22;color:{{ c.sc }};border:1px solid {{ c.sc }}44">{{ c.stat }}</span></td>
+        <td>{% if c.act_count > 0 %}<span class="r-badge is-good no-dot">{{ c.act_count }} 📋</span>{% else %}<span style="font-size:12px;color:var(--r-text-dim)">—</span>{% endif %}</td>
+        <td><a href="/growth/prospect/{{ c.cid }}" style="color:var(--r-accent);font-size:12px;text-decoration:none" onclick="event.stopPropagation()">View →</a></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}
 
@@ -137,10 +158,10 @@ function sortTable(col) {
 }
 
 function syncFromIntel(btn) {
-  btn.disabled = true; btn.textContent = '⏳ Syncing...';
+  btn.disabled = true; btn.textContent = '⏳ Syncing…';
   fetch('/api/crm/sync-intel', {method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d => {
     if(d.ok) {
-      btn.textContent = '✅ ' + (d.message||'Synced');
+      btn.textContent = '✓ ' + (d.message||'Synced');
       setTimeout(() => location.reload(), 1500);
     } else {
       btn.disabled = false; btn.textContent = '🔄 Sync from Intel';

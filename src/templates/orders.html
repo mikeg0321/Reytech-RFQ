@@ -2,155 +2,183 @@
 {% block title %}Orders — Reytech{% endblock %}
 
 {% block content %}
-<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
- <h2 style="margin:0;font-size:26px;font-weight:700">📦 Orders & Fulfillment</h2>
- <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-   <a href="/shipping" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">🚚 Shipping</a>
-   <a href="/margins" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">📊 Margins</a>
-   <a href="/payments" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">💳 Payments</a>
-   <a href="/recurring" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">🔄 Recurring</a>
-   <a href="/analytics?tab=pricing" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">💰 Pricing Intel</a>
-   <a href="/audit" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">📋 Audit Trail</a>
-   <a href="/orders/unresolved" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)" title="POs that failed to match a quote">⚠️ Unresolved POs</a>
- </div>
- <div style="display:flex;gap:10px;align-items:center">
-  <button onclick="createFromPO()" class="btn btn-g" style="font-size:16px;white-space:nowrap;padding:8px 18px" aria-label="Import PO PDF">📄 Import PO PDF</button>
-  <a href="/order/new" class="btn btn-s" style="font-size:16px;white-space:nowrap;padding:8px 18px;text-decoration:none" aria-label="New Order">+ New Order</a>
- </div>
-</div>
+{# 2026-05-28 UI/UX redesign port. Server context preserved:
+   stats.* (total_orders, active, total_value, invoiced_value,
+   total_line_items, pct_complete, orders_needing_action,
+   orders_ready_invoice, pending_items, ordered_items,
+   shipped_items, delivered_items), search_q, filter_status,
+   filter_agency, all_agencies, order_list, status_cfg dict.
+   JS preserved: createOrder, createFromPO, handlePOUpload,
+   deleteOrder, async KPI dashboard load, QB invoices fetch.
+   DOM ids preserved: po-upload-input, order-kpi, kpi-revenue/
+   margin/fulfillment/monthly, qb-invoices, inv-stats, inv-table. #}
 
-{# ── Macro Stats (V2: rendered in Jinja2 instead of Python f-string) ── #}
-<div class="bento bento-4" style="margin-bottom:16px">
- <div class="card" style="text-align:center;padding:18px">
-  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{{ stats.total_orders }}</div>
-  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Orders</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">{{ stats.active }} active</div>
- </div>
- <div class="card" style="text-align:center;padding:18px">
-  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${{ "{:,.0f}".format(stats.total_value) }}</div>
-  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Value</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">${{ "{:,.0f}".format(stats.invoiced_value) }} invoiced</div>
- </div>
- <div class="card" style="text-align:center;padding:18px">
-  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{{ stats.total_line_items }}</div>
-  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Line Items</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">{{ stats.pct_complete }}% delivered</div>
- </div>
- <div class="card" style="text-align:center;padding:18px">
-  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{{ '#f85149' if stats.orders_needing_action else '#3fb950' }}">{{ stats.orders_needing_action }}</div>
-  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Need Action</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">{{ stats.orders_ready_invoice }} ready to invoice</div>
- </div>
-</div>
+<div class="r-app">
 
-{# ── Pipeline Progress Bar ── #}
-<div class="card" style="margin-bottom:16px;padding:14px 18px">
- <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:15px">
-  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#d29922;display:inline-block"></span> <b>{{ stats.pending_items }}</b> pending</div>
-  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#58a6ff;display:inline-block"></span> <b>{{ stats.ordered_items }}</b> ordered</div>
-  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#bc8cff;display:inline-block"></span> <b>{{ stats.shipped_items }}</b> shipped</div>
-  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#3fb950;display:inline-block"></span> <b>{{ stats.delivered_items }}</b> delivered</div>
-  <div style="flex:1;min-width:200px">
-   <div style="background:var(--sf);border-radius:8px;height:16px;overflow:hidden;display:flex">
-    <div style="width:{{ stats.pct_complete }}%;background:#3fb950;transition:width 0.3s" title="{{ stats.delivered_items }} delivered"></div>
-    {% if stats.total_line_items %}<div style="width:{{ (stats.shipped_items * 100 / stats.total_line_items)|round|int }}%;background:#bc8cff" title="{{ stats.shipped_items }} shipped"></div>{% endif %}
-    {% if stats.total_line_items %}<div style="width:{{ (stats.ordered_items * 100 / stats.total_line_items)|round|int }}%;background:#58a6ff" title="{{ stats.ordered_items }} ordered"></div>{% endif %}
-   </div>
+  <!-- Header -->
+  <div style="display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap">
+    <div>
+      <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em">Orders &amp; Fulfillment</h1>
+      <p style="margin:4px 0 0;font-size:14px;color:var(--r-text-muted)">Lifecycle from PO → sourcing → shipped → delivered → invoiced</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button onclick="createFromPO()" class="r-btn r-btn-primary r-btn-sm" aria-label="Import PO PDF">📄 Import PO PDF</button>
+      <a href="/order/new" class="r-btn r-btn-sm" aria-label="New Order" style="text-decoration:none">+ New Order</a>
+    </div>
   </div>
- </div>
-</div>
 
-<!-- F3: Filters + Search -->
-<div class="card" style="margin-bottom:12px;padding:14px 18px">
- <form method="get" action="/orders" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-  <input name="q" value="{{ search_q }}" placeholder="🔍 Search PO, institution, agency..." aria-label="Search orders" style="flex:1;min-width:200px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 14px;color:var(--tx);font-size:15px">
-  <select name="status" aria-label="Filter by status" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 12px;color:var(--tx);font-size:15px">
-   <option value="">All Statuses</option>
-   <option value="new" {{ 'selected' if filter_status=='new' }}>🆕 New</option>
-   <option value="sourcing" {{ 'selected' if filter_status=='sourcing' }}>🛒 Sourcing</option>
-   <option value="shipped" {{ 'selected' if filter_status=='shipped' }}>🚚 Shipped</option>
-   <option value="delivered" {{ 'selected' if filter_status=='delivered' }}>✅ Delivered</option>
-   <option value="invoiced" {{ 'selected' if filter_status=='invoiced' }}>💰 Invoiced</option>
-   <option value="closed" {{ 'selected' if filter_status=='closed' }}>🏁 Closed</option>
-  </select>
-  <select name="agency" aria-label="Filter by agency" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 12px;color:var(--tx);font-size:15px">
-   <option value="">All Agencies</option>
-   {% for a in all_agencies %}<option value="{{ a }}" {{ 'selected' if filter_agency==a }}>{{ a|agency_display }}</option>{% endfor %}
-  </select>
-  <button type="submit" class="btn btn-s" style="font-size:15px;padding:8px 16px">Filter</button>
-  {% if search_q or filter_status or filter_agency %}<a href="/orders" style="font-size:14px;color:var(--tx2)">✕ Clear</a>{% endif %}
- </form>
-</div>
+  <!-- Secondary nav links -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <a href="/shipping" class="r-btn r-btn-sm" style="text-decoration:none">🚚 Shipping</a>
+    <a href="/margins" class="r-btn r-btn-sm" style="text-decoration:none">📊 Margins</a>
+    <a href="/payments" class="r-btn r-btn-sm" style="text-decoration:none">💳 Payments</a>
+    <a href="/recurring" class="r-btn r-btn-sm" style="text-decoration:none">🔄 Recurring</a>
+    <a href="/analytics?tab=pricing" class="r-btn r-btn-sm" style="text-decoration:none">💰 Pricing Intel</a>
+    <a href="/audit" class="r-btn r-btn-sm" style="text-decoration:none">📋 Audit Trail</a>
+    <a href="/orders/unresolved" class="r-btn r-btn-sm" style="text-decoration:none" title="POs that failed to match a quote">⚠️ Unresolved POs</a>
+  </div>
 
-<!-- F10: KPI Dashboard (loaded async) -->
-<div id="order-kpi" style="display:none;margin-bottom:12px">
- <div class="bento bento-4" style="margin-bottom:0">
-  <div class="card" style="text-align:center;margin:0;padding:18px" id="kpi-revenue"></div>
-  <div class="card" style="text-align:center;margin:0;padding:18px" id="kpi-margin"></div>
-  <div class="card" style="text-align:center;margin:0;padding:18px" id="kpi-fulfillment"></div>
-  <div class="card" style="text-align:center;margin:0;padding:18px" id="kpi-monthly"></div>
- </div>
-</div>
+  {# 4 server-rendered KPIs. #}
+  <div class="r-grid r-grid-4" style="margin-bottom:16px">
+    <div class="r-kpi">
+      <div class="r-kpi-label">Total orders</div>
+      <div class="r-kpi-value is-accent">{{ stats.total_orders }}</div>
+      <div class="r-kpi-sub">{{ stats.active }} active</div>
+    </div>
+    <div class="r-kpi">
+      <div class="r-kpi-label">Total value</div>
+      <div class="r-kpi-value is-accent">${{ "{:,.0f}".format(stats.total_value) }}</div>
+      <div class="r-kpi-sub">${{ "{:,.0f}".format(stats.invoiced_value) }} invoiced</div>
+    </div>
+    <div class="r-kpi">
+      <div class="r-kpi-label">Line items</div>
+      <div class="r-kpi-value" style="color:var(--r-warn)">{{ stats.total_line_items }}</div>
+      <div class="r-kpi-sub">{{ stats.pct_complete }}% delivered</div>
+    </div>
+    <div class="r-kpi">
+      <div class="r-kpi-label">Need action</div>
+      <div class="r-kpi-value" style="color:{{ 'var(--r-bad)' if stats.orders_needing_action else 'var(--r-accent)' }}">{{ stats.orders_needing_action }}</div>
+      <div class="r-kpi-sub">{{ stats.orders_ready_invoice }} ready to invoice</div>
+    </div>
+  </div>
 
-{# ── Orders Table (V2: rendered in Jinja2 instead of Python f-string) ── #}
-<div class="card" style="padding:0;overflow-x:auto">
- <table class="home-tbl" style="min-width:800px;font-size:15px">
-  <thead><tr>
-   <th style="width:130px">Order</th><th style="width:90px">Date</th><th style="width:60px">Agency</th>
-   <th>Institution</th><th style="width:100px">PO / Quote</th>
-   <th style="text-align:right;width:90px">Total</th><th style="width:70px;text-align:center">Delivery</th>
-   <th style="width:100px;text-align:center">Status</th>
-   <th style="width:40px"></th>
-  </tr></thead>
-  <tbody>
-  {% if order_list %}
-   {% for o in order_list %}
-   {% set oid = o.order_id|default(o.id|default('')) %}
-   {% set st = o.status|default('new') %}
-   {% set s_cfg = status_cfg.get(st, status_cfg.get('new', ('🆕 New','#58a6ff','rgba(88,166,255,.1)'))) %}
-   {% set items = o.line_items|default([]) %}
-   {% set n = items|length %}
-   {% set delivered = o.delivered_count|default(0) %}
-   {% set pct = (delivered * 100 / n)|round|int if n else 0 %}
-   {% set has_tracking = items|selectattr('tracking_number')|list|length %}
-   {% set has_suppliers = items|selectattr('supplier_url')|list|length %}
-   <tr style="{{ 'opacity:0.5' if st == 'closed' else '' }}">
-    <td><a href="/order/{{ oid }}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px">{{ oid }}</a></td>
-    <td class="mono" style="white-space:nowrap;font-size:14px">{{ (o.created_at|default(''))[:10] }}</td>
-    <td style="font-size:14px">{{ o.agency|default('')|agency_display }}</td>
-    <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500;font-size:15px">{{ o.institution|default('') }}</td>
-    <td class="mono" style="font-size:14px">{{ o.po_number|default('') or o.quote_number|default('') }}</td>
-    <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:16px">${{ "{:,.2f}".format(o.total|default(0)) }}</td>
-    <td>
-     <div style="display:flex;align-items:center;gap:4px;min-width:80px">
-      <div style="flex:1;background:var(--sf);border-radius:4px;height:8px;overflow:hidden">
-       <div style="width:{{ pct }}%;background:#3fb950;height:100%"></div>
+  {# Pipeline progress bar. #}
+  <div class="r-card r-card-pad" style="margin-bottom:16px">
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:13px">
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:var(--r-warn);display:inline-block"></span> <span class="num"><b>{{ stats.pending_items }}</b> pending</span></div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#58a6ff;display:inline-block"></span> <span class="num"><b>{{ stats.ordered_items }}</b> ordered</span></div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#bc8cff;display:inline-block"></span> <span class="num"><b>{{ stats.shipped_items }}</b> shipped</span></div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:var(--r-accent);display:inline-block"></span> <span class="num"><b>{{ stats.delivered_items }}</b> delivered</span></div>
+      <div style="flex:1;min-width:220px">
+        <div style="background:var(--r-surface-2);border-radius:8px;height:14px;overflow:hidden;display:flex">
+          <div style="width:{{ stats.pct_complete }}%;background:var(--r-accent);transition:width 0.3s" title="{{ stats.delivered_items }} delivered"></div>
+          {% if stats.total_line_items %}<div style="width:{{ (stats.shipped_items * 100 / stats.total_line_items)|round|int }}%;background:#bc8cff" title="{{ stats.shipped_items }} shipped"></div>{% endif %}
+          {% if stats.total_line_items %}<div style="width:{{ (stats.ordered_items * 100 / stats.total_line_items)|round|int }}%;background:#58a6ff" title="{{ stats.ordered_items }} ordered"></div>{% endif %}
+        </div>
       </div>
-      <span style="font-size:13px;color:var(--tx2);white-space:nowrap">{{ delivered }}/{{ n }}</span>
-     </div>
-    </td>
-    <td style="text-align:center">
-     {% if o.age_badge|default('') %}<span title="{{ o.age_title|default('') }}" style="margin-right:2px">{{ o.age_badge }}</span>{% endif %}
-     <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:13px;font-weight:600;color:{{ s_cfg[1] }};background:{{ s_cfg[2] }}">{{ s_cfg[0] }}</span>
-     {% if has_suppliers %}<span title="{{ has_suppliers }}/{{ n }} items linked" style="font-size:13px;margin-left:3px">🔗{{ has_suppliers }}</span>{% endif %}
-     {% if has_tracking %}<span title="{{ has_tracking }} tracking numbers" style="font-size:13px;margin-left:3px">📦{{ has_tracking }}</span>{% endif %}
-     {% if o.draft_invoice %}<span title="Draft invoice ready" style="font-size:13px;margin-left:3px">📄</span>{% endif %}
-    </td>
-    <td style="text-align:center"><button onclick="deleteOrder('{{ oid }}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--tx2)" title="Delete order">🗑️</button></td>
-   </tr>
-   {% endfor %}
-  {% else %}
-   <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2);font-size:15px">No orders yet — mark a quote as Won or import a PO PDF</td></tr>
-  {% endif %}
-  </tbody>
- </table>
-</div>
+    </div>
+  </div>
 
-<input type="file" id="po-upload-input" accept=".pdf" style="display:none" onchange="handlePOUpload(this)">
-<div id="qb-invoices" class="card" style="margin-top:14px;padding:16px;display:none">
- <div class="card-t" style="margin-bottom:10px;font-size:16px">💰 QuickBooks — Pending Invoices</div>
- <div id="inv-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px"></div>
- <div id="inv-table"></div>
+  <!-- Filters + Search -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px">
+    <form method="get" action="/orders" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input name="q" value="{{ search_q }}" placeholder="🔍 Search PO, institution, agency…" aria-label="Search orders"
+             style="flex:1;min-width:240px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:8px;padding:8px 14px;color:var(--r-text);font-size:13px">
+      <select name="status" aria-label="Filter by status" style="background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:8px;padding:8px 12px;color:var(--r-text);font-size:13px">
+        <option value="">All Statuses</option>
+        <option value="new" {{ 'selected' if filter_status=='new' }}>🆕 New</option>
+        <option value="sourcing" {{ 'selected' if filter_status=='sourcing' }}>🛒 Sourcing</option>
+        <option value="shipped" {{ 'selected' if filter_status=='shipped' }}>🚚 Shipped</option>
+        <option value="delivered" {{ 'selected' if filter_status=='delivered' }}>✅ Delivered</option>
+        <option value="invoiced" {{ 'selected' if filter_status=='invoiced' }}>💰 Invoiced</option>
+        <option value="closed" {{ 'selected' if filter_status=='closed' }}>🏁 Closed</option>
+      </select>
+      <select name="agency" aria-label="Filter by agency" style="background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:8px;padding:8px 12px;color:var(--r-text);font-size:13px">
+        <option value="">All Agencies</option>
+        {% for a in all_agencies %}<option value="{{ a }}" {{ 'selected' if filter_agency==a }}>{{ a|agency_display }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="r-btn r-btn-primary r-btn-sm">Filter</button>
+      {% if search_q or filter_status or filter_agency %}<a href="/orders" style="font-size:12px;color:var(--r-text-muted)">✕ Clear</a>{% endif %}
+    </form>
+  </div>
+
+  <!-- Async KPI Dashboard (only shown when /api/orders/kpi returns ok) -->
+  <div id="order-kpi" style="display:none;margin-bottom:14px">
+    <div class="r-grid r-grid-4">
+      <div class="r-kpi" id="kpi-revenue"></div>
+      <div class="r-kpi" id="kpi-margin"></div>
+      <div class="r-kpi" id="kpi-fulfillment"></div>
+      <div class="r-kpi" id="kpi-monthly"></div>
+    </div>
+  </div>
+
+  {# Orders table — server-rendered with status_cfg coloring. #}
+  <div class="r-card" style="padding:0;overflow-x:auto">
+    <table class="home-tbl" style="width:100%;min-width:880px;font-size:13px;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--r-border)">
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:140px">Order</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:100px">Date</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:70px">Agency</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500">Institution</th>
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:110px">PO / Quote</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:100px">Total</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:80px">Delivery</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim);font-weight:500;width:110px">Status</th>
+        <th style="width:40px"></th>
+      </tr></thead>
+      <tbody>
+      {% if order_list %}
+        {% for o in order_list %}
+        {% set oid = o.order_id|default(o.id|default('')) %}
+        {% set st = o.status|default('new') %}
+        {% set s_cfg = status_cfg.get(st, status_cfg.get('new', ('🆕 New','#58a6ff','rgba(88,166,255,.1)'))) %}
+        {% set items = o.line_items|default([]) %}
+        {% set n = items|length %}
+        {% set delivered = o.delivered_count|default(0) %}
+        {% set pct = (delivered * 100 / n)|round|int if n else 0 %}
+        {% set has_tracking = items|selectattr('tracking_number')|list|length %}
+        {% set has_suppliers = items|selectattr('supplier_url')|list|length %}
+        <tr style="border-bottom:1px solid var(--r-border-soft);{{ 'opacity:0.5' if st == 'closed' else '' }}">
+          <td style="padding:10px 12px"><a href="/order/{{ oid }}" class="num" style="color:var(--r-accent);text-decoration:none;font-weight:600">{{ oid }}</a></td>
+          <td class="num" style="padding:10px 12px;white-space:nowrap;color:var(--r-text-muted)">{{ (o.created_at|default(''))[:10] }}</td>
+          <td style="padding:10px 12px">{{ o.agency|default('')|agency_display }}</td>
+          <td style="padding:10px 12px;max-width:280px;word-wrap:break-word;white-space:normal;font-weight:500">{{ o.institution|default('') }}</td>
+          <td class="num" style="padding:10px 12px;color:var(--r-text-muted)">{{ o.po_number|default('') or o.quote_number|default('') }}</td>
+          <td class="num" style="padding:10px 12px;text-align:right;font-weight:600">${{ "{:,.2f}".format(o.total|default(0)) }}</td>
+          <td style="padding:10px 12px">
+            <div style="display:flex;align-items:center;gap:6px;min-width:80px">
+              <div style="flex:1;background:var(--r-surface-2);border-radius:4px;height:6px;overflow:hidden">
+                <div style="width:{{ pct }}%;background:var(--r-accent);height:100%"></div>
+              </div>
+              <span class="num" style="font-size:11px;color:var(--r-text-muted);white-space:nowrap">{{ delivered }}/{{ n }}</span>
+            </div>
+          </td>
+          <td style="padding:10px 12px;text-align:center">
+            {% if o.age_badge|default('') %}<span title="{{ o.age_title|default('') }}" style="margin-right:2px">{{ o.age_badge }}</span>{% endif %}
+            <span style="display:inline-block;padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:600;color:{{ s_cfg[1] }};background:{{ s_cfg[2] }}">{{ s_cfg[0] }}</span>
+            {% if has_suppliers %}<span title="{{ has_suppliers }}/{{ n }} items linked" style="font-size:11px;margin-left:3px">🔗{{ has_suppliers }}</span>{% endif %}
+            {% if has_tracking %}<span title="{{ has_tracking }} tracking numbers" style="font-size:11px;margin-left:3px">📦{{ has_tracking }}</span>{% endif %}
+            {% if o.draft_invoice %}<span title="Draft invoice ready" style="font-size:11px;margin-left:3px">📄</span>{% endif %}
+          </td>
+          <td style="padding:10px 12px;text-align:center"><button onclick="deleteOrder('{{ oid }}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--r-text-dim)" title="Delete order">🗑️</button></td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--r-text-muted)">No orders yet — mark a quote as Won or import a PO PDF</td></tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <input type="file" id="po-upload-input" accept=".pdf" style="display:none" onchange="handlePOUpload(this)">
+
+  <!-- QB invoices section (async loaded) -->
+  <div id="qb-invoices" class="r-card r-card-pad" style="margin-top:14px;display:none">
+    <div style="font-size:14px;font-weight:600;color:var(--r-text);margin-bottom:12px">💰 QuickBooks — Pending Invoices</div>
+    <div id="inv-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px"></div>
+    <div id="inv-table"></div>
+  </div>
+
 </div>
 {% endblock %}
 
@@ -166,9 +194,8 @@ function createOrder() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({po_number: po, agency: agency || '', institution: inst || '', items: [], total: 0})
   }).then(function(r){return r.json()}).then(function(d) {
-    if (d.ok) {
-      location.href = '/order/' + d.order_id;
-    } else alert('Error: ' + (d.error || 'unknown'));
+    if (d.ok) location.href = '/order/' + d.order_id;
+    else alert('Error: ' + (d.error || 'unknown'));
   });
 }
 function createFromPO() {
@@ -187,12 +214,8 @@ function handlePOUpload(input) {
     var formData = new FormData();
     formData.append('file', file);
     return fetch('/api/order/' + oid + '/import-po', {method: 'POST', body: formData}).then(function(r){return r.json()}).then(function(r) {
-      if (r.ok) {
-        location.href = '/order/' + oid;
-      } else {
-        alert('Order created but PDF parse issue: ' + (r.error || 'unknown') + '\nRedirecting to order.');
-        location.href = '/order/' + oid;
-      }
+      if (r.ok) location.href = '/order/' + oid;
+      else { alert('Order created but PDF parse issue: ' + (r.error || 'unknown') + '\nRedirecting to order.'); location.href = '/order/' + oid; }
     });
   });
 }
@@ -208,19 +231,20 @@ function deleteOrder(oid) {
     });
   }, 3);
 }
-// F10: KPI Dashboard
+
+// Async KPI Dashboard — re-renders the .r-kpi placeholders with real numbers.
 fetch('/api/orders/kpi').then(function(r){return r.json()}).then(function(d){
  if(!d.ok) return;
  document.getElementById('order-kpi').style.display='block';
  var mk=function(id,val,lbl,sub,c){var el=document.getElementById(id);if(el)el.innerHTML=
-  '<div style="font-size:30px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+(c||'var(--ac)')+'">'+val+'</div>'
-  +'<div style="font-size:14px;color:var(--tx2);margin-top:4px">'+lbl+'</div>'
-  +(sub?'<div style="font-size:13px;color:var(--tx2);margin-top:4px">'+sub+'</div>':'');};
- mk('kpi-revenue','$'+(d.total_revenue||0).toLocaleString(undefined,{maximumFractionDigits:0}),'Total Revenue',d.total_orders+' orders','#3fb950');
- mk('kpi-margin',d.margin_pct!==null?(d.margin_pct||0)+'%':'—','Avg Margin',d.margin_pct!==null?'$'+(d.total_margin||0).toLocaleString(undefined,{maximumFractionDigits:0})+' profit':'no cost data yet',d.margin_pct!==null?(d.margin_pct>=20?'#3fb950':d.margin_pct>=10?'#d29922':'#f85149'):'var(--tx2)');
- mk('kpi-fulfillment',d.avg_fulfillment_days!==null?d.avg_fulfillment_days+'d':'—','Avg Fulfillment','created → delivered','#58a6ff');
+  '<div class="r-kpi-label">'+lbl+'</div>'
+  +'<div class="r-kpi-value" style="color:'+(c||'var(--r-accent)')+'">'+val+'</div>'
+  +(sub?'<div class="r-kpi-sub">'+sub+'</div>':'');};
+ mk('kpi-revenue','$'+(d.total_revenue||0).toLocaleString(undefined,{maximumFractionDigits:0}),'Total revenue',d.total_orders+' orders','var(--r-accent)');
+ mk('kpi-margin',d.margin_pct!==null?(d.margin_pct||0)+'%':'—','Avg margin',d.margin_pct!==null?'$'+(d.total_margin||0).toLocaleString(undefined,{maximumFractionDigits:0})+' profit':'no cost data yet',d.margin_pct!==null?(d.margin_pct>=20?'var(--r-accent)':d.margin_pct>=10?'var(--r-warn)':'var(--r-bad)'):'var(--r-text-muted)');
+ mk('kpi-fulfillment',d.avg_fulfillment_days!==null?d.avg_fulfillment_days+'d':'—','Avg fulfillment','created → delivered','#58a6ff');
  var recent=d.monthly||[];var last=recent.length?recent[recent.length-1]:null;
- mk('kpi-monthly',last?'$'+last.value.toLocaleString(undefined,{maximumFractionDigits:0}):'—','This Month',last?last.orders+' orders':'no data','#bc8cff');
+ mk('kpi-monthly',last?'$'+last.value.toLocaleString(undefined,{maximumFractionDigits:0}):'—','This month',last?last.orders+' orders':'no data','#bc8cff');
 }).catch(function(){});
 
 // QuickBooks invoices
@@ -228,24 +252,24 @@ fetch('/api/qb/financial-context').then(function(r){return r.json()}).then(funct
  if(!d.ok) return;
  document.getElementById('qb-invoices').style.display='block';
  var s=document.getElementById('inv-stats');
- var mkStat=function(label,val,color){return '<div style="background:var(--sf2);padding:14px;border-radius:8px;text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">'+label+'</div><div style="font-size:24px;font-weight:700;margin-top:4px;color:'+(color||'var(--tx)')+'">' +val+'</div></div>';};
- if(s)s.innerHTML=mkStat('Open','$'+(d.total_receivable||0).toLocaleString(),'var(--yl)')
-  +mkStat('Overdue','$'+(d.overdue_amount||0).toLocaleString(),'var(--rd)')
-  +mkStat('Collected','$'+(d.total_collected||0).toLocaleString(),'var(--gn)')
+ var mkStat=function(label,val,color){return '<div class="r-kpi" style="text-align:center"><div class="r-kpi-label">'+label+'</div><div class="r-kpi-value" style="color:'+(color||'var(--r-text)')+';font-size:22px">' +val+'</div></div>';};
+ if(s)s.innerHTML=mkStat('Open','$'+(d.total_receivable||0).toLocaleString(),'var(--r-warn)')
+  +mkStat('Overdue','$'+(d.overdue_amount||0).toLocaleString(),'var(--r-bad)')
+  +mkStat('Collected','$'+(d.total_collected||0).toLocaleString(),'var(--r-accent)')
   +mkStat('Invoices',d.invoice_count||0);
  var inv=d.pending_invoices||[];
  var _esc=function(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;};
  var tgt=document.getElementById('inv-table');
  if(inv.length&&tgt){
-  var t='<table class="tbl" style="width:100%;font-size:14px"><thead><tr><th>Invoice</th><th>Customer</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Due</th><th>Days Out</th><th>Status</th></tr></thead><tbody>';
+  var t='<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--r-border)"><th style="text-align:left;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim)">Invoice</th><th style="text-align:left;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim)">Customer</th><th style="text-align:right;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim)">Total</th><th style="text-align:right;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim)">Balance</th><th style="text-align:left;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim)">Due</th><th style="text-align:center;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim)">Days</th><th style="text-align:left;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--r-text-dim)">Status</th></tr></thead><tbody>';
   inv.forEach(function(i){
-   var st=i.status==='overdue'?'<span style="color:var(--rd);font-weight:600">⚠️ OVERDUE</span>':'<span style="color:var(--yl)">Open</span>';
-   t+='<tr><td class="mono">'+_esc(i.doc_number)+'</td><td>'+_esc(i.customer)+'</td><td style="text-align:right;font-weight:600" class="mono">$'+i.total.toLocaleString()+'</td><td style="text-align:right;color:var(--yl)" class="mono">$'+i.balance.toLocaleString()+'</td><td class="mono">'+_esc(i.due_date)+'</td><td style="text-align:center">'+i.days_outstanding+'</td><td>'+st+'</td></tr>';
+   var st=i.status==='overdue'?'<span style="color:var(--r-bad);font-weight:600">⚠ OVERDUE</span>':'<span style="color:var(--r-warn)">Open</span>';
+   t+='<tr style="border-bottom:1px solid var(--r-border-soft)"><td class="num" style="padding:6px">'+_esc(i.doc_number)+'</td><td style="padding:6px">'+_esc(i.customer)+'</td><td class="num" style="text-align:right;padding:6px;font-weight:600">$'+i.total.toLocaleString()+'</td><td class="num" style="text-align:right;padding:6px;color:var(--r-warn)">$'+i.balance.toLocaleString()+'</td><td class="num" style="padding:6px">'+_esc(i.due_date)+'</td><td class="num" style="text-align:center;padding:6px">'+i.days_outstanding+'</td><td style="padding:6px">'+st+'</td></tr>';
   });
   t+='</tbody></table>';
   tgt.innerHTML=t;
  } else if(tgt) {
-  tgt.innerHTML='<div style="color:var(--tx2);text-align:center;padding:12px">No pending invoices</div>';
+  tgt.innerHTML='<div style="color:var(--r-text-muted);text-align:center;padding:14px">No pending invoices</div>';
  }
 }).catch(function(){});
 </script>
