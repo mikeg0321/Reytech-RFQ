@@ -1765,6 +1765,44 @@ def generate_rfq_package(rid):
             )
             return redirect(f"/rfq/{rid}")
 
+    # ── Async dispatch (long-running-post rule) ──
+    # The full generation below takes 80-120s. Railway's edge proxy cuts
+    # the connection at ~100s — the browser sees ERR_CONNECTION_RESET
+    # even though the server keeps generating (Coleman 10842771 incident
+    # 2026-05-28). Callers can opt into the async path by sending
+    # `Accept: application/json`; the route enqueues a background task
+    # and returns 202 immediately with a status URL the caller polls.
+    # Browser POSTs (Accept: text/html) keep the sync redirect-after-POST
+    # path so this change is fully backwards-compatible until the UI
+    # follow-up PR adds polling JS. The `X-Async-Worker: 1` header on the
+    # synthetic worker request prevents handler re-entry.
+    if (
+        request.headers.get("X-Async-Worker") != "1"
+        and request.accept_mimetypes.best_match(
+            ["application/json", "text/html"]
+        ) == "application/json"
+    ):
+        from src.core.task_queue import enqueue
+        _actor = (
+            request.authorization.username
+            if request.authorization else "web"
+        )
+        _task_id = enqueue(
+            "generate_package",
+            {
+                "rfq_id": rid,
+                "form_data": dict(request.form),
+                "force": request.args.get("force") == "1",
+            },
+            actor=_actor,
+        )
+        t.step("enqueued", task_id=_task_id, async_=True)
+        return jsonify({
+            "ok": True,
+            "job_id": _task_id,
+            "status_url": f"/api/jobs/{_task_id}",
+        }), 202
+
     # ── Orchestrator observer (flag-gated, default off) ──
     # Runs the platform pipeline in parallel with the legacy filler chain
     # so we can diff stage_history against the trace in soak. Wrapper is
@@ -4976,5 +5014,72 @@ def _api_rfq_reactivate_locked(rid):
         log.debug("Suppressed: %s", _e)
     log.info("Reactivated RFQ %s (sol=%s) → %s", rid, r.get("solicitation_number", "?"), prev)
     return jsonify({"ok": True, "status": prev})
+
+
+# ── Background job status endpoint ────────────────────────────────────────────
+# Companion to the async dispatch in generate_rfq_package. Frontends poll
+# this until status flips to "completed" or "failed" then act on the
+# result payload (the redirect URL and any captured flashes).
+
+@bp.route("/api/jobs/<int:task_id>", methods=["GET"])
+@auth_required
+@safe_route
+def api_job_status(task_id: int):
+    """Return current status of an enqueued background task.
+
+    Used by the UI to poll long-running operations like generate-package
+    (the 105s POST that browsers cut off at the Railway edge ~100s —
+    see Coleman 10842771 2026-05-28 incident).
+
+    Returns a JSON envelope:
+        {
+            "ok": true,
+            "task_id": <int>,
+            "task_type": "generate_package",
+            "status": "pending" | "running" | "completed" | "failed",
+            "started_at": "<iso ts | null>",
+            "finished_at": "<iso ts | null>",
+            "result": <handler-specific dict | null>,
+            "error":  "<error message | null>",
+        }
+
+    404 if the task_id does not exist.
+    """
+    import sqlite3 as _sqlite3
+    import json as _json
+    from src.core.db import DB_PATH as _DB_PATH
+
+    conn = _sqlite3.connect(_DB_PATH, timeout=10)
+    try:
+        conn.row_factory = _sqlite3.Row
+        row = conn.execute(
+            "SELECT id, task_type, status, started_at, finished_at, "
+            "       result, error "
+            "FROM task_queue WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return jsonify({"ok": False, "error": "task not found"}), 404
+
+    payload = {
+        "ok": True,
+        "task_id": row["id"],
+        "task_type": row["task_type"],
+        "status": row["status"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "error": row["error"],
+    }
+    if row["result"]:
+        try:
+            payload["result"] = _json.loads(row["result"])
+        except (TypeError, _json.JSONDecodeError):
+            payload["result"] = None
+    else:
+        payload["result"] = None
+    return jsonify(payload)
 
 
