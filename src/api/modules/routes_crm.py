@@ -4256,6 +4256,7 @@ def page_qa_intelligence():
     labels_js = str([r["run_at"][:10] for r in reversed(history)]) if history else "[]"
 
     return render_page("qa_intel.html", active_page="Intel",
+        f=f,
         intel=intel,
         issue_rows=issue_rows,
         labels_js=labels_js,
