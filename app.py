@@ -521,7 +521,12 @@ def create_app():
             init_task_queue()
             reset_stale_running()
             from src.core.task_consumer import start_task_consumer
-            start_task_consumer(poll_interval=10)
+            # Pass the live Flask app so async handlers (e.g.
+            # _handle_generate_package) can build test_request_context
+            # for in-process route re-invocation. Without this, the
+            # handler would `from app import app` which deadlocks during
+            # create_app() (this function) and fails outside of it.
+            start_task_consumer(poll_interval=10, app=app)
         except Exception as e:
             logging.getLogger("reytech").warning("Task consumer startup: %s", e)
 

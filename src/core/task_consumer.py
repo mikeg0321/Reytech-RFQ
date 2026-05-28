@@ -17,6 +17,15 @@ import time
 log = logging.getLogger("reytech.task_consumer")
 
 
+# Reference to the Flask app instance, set by start_task_consumer().
+# Used by handlers (e.g. _handle_generate_package) that need to build a
+# test_request_context to re-invoke a Flask route in the worker thread.
+# Set explicitly at consumer-start time so handlers don't need to import
+# from `app.py` (which would either deadlock during create_app() or
+# instantiate a second Flask app if the import happens later).
+_FLASK_APP = None
+
+
 # ── Handler functions ─────────────────────────────────────────────────────────
 
 def _handle_submit_rfq(payload: dict) -> dict:
@@ -110,9 +119,24 @@ def _handle_generate_package(payload: dict) -> dict:
     form_data = payload.get("form_data", {})
     force = bool(payload.get("force", False))
 
-    # Deferred imports keep this module importable in non-web contexts
-    # (CI, scripts) where dashboard.app may not be available.
-    from src.api.dashboard import app
+    # Use the Flask app set by start_task_consumer(). Falls back to
+    # `flask.current_app` if a request context happens to be active
+    # (e.g. test cases that enqueue + dispatch within the same request).
+    # PR #1182 originally imported `from src.api.dashboard import app` —
+    # that symbol doesn't exist in dashboard.py (the Flask app lives at
+    # top-level `app.py` after `create_app()`). The import failed in
+    # prod the moment any async caller hit `/api/jobs/<id>` polling.
+    app = _FLASK_APP
+    if app is None:
+        try:
+            from flask import current_app
+            app = current_app._get_current_object()
+        except RuntimeError:
+            raise RuntimeError(
+                "task_consumer Flask app not initialized — call "
+                "start_task_consumer(app=...) at startup or invoke this "
+                "handler from within a Flask request context."
+            )
     from src.api.modules.routes_rfq_gen import generate_rfq_package
 
     # Peel @auth_required + @safe_route so we bypass auth (already
@@ -243,8 +267,19 @@ def _consumer_loop(poll_interval: int):
     log.info("Task consumer stopped (shutdown requested)")
 
 
-def start_task_consumer(poll_interval: int = 10):
-    """Start the task consumer as a daemon thread, registered with scheduler."""
+def start_task_consumer(poll_interval: int = 10, app=None):
+    """Start the task consumer as a daemon thread, registered with scheduler.
+
+    Args:
+        poll_interval: seconds between queue polls.
+        app: optional Flask app instance. Stored at module level for
+            handlers (e.g. ``_handle_generate_package``) that need to
+            build a ``test_request_context`` to re-invoke a route in the
+            worker thread. Pass the live ``create_app()`` instance here.
+    """
+    if app is not None:
+        global _FLASK_APP
+        _FLASK_APP = app
     from src.core.scheduler import register_job, mark_started
 
     register_job("task-consumer", interval_sec=poll_interval)

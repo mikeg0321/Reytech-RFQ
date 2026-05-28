@@ -293,3 +293,51 @@ def test_generate_package_handler_validates_rfq_id():
     from src.core.task_consumer import _handle_generate_package
     with pytest.raises(ValueError, match="rfq_id"):
         _handle_generate_package({"form_data": {}, "force": False})
+
+
+def test_generate_package_handler_actually_resolves_flask_app(app, auth_client, seed_rfq, init_queue):
+    """End-to-end-shape pin — the handler must successfully resolve the
+    Flask app at dispatch time and build a test_request_context.
+
+    PR #1182 originally imported ``from src.api.dashboard import app``
+    which crashed in prod with ``ImportError: cannot import name 'app'
+    from 'src.api.dashboard'`` the first time an async caller arrived
+    — but the earlier unit tests only verified handler REGISTRATION,
+    not handler EXECUTION. This test invokes the handler directly so
+    the next time someone breaks the app-resolution path, CI catches
+    it before deploy.
+
+    Uses the test client's auth_client to seed the Flask app context;
+    then registers the test app instance with the task_consumer
+    (mirroring what app.py:start_task_consumer(..., app=app) does in
+    prod) and invokes the handler with a minimal valid payload.
+    """
+    from src.core import task_consumer
+
+    # Mirror the prod startup contract — register the live Flask app.
+    # The `app` fixture is the Flask app instance the test client was
+    # built against; equivalent to what app.py passes via
+    # start_task_consumer(app=app) in prod.
+    task_consumer._FLASK_APP = app
+    try:
+        # Minimal payload; force=1 to bypass the unpriced-rows gate.
+        # The handler will call into generate_rfq_package which is
+        # heavy — but for THIS test we only care that:
+        #   * the handler can resolve the Flask app
+        #   * it can build a test_request_context without ImportError
+        #   * it returns a dict shaped {redirect, messages, rfq_id}
+        # We accept any non-exception return as a pass. The Coleman
+        # E2E pin still runs in prod against the real package output.
+        result = task_consumer._handle_generate_package({
+            "rfq_id": seed_rfq,
+            "form_data": {},
+            "force": True,
+            "actor": "test",
+        })
+        assert isinstance(result, dict)
+        assert result.get("rfq_id") == seed_rfq
+        # `redirect` and `messages` keys must exist (UI poll contract).
+        assert "redirect" in result
+        assert "messages" in result
+    finally:
+        task_consumer._FLASK_APP = None
