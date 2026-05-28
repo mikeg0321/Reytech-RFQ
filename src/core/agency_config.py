@@ -269,6 +269,88 @@ DEFAULT_AGENCY_CONFIGS = {
         "shipping_terms": "FOB Destination, Freight Prepaid",
         "delivery_days": "7-14 business days",
     },
+    # ── Migrated 2026-05-27 from routes_analytics.py duplicate (seam #2) ────
+    # The 5 agencies below previously lived only in the routes_analytics.py
+    # local DEFAULT_AGENCY_CONFIGS dict. Match patterns expanded beyond the
+    # duplicate's narrow set: each agency now includes its CA.gov email domain
+    # + the full department name + standard substring shorthands. Required
+    # forms set is DGS-style (quote + std204 + sellers_permit + compliance)
+    # for all five — none of them use AMS 703B/704B (those are CCHCS-only).
+    # See [[reference_rfqapp_architecture_docs_and_substrate_seams]] §seam-2.
+    "cdfa": {
+        "name": "CDFA — Dept of Food & Agriculture",
+        "match_patterns": ["CDFA", "FOOD AND AGRICULTURE", "FOOD & AGRICULTURE",
+                          "CALIFORNIA DEPARTMENT OF FOOD", "DEPT OF FOOD AND AGRICULTURE",
+                          "CDFA.CA.GOV"],
+        "required_forms": ["quote", "std204", "sellers_permit", "bidder_decl", "darfur_act"],
+        "primary_response_form": "quote",
+        "optional_forms": ["dvbe843", "obs_1600", "w9"],
+        "notes": "California Department of Food and Agriculture. DGS-style procurement; "
+                 "OBS 1600 (food product cert) is optional and triggered by agency_config "
+                 "FORM_TEXT_PATTERNS when the email body mentions 'AGRICULTURAL PRODUCT'.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "7-14 business days",
+    },
+    "dca": {
+        "name": "DCA — Dept of Consumer Affairs",
+        "match_patterns": ["DEPT OF CONSUMER AFFAIRS", "DEPARTMENT OF CONSUMER AFFAIRS",
+                          "CONSUMER AFFAIRS", "DCA.CA.GOV"],
+        "required_forms": ["quote", "std204", "sellers_permit", "bidder_decl", "darfur_act"],
+        "primary_response_form": "quote",
+        "optional_forms": ["dvbe843", "w9"],
+        "notes": "California Department of Consumer Affairs. Standard DGS forms. "
+                 "Bare 'DCA' substring INTENTIONALLY OMITTED — too common in unrelated "
+                 "contexts; require explicit phrasing or domain match.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "7-14 business days",
+    },
+    "chp": {
+        "name": "CHP — California Highway Patrol",
+        "match_patterns": ["CHP", "HIGHWAY PATROL", "CALIFORNIA HIGHWAY PATROL",
+                          "CHP.CA.GOV"],
+        "required_forms": ["quote", "std204", "sellers_permit", "dvbe843",
+                          "bidder_decl", "darfur_act"],
+        "primary_response_form": "quote",
+        "optional_forms": ["w9"],
+        "notes": "California Highway Patrol. DGS-standard procurement forms.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "7-14 business days",
+    },
+    "edd": {
+        "name": "EDD — Employment Development Dept",
+        "match_patterns": ["EDD", "EMPLOYMENT DEVELOPMENT",
+                          "EMPLOYMENT DEVELOPMENT DEPARTMENT", "EDD.CA.GOV"],
+        "required_forms": ["quote", "std204", "sellers_permit", "bidder_decl"],
+        "primary_response_form": "quote",
+        "optional_forms": ["dvbe843", "darfur_act", "w9"],
+        "notes": "California Employment Development Department. Lighter form set than "
+                 "DGS-style — does not require DVBE 843 or Darfur Act by default.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "7-14 business days",
+    },
+    "judicial": {
+        "name": "Judicial Branch",
+        "match_patterns": ["JUDICIAL", "JUDICIAL COUNCIL", "JUDICIAL BRANCH",
+                          "SUPERIOR COURT", "COURTS.CA.GOV"],
+        "required_forms": ["quote", "sellers_permit"],
+        "primary_response_form": "quote",
+        "optional_forms": ["std204", "w9"],
+        "notes": "California Judicial Branch / Judicial Council / Superior Courts. "
+                 "Has its own procurement rules — minimal forms required. Bare 'COURTS' "
+                 "substring INTENTIONALLY OMITTED — too broad.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "7-14 business days",
+    },
     "other": {
         "name": "Other / Unknown",
         "match_patterns": [],
