@@ -3,39 +3,40 @@
 {% block content %}
 <style>
 .sp-wrap{max-width:1200px;margin:0 auto;padding:0 12px}
-.sp-header{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 0;border-bottom:1px solid var(--bd);margin-bottom:20px}
-.sp-header h2{margin:0;font-size:20px;color:var(--tx)}
+.sp-header{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 0;border-bottom:1px solid var(--r-border);margin-bottom:20px}
+.sp-header h2{margin:0;font-size:20px;color:var(--r-text)}
 .sp-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
-.sp-meta-card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px}
-.sp-meta-label{font-size:11px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px}
-.sp-meta-value{font-size:14px;color:var(--tx);margin-top:2px;font-weight:600}
+.sp-meta-card{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px}
+.sp-meta-label{font-size:11px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px}
+.sp-meta-value{font-size:14px;color:var(--r-text);margin-top:2px;font-weight:600}
 .sp-2col{display:grid;grid-template-columns:1fr 360px;gap:20px}
 @media(max-width:900px){.sp-2col{grid-template-columns:1fr}}
-.sp-timeline{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px}
+.sp-timeline{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:16px}
 .sp-sidebar{display:flex;flex-direction:column;gap:16px}
-.sp-card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px}
-.sp-card-title{font-size:12px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--bd)}
+.sp-card{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px}
+.sp-card-title{font-size:12px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--r-border)}
 .sp-tl-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(48,54,61,.5);font-size:13px}
 .sp-tl-item:last-child{border-bottom:none}
-.sp-tl-time{color:var(--tx2);white-space:nowrap;min-width:120px;font-family:'JetBrains Mono',monospace;font-size:12px}
+.sp-tl-time{color:var(--r-text-muted);white-space:nowrap;min-width:120px;font-family:'JetBrains Mono',monospace;font-size:12px}
 .sp-delivery{padding:8px 0;border-bottom:1px solid rgba(48,54,61,.5)}
 .sp-delivery:last-child{border-bottom:none}
 .sp-pref{padding:6px 0;border-bottom:1px solid rgba(48,54,61,.5);font-size:13px}
 .sp-pref:last-child{border-bottom:none}
 </style>
 
+<div class="r-app">
 <div class="sp-wrap">
   <div class="sp-header">
     <div>
       <h2>🎧 Support View — RFQ #{{ sol }}</h2>
-      <div style="font-size:13px;color:var(--tx2);margin-top:4px">
+      <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">
         {{ (r.get('agency','') or r.get('agency_name',''))|agency_display }} — {{ r.get('requestor_name','?') }}
         {% if r.get('requestor_email') %} ({{ r.requestor_email }}){% endif %}
       </div>
     </div>
     <div style="display:flex;gap:8px">
       {% if r.get('email_thread_id') %}
-      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
+      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--r-accent);text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
       {% endif %}
       <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">📋 Full RFQ</a>
       {% if manifest %}<a href="/rfq/{{ rid }}/review-package" class="btn btn-sm" style="font-size:13px">📦 Review</a>{% endif %}
@@ -53,7 +54,7 @@
 
   <div class="sp-2col">
     <div class="sp-timeline">
-      <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:12px">📜 Lifecycle Timeline ({{ timeline|length }} events)</div>
+      <div style="font-size:14px;font-weight:600;color:var(--r-text);margin-bottom:12px">📜 Lifecycle Timeline ({{ timeline|length }} events)</div>
       {% if timeline %}
       {% for event in timeline %}
       <div class="sp-tl-item">
@@ -62,13 +63,13 @@
           {% if 'received' in event.event_type %}📧{% elif 'parsed' in event.event_type %}📄{% elif 'edited' in event.event_type %}✏️{% elif 'lookup' in event.event_type %}💰{% elif 'markup' in event.event_type %}📊{% elif 'generate_started' in event.event_type %}⚙️{% elif 'generated' in event.event_type %}📦{% elif 'missing' in event.event_type %}🚫{% elif 'reviewed' in event.event_type %}🔍{% elif 'approved' in event.event_type %}✅{% elif 'sent' in event.event_type %}📤{% elif 'validation' in event.event_type %}⚠️{% elif 'preference' in event.event_type %}👤{% else %}📌{% endif %}
         </div>
         <div style="flex:1">
-          <div style="color:var(--tx)">{{ event.summary or event.event_type }}</div>
-          <div style="color:var(--tx2);font-size:11px">{{ event.actor or 'system' }} · {{ event.event_type }}</div>
+          <div style="color:var(--r-text)">{{ event.summary or event.event_type }}</div>
+          <div style="color:var(--r-text-muted);font-size:11px">{{ event.actor or 'system' }} · {{ event.event_type }}</div>
         </div>
       </div>
       {% endfor %}
       {% else %}
-      <div style="color:var(--tx2);font-size:14px;padding:20px;text-align:center">No lifecycle events recorded yet</div>
+      <div style="color:var(--r-text-muted);font-size:14px;padding:20px;text-align:center">No lifecycle events recorded yet</div>
       {% endif %}
     </div>
 
@@ -77,44 +78,44 @@
         <div class="sp-card-title">📦 Package Versions ({{ all_manifests|length }})</div>
         {% for m in all_manifests %}
         <div class="sp-delivery">
-          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--tx)">v{{ m.version }} — {{ m.overall_status|upper }}</span><span style="font-size:11px;color:var(--tx2)">{{ m.created_at[:16] if m.created_at else '' }}</span></div>
-          <div style="font-size:12px;color:var(--tx2)">{{ m.total_forms or 0 }} forms · {{ m.quote_number or '—' }} · ${{ "%.2f"|format(m.quote_total or 0) }}</div>
+          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--r-text)">v{{ m.version }} — {{ m.overall_status|upper }}</span><span style="font-size:11px;color:var(--r-text-muted)">{{ m.created_at[:16] if m.created_at else '' }}</span></div>
+          <div style="font-size:12px;color:var(--r-text-muted)">{{ m.total_forms or 0 }} forms · {{ m.quote_number or '—' }} · ${{ "%.2f"|format(m.quote_total or 0) }}</div>
         </div>
-        {% else %}<div style="color:var(--tx2);font-size:13px">No packages yet</div>{% endfor %}
+        {% else %}<div style="color:var(--r-text-muted);font-size:13px">No packages yet</div>{% endfor %}
       </div>
 
       <div class="sp-card">
         <div class="sp-card-title">📤 Deliveries ({{ deliveries|length }})</div>
         {% for d in deliveries %}
         <div class="sp-delivery">
-          <div style="font-size:13px;color:var(--tx)">{{ d.recipient_email or '?' }}</div>
-          <div style="font-size:12px;color:var(--tx2)">{{ d.delivered_at[:16] if d.delivered_at else '' }}</div>
-          {% if d.email_subject %}<div style="font-size:11px;color:var(--tx2);font-style:italic">"{{ d.email_subject[:60] }}"</div>{% endif %}
-          {% if d.package_hash %}<div style="font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace">SHA: {{ d.package_hash[:16] }}...</div>{% endif %}
+          <div style="font-size:13px;color:var(--r-text)">{{ d.recipient_email or '?' }}</div>
+          <div style="font-size:12px;color:var(--r-text-muted)">{{ d.delivered_at[:16] if d.delivered_at else '' }}</div>
+          {% if d.email_subject %}<div style="font-size:11px;color:var(--r-text-muted);font-style:italic">"{{ d.email_subject[:60] }}"</div>{% endif %}
+          {% if d.package_hash %}<div style="font-size:10px;color:var(--r-text-muted);font-family:'JetBrains Mono',monospace">SHA: {{ d.package_hash[:16] }}...</div>{% endif %}
         </div>
-        {% else %}<div style="color:var(--tx2);font-size:13px">No deliveries</div>{% endfor %}
+        {% else %}<div style="color:var(--r-text-muted);font-size:13px">No deliveries</div>{% endfor %}
       </div>
 
       <div class="sp-card">
         <div class="sp-card-title">👤 Buyer Preferences ({{ buyer_prefs|length }})</div>
         {% for pref in buyer_prefs %}
         <div class="sp-pref">
-          <div style="font-weight:600;color:var(--tx)">{{ pref.preference_key|replace('_',' ')|title }}</div>
-          <div style="color:var(--tx2);font-size:12px">{{ pref.notes or pref.preference_value }}</div>
-          <div style="color:var(--tx2);font-size:11px">{{ pref.source }} · {{ pref.learned_at[:10] if pref.learned_at else '' }}</div>
+          <div style="font-weight:600;color:var(--r-text)">{{ pref.preference_key|replace('_',' ')|title }}</div>
+          <div style="color:var(--r-text-muted);font-size:12px">{{ pref.notes or pref.preference_value }}</div>
+          <div style="color:var(--r-text-muted);font-size:11px">{{ pref.source }} · {{ pref.learned_at[:10] if pref.learned_at else '' }}</div>
         </div>
-        {% else %}<div style="color:var(--tx2);font-size:13px">No preferences</div>{% endfor %}
+        {% else %}<div style="color:var(--r-text-muted);font-size:13px">No preferences</div>{% endfor %}
         <button class="btn btn-sm" style="margin-top:8px;font-size:12px;width:100%" onclick="document.getElementById('add-pref-form').style.display=document.getElementById('add-pref-form').style.display==='none'?'block':'none'">+ Add Preference</button>
-        <div id="add-pref-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
-          <select id="pref-key" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:4px;font-size:12px">
+        <div id="add-pref-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--r-border)">
+          <select id="pref-key" style="width:100%;margin-bottom:4px;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:4px;padding:4px;font-size:12px">
             <option value="no_modify_buyer_fields">No modify buyer fields</option>
             <option value="ship_to_override">Ship to override</option>
             <option value="filename_format">Filename format</option>
             <option value="response_preference">Response preference</option>
             <option value="custom">Custom note</option>
           </select>
-          <textarea id="pref-notes" placeholder="Details..." style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:4px;font-size:12px;min-height:50px;resize:vertical;box-sizing:border-box"></textarea>
-          <button class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:12px;width:100%" onclick="saveBuyerPref()">Save</button>
+          <textarea id="pref-notes" placeholder="Details..." style="width:100%;margin-bottom:4px;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:4px;padding:4px;font-size:12px;min-height:50px;resize:vertical;box-sizing:border-box"></textarea>
+          <button class="btn btn-sm" style="background:var(--r-accent);color:#fff;font-size:12px;width:100%" onclick="saveBuyerPref()">Save</button>
         </div>
       </div>
 
@@ -124,13 +125,13 @@
         {% for rev in manifest.reviews %}
         <div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:13px">
           <span>{% if rev.verdict == 'approved' %}✅{% elif rev.verdict == 'rejected' %}❌{% else %}⏳{% endif %}</span>
-          <span style="flex:1;color:var(--tx)">{{ rev.form_id|replace('_',' ')|title }}</span>
-          {% if rev.form_filename %}<a href="/api/download/{{ sol }}/{{ rev.form_filename }}" target="_blank" style="font-size:11px;color:var(--ac)">view</a>{% endif %}
-          <span style="font-size:11px;color:var(--tx2)">{{ rev.verdict }}</span>
+          <span style="flex:1;color:var(--r-text)">{{ rev.form_id|replace('_',' ')|title }}</span>
+          {% if rev.form_filename %}<a href="/api/download/{{ sol }}/{{ rev.form_filename }}" target="_blank" style="font-size:11px;color:var(--r-accent)">view</a>{% endif %}
+          <span style="font-size:11px;color:var(--r-text-muted)">{{ rev.verdict }}</span>
         </div>
         {% endfor %}
         {% if manifest.missing_forms %}
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--bd)">
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--r-border)">
           {% for mf in manifest.missing_forms %}<div style="font-size:12px;color:#f85149">🚫 Missing: {{ mf|replace('_',' ')|title }}</div>{% endfor %}
         </div>
         {% endif %}
@@ -144,12 +145,12 @@
         <div class="sp-delivery">
           <div style="display:flex;gap:4px;align-items:center">
             <span style="font-size:12px">{% if e.direction == 'outbound' %}📤{% else %}📥{% endif %}</span>
-            <span style="font-size:13px;color:var(--tx)">{{ e.subject[:50] if e.subject else '(no subject)' }}</span>
+            <span style="font-size:13px;color:var(--r-text)">{{ e.subject[:50] if e.subject else '(no subject)' }}</span>
           </div>
-          <div style="font-size:12px;color:var(--tx2)">
+          <div style="font-size:12px;color:var(--r-text-muted)">
             {{ (e.sender or '?')[:30] }} → {{ (e.recipient or '?')[:30] }}
             · {{ e.logged_at[:16] if e.logged_at else '' }}
-            · <span style="color:{% if e.status == 'sent' %}#3fb950{% else %}var(--tx2){% endif %}">{{ e.status or '?' }}</span>
+            · <span style="color:{% if e.status == 'sent' %}#3fb950{% else %}var(--r-text-muted){% endif %}">{{ e.status or '?' }}</span>
           </div>
         </div>
         {% endfor %}
@@ -160,24 +161,25 @@
       <div class="sp-card">
         <div class="sp-card-title">⚡ Quick Actions</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(79,140,255,.15);color:var(--ac)">📎 Download</a>
+          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(79,140,255,.15);color:var(--r-accent)">📎 Download</a>
           <a href="/rfq/{{ rid }}" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px">📋 Open RFQ</a>
           {% if manifest.overall_status in ('approved', 'sent') %}
           <button class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(63,185,80,.15);color:#3fb950" onclick="resendPackage()">📧 Resend</button>
           {% endif %}
         </div>
         {% if manifest.overall_status in ('approved', 'sent') %}
-        <div id="resend-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
-          <input type="email" id="resend-to" value="{{ r.get('requestor_email','') }}" placeholder="Recipient email" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;box-sizing:border-box">
-          <input type="text" id="resend-subject" value="Reytech Inc. — RFQ Response #{{ sol }}" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;box-sizing:border-box">
-          <textarea id="resend-body" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;min-height:60px;resize:vertical;box-sizing:border-box">Please find attached our RFQ response package for solicitation #{{ sol }}.</textarea>
-          <button class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:12px;width:100%" onclick="doResend()">Send</button>
+        <div id="resend-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--r-border)">
+          <input type="email" id="resend-to" value="{{ r.get('requestor_email','') }}" placeholder="Recipient email" style="width:100%;margin-bottom:4px;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:4px;padding:6px;font-size:12px;box-sizing:border-box">
+          <input type="text" id="resend-subject" value="Reytech Inc. — RFQ Response #{{ sol }}" style="width:100%;margin-bottom:4px;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:4px;padding:6px;font-size:12px;box-sizing:border-box">
+          <textarea id="resend-body" style="width:100%;margin-bottom:4px;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:4px;padding:6px;font-size:12px;min-height:60px;resize:vertical;box-sizing:border-box">Please find attached our RFQ response package for solicitation #{{ sol }}.</textarea>
+          <button class="btn btn-sm" style="background:var(--r-accent);color:#fff;font-size:12px;width:100%" onclick="doResend()">Send</button>
         </div>
         {% endif %}
       </div>
       {% endif %}
     </div>
   </div>
+</div>
 </div>
 
 <script>

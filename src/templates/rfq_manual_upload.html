@@ -3,9 +3,10 @@
 {% block title %}+ RFQ — Manual Upload — Reytech{% endblock %}
 
 {% block content %}
+<div class="r-app">
 <div style="max-width:960px;margin:0 auto">
  <h2 style="margin:0 0 6px;font-size:22px;font-weight:700">➕ RFQ Manual Upload</h2>
- <div style="color:var(--tx2);font-size:13px;margin-bottom:18px">
+ <div style="color:var(--r-text-muted);font-size:13px;margin-bottom:18px">
   For RFQs that arrive outside Gmail (DSH Proofpoint secure mail, hand-typed
   buyer notes, etc.). Drop the PDF attachments + paste the email body — the
   app classifies, parses line items, and extracts the deadline / contact in
@@ -15,15 +16,15 @@
  <!-- Step 1: file dropzone -->
  <div class="card" style="margin-bottom:16px">
   <div class="card-t">Step 1: Drop attachments (PDFs)</div>
-  <div id="drop" style="margin-top:12px;padding:24px;border:2px dashed var(--bd);
-       border-radius:8px;text-align:center;color:var(--tx2);background:var(--sf2);
+  <div id="drop" style="margin-top:12px;padding:24px;border:2px dashed var(--r-border);
+       border-radius:8px;text-align:center;color:var(--r-text-muted);background:var(--r-surface-2);
        cursor:pointer;transition:border-color .15s"
-       ondragover="event.preventDefault();this.style.borderColor='var(--ac)'"
-       ondragleave="this.style.borderColor='var(--bd)'"
-       ondrop="event.preventDefault();this.style.borderColor='var(--bd)';onDrop(event)"
+       ondragover="event.preventDefault();this.style.borderColor='var(--r-accent)'"
+       ondragleave="this.style.borderColor='var(--r-border)'"
+       ondrop="event.preventDefault();this.style.borderColor='var(--r-border)';onDrop(event)"
        onclick="document.getElementById('rfqFiles').click()">
    <div style="font-size:32px;margin-bottom:6px">📎</div>
-   <div style="font-size:14px;color:var(--tx)">Drop PDF files here, or click to browse</div>
+   <div style="font-size:14px;color:var(--r-text)">Drop PDF files here, or click to browse</div>
    <div style="font-size:12px;margin-top:4px">
     Accepts the full DSH packet: cover, Attachment A/B/C, supporting forms.
    </div>
@@ -36,18 +37,18 @@
  <!-- Step 2: email body -->
  <div class="card" style="margin-bottom:16px">
   <div class="card-t">Step 2: Paste the email body
-   <span style="font-weight:400;color:var(--tx2);font-size:12px">
+   <span style="font-weight:400;color:var(--r-text-muted);font-size:12px">
     — feeds the requirements extractor (deadline, contact, "lowest cost wins", etc.)
    </span>
   </div>
   <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
    <div>
-    <label style="font-size:12px;color:var(--tx2)">Subject</label>
+    <label style="font-size:12px;color:var(--r-text-muted)">Subject</label>
     <input type="text" id="emailSubject" class="text-in" style="width:100%;margin-top:4px"
            placeholder="FW: Please find attached quote request 25CB020">
    </div>
    <div>
-    <label style="font-size:12px;color:var(--tx2)">From (email)</label>
+    <label style="font-size:12px;color:var(--r-text-muted)">From (email)</label>
     <input type="text" id="emailSender" class="text-in" style="width:100%;margin-top:4px"
            placeholder="Corneliu.Butuza@dsh.ca.gov">
    </div>
@@ -61,7 +62,7 @@
  <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:14px">
   <a href="/" class="btn" style="padding:10px 20px;font-size:14px">Cancel</a>
   <button onclick="submitPreview()" id="previewBtn" class="btn" data-testid="upload-preview-btn"
-          style="background:var(--ac);color:#fff;padding:10px 24px;font-size:14px;font-weight:600">
+          style="background:var(--r-accent);color:#fff;padding:10px 24px;font-size:14px;font-weight:600">
    🔍 Preview detection
   </button>
  </div>
@@ -89,19 +90,19 @@
   </div>
 
   <table style="margin-top:12px;font-size:13px;width:100%">
-   <tr><td style="padding:5px 8px;color:var(--tx2);width:140px">Shape</td>
+   <tr><td style="padding:5px 8px;color:var(--r-text-muted);width:140px">Shape</td>
        <td id="prevShape" data-testid="preview-shape" style="font-family:'JetBrains Mono',monospace">—</td></tr>
-   <tr><td style="padding:5px 8px;color:var(--tx2)">Agency</td>
+   <tr><td style="padding:5px 8px;color:var(--r-text-muted)">Agency</td>
        <td id="prevAgency" data-testid="preview-agency" style="font-family:'JetBrains Mono',monospace">—</td></tr>
-   <tr><td style="padding:5px 8px;color:var(--tx2)">Solicitation #</td>
+   <tr><td style="padding:5px 8px;color:var(--r-text-muted)">Solicitation #</td>
        <td id="prevSolNum" data-testid="preview-sol" style="font-family:'JetBrains Mono',monospace">—</td></tr>
-   <tr><td style="padding:5px 8px;color:var(--tx2)">Ship-to facility</td>
+   <tr><td style="padding:5px 8px;color:var(--r-text-muted)">Ship-to facility</td>
        <td id="prevFacility" data-testid="preview-facility">—</td></tr>
-   <tr><td style="padding:5px 8px;color:var(--tx2)">Deadline</td>
+   <tr><td style="padding:5px 8px;color:var(--r-text-muted)">Deadline</td>
        <td id="prevDeadline" data-testid="preview-deadline">—</td></tr>
-   <tr><td style="padding:5px 8px;color:var(--tx2)">Required forms</td>
+   <tr><td style="padding:5px 8px;color:var(--r-text-muted)">Required forms</td>
        <td id="prevRequiredForms" data-testid="preview-required-forms">—</td></tr>
-   <tr><td style="padding:5px 8px;color:var(--tx2)">Line items parsed</td>
+   <tr><td style="padding:5px 8px;color:var(--r-text-muted)">Line items parsed</td>
        <td id="prevItemsCount" data-testid="preview-items-count">—</td></tr>
   </table>
 
@@ -109,9 +110,9 @@
   <div id="prevWarnings" style="margin-top:10px"></div>
 
   <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;padding-top:12px;
-              border-top:1px solid var(--bd)">
+              border-top:1px solid var(--r-border)">
    <button onclick="backToEdit()" id="backEditBtn" class="btn" data-testid="preview-back-btn"
-           style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);
+           style="background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);
                   padding:10px 20px;font-size:14px">← Back to edit</button>
    <button onclick="confirmIngest()" id="confirmBtn" class="btn" data-testid="preview-confirm-btn"
            style="background:#3fb950;color:#000;padding:10px 24px;font-size:14px;font-weight:700">
@@ -124,6 +125,7 @@
   <div class="card-t">Ingest Result</div>
   <div id="resultBody" style="margin-top:10px;font-size:14px"></div>
  </div>
+</div>
 </div>
 
 <script>
@@ -145,16 +147,16 @@ function onFiles(fl){
 function renderFiles(){
  var box = document.getElementById('fileList');
  if (!_files.length){ box.innerHTML=''; return; }
- var html = '<div style="font-size:13px;color:var(--tx2);margin-bottom:6px">'
+ var html = '<div style="font-size:13px;color:var(--r-text-muted);margin-bottom:6px">'
             + _files.length + ' file(s) staged:</div>';
  _files.forEach(function(f, i){
   var kb = (f.size/1024).toFixed(0);
   html += '<div style="display:flex;justify-content:space-between;'
-       + 'padding:6px 10px;border:1px solid var(--bd);border-radius:6px;'
+       + 'padding:6px 10px;border:1px solid var(--r-border);border-radius:6px;'
        + 'margin-bottom:4px;font-size:13px;align-items:center">'
-       + '<span>📄 ' + escapeHtml(f.name) + ' <span style="color:var(--tx2)">(' + kb + ' KB)</span></span>'
+       + '<span>📄 ' + escapeHtml(f.name) + ' <span style="color:var(--r-text-muted)">(' + kb + ' KB)</span></span>'
        + '<button onclick="removeFile(' + i + ')" style="background:none;border:none;'
-       + 'color:var(--tx2);cursor:pointer;font-size:16px">✕</button>'
+       + 'color:var(--r-text-muted);cursor:pointer;font-size:16px">✕</button>'
        + '</div>';
  });
  box.innerHTML = html;
@@ -254,26 +256,26 @@ function renderPreview(d){
  if (fac && fac.code){
   facEl.innerHTML = '<strong>' + escapeHtml(fac.code) + '</strong>'
                    + (fac.name ? ' — ' + escapeHtml(fac.name) : '')
-                   + (fac.agency ? ' <span style="color:var(--tx2)">(' + escapeHtml(fac.agency) + ')</span>' : '');
+                   + (fac.agency ? ' <span style="color:var(--r-text-muted)">(' + escapeHtml(fac.agency) + ')</span>' : '');
  } else {
-  facEl.innerHTML = '<span style="color:var(--tx2)">not resolved — operator confirm required at detail page</span>';
+  facEl.innerHTML = '<span style="color:var(--r-text-muted)">not resolved — operator confirm required at detail page</span>';
  }
 
  // Deadline
  var dlEl = document.getElementById('prevDeadline');
  if (dl && dl.due_date){
   dlEl.innerHTML = escapeHtml(dl.due_date)
-                  + (dl.due_time ? ' <span style="color:var(--tx2)">@ ' + escapeHtml(dl.due_time) + '</span>' : '')
-                  + ' <span style="color:var(--tx2)">(source: ' + escapeHtml(dl.source || '?') + ')</span>';
+                  + (dl.due_time ? ' <span style="color:var(--r-text-muted)">@ ' + escapeHtml(dl.due_time) + '</span>' : '')
+                  + ' <span style="color:var(--r-text-muted)">(source: ' + escapeHtml(dl.source || '?') + ')</span>';
  } else {
-  dlEl.innerHTML = '<span style="color:var(--tx2)">no deadline extracted — will fall back to default</span>';
+  dlEl.innerHTML = '<span style="color:var(--r-text-muted)">no deadline extracted — will fall back to default</span>';
  }
 
  // Required forms
  var rfEl = document.getElementById('prevRequiredForms');
  rfEl.innerHTML = forms.length
-  ? forms.map(function(f){ return '<span style="display:inline-block;padding:2px 8px;background:var(--sf2);border-radius:10px;margin-right:4px;font-family:\'JetBrains Mono\',monospace;font-size:12px">' + escapeHtml(f) + '</span>'; }).join('')
-  : '<span style="color:var(--tx2)">none</span>';
+  ? forms.map(function(f){ return '<span style="display:inline-block;padding:2px 8px;background:var(--r-surface-2);border-radius:10px;margin-right:4px;font-family:\'JetBrains Mono\',monospace;font-size:12px">' + escapeHtml(f) + '</span>'; }).join('')
+  : '<span style="color:var(--r-text-muted)">none</span>';
 
  document.getElementById('prevItemsCount').textContent =
   (d && d.items_parsed || 0) + (items.length !== (d && d.items_parsed) ? ' (preview limited)' : '');
@@ -281,24 +283,24 @@ function renderPreview(d){
  // Items table (first 10 rows only in preview)
  var itemsEl = document.getElementById('prevItemsTable');
  if (items.length){
-  var head = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd);'
-           + 'font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">'
+  var head = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--r-border);'
+           + 'font-size:11px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px">'
            + 'Line items (first ' + Math.min(10, items.length) + ' of ' + items.length + ')</div>';
   var rows = items.slice(0, 10).map(function(it, i){
    var qty = it.qty || it.quantity || '';
    var uom = it.uom || 'EA';
    var desc = it.description || it.desc || '';
    return '<div style="padding:4px 8px;font-size:12px;display:flex;gap:8px;'
-        + 'border-bottom:1px solid var(--bd)">'
-        + '<span style="color:var(--tx2);min-width:20px">' + (i+1) + '.</span>'
+        + 'border-bottom:1px solid var(--r-border)">'
+        + '<span style="color:var(--r-text-muted);min-width:20px">' + (i+1) + '.</span>'
         + '<span style="min-width:40px">' + escapeHtml(String(qty)) + ' ' + escapeHtml(uom) + '</span>'
         + '<span style="flex:1">' + escapeHtml(desc.slice(0, 100)) + (desc.length > 100 ? '…' : '') + '</span>'
         + '</div>';
   }).join('');
   itemsEl.innerHTML = head + rows;
  } else {
-  itemsEl.innerHTML = '<div style="margin-top:12px;padding:8px;color:var(--tx2);font-size:13px;'
-                    + 'background:var(--sf2);border-radius:6px">No line items parsed. '
+  itemsEl.innerHTML = '<div style="margin-top:12px;padding:8px;color:var(--r-text-muted);font-size:13px;'
+                    + 'background:var(--r-surface-2);border-radius:6px">No line items parsed. '
                     + 'If the attachment is a packet with items, review shape before confirming.</div>';
  }
 
@@ -343,20 +345,20 @@ function confirmIngest(){
    var detailUrl = rec === 'rfq' ? '/rfq/' + rid : (rec === 'pc' ? '/pricecheck/' + rid : '');
    body.innerHTML = '<div style="color:#3fb950"><strong>Ingested.</strong></div>'
     + '<table style="margin-top:10px;font-size:13px;width:100%">'
-    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Record type</td><td>' + escapeHtml(rec) + '</td></tr>'
-    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Record ID</td><td>'
+    + '<tr><td style="padding:4px 8px;color:var(--r-text-muted)">Record type</td><td>' + escapeHtml(rec) + '</td></tr>'
+    + '<tr><td style="padding:4px 8px;color:var(--r-text-muted)">Record ID</td><td>'
     + (detailUrl ? '<a href="' + detailUrl + '">' + escapeHtml(rid) + '</a>' : escapeHtml(rid))
     + '</td></tr>'
-    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Classification</td><td>'
+    + '<tr><td style="padding:4px 8px;color:var(--r-text-muted)">Classification</td><td>'
     + escapeHtml(cls.shape || '?') + ' (agency: ' + escapeHtml(cls.agency || '?') + ')</td></tr>'
-    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Items parsed</td><td>' + (d.items_parsed || 0) + '</td></tr>'
-    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Linked PC</td><td>'
+    + '<tr><td style="padding:4px 8px;color:var(--r-text-muted)">Items parsed</td><td>' + (d.items_parsed || 0) + '</td></tr>'
+    + '<tr><td style="padding:4px 8px;color:var(--r-text-muted)">Linked PC</td><td>'
     + escapeHtml(d.linked_pc_id || '—') + '</td></tr>'
     + '</table>'
-    + (d.warnings && d.warnings.length ? '<div style="color:var(--yl);margin-top:8px;font-size:12px">'
+    + (d.warnings && d.warnings.length ? '<div style="color:var(--r-warn);margin-top:8px;font-size:12px">'
        + 'Warnings: ' + d.warnings.map(escapeHtml).join('; ') + '</div>' : '')
     + (detailUrl ? '<div style="margin-top:10px"><a href="' + detailUrl + '" class="btn" '
-       + 'style="background:var(--ac);color:#fff;padding:8px 16px;font-size:13px">Open ' + escapeHtml(rec.toUpperCase()) + '</a></div>' : '');
+       + 'style="background:var(--r-accent);color:#fff;padding:8px 16px;font-size:13px">Open ' + escapeHtml(rec.toUpperCase()) + '</a></div>' : '');
   })
   .catch(function(e){
    btn.disabled = false; btn.textContent = '✓ Confirm & ingest';
