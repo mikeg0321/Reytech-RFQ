@@ -176,28 +176,45 @@ def _build_forms_checklist(manifest, agency_cfg, output_dir, bidpkg_internal):
     # 703B" — despite 703C being attached.
     # When this map says A_substitutes_B, finding either A or B in
     # the manifest satisfies the requirement.
-    _FORM_SUBSTITUTES = {
-        "703b": "703c",
-        "703c": "703b",
-    }
+    # PR-AV-AC9 + Coleman 10842771: the AMS 703 form has three mutually-
+    # EXCLUSIVE revisions — 703A (Rev. 03/2025, current), 703B (prior),
+    # 703C (IT-RFQ variant). The buyer picks ONE; we generate the one the
+    # buyer sent (rev-aware filter at routes_rfq_gen). But CCHCS
+    # required_forms lists all three for back-compat, so a naive per-id
+    # check renders the two UNUSED revisions as "required + missing"
+    # blocking rows — e.g. a 703A bid shows "Missing required forms: AMS
+    # 703B, AMS 703C" in the rollup banner and three 703 rows in the
+    # checklist, when only 703A applies (Coleman punch-list #6).
+    #
+    # Treat the 703 revisions as ONE logical slot: whichever revision is
+    # present satisfies it and renders a single row; when none is present,
+    # render exactly one missing 703 row, not three. Generalizes the old
+    # pairwise 703b<->703c substitute (rfq_9e63456e 5/15) to include 703a.
+    # Guard rail honored: "703C vs 703B — never include both".
+    _FORM_FAMILIES = [("703a", "703b", "703c")]
+
+    def _family_of(fid):
+        for fam in _FORM_FAMILIES:
+            if fid in fam:
+                return fam
+        return None
 
     # Order: required forms first (in agency order), then anything generated
     # but not required (rare — operator added a one-off).
     for form_id in required:
         if form_id in bidpkg_internal:
             continue  # internal — not a standalone deliverable
-        # PR-AV-AC9: if the required form is missing from the manifest
-        # but its substitute IS present (e.g., agency wants 703B and
-        # buyer sent 703C), render the substitute's row in this slot.
-        # This keeps the agency-required ordering intact (703 slot
-        # appears first) while honoring the AV3 substrate substitution.
-        sub_id = _FORM_SUBSTITUTES.get(form_id)
-        if (sub_id and form_id not in review_by_id
-                and sub_id in review_by_id):
-            rows.append(_forms_row(sub_id, review_by_id, field_audit,
+        if form_id in seen:
+            continue  # 703 slot already rendered via a family sibling
+        fam = _family_of(form_id)
+        if fam:
+            # Render the present revision (family order) in this single
+            # slot; if none present, this slot is the one missing 703 row.
+            present = [v for v in fam if v in review_by_id]
+            chosen = present[0] if present else form_id
+            rows.append(_forms_row(chosen, review_by_id, field_audit,
                                    output_dir, required=True))
-            seen.add(form_id)
-            seen.add(sub_id)
+            seen.update(fam)  # suppress the sibling revisions' slots
             continue
         rows.append(_forms_row(form_id, review_by_id, field_audit,
                                output_dir, required=True))

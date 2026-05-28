@@ -261,6 +261,63 @@ class TestFormsChecklist:
         assert "calrecycle74" not in ids
 
 
+class TestForm703Family:
+    """The 703 form has three mutually-exclusive revisions (703A/703B/703C).
+    CCHCS required_forms lists all three for back-compat, but the buyer
+    picks ONE. The checklist must collapse them to a single logical slot:
+    the present revision satisfies it; the unused revisions must NOT show
+    as separate 'required + missing' blocking rows (Coleman punch-list #6).
+    """
+
+    _CCHCS = ["703a", "703b", "703c", "704b", "quote"]
+
+    def _build(self, present_703):
+        ag = {"name": "CCHCS", "required_forms": self._CCHCS}
+        reviews = [{"form_id": "704b", "form_filename": "704b.pdf", "verdict": "pending"},
+                   {"form_id": "quote", "form_filename": "q.pdf", "verdict": "pending"}]
+        if present_703:
+            reviews.append({"form_id": present_703,
+                            "form_filename": f"{present_703}.pdf", "verdict": "pending"})
+        m = _manifest(required_forms=self._CCHCS, reviews=reviews)
+        return compute_review_alignment(rfq=_rfq(), manifest=m, agency_cfg=ag,
+                                        output_dir=None, source_items=None)
+
+    def test_703a_present_collapses_to_one_row(self):
+        """703A bid (Coleman): exactly one 703 row, it's 703a, not missing,
+        and the rollup is NOT blocked on a missing 703."""
+        a = self._build("703a")
+        rows = [f for f in a["forms_checklist"] if f["form_id"].startswith("703")]
+        assert len(rows) == 1, f"expected one 703 row, got {[r['form_id'] for r in rows]}"
+        assert rows[0]["form_id"] == "703a"
+        assert rows[0]["missing"] is False
+        assert a["rollup"]["checks"].get("forms_on_disk") is True, (
+            "703B/703C must not be flagged missing when 703A satisfies the slot"
+        )
+
+    def test_703c_satisfies_slot_regression(self):
+        """AV-AC9 regression: buyer sent 703C, one 703 row = 703c, present."""
+        a = self._build("703c")
+        rows = [f for f in a["forms_checklist"] if f["form_id"].startswith("703")]
+        assert len(rows) == 1 and rows[0]["form_id"] == "703c"
+        assert rows[0]["missing"] is False
+
+    def test_703b_satisfies_slot(self):
+        a = self._build("703b")
+        rows = [f for f in a["forms_checklist"] if f["form_id"].startswith("703")]
+        assert len(rows) == 1 and rows[0]["form_id"] == "703b"
+        assert rows[0]["missing"] is False
+
+    def test_no_703_present_renders_one_missing_row(self):
+        """When no 703 revision is generated, show exactly ONE missing 703
+        row (the first family member in agency order), not three."""
+        a = self._build(None)
+        rows = [f for f in a["forms_checklist"] if f["form_id"].startswith("703")]
+        assert len(rows) == 1, f"expected one missing 703 row, got {[r['form_id'] for r in rows]}"
+        assert rows[0]["form_id"] == "703a"
+        assert rows[0]["missing"] is True
+        assert rows[0]["required"] is True
+
+
 # ── Items alignment ─────────────────────────────────────────────────────────
 
 class TestItemsAlignment:
