@@ -3,42 +3,43 @@
 
 {% block content %}
 
+<div class="r-app">
 <style>
-.card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}
-th{padding:7px 10px;font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}
+.card{background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px}
+th{padding:7px 10px;font-size:14px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--r-border)}
 table{width:100%;border-collapse:collapse}
 </style>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
   <div>
     <h2 style="font-size:22px;font-weight:700">🧠 QA Intelligence Engine</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">Regression detection · Persistent issues · Score trend · Full agent coverage</p>
+    <p style="color:var(--r-text-muted);font-size:13px;margin-top:4px">Regression detection · Persistent issues · Score trend · Full agent coverage</p>
   </div>
   <div style="display:flex;gap:8px">
-    <a href="/api/qa/health" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:14px;text-decoration:none">Run Full Check</a>
-    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:14px;text-decoration:none">🏠 Home</a>
+    <a href="/api/qa/health" style="padding:5px 12px;border:1px solid var(--r-border);border-radius:6px;font-size:14px;text-decoration:none">Run Full Check</a>
+    <a href="/" style="padding:5px 12px;border:1px solid var(--r-border);border-radius:6px;font-size:14px;text-decoration:none">🏠 Home</a>
   </div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px">
   <div class="card">
-    <div style="font-size:14px;color:var(--tx2)">CURRENT SCORE</div>
+    <div style="font-size:14px;color:var(--r-text-muted)">CURRENT SCORE</div>
     <div style="font-size:32px;font-weight:800;color:{{ score_color }}">{{ score }}/100</div>
     <div style="font-size:14px;color:{{ trend_color }};margin-top:4px">{{ trend_str }}</div>
   </div>
   <div class="card">
-    <div style="font-size:14px;color:var(--tx2)">OPEN ISSUES</div>
-    <div style="font-size:32px;font-weight:800;color:{{ 'var(--rd)' if intel.get('open_issue_count',0)>3 else 'var(--yl)' }}">{{ intel.get('open_issue_count', 0) }}</div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:4px">Persistent across runs</div>
+    <div style="font-size:14px;color:var(--r-text-muted)">OPEN ISSUES</div>
+    <div style="font-size:32px;font-weight:800;color:{{ 'var(--r-bad)' if intel.get('open_issue_count',0)>3 else 'var(--r-warn)' }}">{{ intel.get('open_issue_count', 0) }}</div>
+    <div style="font-size:14px;color:var(--r-text-muted);margin-top:4px">Persistent across runs</div>
   </div>
   <div class="card">
-    <div style="font-size:14px;color:var(--tx2)">REGRESSIONS</div>
-    <div style="font-size:32px;font-weight:800;color:{{ 'var(--rd)' if regressions else 'var(--gn)' }}">{{ regressions|length }}</div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:4px">Unacknowledged score drops</div>
+    <div style="font-size:14px;color:var(--r-text-muted)">REGRESSIONS</div>
+    <div style="font-size:32px;font-weight:800;color:{{ 'var(--r-bad)' if regressions else 'var(--r-accent)' }}">{{ regressions|length }}</div>
+    <div style="font-size:14px;color:var(--r-text-muted);margin-top:4px">Unacknowledged score drops</div>
   </div>
   <div class="card">
-    <div style="font-size:14px;color:var(--tx2)">TOTAL QA RUNS</div>
-    <div style="font-size:32px;font-weight:800;color:var(--ac)">{{ intel.get('total_runs', 0) }}</div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:4px">Every 5min background checks</div>
+    <div style="font-size:14px;color:var(--r-text-muted)">TOTAL QA RUNS</div>
+    <div style="font-size:32px;font-weight:800;color:var(--r-accent)">{{ intel.get('total_runs', 0) }}</div>
+    <div style="font-size:14px;color:var(--r-text-muted);margin-top:4px">Every 5min background checks</div>
   </div>
 </div>
 
@@ -46,37 +47,38 @@ table{width:100%;border-collapse:collapse}
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
   <div>
-    <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Persistent Issues (most recurring)</div>
+    <div style="font-size:14px;font-weight:600;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Persistent Issues (most recurring)</div>
     <div class="card" style="padding:0">
       <table>
         <thead><tr><th>Check</th><th>Message</th><th style="text-align:center">Seen</th><th>Since</th></tr></thead>
-        <tbody>{% if issue_rows %}{{ issue_rows | safe }}{% else %}<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--gn);font-size:13px">✅ No persistent open issues</td></tr>{% endif %}</tbody>
+        <tbody>{% if issue_rows %}{{ issue_rows | safe }}{% else %}<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--r-accent);font-size:13px">✅ No persistent open issues</td></tr>{% endif %}</tbody>
       </table>
     </div>
   </div>
   <div>
-    <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Score History</div>
+    <div style="font-size:14px;font-weight:600;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Score History</div>
     <div class="card">
       <canvas id="scoreChart" height="180"></canvas>
     </div>
-    <div style="margin-top:16px;font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">QA Check Coverage (38 checks, 23 agents)</div>
+    <div style="margin-top:16px;font-size:14px;font-weight:600;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">QA Check Coverage (38 checks, 23 agents)</div>
     <div class="card">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:14px">
-        <div style="color:var(--gn)">✅ Routes &amp; auth (257 routes)</div>
-        <div style="color:var(--gn)">✅ All 23 agents covered</div>
-        <div style="color:var(--gn)">✅ DB schema (10 tables)</div>
-        <div style="color:var(--gn)">✅ Data files integrity</div>
-        <div style="color:var(--gn)">✅ Critical route coverage</div>
-        <div style="color:var(--gn)">✅ Regression detection</div>
-        <div style="color:var(--gn)">✅ Issue deduplication</div>
-        <div style="color:var(--gn)">✅ Score trend analysis</div>
-        <div style="color:var(--gn)">✅ Vendor registration</div>
-        <div style="color:var(--gn)">✅ SCPRS credentials</div>
-        <div style="color:var(--gn)">✅ Product catalog</div>
-        <div style="color:var(--gn)">✅ Market scope</div>
+        <div style="color:var(--r-accent)">✅ Routes &amp; auth (257 routes)</div>
+        <div style="color:var(--r-accent)">✅ All 23 agents covered</div>
+        <div style="color:var(--r-accent)">✅ DB schema (10 tables)</div>
+        <div style="color:var(--r-accent)">✅ Data files integrity</div>
+        <div style="color:var(--r-accent)">✅ Critical route coverage</div>
+        <div style="color:var(--r-accent)">✅ Regression detection</div>
+        <div style="color:var(--r-accent)">✅ Issue deduplication</div>
+        <div style="color:var(--r-accent)">✅ Score trend analysis</div>
+        <div style="color:var(--r-accent)">✅ Vendor registration</div>
+        <div style="color:var(--r-accent)">✅ SCPRS credentials</div>
+        <div style="color:var(--r-accent)">✅ Product catalog</div>
+        <div style="color:var(--r-accent)">✅ Market scope</div>
       </div>
     </div>
   </div>
+</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>

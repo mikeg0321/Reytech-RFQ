@@ -3,31 +3,33 @@
 
 {% block content %}
 
+<div class="r-app">
+
 <style>
-.section{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:18px}
+.section{background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:18px;margin-bottom:18px}
 .section h3{margin:0 0 10px 0;font-size:16px;font-weight:700}
-.section .sub{color:var(--tx2);font-size:13px;margin-bottom:14px}
+.section .sub{color:var(--r-text-muted);font-size:13px;margin-bottom:14px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{padding:7px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);text-align:left}
-td{padding:7px 10px;border-bottom:1px solid var(--bd);color:var(--tx)}
-.gap-status-no_record{color:var(--rd);font-weight:700}
+th{padding:7px 10px;font-size:11px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--r-border);text-align:left}
+td{padding:7px 10px;border-bottom:1px solid var(--r-border);color:var(--r-text)}
+.gap-status-no_record{color:var(--r-bad);font-weight:700}
 .gap-status-unknown{color:#D97706;font-weight:600}
-.gap-status-provisional{color:var(--ac);font-weight:600}
-.btn{padding:6px 12px;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid var(--bd);background:var(--bg);color:var(--tx);margin-right:6px}
-.btn.primary{background:var(--ac);color:white;border-color:var(--ac)}
-.btn.success{background:var(--gn);color:white;border-color:var(--gn)}
-.btn.danger{background:var(--rd);color:white;border-color:var(--rd)}
+.gap-status-provisional{color:var(--r-accent);font-weight:600}
+.btn{padding:6px 12px;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid var(--r-border);background:var(--r-bg);color:var(--r-text);margin-right:6px}
+.btn.primary{background:var(--r-accent);color:white;border-color:var(--r-accent)}
+.btn.success{background:var(--r-accent);color:white;border-color:var(--r-accent)}
+.btn.danger{background:var(--r-bad);color:white;border-color:var(--r-bad)}
 .btn:hover{filter:brightness(1.1)}
-.tiny{font-size:12px;color:var(--tx2)}
+.tiny{font-size:12px;color:var(--r-text-muted)}
 .action-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
-.action-bar input{padding:6px 10px;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:4px;font-size:12px}
-.bulk-status{font-size:12px;color:var(--tx2)}
+.action-bar input{padding:6px 10px;background:var(--r-bg);border:1px solid var(--r-border);color:var(--r-text);border-radius:4px;font-size:12px}
+.bulk-status{font-size:12px;color:var(--r-text-muted)}
 </style>
 
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
     <h2 style="font-size:22px;font-weight:700;margin:0">📊 Registration Audit</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px;max-width:680px">
+    <p style="color:var(--r-text-muted);font-size:13px;margin-top:4px;max-width:680px">
       The agencies Reytech could be receiving RFQs from — but isn't, because we're not on their distribution list. Top-N by SCPRS spend. Plus rows the Gmail bulk-seed agent has proposed (operator must confirm).
     </p>
   </div>
@@ -35,8 +37,8 @@ td{padding:7px 10px;border-bottom:1px solid var(--bd);color:var(--tx)}
 </div>
 
 {% if error %}
-<div style="background:rgba(220,38,38,.08);border:1px solid var(--rd);border-radius:10px;padding:14px;margin-bottom:16px">
-  <div style="font-weight:700;color:var(--rd)">⚠ Could not load gap data</div>
+<div style="background:rgba(220,38,38,.08);border:1px solid var(--r-bad);border-radius:10px;padding:14px;margin-bottom:16px">
+  <div style="font-weight:700;color:var(--r-bad)">⚠ Could not load gap data</div>
   <div class="tiny" style="font-family:ui-monospace,monospace">{{ error }}</div>
 </div>
 {% endif %}
@@ -51,7 +53,7 @@ td{padding:7px 10px;border-bottom:1px solid var(--bd);color:var(--tx)}
     <button class="btn primary" onclick="runGmailSeed(false)">▶ Run + write to registry</button>
     <span class="bulk-status" id="seedStatus"></span>
   </div>
-  <pre id="seedOutput" style="background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:11px;max-height:240px;overflow:auto;white-space:pre-wrap;display:none"></pre>
+  <pre id="seedOutput" style="background:var(--r-bg);border:1px solid var(--r-border);border-radius:6px;padding:10px;font-size:11px;max-height:240px;overflow:auto;white-space:pre-wrap;display:none"></pre>
 </div>
 
 <div class="section">
@@ -135,12 +137,14 @@ td{padding:7px 10px;border-bottom:1px solid var(--bd);color:var(--tx)}
   {% endif %}
 </div>
 
+</div>
+
 <script>
 async function runGmailSeed(dryRun) {
   var statusEl = document.getElementById('seedStatus');
   var outEl = document.getElementById('seedOutput');
   statusEl.textContent = dryRun ? 'Running dry-run…' : 'Running + writing…';
-  statusEl.style.color = 'var(--tx2)';
+  statusEl.style.color = 'var(--r-text-muted)';
   outEl.style.display = 'none';
   try {
     var r = await fetch('/api/admin/registration-gaps/gmail-seed', {
@@ -153,7 +157,7 @@ async function runGmailSeed(dryRun) {
     outEl.style.display = 'block';
     if (!data.ok) {
       statusEl.textContent = '⚠ ' + (data.error || 'failed');
-      statusEl.style.color = 'var(--rd)';
+      statusEl.style.color = 'var(--r-bad)';
       return;
     }
     statusEl.textContent =
@@ -161,11 +165,11 @@ async function runGmailSeed(dryRun) {
         ? '✓ dry-run done · ' + (data.proposed || []).length + ' rows would upsert'
         : '✓ ' + (data.rows_upserted || 0) + ' upserted, ' +
           (data.rows_skipped || 0) + ' skipped (operator-owned)';
-    statusEl.style.color = 'var(--gn)';
+    statusEl.style.color = 'var(--r-accent)';
     if (!dryRun) setTimeout(function () { location.reload(); }, 800);
   } catch (e) {
     statusEl.textContent = '⚠ network error';
-    statusEl.style.color = 'var(--rd)';
+    statusEl.style.color = 'var(--r-bad)';
   }
 }
 
@@ -194,15 +198,15 @@ async function _postProvAction(url, deptCode, statusEl) {
     var data = await r.json();
     if (data.ok) {
       statusEl.textContent = '✓';
-      statusEl.style.color = 'var(--gn)';
+      statusEl.style.color = 'var(--r-accent)';
       setTimeout(function () { location.reload(); }, 500);
     } else {
       statusEl.textContent = '⚠ ' + (data.error || 'failed');
-      statusEl.style.color = 'var(--rd)';
+      statusEl.style.color = 'var(--r-bad)';
     }
   } catch (e) {
     statusEl.textContent = '⚠ err';
-    statusEl.style.color = 'var(--rd)';
+    statusEl.style.color = 'var(--r-bad)';
   }
 }
 </script>

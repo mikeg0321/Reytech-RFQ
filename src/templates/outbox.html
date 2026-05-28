@@ -3,18 +3,19 @@
 {% block title %}Outbox — Reytech{% endblock %}
 
 {% block content %}
+<div class="r-app">
 {{ crm_tabs('outbox') }}
 
 {% if load_error %}
-<div role="alert" style="margin-bottom:16px;padding:12px 14px;background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.5);border-left:4px solid var(--rd);border-radius:6px;color:var(--rd);font-size:14px">
+<div role="alert" style="margin-bottom:16px;padding:12px 14px;background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.5);border-left:4px solid var(--r-bad);border-radius:6px;color:var(--r-bad);font-size:14px">
  <strong>⚠️ Outbox partially loaded —</strong> the queue shown below may be incomplete.<br>
- <span style="font-size:13px;color:var(--tx2)">{{ load_error }}</span><br>
- <span style="font-size:12px;color:var(--tx2)">Check server logs for full traceback. <a href="/outbox" style="color:var(--ac)">Retry</a>.</span>
+ <span style="font-size:13px;color:var(--r-text-muted)">{{ load_error }}</span><br>
+ <span style="font-size:12px;color:var(--r-text-muted)">Check server logs for full traceback. <a href="/outbox" style="color:var(--r-accent)">Retry</a>.</span>
 </div>
 {% endif %}
 
 <style>
-.btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}
+.btn{padding:5px 12px;border:1px solid var(--r-border);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}
 .btn:hover{opacity:.8}
 .btn-sm{font-size:14px;padding:4px 10px}
 @media (max-width: 768px) {
@@ -30,63 +31,63 @@
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
  <div>
   <h2 style="font-size:22px;font-weight:700">📬 Email Outbox</h2>
-  <p style="color:var(--tx2);font-size:13px;margin-top:4px">{{ total_pending }} pending · {{ sent_today|length }} sent today — Review all drafts before sending</p>
+  <p style="color:var(--r-text-muted);font-size:13px;margin-top:4px">{{ total_pending }} pending · {{ sent_today|length }} sent today — Review all drafts before sending</p>
  </div>
  <div style="display:flex;gap:8px">
   <a href="/" class="btn">🏠 Home</a>
   {# UX Audit 2026-04-14 §9.2: disabled until CS-reply agent rewrite —
      bulk-approving canned text risks damaging customer relationships. #}
-  <button class="btn" disabled title="Disabled: CS-reply agent rewrite in progress. Review drafts individually." style="opacity:0.5;cursor:not-allowed;background:rgba(128,128,128,.08);border-color:var(--bd);color:var(--tx2)" aria-label="Send All Approved (disabled)">🔒 Send All Approved (disabled)</button>
+  <button class="btn" disabled title="Disabled: CS-reply agent rewrite in progress. Review drafts individually." style="opacity:0.5;cursor:not-allowed;background:rgba(128,128,128,.08);border-color:var(--r-border);color:var(--r-text-muted)" aria-label="Send All Approved (disabled)">🔒 Send All Approved (disabled)</button>
  </div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
- <div class="card"><div style="font-size:14px;color:var(--tx2);margin-bottom:4px">PENDING DRAFTS</div><div style="font-size:28px;font-weight:700;color:var(--yl)">{{ sales_drafts|length }}</div><div style="font-size:14px;color:var(--tx2)">sales outreach</div></div>
- <div class="card"><div style="font-size:14px;color:var(--tx2);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{{ 'var(--rd)' if cs_drafts else 'var(--gn)' }}">{{ cs_drafts|length }}</div><div style="font-size:14px;color:var(--tx2)">customer service</div></div>
+ <div class="card"><div style="font-size:14px;color:var(--r-text-muted);margin-bottom:4px">PENDING DRAFTS</div><div style="font-size:28px;font-weight:700;color:var(--r-warn)">{{ sales_drafts|length }}</div><div style="font-size:14px;color:var(--r-text-muted)">sales outreach</div></div>
+ <div class="card"><div style="font-size:14px;color:var(--r-text-muted);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{{ 'var(--r-bad)' if cs_drafts else 'var(--r-accent)' }}">{{ cs_drafts|length }}</div><div style="font-size:14px;color:var(--r-text-muted)">customer service</div></div>
 </div>
 
 <!-- Bulk Actions Bar -->
 {% if sales_drafts or cs_drafts %}
-<div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
- <span style="font-size:14px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
+<div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--r-surface-2);border-radius:8px;align-items:center;flex-wrap:wrap">
+ <span style="font-size:14px;font-weight:600;color:var(--r-text-muted);margin-right:8px">Bulk Actions:</span>
  {% if sales_drafts %}
- <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px" aria-label="Approve all sales drafts">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
- <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:14px;padding:6px 14px" aria-label="Delete All Drafts">🗑 Delete All Drafts</button>
+ <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--r-accent);font-size:14px;padding:6px 14px" aria-label="Approve all sales drafts">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
+ <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--r-bad);font-size:14px;padding:6px 14px" aria-label="Delete All Drafts">🗑 Delete All Drafts</button>
  {% endif %}
- <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:14px;padding:6px 14px" aria-label="Retry Failed">🔄 Retry Failed</button>
- <input type="search" id="outbox-filter" placeholder="🔍 Filter by sender, subject, or category..." oninput="filterOutbox()" aria-label="Filter outbox" style="flex:1;min-width:220px;padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
- <select id="outbox-age-filter" onchange="filterOutbox()" aria-label="Filter by age" style="padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+ <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--r-warn);font-size:14px;padding:6px 14px" aria-label="Retry Failed">🔄 Retry Failed</button>
+ <input type="search" id="outbox-filter" placeholder="🔍 Filter by sender, subject, or category..." oninput="filterOutbox()" aria-label="Filter outbox" style="flex:1;min-width:220px;padding:6px 10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:13px">
+ <select id="outbox-age-filter" onchange="filterOutbox()" aria-label="Filter by age" style="padding:6px 10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:13px">
   <option value="">Any age</option>
   <option value="1">≤ 1 day old</option>
   <option value="7">≤ 7 days old</option>
   <option value="30">≤ 30 days old</option>
   <option value="999">Older than 7 days</option>
  </select>
- <span id="outbox-filter-count" style="font-size:13px;color:var(--tx2)"></span>
- <span id="bulk-status" style="font-size:14px;color:var(--tx2)"></span>
+ <span id="outbox-filter-count" style="font-size:13px;color:var(--r-text-muted)"></span>
+ <span id="bulk-status" style="font-size:14px;color:var(--r-text-muted)"></span>
 </div>
 {% endif %}
 
 <!-- CS Drafts -->
-<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">📬 Customer Service Replies ({{ cs_drafts|length }})</h3>
+<h3 style="font-size:14px;font-weight:600;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">📬 Customer Service Replies ({{ cs_drafts|length }})</h3>
 {% if not cs_drafts %}
-<p style="color:var(--tx2);font-size:13px;padding:20px 0">No CS drafts pending. 👍</p>
+<p style="color:var(--r-text-muted);font-size:13px;padding:20px 0">No CS drafts pending. 👍</p>
 {% else %}
 {% for d in cs_drafts %}
-<div class="card outbox-card" data-category="cs" data-search="{{ ((d.intent or '') ~ ' ' ~ (d.subject or '') ~ ' ' ~ (d.to or '') ~ ' ' ~ (d.body or '')[:200])|e|lower }}" data-created="{{ (d.created_at or '')[:10] }}" style="margin-bottom:10px;border-left:3px solid var(--ac)">
+<div class="card outbox-card" data-category="cs" data-search="{{ ((d.intent or '') ~ ' ' ~ (d.subject or '') ~ ' ' ~ (d.to or '') ~ ' ' ~ (d.body or '')[:200])|e|lower }}" data-created="{{ (d.created_at or '')[:10] }}" style="margin-bottom:10px;border-left:3px solid var(--r-accent)">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-     <span style="font-size:14px;font-weight:600;color:var(--ac);text-transform:uppercase">{{ (d.intent or 'general')|replace('_',' ') }}</span>
-     <span style="font-size:13px;color:var(--tx2)">📬 CS auto-draft</span>
+     <span style="font-size:14px;font-weight:600;color:var(--r-accent);text-transform:uppercase">{{ (d.intent or 'general')|replace('_',' ') }}</span>
+     <span style="font-size:13px;color:var(--r-text-muted)">📬 CS auto-draft</span>
     </div>
-    <div style="font-size:13px;font-weight:600;color:var(--tx)">{{ d.subject or '' }}</div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
-    <div style="font-size:14px;color:var(--tx);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--sf2);border-radius:6px">{{ (d.body or '')[:400] }}{{ '...' if (d.body or '')|length > 400 else '' }}</div>
+    <div style="font-size:13px;font-weight:600;color:var(--r-text)">{{ d.subject or '' }}</div>
+    <div style="font-size:14px;color:var(--r-text-muted);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
+    <div style="font-size:14px;color:var(--r-text);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--r-surface-2);border-radius:6px">{{ (d.body or '')[:400] }}{{ '...' if (d.body or '')|length > 400 else '' }}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveCS('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px" aria-label="Send Reply">✅ Send Reply</button>
-    <button class="btn btn-sm" onclick="deleteCS('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px" aria-label="Discard">🗑 Discard</button>
+    <button class="btn btn-sm" onclick="approveCS('{{ d.id or '' }}',this)" style="background:var(--r-accent);color:#000;font-size:14px" aria-label="Send Reply">✅ Send Reply</button>
+    <button class="btn btn-sm" onclick="deleteCS('{{ d.id or '' }}',this)" style="background:var(--r-surface-2);color:var(--r-bad);font-size:14px" aria-label="Discard">🗑 Discard</button>
    </div>
   </div>
 </div>
@@ -94,27 +95,28 @@
 {% endif %}
 
 <!-- Sales Drafts -->
-<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin:24px 0 12px">📋 Sales Drafts ({{ sales_drafts|length }})</h3>
+<h3 style="font-size:14px;font-weight:600;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin:24px 0 12px">📋 Sales Drafts ({{ sales_drafts|length }})</h3>
 {% if not sales_drafts %}
-<p style="color:var(--tx2);font-size:13px;padding:20px 0">No sales drafts pending.</p>
+<p style="color:var(--r-text-muted);font-size:13px;padding:20px 0">No sales drafts pending.</p>
 {% else %}
 {% for d in sales_drafts %}
 <div class="card outbox-card" data-category="sales" data-search="{{ ((d.subject or '') ~ ' ' ~ (d.to or '') ~ ' ' ~ (d.body or '')[:200])|e|lower }}" data-created="{{ (d.created_at or '')[:10] }}" style="margin-bottom:10px">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
-    <div style="font-size:13px;font-weight:600;color:var(--tx)">{{ d.subject or '' }}</div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; Created: {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:6px;white-space:pre-wrap">{{ (d.body or '')[:300] }}{{ '...' if (d.body or '')|length > 300 else '' }}</div>
+    <div style="font-size:13px;font-weight:600;color:var(--r-text)">{{ d.subject or '' }}</div>
+    <div style="font-size:14px;color:var(--r-text-muted);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; Created: {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
+    <div style="font-size:14px;color:var(--r-text-muted);margin-top:6px;white-space:pre-wrap">{{ (d.body or '')[:300] }}{{ '...' if (d.body or '')|length > 300 else '' }}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveDraft('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px" aria-label="Approve">✅ Approve</button>
-    <button class="btn btn-sm" onclick="deleteDraft('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px" aria-label="Delete">🗑 Delete</button>
-    <span style="font-size:13px;color:var(--ac);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px">📋 sales draft</span>
+    <button class="btn btn-sm" onclick="approveDraft('{{ d.id or '' }}',this)" style="background:var(--r-accent);color:#000;font-size:14px" aria-label="Approve">✅ Approve</button>
+    <button class="btn btn-sm" onclick="deleteDraft('{{ d.id or '' }}',this)" style="background:var(--r-surface-2);color:var(--r-bad);font-size:14px" aria-label="Delete">🗑 Delete</button>
+    <span style="font-size:13px;color:var(--r-accent);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px">📋 sales draft</span>
    </div>
   </div>
 </div>
 {% endfor %}
 {% endif %}
+</div>
 
 <script>
 function filterOutbox(){
@@ -151,7 +153,7 @@ function approveDraft(id,btn){
   btn.disabled=true;btn.textContent='Sending...';
   fetch('/api/outbox/'+id+'/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
   .then(r=>r.json()).then(d=>{
-    if(d.ok){btn.textContent='✅ Sent!';btn.style.background='var(--gn)';setTimeout(()=>location.reload(),1200)}
+    if(d.ok){btn.textContent='✅ Sent!';btn.style.background='var(--r-accent)';setTimeout(()=>location.reload(),1200)}
     else{btn.disabled=false;btn.textContent='❌ Failed: '+d.error}
   }).catch(()=>{btn.disabled=false;btn.textContent='Error'});
 }
@@ -165,7 +167,7 @@ function approveCS(id,btn){
       // an operator does NOT click Approve again (duplicate-send risk).
       if(d.warning){
         btn.textContent='⚠️ Sent (warning)';
-        btn.style.background='var(--yl, #facc15)';
+        btn.style.background='var(--r-warn, #facc15)';
         btn.title=d.warning;
         alert('Email sent, but: '+d.warning+'\n\nDO NOT re-approve — this may cause a duplicate send. Refresh and verify status.');
       } else {

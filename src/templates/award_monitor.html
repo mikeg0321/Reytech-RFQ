@@ -1,57 +1,59 @@
 {% extends "base.html" %}
 {% block title %}Award Monitor — Reytech{% endblock %}
 {% block content %}
+<div class="r-app">
 <div style="max-width:1400px;margin:0 auto;padding:0 16px">
 
 <div style="margin-bottom:16px">
-  <a href="/analytics" style="color:var(--ac);text-decoration:none;font-size:14px">&larr; Back to Analytics</a>
+  <a href="/analytics" style="color:var(--r-accent);text-decoration:none;font-size:14px">&larr; Back to Analytics</a>
 </div>
 
 <!-- Header -->
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
  <div>
-  <h2 style="margin:0;color:var(--tx)">Award Monitor</h2>
-  <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Live SCPRS monitoring for sent quotes — detect wins and losses automatically</p>
+  <h2 style="margin:0;color:var(--r-text)">Award Monitor</h2>
+  <p style="margin:4px 0 0;color:var(--r-text-muted);font-size:14px">Live SCPRS monitoring for sent quotes — detect wins and losses automatically</p>
  </div>
  <div style="display:flex;gap:8px;align-items:center">
-  <span id="autoRefreshLabel" style="font-size:12px;color:var(--tx2)">Auto-refresh: 60s</span>
-  <button id="runCheckBtn" onclick="runCheck()" style="padding:8px 16px;background:var(--ac);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Run Check Now</button>
+  <span id="autoRefreshLabel" style="font-size:12px;color:var(--r-text-muted)">Auto-refresh: 60s</span>
+  <button id="runCheckBtn" onclick="runCheck()" style="padding:8px 16px;background:var(--r-accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Run Check Now</button>
  </div>
 </div>
 
 <!-- KPI Cards -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px">
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:26px;font-weight:700;color:var(--ac)" id="kpi-watched">--</div>
-  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Quotes Watched</div>
+  <div style="font-size:26px;font-weight:700;color:var(--r-accent)" id="kpi-watched">--</div>
+  <div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Quotes Watched</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:18px;font-weight:700;color:#4f8cff" id="kpi-next-window">--</div>
-  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Next SCPRS Window</div>
+  <div style="font-size:18px;font-weight:700;color:var(--r-accent)" id="kpi-next-window">--</div>
+  <div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Next SCPRS Window</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:18px;font-weight:700;color:var(--tx)" id="kpi-last-run">--</div>
-  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Last Run</div>
+  <div style="font-size:18px;font-weight:700;color:var(--r-text)" id="kpi-last-run">--</div>
+  <div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Last Run</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:26px;font-weight:700;color:#f87171" id="kpi-losses">--</div>
-  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Losses (30d)</div>
+  <div style="font-size:26px;font-weight:700;color:var(--r-bad)" id="kpi-losses">--</div>
+  <div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Losses (30d)</div>
  </div>
 </div>
 
 <!-- Main Table -->
 <div class="card" style="padding:16px">
- <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Monitoring Queue</div>
+ <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Monitoring Queue</div>
  <div id="queueTable" style="overflow-x:auto">
-  <div style="text-align:center;padding:40px;color:var(--tx2)">Loading monitoring data...</div>
+  <div style="text-align:center;padding:40px;color:var(--r-text-muted)">Loading monitoring data...</div>
  </div>
 </div>
 
 <!-- Status Footer -->
-<div id="statusFooter" style="margin-top:12px;padding:10px 14px;background:var(--sf);border-radius:6px;font-size:12px;color:var(--tx2)">
+<div id="statusFooter" style="margin-top:12px;padding:10px 14px;background:var(--r-surface);border-radius:6px;font-size:12px;color:var(--r-text-muted)">
  Scheduler: checking...
 </div>
 
+</div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -76,12 +78,12 @@ function statusBadge(status, phase) {
 }
 
 function matchBadge(confidence, outcome) {
- if (!confidence && !outcome) return '<span style="color:var(--tx2);font-size:12px">No match</span>';
+ if (!confidence && !outcome) return '<span style="color:var(--r-text-muted);font-size:12px">No match</span>';
  var color = '#888';
  if (confidence >= 80) color = outcome === 'we_won' ? '#3fb950' : '#f87171';
  else if (confidence >= 55) color = '#fbbf24';
  var label = outcome ? outcome.replace(/_/g,' ') : 'checking';
- return '<span style="font-weight:600;color:'+color+'">'+confidence+'%</span> <span style="font-size:11px;color:var(--tx2)">'+escHtml(label)+'</span>';
+ return '<span style="font-weight:600;color:'+color+'">'+confidence+'%</span> <span style="font-size:11px;color:var(--r-text-muted)">'+escHtml(label)+'</span>';
 }
 
 function phaseBadge(phase, bizDays) {
@@ -93,7 +95,7 @@ function phaseBadge(phase, bizDays) {
  };
  var c = colors[phase] || colors['unknown'];
  return '<span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:'+c.bg+';color:'+c.color+'">'+escHtml(phase)+'</span>' +
-        (bizDays ? ' <span style="font-size:11px;color:var(--tx2)">day '+bizDays+'</span>' : '');
+        (bizDays ? ' <span style="font-size:11px;color:var(--r-text-muted)">day '+bizDays+'</span>' : '');
 }
 
 function loadQueue() {
@@ -156,7 +158,7 @@ function loadQueue() {
 
   // Table
   if (!queue.length) {
-   document.getElementById('queueTable').innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx2)">No sent quotes to monitor. Send a quote to start tracking.</div>';
+   document.getElementById('queueTable').innerHTML = '<div style="text-align:center;padding:40px;color:var(--r-text-muted)">No sent quotes to monitor. Send a quote to start tracking.</div>';
    return;
   }
 
@@ -176,10 +178,10 @@ function loadQueue() {
    html += '<td>'+escHtml(q.agency)+'</td>';
    html += '<td style="font-size:13px">'+escHtml(q.institution)+'</td>';
    html += '<td style="text-align:right;font-family:monospace">'+fmt(q.total)+'</td>';
-   html += '<td style="font-size:13px;color:var(--tx2)">'+escHtml(q.sent_at)+'</td>';
+   html += '<td style="font-size:13px;color:var(--r-text-muted)">'+escHtml(q.sent_at)+'</td>';
    html += '<td>'+statusBadge(q.status, q.phase)+'</td>';
    html += '<td>'+phaseBadge(q.phase, q.biz_days)+'</td>';
-   html += '<td style="font-size:12px;color:var(--tx2)">'+escHtml(q.last_checked)+'</td>';
+   html += '<td style="font-size:12px;color:var(--r-text-muted)">'+escHtml(q.last_checked)+'</td>';
    html += '<td>'+matchBadge(q.match_confidence, q.match_outcome)+'</td>';
    html += '<td style="font-size:13px">'+escHtml(q.winner)+'</td>';
    html += '</tr>';
