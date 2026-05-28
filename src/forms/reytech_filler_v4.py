@@ -3607,6 +3607,103 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         print(f"  ✓ CalRecycle 74 filled ({sol}, {len(items)} items)")
 
 
+def _splice_overflow_calrecycle_into_bidpkg(bidpkg_path, rfq_data, config):
+    """Replace the embedded 6-row CalRecycle page inside a filled
+    bid_package with the multi-page version from
+    ``fill_calrecycle_standalone``.
+
+    Closes the bug class where bid_package's embedded CalRecycle 74
+    form (filled via pypdf form fields at fixed 6-row template
+    capacity) silently dropped items 7+ on RFQs with >6 line items
+    (Coleman 10842771 21-line RFQ, 2026-05-28 punch list). Sibling fix
+    to the 2026-05-27 ``fill_calrecycle_74`` standalone wrapper which
+    closed the standalone path but missed this code path.
+
+    Algorithm:
+      1. Find the embedded CalRecycle page in the filled bid_package
+         by scanning each page's annotation list for the unique form
+         field name ``Product or Services DescriptionRow1``.
+      2. Generate the canonical multi-page CalRecycle via
+         ``fill_calrecycle_standalone`` against the blank template.
+      3. Splice: write a new bid_package where the embedded 1-page
+         CalRecycle is REPLACED by all pages from the standalone
+         output. All other bid_package pages (DVBE 843, Darfur Act,
+         OBS 1600, etc.) preserve their original order around it.
+
+    No-op if no embedded CalRecycle page is found (some bid_package
+    variants don't include CalRecycle inline) or the blank template
+    is missing.
+    """
+    import os as _os
+    import tempfile as _tempfile
+    from pypdf import PdfReader as _PR, PdfWriter as _PW
+
+    bidpkg_reader = _PR(bidpkg_path)
+    cr_page_idx = None
+    for idx, page in enumerate(bidpkg_reader.pages):
+        annots = page.get("/Annots") or []
+        for a in annots:
+            try:
+                obj = a.get_object() if hasattr(a, "get_object") else a
+                name = str(obj.get("/T", ""))
+            except Exception:
+                continue
+            if "Product or Services DescriptionRow1" in name:
+                cr_page_idx = idx
+                break
+        if cr_page_idx is not None:
+            break
+
+    if cr_page_idx is None:
+        log.info(
+            "CalRecycle splice: no embedded CalRecycle page found in "
+            "bid_package — splice is a no-op for this variant.",
+        )
+        return
+
+    tmpl_dir = _os.path.join(
+        _os.path.dirname(_os.path.abspath(__file__)), "..", "..",
+        "data", "templates",
+    )
+    blank_cr = _os.path.join(tmpl_dir, "calrecycle_74_blank.pdf")
+    if not _os.path.exists(blank_cr):
+        log.warning(
+            "CalRecycle splice: blank template missing at %s — keeping "
+            "bid_package as-is.", blank_cr,
+        )
+        return
+
+    fd, cr_tmp = _tempfile.mkstemp(suffix=".pdf", prefix="cr_splice_")
+    _os.close(fd)
+    try:
+        fill_calrecycle_standalone(blank_cr, rfq_data, config, cr_tmp)
+        cr_reader = _PR(cr_tmp)
+        cr_pages = list(cr_reader.pages)
+
+        writer = _PW()
+        for i in range(cr_page_idx):
+            writer.add_page(bidpkg_reader.pages[i])
+        for page in cr_pages:
+            writer.add_page(page)
+        for i in range(cr_page_idx + 1, len(bidpkg_reader.pages)):
+            writer.add_page(bidpkg_reader.pages[i])
+
+        with open(bidpkg_path, "wb") as f:
+            writer.write(f)
+
+        log.info(
+            "CalRecycle splice: replaced embedded CalRecycle at "
+            "page %d with %d-page version covering %d line items",
+            cr_page_idx, len(cr_pages),
+            len(rfq_data.get("line_items", [])),
+        )
+    finally:
+        try:
+            _os.remove(cr_tmp)
+        except Exception as _e:
+            log.debug("CalRecycle splice cleanup: %s", _e)
+
+
 def fill_bid_package(input_path, rfq_data, config, output_path):
     company = config["company"]
     sol = _sol_display(rfq_data.get("solicitation_number", ""))
@@ -3735,9 +3832,14 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         values["2SABRC Product Category CodeRow1"] = "N/A"
 
     if len(line_items) > 6:
-        import logging
-        logging.getLogger("reytech").warning(
-            "CalRecycle 74: %d items but only 6 rows on template. Items 7+ not listed.", len(line_items)
+        # The embedded form-field fill above only covered items 1-6.
+        # The post-fill splice (see `_splice_overflow_calrecycle_into_bidpkg`
+        # call after `fill_and_sign_pdf`) replaces the 1-page embedded
+        # CalRecycle with the multi-page version covering all items.
+        log.info(
+            "CalRecycle 74: %d items — multi-page splice will replace "
+            "embedded 6-row page with full coverage post-fill.",
+            len(line_items),
         )
 
     values.update({
@@ -3830,6 +3932,31 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
             print(f"  ✓ BidPackage: all {total_pages} pages kept (no trimming needed)")
     except Exception as _te:
         print(f"  ⚠ BidPackage page trim failed (using full output): {_te}")
+
+    # ── CalRecycle 74 overflow splice (Coleman 10842771 punch-list 2026-05-28) ──
+    # Runs AFTER the trim step so the trim's input-template page-index
+    # mapping (`local_keep` vs `local_total` at the secondary check
+    # above) doesn't accidentally drop the spliced overflow pages.
+    # Sibling fix to the 2026-05-27 `fill_calrecycle_74` wrapper that
+    # closed the standalone path but missed this bid-package-embedded
+    # code path — the `line_items[:6]` slice at ~line 3820 silently
+    # dropped items 7+ on Coleman's 21-line RFQ. When the RFQ has >6
+    # line items, generate the multi-page CalRecycle via
+    # `fill_calrecycle_standalone` and splice it in at the embedded
+    # CalRecycle page's position. Items 7+ become visible; bid-package
+    # page order for all OTHER forms (DVBE 843, Darfur, OBS 1600,
+    # Bidder's Declaration) is preserved.
+    if len(line_items) > 6:
+        try:
+            _splice_overflow_calrecycle_into_bidpkg(
+                output_path, rfq_data, config,
+            )
+        except Exception as _cr_e:
+            log.warning(
+                "CalRecycle overflow splice failed (%s) — bid_package "
+                "embedded CalRecycle page shows only the first 6 items.",
+                _cr_e,
+            )
 
     # ── Darfur Option #1 — yellow-highlight the certification paragraph ──
     # Reytech's standard practice on bid packages: certification paragraphs
