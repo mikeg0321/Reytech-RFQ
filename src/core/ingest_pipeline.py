@@ -384,6 +384,67 @@ def process_buyer_request(
             log.warning("multi-attachment union failed (non-fatal): %s", _mu)
             result.warnings.append(f"multi-attach-union: {_mu}")
 
+    # ── Step 3a-dist: parse supplemental distribution lists + build the ──
+    # ── per-attachment disposition manifest (§0 LAW 6 "READ THE WHOLE ──
+    # ── CONTRACT"). A 701B-shaped distribution list was kept OUT of the ──
+    # item union above; here we PARSE it into a structured distribution so
+    # it lands in the contract (never silently dropped), and we record a
+    # disposition for EVERY attachment so an unaccounted-for file is a
+    # build failure, not a default. Coleman 10842771: the 704B row 4 said
+    # "SEE ATTACHED DISTRIBUTION LIST" → the AMS 701B is that target.
+    distribution_list: List[Dict[str, Any]] = []
+    attachment_dispositions: List[Dict[str, Any]] = []
+    try:
+        from src.forms.distribution_list_parser import (
+            is_distribution_list, parse_distribution_list,
+        )
+        _primary_base = os.path.basename(primary_path) if primary_path else ""
+        for f in (files or []):
+            base = os.path.basename(f)
+            if f.lower().endswith(".pdf") and is_distribution_list(f):
+                try:
+                    dl = parse_distribution_list(f)
+                    distribution_list.append(dl)
+                    attachment_dispositions.append({
+                        "file": base, "disposition": "distribution_list",
+                        "rows": dl.get("row_count", 0),
+                    })
+                except Exception as _de:
+                    attachment_dispositions.append({
+                        "file": base,
+                        "disposition": "distribution_list_parse_failed",
+                        "reason": str(_de)[:200],
+                    })
+                    log.warning("distribution-list parse failed %s: %s", base, _de)
+            elif base == _primary_base:
+                attachment_dispositions.append({
+                    "file": base, "disposition": "parsed_items",
+                    "items": len(items or []),
+                })
+            else:
+                # Sibling: unioned by the multi-attach step if RFQ-shaped,
+                # else a form/cert/non-item attachment. Recorded so it is
+                # NOT a silent drop (LAW 6). Finer per-sibling classification
+                # (form vs cert vs unioned) is a Phase-0b enrichment.
+                attachment_dispositions.append({
+                    "file": base, "disposition": "sibling_attachment",
+                })
+        if distribution_list:
+            _rows = sum(d.get("row_count", 0) for d in distribution_list)
+            result.reasons.append(
+                f"distribution-list: parsed {_rows} facility rows from "
+                f"{len(distribution_list)} supplemental attachment(s)"
+            )
+            log.info(
+                "distribution-list: %d rows from %d attachment(s)",
+                _rows, len(distribution_list),
+            )
+    except Exception as _dle:
+        log.warning("distribution-list step failed (non-fatal): %s", _dle)
+    if isinstance(header, dict):
+        header["_distribution_list"] = distribution_list
+        header["_attachment_dispositions"] = attachment_dispositions
+
     # ── Step 3b: body-text fallback when attachment yielded zero items ──
     # Buyers who paste the RFQ into the email body (no parseable attachment)
     # used to land as zero-item placeholders. The body extractor is regex-only
@@ -1167,6 +1228,23 @@ def _multi_attachment_vision_union(
 
         shape, info = _resolve_shape(path)
         if shape != SHAPE_GENERIC_RFQ_PDF:
+            continue
+        # §0 LAW 6: a supplemental AMS 701B "Purchase Order Distribution
+        # List" has LINE/QTY/UOM/DESCRIPTION columns and classifies as a
+        # generic RFQ table, so without this guard the union Vision-parses
+        # its rows as line items — minting one phantom item per facility and
+        # discarding the facility/address/zip columns (Coleman 10842771: 21
+        # phantom items that Option D then has to re-aggregate). A
+        # distribution list is a per-facility DELIVERY ALLOCATION, not a SKU
+        # table — it must NOT enter the line-item union. It is parsed
+        # separately into the contract's distribution list.
+        from src.forms.distribution_list_parser import is_distribution_list
+        if is_distribution_list(path):
+            log.info(
+                "multi_attach_union: skipping distribution-list PDF %s "
+                "(per-facility allocations, not line items)",
+                os.path.basename(path),
+            )
             continue
         pricing_score = int(info.get("pricing_page_score", 0) or 0)
         fname_lower = os.path.basename(path).lower()
@@ -2287,6 +2365,13 @@ def _create_record(
         # PR-AV13 (AV-13): audit-trail snapshot of buyer-asked items.
         # See _snapshot_buyer_source_items() for why this exists.
         record["buyer_source_items"] = _snapshot_buyer_source_items(items)
+        # §0 LAW 6: supplemental distribution list (AMS 701B) parsed at
+        # ingest + the per-attachment disposition manifest. Stashed on the
+        # header by process_buyer_request. Phase-0 stores these on the
+        # legacy record dict (the canonical EmailContract.distribution field
+        # is the Architect/LAW-4 Phase-1 step).
+        record["distribution_list"] = (header or {}).get("_distribution_list") or []
+        record["attachment_dispositions"] = (header or {}).get("_attachment_dispositions") or []
         record["packet_type"] = (
             "cchcs_non_it"
             if classification.shape == "cchcs_packet"
@@ -2457,6 +2542,13 @@ def _create_record(
         # PR-AV13 (AV-13): audit-trail snapshot of buyer-asked items.
         # See _snapshot_buyer_source_items() for why this exists.
         record["buyer_source_items"] = _snapshot_buyer_source_items(items)
+        # §0 LAW 6: supplemental distribution list (AMS 701B) parsed at
+        # ingest + the per-attachment disposition manifest (stashed on the
+        # header by process_buyer_request). Phase-0 stores these on the
+        # legacy record dict; the canonical EmailContract.distribution field
+        # is the Architect/LAW-4 Phase-1 step.
+        record["distribution_list"] = (header or {}).get("_distribution_list") or []
+        record["attachment_dispositions"] = (header or {}).get("_attachment_dispositions") or []
 
         # Register every classifiable sibling attachment as a template
         # slot (703b / 704b / bidpkg / dsh_attA-C / 703c). Pre-fix this
