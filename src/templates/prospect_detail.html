@@ -3,23 +3,23 @@
 
 {% block head_extra %}
 <style>
- .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px;margin-bottom:14px}
- .card h3{font-size:15px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px}
- .g-btn{padding:10px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:14px;font-weight:600;transition:.15s;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
- .g-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1)}
+ .card{background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:20px;margin-bottom:14px}
+ .card h3{font-size:15px;font-weight:700;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px}
+ .g-btn{padding:10px 16px;border-radius:8px;border:1px solid var(--r-border);background:var(--r-surface-2);color:var(--r-text);cursor:pointer;font-size:14px;font-weight:600;transition:.15s;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+ .g-btn:hover{border-color:var(--r-accent);background:rgba(79,140,255,.1)}
  .g-btn-go{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}
  .g-btn-warn{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}
  .g-btn-red{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}
  .g-btn-purple{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}
  table{width:100%;border-collapse:collapse;font-size:15px}
- th{text-align:left;padding:10px;font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
+ th{text-align:left;padding:10px;font-size:14px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--r-border)}
  td{padding:10px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}
  .mono{font-family:'JetBrains Mono',monospace}
  .field-row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid rgba(46,51,69,.4)}
- .field-lbl{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;width:110px;flex-shrink:0}
- .edit-field{background:transparent;border:1px solid transparent;border-radius:6px;color:var(--tx);font-size:15px;font-weight:500;font-family:'DM Sans',sans-serif;padding:4px 8px;width:100%;transition:.2s;box-sizing:border-box}
- .edit-field:hover{border-color:var(--bd);background:var(--sf2)}
- .edit-field:focus{outline:none;border-color:var(--ac);background:var(--sf2)}
+ .field-lbl{font-size:14px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;width:110px;flex-shrink:0}
+ .edit-field{background:transparent;border:1px solid transparent;border-radius:6px;color:var(--r-text);font-size:15px;font-weight:500;font-family:'DM Sans',sans-serif;padding:4px 8px;width:100%;transition:.2s;box-sizing:border-box}
+ .edit-field:hover{border-color:var(--r-border);background:var(--r-surface-2)}
+ .edit-field:focus{outline:none;border-color:var(--r-accent);background:var(--r-surface-2)}
  .edit-field.saving{border-color:#fbbf24;opacity:.7}
  .edit-field.saved{border-color:#3fb950}
  textarea.edit-field{resize:vertical;min-height:60px}
@@ -35,29 +35,30 @@
  .tag-newlead{background:rgba(79,140,255,.15);color:#4f8cff;border:1px solid rgba(79,140,255,.25)}
  .tag-influencer{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}
  .tag-default{background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.25)}
- .tag-add{background:var(--sf2);color:var(--tx2);border:1px dashed var(--bd);font-size:13px;padding:4px 10px;cursor:pointer}
- .tag-add:hover{border-color:var(--ac);color:var(--ac)}
- .tag-menu{position:fixed;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:8px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none;min-width:200px}
- .tag-menu-item{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:var(--tx);cursor:pointer;font-size:14px;border-radius:6px;font-family:'DM Sans',sans-serif}
- .tag-menu-item:hover{background:var(--sf2)}
+ .tag-add{background:var(--r-surface-2);color:var(--r-text-muted);border:1px dashed var(--r-border);font-size:13px;padding:4px 10px;cursor:pointer}
+ .tag-add:hover{border-color:var(--r-accent);color:var(--r-accent)}
+ .tag-menu{position:fixed;background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:8px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none;min-width:200px}
+ .tag-menu-item{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:var(--r-text);cursor:pointer;font-size:14px;border-radius:6px;font-family:'DM Sans',sans-serif}
+ .tag-menu-item:hover{background:var(--r-surface-2)}
  .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}
- .modal-box{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto}
- .form-lbl{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
- .form-input{width:100%;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px;font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:14px}
- .form-input:focus{outline:none;border-color:var(--ac)}
+ .modal-box{background:var(--r-surface);border:1px solid var(--r-border);border-radius:12px;padding:24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto}
+ .form-lbl{font-size:14px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+ .form-input{width:100%;padding:10px 14px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:8px;color:var(--r-text);font-size:15px;font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:14px}
+ .form-input:focus{outline:none;border-color:var(--r-accent)}
  textarea.form-input{resize:vertical;min-height:80px}
- .stat-box{background:var(--sf2);border-radius:8px;padding:12px;text-align:center}
- .stat-label{font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px;letter-spacing:.3px}
+ .stat-box{background:var(--r-surface-2);border-radius:8px;padding:12px;text-align:center}
+ .stat-label{font-size:13px;color:var(--r-text-muted);text-transform:uppercase;margin-bottom:4px;letter-spacing:.3px}
  .stat-value{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace}
- .linked-item{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid rgba(46,51,69,.4);border-radius:6px;transition:.15s;text-decoration:none;color:var(--tx)}
- .linked-item:hover{background:var(--sf2)}
+ .linked-item{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid rgba(46,51,69,.4);border-radius:6px;transition:.15s;text-decoration:none;color:var(--r-text)}
+ .linked-item:hover{background:var(--r-surface-2)}
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="r-app">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px">
- <a href="/contacts" style="color:var(--ac)">👥 CRM</a>
- <span style="color:var(--tx2)">›</span>
+ <a href="/contacts" style="color:var(--r-accent)">👥 CRM</a>
+ <span style="color:var(--r-text-muted)">›</span>
  <span>{{ agency|agency_display }}</span>
 </div>
 
@@ -67,11 +68,11 @@
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px">
    <span style="padding:4px 14px;border-radius:14px;font-size:14px;font-weight:700;text-transform:uppercase;background:{{ stat_color }}22;color:{{ stat_color }};border:1px solid {{ stat_color }}44">{{ stat }}</span>
    {% if win_data is defined and win_data.win_probability is defined %}<span style="padding:4px 12px;border-radius:14px;font-size:14px;font-weight:700;background:{% if win_data.win_probability >= 70 %}rgba(52,211,153,.15);color:#3fb950{% elif win_data.win_probability >= 40 %}rgba(251,191,36,.15);color:#fbbf24{% else %}rgba(139,148,158,.15);color:#8b949e{% endif %};font-family:'JetBrains Mono',monospace">{{ "%.0f"|format(win_data.win_probability) }}% win</span>{% endif %}
-   <span style="color:var(--tx2)">Score <b style="color:var(--ac)">{{ score_pct }}%</b></span>
-   <span style="color:var(--tx2)">Spend <b style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</b></span>
-   <span style="color:var(--tx2)">{{ po_count }} POs · Last {{ last_purchase }}</span>
-   {% if response_rate is not none %}<span style="color:var(--tx2)">📧 Response <b style="color:{% if response_rate > 50 %}#3fb950{% elif response_rate > 20 %}#fbbf24{% else %}#f85149{% endif %}">{{ response_rate }}%</b></span>{% endif %}
-   {% if last_contacted %}<span style="color:var(--tx2)">Last contact: <b>{{ last_contacted }}</b></span>{% endif %}
+   <span style="color:var(--r-text-muted)">Score <b style="color:var(--r-accent)">{{ score_pct }}%</b></span>
+   <span style="color:var(--r-text-muted)">Spend <b style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</b></span>
+   <span style="color:var(--r-text-muted)">{{ po_count }} POs · Last {{ last_purchase }}</span>
+   {% if response_rate is not none %}<span style="color:var(--r-text-muted)">📧 Response <b style="color:{% if response_rate > 50 %}#3fb950{% elif response_rate > 20 %}#fbbf24{% else %}#f85149{% endif %}">{{ response_rate }}%</b></span>{% endif %}
+   {% if last_contacted %}<span style="color:var(--r-text-muted)">Last contact: <b>{{ last_contacted }}</b></span>{% endif %}
   </div>
  </div>
  <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -81,13 +82,13 @@
   <button class="g-btn" onclick="openLog('note')" aria-label="Note">📝 Note</button>
   <div style="position:relative;display:inline-block">
    <button class="g-btn" onclick="toggleMore()" id="more-btn" aria-label="More">⚙️ More ▾</button>
-   <div id="more-menu" style="display:none;position:absolute;right:0;top:44px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:6px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:220px">
+   <div id="more-menu" style="display:none;position:absolute;right:0;top:44px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:6px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:220px">
     <button class="tag-menu-item" onclick="setStatus('responded')" aria-label="Mark Responded">✅ Mark Responded</button>
     <button class="tag-menu-item" onclick="setStatus('follow_up_due')" aria-label="Set Follow Up">⏰ Set Follow Up</button>
     <button class="tag-menu-item" onclick="setStatus('won')" aria-label="Mark Won">🏆 Mark Won</button>
     <button class="tag-menu-item" onclick="setStatus('dead')" aria-label="Mark Dead">💀 Mark Dead</button>
     <button class="tag-menu-item" onclick="convertToCustomer()" aria-label="Convert  Customer">🔄 Convert → Customer</button>
-    <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+    <div style="border-top:1px solid var(--r-border);margin:4px 0"></div>
     <button class="tag-menu-item" onclick="hideContact()" aria-label="Hide Contact">👁️‍🗨️ Hide Contact</button>
     <button class="tag-menu-item" onclick="ignoreEmail()" style="color:#fbbf24" aria-label="Add to Ignore List">🚫 Add to Ignore List</button>
     <button class="tag-menu-item" onclick="deleteContact()" style="color:#f85149" aria-label="Permanently Delete">🗑️ Permanently Delete</button>
@@ -99,7 +100,7 @@
 <!-- TAGS -->
 <div class="card" style="padding:14px 20px;margin-bottom:14px">
  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-  <span style="font-size:14px;color:var(--tx2);font-weight:600;margin-right:4px">🏷️ TAGS:</span>
+  <span style="font-size:14px;color:var(--r-text-muted);font-weight:600;margin-right:4px">🏷️ TAGS:</span>
   <div id="tags-container" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
    {% for t in tags %}{% set tclass = t.lower().replace(' ','').replace('/','') %}
    <span class="tag tag-{{ tclass if tclass in ['buyer','decisionmaker','nonresponsive','difficultcaution','vip','repeatcustomer','newlead','influencer'] else 'default' }}" data-tag="{{ t }}">{{ t }}<span class="tag-x" onclick="removeTag('{{ t }}',event)">×</span></span>
@@ -115,9 +116,9 @@
    <button class="tag-menu-item" onclick="addTag('Influencer')" aria-label="Influencer">💡 Influencer</button>
    <button class="tag-menu-item" onclick="addTag('New Lead')" aria-label="New Lead">🆕 New Lead</button>
    <button class="tag-menu-item" onclick="addTag('Repeat Customer')" aria-label="Repeat Customer">🔄 Repeat Customer</button>
-   <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+   <div style="border-top:1px solid var(--r-border);margin:4px 0"></div>
    <div style="display:flex;gap:4px;padding:4px">
-    <input id="custom-tag-input" placeholder="Custom tag..." style="flex:1;padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+    <input id="custom-tag-input" placeholder="Custom tag..." style="flex:1;padding:6px 10px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px">
     <button onclick="addCustomTag()" class="g-btn" style="padding:6px 12px;font-size:13px">+</button>
    </div>
   </div>
@@ -127,9 +128,9 @@
 <!-- MAIN GRID -->
 <div style="display:grid;grid-template-columns:1fr 1.5fr 0.9fr;gap:14px;margin-bottom:14px">
  <div class="card">
-  <h3>👤 Contact Info <span style="font-weight:400;font-size:13px;text-transform:none;letter-spacing:0;color:var(--tx2)">— edits auto-save</span></h3>
+  <h3>👤 Contact Info <span style="font-weight:400;font-size:13px;text-transform:none;letter-spacing:0;color:var(--r-text-muted)">— edits auto-save</span></h3>
   <div class="field-row"><span class="field-lbl">Name</span><input class="edit-field" data-field="buyer_name" value="{{ pr.get('buyer_name','') }}" placeholder="Full name"></div>
-  <div class="field-row"><span class="field-lbl">Email</span><input class="edit-field mono" data-field="buyer_email" value="{{ pr.get('buyer_email','') }}" placeholder="email@example.com" style="color:var(--ac)"></div>
+  <div class="field-row"><span class="field-lbl">Email</span><input class="edit-field mono" data-field="buyer_email" value="{{ pr.get('buyer_email','') }}" placeholder="email@example.com" style="color:var(--r-accent)"></div>
   <div class="field-row"><span class="field-lbl">Phone</span><input class="edit-field" data-field="buyer_phone" value="{{ pr.get('buyer_phone','') }}" placeholder="+1 (xxx) xxx-xxxx"></div>
   <div class="field-row"><span class="field-lbl">Title</span><input class="edit-field" data-field="title" value="{{ pr.get('title','') }}" placeholder="e.g. Procurement Officer"></div>
   <div class="field-row"><span class="field-lbl">Agency</span><input class="edit-field" data-field="agency" value="{{ agency }}" placeholder="Organization" style="font-weight:600"></div>
@@ -145,7 +146,7 @@
   </div>
   <div class="field-row"><span class="field-lbl">Follow Up</span><input class="edit-field" data-field="follow_up_date" type="date" value="{{ follow_up_date }}" style="font-family:'JetBrains Mono',monospace;font-size:14px"></div>
   <div class="field-row" style="border-bottom:none;align-items:flex-start"><span class="field-lbl" style="padding-top:8px">Notes</span><textarea class="edit-field" data-field="notes" rows="3" placeholder="Add notes...">{{ pr.get('notes','') or pr.get('contact_notes','') }}</textarea></div>
-  <div style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--tx2)">
+  <div style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--r-text-muted)">
    {% if source %}<span>📍 {{ source }}</span>{% endif %}
    {% if created_at %}<span>📅 Created {{ created_at[:10] }}</span>{% endif %}
    {% if emails_sent %}<span>📧 {{ emails_sent }} sent</span>{% endif %}
@@ -153,7 +154,7 @@
  </div>
 
  <div class="card">
-  <h3>📅 Activity Log <span style="font-weight:400;color:var(--tx2);font-size:14px;text-transform:none;letter-spacing:0">({{ all_events|length }} events)</span></h3>
+  <h3>📅 Activity Log <span style="font-weight:400;color:var(--r-text-muted);font-size:14px;text-transform:none;letter-spacing:0">({{ all_events|length }} events)</span></h3>
   <div style="max-height:480px;overflow-y:auto;padding-right:4px">{{ tl_html | safe }}</div>
  </div>
 
@@ -161,7 +162,7 @@
   <h3>📊 SCPRS Intel</h3>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
    <div class="stat-box"><div class="stat-label">Annual Spend</div><div class="stat-value" style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</div></div>
-   <div class="stat-box"><div class="stat-label">PO Count</div><div class="stat-value" style="color:var(--ac)">{{ po_count }}</div></div>
+   <div class="stat-box"><div class="stat-label">PO Count</div><div class="stat-value" style="color:var(--r-accent)">{{ po_count }}</div></div>
    <div class="stat-box"><div class="stat-label">Opp Score</div><div class="stat-value" style="color:#a78bfa">{{ score_pct }}%</div></div>
    <div class="stat-box"><div class="stat-label">Last Buy</div><div class="stat-value" style="font-size:14px">{{ last_purchase }}</div></div>
    {% if response_rate is not none %}
@@ -171,7 +172,7 @@
    <div class="stat-box"><div class="stat-label">Last Contact</div><div class="stat-value" style="font-size:14px">{{ last_contacted }}</div></div>
    {% endif %}
   </div>
-  {% if cats_html %}<div style="font-size:13px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>{{ cats_html | safe }}{% else %}<div style="color:var(--tx2);font-size:14px">Run Deep Pull for category data</div>{% endif %}
+  {% if cats_html %}<div style="font-size:13px;color:var(--r-text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>{{ cats_html | safe }}{% else %}<div style="color:var(--r-text-muted);font-size:14px">Run Deep Pull for category data</div>{% endif %}
  </div>
 </div>
 
@@ -180,29 +181,29 @@
   <h3>📋 Linked Quotes ({{ linked_quotes|length }})</h3>
   {% if linked_quotes %}{% for q in linked_quotes[:10] %}
   <a href="/quote/{{ q.get('quote_number','') }}" class="linked-item">
-   <span style="color:var(--ac);font-family:'JetBrains Mono',monospace;font-weight:700">{{ q.get('quote_number','—') }}</span>
+   <span style="color:var(--r-accent);font-family:'JetBrains Mono',monospace;font-weight:700">{{ q.get('quote_number','—') }}</span>
    <span style="flex:1;font-size:14px">{{ (q.get('agency','')|agency_display) or q.get('institution','') }}</span>
    <span class="mono" style="color:#3fb950">${{ "{:,.0f}".format(q.get('total',0) or 0) }}</span>
-  </a>{% endfor %}{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No linked quotes</div>{% endif %}
+  </a>{% endfor %}{% else %}<div style="color:var(--r-text-muted);font-size:14px;padding:8px 0">No linked quotes</div>{% endif %}
  </div>
  <div class="card">
   <h3>📄 Linked PCs ({{ linked_pcs|length }})</h3>
   {% if linked_pcs %}{% for pc in linked_pcs[:10] %}
   <a href="/pricecheck/{{ pc.get('id','') }}" class="linked-item">
-   <span style="color:var(--ac);font-family:'JetBrains Mono',monospace;font-weight:700">#{{ pc.get('pc_number','—') }}</span>
+   <span style="color:var(--r-accent);font-family:'JetBrains Mono',monospace;font-weight:700">#{{ pc.get('pc_number','—') }}</span>
    <span style="flex:1;font-size:14px">{{ pc.get('institution','') }}</span>
-   <span style="font-size:13px;color:var(--tx2)">{{ pc.get('status','') }}</span>
-  </a>{% endfor %}{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No linked price checks</div>{% endif %}
+   <span style="font-size:13px;color:var(--r-text-muted)">{{ pc.get('status','') }}</span>
+  </a>{% endfor %}{% else %}<div style="color:var(--r-text-muted);font-size:14px;padding:8px 0">No linked price checks</div>{% endif %}
  </div>
  <div class="card">
   <h3>🛒 Items Purchased</h3>
-  {% if items_html %}<div>{{ items_html | safe }}</div>{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No item data yet</div>{% endif %}
+  {% if items_html %}<div>{{ items_html | safe }}</div>{% else %}<div style="color:var(--r-text-muted);font-size:14px;padding:8px 0">No item data yet</div>{% endif %}
  </div>
 </div>
 
 <div class="card">
  <h3>📋 PO History ({{ po_count }})</h3>
- {% if po_html %}<div style="overflow-x:auto"><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Category</th><th style="text-align:right">Total</th></tr></thead><tbody>{{ po_html | safe }}</tbody></table></div>{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No PO history</div>{% endif %}
+ {% if po_html %}<div style="overflow-x:auto"><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Category</th><th style="text-align:right">Total</th></tr></thead><tbody>{{ po_html | safe }}</tbody></table></div>{% else %}<div style="color:var(--r-text-muted);font-size:14px;padding:8px 0">No PO history</div>{% endif %}
 </div>
 
 {% if or_html %}<div class="card"><h3>📧 Outreach Campaigns</h3>{{ or_html | safe }}</div>{% endif %}
@@ -215,14 +216,14 @@
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
    {% set wp = win_data.get('win_probability', 0) if win_data is mapping else 0 %}
    <div style="font-size:36px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{% if wp >= 70 %}#3fb950{% elif wp >= 40 %}#fbbf24{% else %}#8b949e{% endif %}">{{ "%.0f"|format(wp) }}%</div>
-   <div style="font-size:14px;color:var(--tx2)">Predicted win<br>probability</div>
+   <div style="font-size:14px;color:var(--r-text-muted)">Predicted win<br>probability</div>
   </div>
   {% for factor in win_data.get('factors', []) %}
   {% set fname = factor.name if factor is mapping else (factor[0] if factor is iterable else factor) %}
   {% set fval = factor.value if factor is mapping else (factor[1] if factor is iterable and factor|length > 1 else 0) %}
   <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(46,51,69,.4);font-size:14px">
    <span>{{ fname|default('Factor') }}</span>
-   <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{% if fval|default(0)|float > 0 %}#3fb950{% elif fval|default(0)|float < 0 %}#f85149{% else %}var(--tx2){% endif %}">{{ fval|default(0) }}%</span>
+   <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{% if fval|default(0)|float > 0 %}#3fb950{% elif fval|default(0)|float < 0 %}#f85149{% else %}var(--r-text-muted){% endif %}">{{ fval|default(0) }}%</span>
   </div>
   {% endfor %}
  </div>
@@ -231,7 +232,7 @@
   {% if wf_state is defined and wf_state.workflow_id is defined %}
   <div style="margin-bottom:12px">
    <div style="font-weight:700;font-size:15px;margin-bottom:4px">{{ wf_state.workflow_id.replace('_',' ').title() }}</div>
-   <div style="font-size:14px;color:var(--tx2)">Step {{ wf_state.get('current_step', 0) + 1 }} · Started {{ wf_state.get('assigned_at', '')[:10] }}</div>
+   <div style="font-size:14px;color:var(--r-text-muted)">Step {{ wf_state.get('current_step', 0) + 1 }} · Started {{ wf_state.get('assigned_at', '')[:10] }}</div>
   </div>
   <div style="display:flex;gap:4px;flex-wrap:wrap">
    {% for i in range(wf_state.get('current_step', 0) + 1) %}<span style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:600;background:rgba(52,211,153,.12);color:#3fb950">✓ Step {{ i + 1 }}</span>{% endfor %}
@@ -239,7 +240,7 @@
   </div>
   <div style="margin-top:14px"><button class="g-btn g-btn-go" onclick="crmPost('/api/growth/workflow/advance',{prospect_id:PID}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})" aria-label="Advance Step">▶ Advance Step</button></div>
   {% else %}
-  <div style="text-align:center;padding:20px;color:var(--tx2)">
+  <div style="text-align:center;padding:20px;color:var(--r-text-muted)">
    <div style="font-size:24px;margin-bottom:6px">⚡</div>
    <div style="font-size:14px;margin-bottom:12px">No workflow assigned</div>
    <button class="g-btn" onclick="var w=prompt('Workflow ID:','standard_outreach');if(w)crmPost('/api/growth/workflow/assign',{prospect_id:PID,workflow_id:w}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})" aria-label="Assign Workflow">Assign Workflow</button>
@@ -252,11 +253,11 @@
   {% for ev in prospect_cal %}
   <div style="padding:8px 0;border-bottom:1px solid rgba(46,51,69,.4)">
    <div style="font-weight:600;font-size:14px">{{ ev.title }}</div>
-   <div style="font-size:13px;color:var(--tx2)">{{ ev.date }} · {{ ev.get('type','follow_up').replace('_',' ').title() }}</div>
+   <div style="font-size:13px;color:var(--r-text-muted)">{{ ev.date }} · {{ ev.get('type','follow_up').replace('_',' ').title() }}</div>
   </div>
   {% endfor %}
   {% else %}
-  <div style="text-align:center;padding:20px;color:var(--tx2)">
+  <div style="text-align:center;padding:20px;color:var(--r-text-muted)">
    <div style="font-size:24px;margin-bottom:6px">📅</div>
    <div style="font-size:14px;margin-bottom:12px">No scheduled events</div>
    <button class="g-btn" onclick="crmPost('/api/growth/calendar/schedule',{prospect_id:PID,type:'follow_up',days_from_now:3}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})" aria-label="Schedule Follow-Up">📅 Schedule Follow-Up</button>
@@ -270,10 +271,11 @@
  <div class="modal-box">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
    <span id="modal-title" style="font-size:18px;font-weight:700">Log Activity</span>
-   <button onclick="closeModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:22px">✕</button>
+   <button onclick="closeModal()" style="background:none;border:none;color:var(--r-text-muted);cursor:pointer;font-size:22px">✕</button>
   </div>
   <div id="modal-body"></div>
  </div>
+</div>
 </div>
 
 <script>

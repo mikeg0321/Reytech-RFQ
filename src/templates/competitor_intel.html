@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Competitor Intelligence{% endblock %}
 {% block content %}
+<div class="r-app">
 <div style="max-width:1400px;margin:0 auto;padding:0 16px">
 
 <!-- Header -->
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
  <div>
-  <h2 style="margin:0;color:var(--tx)">🏢 Competitor Intelligence</h2>
-  <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Who's winning contracts? What are they selling? How can you compete?</p>
+  <h2 style="margin:0;color:var(--r-text)">🏢 Competitor Intelligence</h2>
+  <p style="margin:4px 0 0;color:var(--r-text-muted);font-size:14px">Who's winning contracts? What are they selling? How can you compete?</p>
  </div>
  <div style="display:flex;gap:8px">
-  <select id="agencyFilter" onchange="loadData()" style="padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+  <select id="agencyFilter" onchange="loadData()" style="padding:8px 12px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px">
    <option value="">All Agencies</option>
    <option value="CCHCS">CCHCS (CDCR)</option>
    <option value="CalVet">CalVet</option>
@@ -26,8 +27,8 @@
 <!-- SCPRS Search -->
 <div class="card" style="margin-bottom:16px;padding:12px 16px">
  <div style="display:flex;gap:8px">
-  <input id="scprsQuery" placeholder="Search SCPRS: suppliers, items, buyers, institutions..." style="flex:1;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px" onkeydown="if(event.key==='Enter')searchSCPRS()">
-  <select id="searchType" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+  <input id="scprsQuery" placeholder="Search SCPRS: suppliers, items, buyers, institutions..." style="flex:1;padding:10px 14px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;color:var(--r-text);font-size:15px" onkeydown="if(event.key==='Enter')searchSCPRS()">
+  <select id="searchType" style="padding:8px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px">
    <option value="all">All Types</option>
    <option value="supplier">Suppliers</option>
    <option value="item">Items</option>
@@ -35,22 +36,22 @@
    <option value="institution">Institutions</option>
    <option value="po">PO Numbers</option>
   </select>
-  <button onclick="searchSCPRS()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px" aria-label="Search">Search</button>
+  <button onclick="searchSCPRS()" class="btn" style="background:var(--r-accent);color:#fff;font-size:14px;padding:10px 20px" aria-label="Search">Search</button>
  </div>
  <div id="searchResults" style="margin-top:8px"></div>
 </div>
 
 <!-- KPI Cards -->
 <div id="kpiCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">
- <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:var(--ac)" id="kpi-pos">—</div><div style="font-size:13px;color:var(--tx2)">Total POs</div></div>
- <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:#3fb950" id="kpi-spend">—</div><div style="font-size:13px;color:var(--tx2)">Total Spend</div></div>
- <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:#d2a8ff" id="kpi-suppliers">—</div><div style="font-size:13px;color:var(--tx2)">Competitors</div></div>
- <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:#fbbf24" id="kpi-institutions">—</div><div style="font-size:13px;color:var(--tx2)">Institutions</div></div>
- <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:#f87171" id="kpi-dvbe">—</div><div style="font-size:13px;color:var(--tx2)">DVBE Displace $</div></div>
+ <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:var(--r-accent)" id="kpi-pos">—</div><div style="font-size:13px;color:var(--r-text-muted)">Total POs</div></div>
+ <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:#3fb950" id="kpi-spend">—</div><div style="font-size:13px;color:var(--r-text-muted)">Total Spend</div></div>
+ <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:#d2a8ff" id="kpi-suppliers">—</div><div style="font-size:13px;color:var(--r-text-muted)">Competitors</div></div>
+ <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:var(--r-warn)" id="kpi-institutions">—</div><div style="font-size:13px;color:var(--r-text-muted)">Institutions</div></div>
+ <div class="card" style="text-align:center;padding:16px"><div style="font-size:28px;font-weight:700;color:var(--r-bad)" id="kpi-dvbe">—</div><div style="font-size:13px;color:var(--r-text-muted)">DVBE Displace $</div></div>
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--bd);padding-bottom:0">
+<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--r-border);padding-bottom:0">
  <button class="tab-btn active" onclick="showTab('competitors',this)" aria-label="Competitors">🏢 Competitors</button>
  <button class="tab-btn" onclick="showTab('vehicles',this)" aria-label="Contract Vehicles">📜 Contract Vehicles</button>
  <button class="tab-btn" onclick="showTab('institutions',this)" aria-label="Institutions">🏛 Institutions</button>
@@ -59,13 +60,13 @@
 </div>
 
 <style>
-.tab-btn{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:14px;cursor:pointer;font-weight:600}
-.tab-btn.active{color:var(--ac);border-bottom-color:var(--ac)}
-.tab-btn:hover{color:var(--tx)}
+.tab-btn{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--r-text-muted);font-size:14px;cursor:pointer;font-weight:600}
+.tab-btn.active{color:var(--r-accent);border-bottom-color:var(--r-accent)}
+.tab-btn:hover{color:var(--r-text)}
 .tab-panel{display:none}.tab-panel.active{display:block}
 .intel-table{width:100%;border-collapse:collapse;font-size:14px}
-.intel-table th{text-align:left;padding:10px 12px;border-bottom:2px solid var(--bd);color:var(--tx2);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
-.intel-table td{padding:10px 12px;border-bottom:1px solid var(--bd);color:var(--tx)}
+.intel-table th{text-align:left;padding:10px 12px;border-bottom:2px solid var(--r-border);color:var(--r-text-muted);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+.intel-table td{padding:10px 12px;border-bottom:1px solid var(--r-border);color:var(--r-text)}
 .intel-table tr:hover{background:rgba(79,140,255,.04)}
 .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
 .badge-dvbe{background:rgba(63,185,80,.15);color:#3fb950}
@@ -80,7 +81,7 @@
    <thead><tr>
     <th>Supplier</th><th>POs</th><th>Total Spend</th><th>Institutions</th><th>Vehicles</th><th>Reytech Overlap</th><th>Status</th>
    </tr></thead>
-   <tbody id="competitorBody"><tr><td colspan="7" style="text-align:center;padding:30px;color:var(--tx2)">Loading...</td></tr></tbody>
+   <tbody id="competitorBody"><tr><td colspan="7" style="text-align:center;padding:30px;color:var(--r-text-muted)">Loading...</td></tr></tbody>
   </table>
  </div>
 </div>
@@ -92,9 +93,9 @@
    <thead><tr>
     <th>Vehicle</th><th>Method</th><th>POs</th><th>Total Spend</th><th>Suppliers</th><th>Agencies</th>
    </tr></thead>
-   <tbody id="vehicleBody"><tr><td colspan="6" style="text-align:center;padding:30px;color:var(--tx2)">Loading...</td></tr></tbody>
+   <tbody id="vehicleBody"><tr><td colspan="6" style="text-align:center;padding:30px;color:var(--r-text-muted)">Loading...</td></tr></tbody>
   </table>
-  <div style="margin-top:16px;padding:16px;background:rgba(210,168,255,.06);border-radius:8px;font-size:14px;color:var(--tx2)">
+  <div style="margin-top:16px;padding:16px;background:rgba(210,168,255,.06);border-radius:8px;font-size:14px;color:var(--r-text-muted)">
    <b style="color:#d2a8ff">💡 Growth Through Contract Vehicles:</b><br>
    • <b>CMAS</b> (CA Multiple Award Schedule): Pre-negotiated state contracts — get on the schedule to win repeat business<br>
    • <b>LPA</b> (Leveraged Procurement): Volume discounts — offer better pricing to displace incumbents<br>
@@ -110,7 +111,7 @@
  <div class="card" style="overflow-x:auto">
   <table class="intel-table">
    <thead><tr><th>Institution</th><th>Agency</th><th>POs</th><th>Total Spend</th><th>Suppliers</th><th>Last PO</th></tr></thead>
-   <tbody id="institutionBody"><tr><td colspan="6" style="text-align:center;padding:30px;color:var(--tx2)">Loading...</td></tr></tbody>
+   <tbody id="institutionBody"><tr><td colspan="6" style="text-align:center;padding:30px;color:var(--r-text-muted)">Loading...</td></tr></tbody>
   </table>
  </div>
 </div>
@@ -124,7 +125,7 @@
   </div>
   <table class="intel-table">
    <thead><tr><th>Non-DVBE Supplier</th><th>Institution</th><th>Agency</th><th>Spend</th><th>POs</th><th>Vehicle</th></tr></thead>
-   <tbody id="dvbeBody"><tr><td colspan="6" style="text-align:center;padding:30px;color:var(--tx2)">Loading...</td></tr></tbody>
+   <tbody id="dvbeBody"><tr><td colspan="6" style="text-align:center;padding:30px;color:var(--r-text-muted)">Loading...</td></tr></tbody>
   </table>
  </div>
 </div>
@@ -132,10 +133,11 @@
 <!-- Data Health Tab -->
 <div id="tab-health" class="tab-panel">
  <div class="card" id="healthPanel" style="padding:20px">
-  <div style="color:var(--tx2);text-align:center">Loading health data...</div>
+  <div style="color:var(--r-text-muted);text-align:center">Loading health data...</div>
  </div>
 </div>
 
+</div>
 </div>
 
 <script>
@@ -174,7 +176,7 @@ function loadData(){
    if(c.is_dvbe) badges.push('<span class="badge badge-dvbe">DVBE</span>');
    const cats=(c.top_categories||[]).map(t=>t.category||'?').join(', ');
    html+='<tr>'
-    +'<td><b>'+escHtml(c.supplier)+'</b><div style="font-size:12px;color:var(--tx2)">'+escHtml(cats)+'</div></td>'
+    +'<td><b>'+escHtml(c.supplier)+'</b><div style="font-size:12px;color:var(--r-text-muted)">'+escHtml(cats)+'</div></td>'
     +'<td>'+c.po_count+'</td>'
     +'<td style="font-weight:600;font-family:monospace">'+fmt$(c.total_spend)+'</td>'
     +'<td>'+c.institutions_served+'</td>'
@@ -183,7 +185,7 @@ function loadData(){
     +'<td>'+badges.join(' ')+'</td>'
     +'</tr>';
   });
-  document.getElementById('competitorBody').innerHTML=html||'<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--tx2)">No SCPRS data yet — run a pull first</td></tr>';
+  document.getElementById('competitorBody').innerHTML=html||'<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--r-text-muted)">No SCPRS data yet — run a pull first</td></tr>';
 
   // Vehicles
   html='';
@@ -197,7 +199,7 @@ function loadData(){
     +'<td>'+v.agency_count+'</td>'
     +'</tr>';
   });
-  document.getElementById('vehicleBody').innerHTML=html||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--tx2)">No data</td></tr>';
+  document.getElementById('vehicleBody').innerHTML=html||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--r-text-muted)">No data</td></tr>';
 
   // Institutions
   html='';
@@ -211,7 +213,7 @@ function loadData(){
     +'<td>'+escHtml(i.last_po||'—')+'</td>'
     +'</tr>';
   });
-  document.getElementById('institutionBody').innerHTML=html||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--tx2)">No data</td></tr>';
+  document.getElementById('institutionBody').innerHTML=html||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--r-text-muted)">No data</td></tr>';
 
   // DVBE
   html='';
@@ -225,7 +227,7 @@ function loadData(){
     +'<td>'+escHtml(o.vehicle||'—')+'</td>'
     +'</tr>';
   });
-  document.getElementById('dvbeBody').innerHTML=html||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--tx2)">No data</td></tr>';
+  document.getElementById('dvbeBody').innerHTML=html||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--r-text-muted)">No data</td></tr>';
  }).catch(e=>{
   document.getElementById('competitorBody').innerHTML='<tr><td colspan="7" style="color:#f85149;padding:20px">Error: '+escHtml(e.message)+'</td></tr>';
  });
@@ -237,20 +239,20 @@ function searchSCPRS(){
  const type=document.getElementById('searchType').value;
  const agency=document.getElementById('agencyFilter').value;
  const el=document.getElementById('searchResults');
- el.innerHTML='<div style="color:var(--tx2);padding:8px">Searching...</div>';
+ el.innerHTML='<div style="color:var(--r-text-muted);padding:8px">Searching...</div>';
  fetch('/api/intel/scprs-search?q='+encodeURIComponent(q)+'&type='+type+(agency?'&agency='+agency:''))
  .then(r=>r.json()).then(d=>{
   if(!d.ok){el.innerHTML='<div style="color:#f85149;padding:8px">'+escHtml(d.error)+'</div>';return;}
-  if(!d.results||!d.results.length){el.innerHTML='<div style="color:var(--tx2);padding:12px">No results for "'+escHtml(q)+'"</div>';return;}
-  let html='<div style="font-size:13px;color:var(--tx2);margin-bottom:4px">'+d.total+' results</div>';
+  if(!d.results||!d.results.length){el.innerHTML='<div style="color:var(--r-text-muted);padding:12px">No results for "'+escHtml(q)+'"</div>';return;}
+  let html='<div style="font-size:13px;color:var(--r-text-muted);margin-bottom:4px">'+d.total+' results</div>';
   d.results.forEach(r=>{
    const colors={supplier:'#58a6ff',item:'#3fb950',buyer:'#a78bfa',institution:'#fbbf24',po:'#d29922'};
    const color=colors[r.type]||'#8b949e';
-   html+='<div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px">'
+   html+='<div style="padding:8px 12px;border-bottom:1px solid var(--r-border);display:flex;align-items:center;gap:10px">'
     +'<span style="font-size:16px">'+escHtml(r.icon)+'</span>'
     +'<span style="padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;color:'+color+';background:'+color+'22">'+escHtml(r.type)+'</span>'
-    +'<span style="font-weight:600;color:var(--tx)">'+escHtml(r.name)+'</span>'
-    +'<span style="flex:1;font-size:13px;color:var(--tx2)">'+escHtml(r.detail)+'</span>'
+    +'<span style="font-weight:600;color:var(--r-text)">'+escHtml(r.name)+'</span>'
+    +'<span style="flex:1;font-size:13px;color:var(--r-text-muted)">'+escHtml(r.detail)+'</span>'
     +'</div>';
   });
   el.innerHTML=html;
@@ -263,11 +265,11 @@ function loadHealth(){
   const gradeColor={A:'#3fb950',B:'#58a6ff',C:'#d29922',D:'#f87171',F:'#f85149'}[d.grade]||'#8b949e';
   let html='<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">'
    +'<div style="font-size:48px;font-weight:800;color:'+gradeColor+'">'+d.grade+'</div>'
-   +'<div><div style="font-size:14px;color:var(--tx2)">SCPRS Data Health Score</div>'
-   +'<div style="font-size:24px;font-weight:700;color:var(--tx)">'+d.score+'/100</div></div></div>';
+   +'<div><div style="font-size:14px;color:var(--r-text-muted)">SCPRS Data Health Score</div>'
+   +'<div style="font-size:24px;font-weight:700;color:var(--r-text)">'+d.score+'/100</div></div></div>';
   (d.checks||[]).forEach(c=>{
    const icon={ok:'✅',warning:'⚠️',critical:'🔴',error:'❌',info:'ℹ️'}[c.status]||'?';
-   html+='<div style="padding:10px 0;border-bottom:1px solid var(--bd)">'
+   html+='<div style="padding:10px 0;border-bottom:1px solid var(--r-border)">'
     +'<div style="font-size:14px"><span>'+icon+'</span> <b>'+escHtml(c.check)+'</b>: '+escHtml(c.message)+'</div>';
    if(c.action) html+='<div style="font-size:13px;color:#58a6ff;margin-top:4px">→ '+escHtml(c.action)+'</div>';
    html+='</div>';

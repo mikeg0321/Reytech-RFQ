@@ -2,6 +2,7 @@
 {% block title %}Growth Intelligence{% endblock %}
 {% from "partials/_growth_tabs.html" import growth_tabs %}
 {% block content %}
+<div class="r-app">
 {{ growth_tabs('intelligence') }}
 <div style="max-width:1400px;margin:0 auto">
 
@@ -13,16 +14,16 @@
  </div>
 
  {% if scprs_freshness %}
- <div class="card" style="padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;border-left:4px solid {% if scprs_freshness.stale %}var(--rd){% else %}var(--gn){% endif %}">
-  <span style="font-size:14px;color:var(--tx2)">SCPRS data</span>
+ <div class="card" style="padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;border-left:4px solid {% if scprs_freshness.stale %}var(--r-bad){% else %}var(--r-accent){% endif %}">
+  <span style="font-size:14px;color:var(--r-text-muted)">SCPRS data</span>
   <span style="font-size:14px;font-weight:600">
    last pull: {{ scprs_freshness.last_relative|default('unknown') }}
   </span>
   {% if scprs_freshness.next_pull %}
-  <span style="font-size:14px;color:var(--tx2)">· next: {{ scprs_freshness.next_pull[:16] }}</span>
+  <span style="font-size:14px;color:var(--r-text-muted)">· next: {{ scprs_freshness.next_pull[:16] }}</span>
   {% endif %}
   {% if scprs_freshness.stale %}
-  <span style="font-size:14px;color:var(--rd);font-weight:600">· STALE (&gt;48h)</span>
+  <span style="font-size:14px;color:var(--r-bad);font-weight:600">· STALE (&gt;48h)</span>
   {% endif %}
  </div>
  {% endif %}
@@ -30,22 +31,22 @@
  <!-- Top Stats Row -->
  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
   <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ catalog_stats.get('total_products', 0) }}</div>
-   <div style="font-size:14px;color:var(--tx2)">Catalog Products</div>
+   <div style="font-size:28px;font-weight:800;color:var(--r-accent)">{{ catalog_stats.get('total_products', 0) }}</div>
+   <div style="font-size:14px;color:var(--r-text-muted)">Catalog Products</div>
   </div>
   <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:var(--gn)">{{ won_count }}</div>
-   <div style="font-size:14px;color:var(--tx2)">Quotes Won</div>
-   <div style="font-size:18px;color:var(--rd);margin-top:2px">{{ lost_count }} lost · {{ pending_count }} pending</div>
+   <div style="font-size:28px;font-weight:800;color:var(--r-accent)">{{ won_count }}</div>
+   <div style="font-size:14px;color:var(--r-text-muted)">Quotes Won</div>
+   <div style="font-size:18px;color:var(--r-bad);margin-top:2px">{{ lost_count }} lost · {{ pending_count }} pending</div>
   </div>
   <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:{% if alerts|length > 0 %}var(--yl){% else %}var(--gn){% endif %}">{{ alerts|length }}</div>
-   <div style="font-size:14px;color:var(--tx2)">Price Alerts</div>
+   <div style="font-size:28px;font-weight:800;color:{% if alerts|length > 0 %}var(--r-warn){% else %}var(--r-accent){% endif %}">{{ alerts|length }}</div>
+   <div style="font-size:14px;color:var(--r-text-muted)">Price Alerts</div>
   </div>
   <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ outreach_targets_count }}</div>
-   <div style="font-size:14px;color:var(--tx2)">Outreach Targets</div>
-   <div style="font-size:18px;color:var(--yl);margin-top:2px">{{ outreach_sent }} sent · {{ follow_ups_due }} follow-ups due</div>
+   <div style="font-size:28px;font-weight:800;color:var(--r-accent)">{{ outreach_targets_count }}</div>
+   <div style="font-size:14px;color:var(--r-text-muted)">Outreach Targets</div>
+   <div style="font-size:18px;color:var(--r-warn);margin-top:2px">{{ outreach_sent }} sent · {{ follow_ups_due }} follow-ups due</div>
   </div>
  </div>
 
@@ -60,22 +61,22 @@
     {% if alerts %}
     <div style="max-height:300px;overflow-y:auto">
      {% for a in alerts %}
-     <div style="padding:8px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+     <div style="padding:8px 10px;border-bottom:1px solid var(--r-border);display:flex;align-items:center;gap:8px">
       <span style="font-size:16px">
        {% if a.severity == 'high' %}🔴{% elif a.severity == 'medium' %}🟡{% else %}🟢{% endif %}
       </span>
       <div style="flex:1">
        <div style="font-size:14px;font-weight:600">{{ a.product_name }}</div>
-       <div style="font-size:14px;color:var(--tx2)">{{ a.message }}</div>
+       <div style="font-size:14px;color:var(--r-text-muted)">{{ a.message }}</div>
       </div>
-      <span style="font-size:14px;font-weight:700;color:{% if a.pct_change > 0 %}var(--rd){% else %}var(--gn){% endif %}">
+      <span style="font-size:14px;font-weight:700;color:{% if a.pct_change > 0 %}var(--r-bad){% else %}var(--r-accent){% endif %}">
        {% if a.pct_change > 0 %}↑{% else %}↓{% endif %}{{ a.pct_change|abs }}%
       </span>
      </div>
      {% endfor %}
     </div>
     {% else %}
-    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
+    <div style="padding:20px;text-align:center;color:var(--r-text-muted);font-size:13px">
      ✅ No price alerts — click "Rebuild Catalog from History" to populate price history.
     </div>
     {% endif %}
@@ -87,25 +88,25 @@
    {# resolve. Sources `quotes` table grouped by contact_email.          #}
    {% set _bpm = buyer_pricing_memory|default({"rows": [], "totals": {}, "total_buyers": 0}) %}
    <div class="card" style="margin-bottom:14px">
-    <div class="card-t">👥 Buyer Pricing Memory <span style="font-size:11px;color:var(--tx2);font-weight:400">— last 90d</span></div>
+    <div class="card-t">👥 Buyer Pricing Memory <span style="font-size:11px;color:var(--r-text-muted);font-weight:400">— last 90d</span></div>
     {% if not _bpm.rows %}
-    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
+    <div style="padding:20px;text-align:center;color:var(--r-text-muted);font-size:13px">
      No quotes with a buyer email in the last 90 days. As soon as a quote ships
      with <code>contact_email</code> populated, that buyer's history appears here.
     </div>
     {% else %}
-    <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">
+    <div style="font-size:12px;color:var(--r-text-muted);margin-bottom:8px">
      Showing top {{ _bpm.rows|length }} of {{ _bpm.total_buyers }} buyers (by recency).
      Totals across visible rows:
      <strong>{{ _bpm.totals.quotes|default(0) }}</strong> quotes ·
-     <span style="color:var(--gn)">{{ _bpm.totals.won|default(0) }} won</span> ·
-     <span style="color:var(--rd)">{{ _bpm.totals.lost|default(0) }} lost</span> ·
-     <span style="color:var(--yl)">{{ _bpm.totals.pending|default(0) }} pending</span> ·
+     <span style="color:var(--r-accent)">{{ _bpm.totals.won|default(0) }} won</span> ·
+     <span style="color:var(--r-bad)">{{ _bpm.totals.lost|default(0) }} lost</span> ·
+     <span style="color:var(--r-warn)">{{ _bpm.totals.pending|default(0) }} pending</span> ·
      ${{ '{:,.0f}'.format(_bpm.totals.value_usd|default(0)) }} quoted.
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px">
      <thead>
-      <tr style="color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd,#30363d)">
+      <tr style="color:var(--r-text-muted);text-align:left;border-bottom:1px solid var(--r-border)">
        <th style="padding:6px 8px">Buyer</th>
        <th style="padding:6px 8px">Agency</th>
        <th style="padding:6px 8px;text-align:right">Quotes</th>
@@ -117,34 +118,34 @@
      </thead>
      <tbody>
       {% for b in _bpm.rows %}
-      <tr style="border-bottom:1px solid var(--bd,#30363d)">
+      <tr style="border-bottom:1px solid var(--r-border)">
        <td style="padding:8px">
         {# Plan §6.2 sub-2: click-through to per-buyer drilldown. #}
         <a href="/growth-intel/buyer?email={{ b.contact_email|urlencode }}"
            style="color:inherit;text-decoration:none"
            title="Open buyer history">
          {% if b.contact_name %}<strong>{{ b.contact_name }}</strong><br>{% endif %}
-         <span style="font-size:11px;color:var(--ac)">{{ b.contact_email }} →</span>
+         <span style="font-size:11px;color:var(--r-accent)">{{ b.contact_email }} →</span>
         </a>
        </td>
-       <td style="padding:8px;color:var(--tx2)">{{ b.agency_last|default('—') }}</td>
+       <td style="padding:8px;color:var(--r-text-muted)">{{ b.agency_last|default('—') }}</td>
        <td style="padding:8px;text-align:right">{{ b.quote_count }}</td>
        <td style="padding:8px;text-align:right;font-size:12px">
-        <span style="color:var(--gn)">{{ b.won_count }}</span>
-        / <span style="color:var(--rd)">{{ b.lost_count }}</span>
-        / <span style="color:var(--yl)">{{ b.pending_count }}</span>
+        <span style="color:var(--r-accent)">{{ b.won_count }}</span>
+        / <span style="color:var(--r-bad)">{{ b.lost_count }}</span>
+        / <span style="color:var(--r-warn)">{{ b.pending_count }}</span>
        </td>
        <td style="padding:8px;text-align:right">
         {% if b.win_rate_pct is not none %}
-          <span style="color:{% if b.win_rate_pct >= 50 %}var(--gn){% elif b.win_rate_pct >= 25 %}var(--yl){% else %}var(--rd){% endif %}">
+          <span style="color:{% if b.win_rate_pct >= 50 %}var(--r-accent){% elif b.win_rate_pct >= 25 %}var(--r-warn){% else %}var(--r-bad){% endif %}">
             {{ b.win_rate_pct }}%
           </span>
         {% else %}
-          <span style="color:var(--tx2)">—</span>
+          <span style="color:var(--r-text-muted)">—</span>
         {% endif %}
        </td>
        <td style="padding:8px;text-align:right">${{ '{:,.0f}'.format(b.total_value_usd) }}</td>
-       <td style="padding:8px;color:var(--tx2);font-size:12px">
+       <td style="padding:8px;color:var(--r-text-muted);font-size:12px">
         {{ (b.last_activity_at or '')[:10] }}
         {% if b.last_quote_number %}<br><code style="font-size:11px">{{ b.last_quote_number }}</code>{% endif %}
        </td>
@@ -161,41 +162,41 @@
     {% if total_quotes > 0 %}
     <div style="display:flex;gap:16px;padding:10px 12px;margin-bottom:8px">
      <div style="flex:1;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--gn)">{{ won_count }}</div>
-      <div style="font-size:13px;color:var(--tx2)">WON</div>
+      <div style="font-size:22px;font-weight:700;color:var(--r-accent)">{{ won_count }}</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">WON</div>
      </div>
      <div style="flex:1;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--rd)">{{ lost_count }}</div>
-      <div style="font-size:13px;color:var(--tx2)">LOST</div>
+      <div style="font-size:22px;font-weight:700;color:var(--r-bad)">{{ lost_count }}</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">LOST</div>
      </div>
      <div style="flex:1;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--yl)">{{ pending_count }}</div>
-      <div style="font-size:13px;color:var(--tx2)">PENDING</div>
+      <div style="font-size:22px;font-weight:700;color:var(--r-warn)">{{ pending_count }}</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">PENDING</div>
      </div>
      <div style="flex:1;text-align:center">
       <div style="font-size:22px;font-weight:700">
        {% if won_count + lost_count > 0 %}{{ (won_count / (won_count + lost_count) * 100)|round(0)|int }}%{% else %}—{% endif %}
       </div>
-      <div style="font-size:13px;color:var(--tx2)">WIN RATE</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">WIN RATE</div>
      </div>
     </div>
     {% if pending_count > 0 %}
     <div style="padding:8px 12px;background:rgba(255,193,7,.08);border-radius:6px;margin:8px 12px">
-     <div style="font-size:14px;font-weight:600;color:var(--yl);margin-bottom:4px">{{ pending_count }} quotes need outcome tracking</div>
-     <div style="font-size:14px;color:var(--tx2)">Go to the RFQ Queue and record win/loss for each sent quote.</div>
+     <div style="font-size:14px;font-weight:600;color:var(--r-warn);margin-bottom:4px">{{ pending_count }} quotes need outcome tracking</div>
+     <div style="font-size:14px;color:var(--r-text-muted)">Go to the RFQ Queue and record win/loss for each sent quote.</div>
     </div>
     {% endif %}
     {% else %}
-    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">No quotes yet</div>
+    <div style="padding:20px;text-align:center;color:var(--r-text-muted);font-size:13px">No quotes yet</div>
     {% endif %}
     {% if wl_log %}
     <div style="margin-top:8px;max-height:200px;overflow-y:auto">
      {% for r in wl_log %}
-     <div style="padding:6px 12px;border-top:1px solid var(--bd);font-size:14px;display:flex;gap:8px;align-items:center">
+     <div style="padding:6px 12px;border-top:1px solid var(--r-border);font-size:14px;display:flex;gap:8px;align-items:center">
       <span>{% if r.outcome == 'won' %}🏆{% elif r.outcome == 'lost' %}❌{% else %}⏰{% endif %}</span>
       <span style="flex:1">{{ r.solicitation or r.rfq_id }} — {{ r.agency|agency_display }}</span>
-      <span style="color:var(--tx2)">{{ r.reason }}</span>
-      <span style="color:var(--tx2)">{{ r.recorded_at[:10] if r.recorded_at else '' }}</span>
+      <span style="color:var(--r-text-muted)">{{ r.reason }}</span>
+      <span style="color:var(--r-text-muted)">{{ r.recorded_at[:10] if r.recorded_at else '' }}</span>
      </div>
      {% endfor %}
     </div>
@@ -208,15 +209,15 @@
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px 12px">
      <div style="text-align:center">
       <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('total_products', 0) }}</div>
-      <div style="font-size:13px;color:var(--tx2)">Products</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">Products</div>
      </div>
      <div style="text-align:center">
       <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('with_price', 0) }}</div>
-      <div style="font-size:13px;color:var(--tx2)">With Pricing</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">With Pricing</div>
      </div>
      <div style="text-align:center">
       <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('with_cost', 0) }}</div>
-      <div style="font-size:13px;color:var(--tx2)">With Cost Data</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">With Cost Data</div>
      </div>
     </div>
     <div id="rebuild-status" style="padding:8px 12px;font-size:14px;display:none"></div>
@@ -232,16 +233,16 @@
     {% if outreach_targets %}
     <div style="max-height:400px;overflow-y:auto">
      {% for t in outreach_targets %}
-     <div style="padding:8px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px" id="target-{{ loop.index }}">
+     <div style="padding:8px 10px;border-bottom:1px solid var(--r-border);display:flex;align-items:center;gap:8px" id="target-{{ loop.index }}">
       <div style="flex:1">
        <div style="font-size:14px;font-weight:600">{{ t.name or t.email }}</div>
-       <div style="font-size:14px;color:var(--tx2)">{{ t.agency|agency_display }}{% if t.facility %} · {{ t.facility }}{% endif %}{% if t.title %} · {{ t.title }}{% endif %}</div>
-       <div style="font-size:13px;color:var(--tx2)">{{ t.email }}</div>
+       <div style="font-size:14px;color:var(--r-text-muted)">{{ t.agency|agency_display }}{% if t.facility %} · {{ t.facility }}{% endif %}{% if t.title %} · {{ t.title }}{% endif %}</div>
+       <div style="font-size:13px;color:var(--r-text-muted)">{{ t.email }}</div>
       </div>
       <div style="display:flex;gap:4px;align-items:center">
-       <span style="font-size:13px;font-weight:600;color:{% if t.score >= 80 %}var(--gn){% elif t.score >= 50 %}var(--yl){% else %}var(--tx2){% endif %}">{{ t.score }}pts</span>
+       <span style="font-size:13px;font-weight:600;color:{% if t.score >= 80 %}var(--r-accent){% elif t.score >= 50 %}var(--r-warn){% else %}var(--r-text-muted){% endif %}">{{ t.score }}pts</span>
        {% if t.status == 'emailed' %}
-       <span style="font-size:13px;padding:2px 6px;background:rgba(46,160,67,.15);color:var(--gn);border-radius:4px">Sent</span>
+       <span style="font-size:13px;padding:2px 6px;background:rgba(46,160,67,.15);color:var(--r-accent);border-radius:4px">Sent</span>
        {% else %}
        <button onclick="draftOutreach('{{ t.email }}','{{ t.name|e }}','{{ t.agency|e }}','{{ t.facility|e }}')" class="btn btn-s" style="font-size:13px;padding:2px 8px" aria-label="Draft">📧 Draft</button>
        {% endif %}
@@ -250,7 +251,7 @@
      {% endfor %}
     </div>
     {% else %}
-    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
+    <div style="padding:20px;text-align:center;color:var(--r-text-muted);font-size:13px">
      No outreach targets found. Add contacts with email addresses in CRM.
     </div>
     {% endif %}
@@ -262,21 +263,21 @@
     {% if outreach_queue %}
     <div style="max-height:250px;overflow-y:auto">
      {% for q in outreach_queue %}
-     <div style="padding:6px 10px;border-bottom:1px solid var(--bd);font-size:14px;display:flex;align-items:center;gap:6px">
+     <div style="padding:6px 10px;border-bottom:1px solid var(--r-border);font-size:14px;display:flex;align-items:center;gap:6px">
       <span>{% if q.replied %}💬{% elif q.get('follow_up_due') %}⚠️{% else %}📨{% endif %}</span>
       <div style="flex:1">
        <span style="font-weight:600">{{ q.name or q.email }}</span>
-       <span style="color:var(--tx2)"> — {{ q.agency|agency_display }}</span>
+       <span style="color:var(--r-text-muted)"> — {{ q.agency|agency_display }}</span>
       </div>
-      <span style="color:var(--tx2)">{{ q.sent_at[:10] if q.sent_at else '' }}</span>
+      <span style="color:var(--r-text-muted)">{{ q.sent_at[:10] if q.sent_at else '' }}</span>
       {% if q.get('follow_up_due') and not q.replied %}
-      <button onclick="draftOutreach('{{ q.email }}','{{ (q.name or '')|e }}','{{ (q.agency or '')|e }}','{{ (q.facility or '')|e }}','follow_up')" class="btn btn-s" style="font-size:13px;padding:2px 6px;background:rgba(255,193,7,.15);color:var(--yl)" aria-label="Follow Up">Follow Up</button>
+      <button onclick="draftOutreach('{{ q.email }}','{{ (q.name or '')|e }}','{{ (q.agency or '')|e }}','{{ (q.facility or '')|e }}','follow_up')" class="btn btn-s" style="font-size:13px;padding:2px 6px;background:rgba(255,193,7,.15);color:var(--r-warn)" aria-label="Follow Up">Follow Up</button>
       {% endif %}
      </div>
      {% endfor %}
     </div>
     {% else %}
-    <div style="padding:16px;text-align:center;color:var(--tx2);font-size:14px">No outreach sent yet</div>
+    <div style="padding:16px;text-align:center;color:var(--r-text-muted);font-size:14px">No outreach sent yet</div>
     {% endif %}
    </div>
   </div>
@@ -285,21 +286,21 @@
 
 <!-- Outreach Draft Modal -->
 <div id="outreachModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;justify-content:center;align-items:center;padding:20px">
- <div style="background:var(--sf);border-radius:12px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;padding:20px">
+ <div style="background:var(--r-surface);border-radius:12px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;padding:20px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
    <h3 style="margin:0;font-size:16px">📧 Draft Outreach Email</h3>
-   <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--tx2)">✕</button>
+   <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--r-text-muted)">✕</button>
   </div>
   <div style="margin-bottom:8px">
-   <label style="font-size:14px;color:var(--tx2);display:block">To</label>
+   <label style="font-size:14px;color:var(--r-text-muted);display:block">To</label>
    <input type="email" id="draft-to" class="text-in" style="width:100%;font-size:13px;padding:6px 8px" readonly>
   </div>
   <div style="margin-bottom:8px">
-   <label style="font-size:14px;color:var(--tx2);display:block">Subject</label>
+   <label style="font-size:14px;color:var(--r-text-muted);display:block">Subject</label>
    <input type="text" id="draft-subject" class="text-in" style="width:100%;font-size:13px;padding:6px 8px">
   </div>
   <div style="margin-bottom:12px">
-   <label style="font-size:14px;color:var(--tx2);display:block">Body</label>
+   <label style="font-size:14px;color:var(--r-text-muted);display:block">Body</label>
    <textarea id="draft-body" class="text-in" style="width:100%;height:300px;font-size:14px;padding:8px;font-family:inherit;line-height:1.5;resize:vertical"></textarea>
   </div>
   <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -308,6 +309,7 @@
   </div>
   <div id="send-status" style="margin-top:8px;font-size:14px"></div>
  </div>
+</div>
 </div>
 
 <script>
@@ -325,12 +327,12 @@ function rebuildCatalog() {
  .then(function(d){
   if (d.ok) {
    status.innerHTML = '✅ Added: <b>'+d.items_added+'</b> · Updated: <b>'+d.items_updated+'</b> · Quotes: '+d.quotes_processed+' · PCs: '+d.pcs_processed+' · Orders: '+d.orders_processed+(d.errors?' · ⚠️ '+d.errors+' errors':'');
-   status.style.color = 'var(--gn)';
+   status.style.color = 'var(--r-accent)';
    btn.textContent = '✅ Rebuilt';
    setTimeout(function(){location.reload()}, 2000);
   } else {
    status.textContent = '❌ ' + (d.error || 'Failed');
-   status.style.color = 'var(--rd)';
+   status.style.color = 'var(--r-bad)';
    btn.textContent = '🔄 Rebuild Catalog from History';
    btn.disabled = false;
   }
@@ -386,11 +388,11 @@ function sendDraft() {
  .then(function(r){return r.json()})
  .then(function(d){
   if (d.ok) {
-   status.innerHTML = '<span style="color:var(--gn)">✅ Sent!</span>';
+   status.innerHTML = '<span style="color:var(--r-accent)">✅ Sent!</span>';
    btn.textContent = '✅ Sent';
    setTimeout(function(){closeModal(); location.reload()}, 1500);
   } else {
-   status.innerHTML = '<span style="color:var(--rd)">❌ ' + (d.error || 'Failed') + '</span>';
+   status.innerHTML = '<span style="color:var(--r-bad)">❌ ' + (d.error || 'Failed') + '</span>';
    btn.textContent = '📧 Send';
    btn.disabled = false;
   }
