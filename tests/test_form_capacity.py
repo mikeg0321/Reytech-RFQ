@@ -110,13 +110,30 @@ def test_check_overflow_calrecycle_at_37_items_passes_with_overflow():
     assert result["items_dropped"] == 0
 
 
-def test_check_overflow_704b_at_16_items():
-    """704B buyer template variant has 15 rows page 1, no overflow.
-    16 items overflows by 1."""
+def test_check_overflow_704b_at_16_items_now_passes_with_overflow():
+    """704B has a chunked-refill overflow path (added 2026-05-28 /
+    Coleman 10842771). 16 items splits as 15+1 across two filled
+    copies of the empty template; no items dropped."""
     result = check_overflow("704b", 16)
-    assert result["ok"] is False
-    assert result["items_dropped"] == 1
-    assert result["has_overflow"] is False
+    assert result["ok"] is True, (
+        f"704B now has has_overflow=True via fill_704b chunked refill — "
+        f"16 items should pass. Got {result!r}"
+    )
+    assert result["items_dropped"] == 0
+    assert result["has_overflow"] is True
+
+
+def test_check_overflow_704b_at_21_items_coleman_scenario():
+    """Coleman 10842771 / rfq_5a55f1b5: 21 ZOLL items vs 15-row template.
+    Pre-fix: items 16-21 silently dropped. Post-fix: chunked into two
+    filled copies (15 + 6 items)."""
+    result = check_overflow("704b", 21)
+    assert result["ok"] is True, (
+        f"Coleman 21-item scenario must pass via chunked overflow; "
+        f"got {result!r}"
+    )
+    assert result["items_dropped"] == 0
+    assert result["has_overflow"] is True
 
 
 # ─── check_overflow — special cases ───────────────────────────────────
@@ -160,13 +177,16 @@ def test_check_required_forms_all_pass():
     assert result["blockers"] == []
 
 
-def test_check_required_forms_704b_blocker_at_overflow():
-    """Required = ['704', '704b'] with 16 items: 704 ok (overflow path),
-    704b is the blocker — buyer template has no overflow path."""
+def test_check_required_forms_704b_passes_with_chunked_overflow():
+    """Required = ['704', '704b'] with 16 items: both have overflow paths
+    now (704 via reportlab continuation, 704b via chunked refill). The
+    aggregate check passes — no blockers."""
     result = check_required_forms(["704", "704b"], 16)
-    assert result["ok"] is False
-    assert len(result["blockers"]) == 1
-    assert result["blockers"][0]["form_id"] == "704b"
+    assert result["ok"] is True, (
+        f"Both 704 and 704b have overflow paths; aggregate must pass. "
+        f"Got blockers={result.get('blockers')!r}"
+    )
+    assert result["blockers"] == []
 
 
 def test_check_required_forms_unknown_form_does_not_block():

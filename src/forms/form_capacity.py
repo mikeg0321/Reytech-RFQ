@@ -53,17 +53,20 @@ FORM_CAPACITY: dict[str, dict] = {
         "has_overflow": True,
         "overflow_fn": "_append_overflow_pages",
     },
-    # AMS 704B — buyer-supplied template. Variants exist (15 rows
-    # on page 1 alone is one common shape; the master 11+8 is another).
-    # Buyer-template fillers do NOT have an overflow path documented.
-    # Treat as "no overflow path" until each variant is measured and
-    # a per-variant overflow registered. Conservative default keeps
-    # operators safe (they get a QA blocker rather than silent drop).
+    # AMS 704B — buyer-supplied template. Variants exist (15 rows on
+    # page 1 alone is one common shape; the master 11+8 is another).
+    # OVERFLOW PATH (added 2026-05-28 / Coleman 10842771): when items
+    # exceed the template's capacity, `fill_704b` (reytech_filler_v4.py)
+    # chunks the items into capacity-sized groups, fills the empty
+    # template once per chunk, flattens each filled copy, and
+    # concatenates the chunks into a multi-page output. Each chunk
+    # carries its own merchandise_subtotal; the Reytech Quote PDF
+    # carries the grand total.
     "704b": {
         "rows_pg1": 15,
         "rows_pg2": 0,
-        "has_overflow": False,
-        "overflow_fn": None,
+        "has_overflow": True,
+        "overflow_fn": "fill_704b:chunked_refill",
     },
     # CalRecycle 74 — bid-package internal form. 6 rows on page 1 + SABRC
     # reference table on page 2. Overflow IS implemented at

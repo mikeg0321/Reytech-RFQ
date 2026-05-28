@@ -942,6 +942,105 @@ def _703b_overlay_signature(pdf_path, sign_date):
 
 
 def fill_704b(input_path, rfq_data, config, output_path):
+    # ── Overflow guard — multi-page fill via "duplicate empty + refill" ──
+    #
+    # 704B buyer-supplied templates have a fixed row capacity per template
+    # variant (commonly 15 or 11+8). When the quote has MORE items than
+    # the template can hold, the legacy behavior was to silently drop the
+    # overflow (see Coleman 10842771 / rfq_5a55f1b5, 2026-05-28: 21 items,
+    # 15-row template, items 16-21 vanished from the buyer-facing form).
+    #
+    # The fix (Mike's directive 2026-05-28: "duplicate an empty form and
+    # refill"): when items exceed capacity, chunk the items into
+    # capacity-sized groups, fill the empty template once per chunk, and
+    # concatenate the filled chunks as sequential pages in the output PDF.
+    # Each chunk page is flattened (form widgets → static content) before
+    # concat so that re-using row field names across chunks does NOT
+    # collide via PDF's shared-AcroForm semantics.
+    #
+    # Subtotal math: each chunk renders its own merchandise_subtotal
+    # (sum of THAT chunk's items). The downstream Reytech Quote PDF
+    # carries the grand total for the full 21-item set; alignment is
+    # preserved by `subtotal_of` operating on the original items list.
+    line_items = rfq_data.get("line_items", [])
+    if line_items and len(line_items) > 1:
+        try:
+            from src.forms.template_registry import get_profile as _gp_overflow
+            _ovprof = _gp_overflow(input_path)
+            _capacity = (
+                len(_ovprof.pg1_rows or [])
+                + len(_ovprof.pg2_rows_suffixed or [])
+                + len(_ovprof.pg2_rows_plain or [])
+            )
+        except Exception as _ce:
+            _capacity = 0
+            log.debug("704B capacity probe failed: %s", _ce)
+
+        if _capacity > 0 and len(line_items) > _capacity:
+            # Chunked refill path. Recurse into fill_704b once per chunk
+            # with a deep-copied rfq_data whose line_items is the chunk
+            # slice — the recursion bottoms out at the single-fill base
+            # case below (≤ capacity).
+            import copy as _copy_overflow
+            import io as _io_overflow
+            import os as _os_overflow
+            from src.spine.flatten import flatten_pdf_bytes as _flatten_overflow
+
+            chunks = [
+                line_items[i : i + _capacity]
+                for i in range(0, len(line_items), _capacity)
+            ]
+            log.info(
+                "704B overflow: %d items > %d-row template → %d chunked pages",
+                len(line_items), _capacity, len(chunks),
+            )
+
+            chunk_pdf_bytes_list: list[bytes] = []
+            try:
+                for _chunk_idx, _chunk in enumerate(chunks):
+                    _chunk_rfq = _copy_overflow.deepcopy(rfq_data)
+                    _chunk_rfq["line_items"] = _chunk
+                    _chunk_tmp = (
+                        output_path + f".chunk{_chunk_idx + 1}of{len(chunks)}.tmp.pdf"
+                    )
+                    # Recursive single-chunk fill — len(_chunk) <= _capacity
+                    # so the recursion does NOT re-enter this branch.
+                    fill_704b(input_path, _chunk_rfq, config, _chunk_tmp)
+                    with open(_chunk_tmp, "rb") as _cf:
+                        _cb = _cf.read()
+                    # Flatten so the next chunk's identical field names
+                    # (`QTYRow1`, etc.) cannot collide via shared AcroForm.
+                    chunk_pdf_bytes_list.append(_flatten_overflow(_cb))
+                    try:
+                        _os_overflow.remove(_chunk_tmp)
+                    except Exception as _re:
+                        log.debug("704B chunk tmp cleanup: %s", _re)
+
+                # Concatenate every flattened chunk into the final output.
+                from pypdf import PdfReader as _PR_ov, PdfWriter as _PW_ov
+                _writer_ov = _PW_ov()
+                for _flat_bytes in chunk_pdf_bytes_list:
+                    _reader_ov = _PR_ov(_io_overflow.BytesIO(_flat_bytes))
+                    for _pg_ov in _reader_ov.pages:
+                        _writer_ov.add_page(_pg_ov)
+                with open(output_path, "wb") as _fout:
+                    _writer_ov.write(_fout)
+
+                print(
+                    f"  ✓ 704B filled across {len(chunks)} chunks "
+                    f"({len(line_items)} items, capacity {_capacity}/chunk)"
+                )
+                return
+            except Exception as _ov_err:
+                # Fail-soft: if the overflow path crashes, fall through
+                # to the legacy single-fill (which will silently drop
+                # overflow but at least produces SOMETHING). Surface the
+                # crash loudly so the operator sees it.
+                log.exception(
+                    "704B overflow fill failed (%s) — falling back to "
+                    "single-page fill with silent overflow drop", _ov_err,
+                )
+
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
