@@ -294,7 +294,12 @@ def api_v1_health():
     import time as _time
     global _health_cache
     if _health_cache["data"] and (_time.time() - _health_cache["ts"]) < 60:
-        return jsonify(_health_cache["data"])
+        # Cache-hit path must wrap in the same {ok, data} envelope as
+        # api_response() on the cache-miss path below. The unwrapped
+        # raw-dict return broke home.html's `if(!d.ok||!d.data)return;`
+        # guard, leaving the agent panel "loading..." for 60s out of
+        # every 61. 2026-05-28 follow-up to PR #1180.
+        return jsonify({"ok": True, "data": _health_cache["data"]})
     import sqlite3
     try:
         # Version (git sha)
