@@ -7,23 +7,23 @@
 {# Mark Intentional. No autonomous writes — operator picks every time. #}
 <style>
 .orph-wrap{max-width:1280px;margin:0 auto;padding:8px 12px}
-.orph-header{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);margin-bottom:12px}
-.orph-header h2{margin:0;font-size:18px;color:var(--tx)}
-.orph-empty{padding:48px 24px;text-align:center;color:var(--tx2);background:var(--sf);border:1px solid var(--bd);border-radius:8px}
-.orph-row{background:var(--sf);border:1px solid var(--bd);border-radius:8px;margin-bottom:10px;overflow:hidden}
-.orph-row .head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd);background:var(--sf2)}
+.orph-header{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--r-border);margin-bottom:12px}
+.orph-header h2{margin:0;font-size:18px;color:var(--r-text)}
+.orph-empty{padding:48px 24px;text-align:center;color:var(--r-text-muted);background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px}
+.orph-row{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;margin-bottom:10px;overflow:hidden}
+.orph-row .head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--r-border);background:var(--r-surface-2)}
 .orph-row .head .ident{display:flex;flex-direction:column;gap:2px}
-.orph-row .head .ident .id{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--tx);font-weight:600}
-.orph-row .head .ident .meta{font-size:12px;color:var(--tx2)}
+.orph-row .head .ident .id{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--r-text);font-weight:600}
+.orph-row .head .ident .meta{font-size:12px;color:var(--r-text-muted)}
 .orph-row .head .total{font-size:18px;font-weight:700;color:#3fb950;font-family:'JetBrains Mono',monospace}
 .orph-row .body{padding:8px 14px}
 .orph-row .body .cands{margin-bottom:8px}
-.orph-row .body .cand{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;border:1px solid var(--bd);margin-bottom:5px;background:var(--sf2)}
+.orph-row .body .cand{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;border:1px solid var(--r-border);margin-bottom:5px;background:var(--r-surface-2)}
 .orph-row .body .cand:hover{background:rgba(88,166,255,.06)}
 .orph-row .body .cand .qn{font-family:'JetBrains Mono',monospace;font-weight:600;color:#58a6ff;font-size:13px;min-width:120px}
 .orph-row .body .cand .tier{font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;min-width:80px;text-align:center}
-.orph-row .body .cand .ttotal{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--tx)}
-.orph-row .body .cand .tdays{font-size:11px;color:var(--tx2)}
+.orph-row .body .cand .ttotal{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--r-text)}
+.orph-row .body .cand .tdays{font-size:11px;color:var(--r-text-muted)}
 .orph-row .body .cand .tdelta{font-size:11px;color:#d29922;font-family:'JetBrains Mono',monospace}
 .orph-row .body .cand .spacer{flex:1}
 .tier-100{background:rgba(63,185,80,.18);color:#3fb950}
@@ -31,7 +31,7 @@
 .tier-60 {background:rgba(210,153,34,.15);color:#d29922}
 .tier-40 {background:rgba(210,153,34,.1);color:#d29922}
 .tier-20 {background:rgba(139,148,158,.15);color:#8b949e}
-.orph-row .body .actions{display:flex;gap:8px;padding-top:6px;border-top:1px dashed var(--bd)}
+.orph-row .body .actions{display:flex;gap:8px;padding-top:6px;border-top:1px dashed var(--r-border)}
 .orph-row .body .actions button{font-size:12px;padding:6px 12px;border-radius:5px;cursor:pointer;border:1px solid;font-weight:600}
 .btn-link{background:rgba(63,185,80,.15);color:#3fb950;border-color:rgba(63,185,80,.3)}
 .btn-link:hover{background:rgba(63,185,80,.25)}
@@ -40,15 +40,17 @@
 .cand-status{font-size:11px;font-weight:600;margin-left:8px}
 .cand-status.applied{color:#3fb950}
 .cand-status.error{color:#f85149}
-.no-cands{font-size:12px;color:var(--tx2);font-style:italic;padding:6px 10px}
+.no-cands{font-size:12px;color:var(--r-text-muted);font-style:italic;padding:6px 10px}
 </style>
 
+<div class="r-app">
 <div class="orph-wrap">
  <div class="orph-header">
   <h2>📦 Orphan Order Review</h2>
-  <div id="orph-summary" data-testid="orph-summary" style="font-size:13px;color:var(--tx2)">Loading...</div>
+  <div id="orph-summary" data-testid="orph-summary" style="font-size:13px;color:var(--r-text-muted)">Loading...</div>
  </div>
  <div id="orph-list" data-testid="orph-list"></div>
+</div>
 </div>
 
 <script>

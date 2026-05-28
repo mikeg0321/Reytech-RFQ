@@ -2,24 +2,25 @@
 {% block title %}Shipping — Reytech{% endblock %}
 
 {% block content %}
+<div class="r-app">
 <h2 style="margin-bottom:4px">🚚 Shipping Dashboard</h2>
-<p style="font-size:13px;color:var(--tx2);margin-bottom:16px">All tracking numbers across orders with carrier links</p>
+<p style="font-size:13px;color:var(--r-text-muted);margin-bottom:16px">All tracking numbers across orders with carrier links</p>
 
 <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
   <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ total }}</div>
-    <div style="font-size:13px;color:var(--tx2)">SHIPMENTS</div></div>
+    <div style="font-size:28px;font-weight:800;color:var(--r-accent)">{{ total }}</div>
+    <div style="font-size:13px;color:var(--r-text-muted)">SHIPMENTS</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--yl)">{{ in_transit }}</div>
-    <div style="font-size:13px;color:var(--tx2)">IN TRANSIT</div></div>
+    <div style="font-size:28px;font-weight:800;color:var(--r-warn)">{{ in_transit }}</div>
+    <div style="font-size:13px;color:var(--r-text-muted)">IN TRANSIT</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--gn)">{{ delivered }}</div>
-    <div style="font-size:13px;color:var(--tx2)">DELIVERED</div></div>
+    <div style="font-size:28px;font-weight:800;color:var(--r-accent)">{{ delivered }}</div>
+    <div style="font-size:13px;color:var(--r-text-muted)">DELIVERED</div></div>
 </div>
 
 <div style="margin-bottom:12px">
   {% for carrier, count in carriers|dictsort(by='value', reverse=true) %}
-  <span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:14px">{{ carrier }}: <b>{{ count }}</b></span>
+  <span style="background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:6px;padding:4px 10px;font-size:14px">{{ carrier }}: <b>{{ count }}</b></span>
   {% endfor %}
 </div>
 
@@ -32,14 +33,14 @@
   <tbody>
   {% if shipments %}
     {% for s in shipments %}
-    {% set st_color = {'delivered': 'var(--gn)', 'shipped': 'var(--ac)', 'ordered': 'var(--yl)'}.get(s.status, 'var(--tx2)') %}
+    {% set st_color = {'delivered': 'var(--r-accent)', 'shipped': 'var(--r-accent)', 'ordered': 'var(--r-warn)'}.get(s.status, 'var(--r-text-muted)') %}
     <tr onclick="location.href='/order/{{ s.order_id }}'" style="cursor:pointer">
-     <td><a href="/order/{{ s.order_id }}" style="color:var(--ac);font-size:14px">{{ s.order_id[:20] }}</a></td>
+     <td><a href="/order/{{ s.order_id }}" style="color:var(--r-accent);font-size:14px">{{ s.order_id[:20] }}</a></td>
      <td style="font-size:14px">{{ s.po_number }}</td>
      <td style="font-size:14px">{{ s.institution[:30] }}</td>
      <td style="font-size:14px">{{ s.description }}</td>
-     <td style="font-family:'JetBrains Mono',monospace;font-size:14px">
-       {% if s.track_url %}<a href="{{ s.track_url }}" target="_blank" style="color:var(--ac)">{{ s.tracking }}</a>{% else %}{{ s.tracking }}{% endif %}
+     <td style="font-family:var(--r-mono, 'JetBrains Mono', monospace);font-size:14px">
+       {% if s.track_url %}<a href="{{ s.track_url }}" target="_blank" style="color:var(--r-accent)">{{ s.tracking }}</a>{% else %}{{ s.tracking }}{% endif %}
      </td>
      <td style="font-size:14px">{{ s.carrier }}</td>
      <td style="font-size:14px">{{ s.ship_date }}</td>
@@ -48,9 +49,10 @@
     </tr>
     {% endfor %}
   {% else %}
-    <tr><td colspan="9" style="text-align:center;color:var(--tx2);padding:20px">No shipments tracked yet — tracking numbers auto-detected from shipping emails</td></tr>
+    <tr><td colspan="9" style="text-align:center;color:var(--r-text-muted);padding:20px">No shipments tracked yet — tracking numbers auto-detected from shipping emails</td></tr>
   {% endif %}
   </tbody>
  </table>
+</div>
 </div>
 {% endblock %}

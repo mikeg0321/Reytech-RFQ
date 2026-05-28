@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Quote Trail — {{ doc_id }}{% endblock %}
 {% block content %}
+<div class="r-app">
 
 {% set outcome_colors = {
   'advanced': '#3fb950',
@@ -15,9 +16,9 @@
   <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
     <div>
       <a href="/quoting/status" style="color:#58a6ff;font-size:13px;text-decoration:none">&larr; Back to list</a>
-      <h2 style="margin:6px 0 0;font-size:20px;color:var(--tx)">{{ doc_id }}</h2>
+      <h2 style="margin:6px 0 0;font-size:20px;color:var(--r-text)">{{ doc_id }}</h2>
       {% if trail %}
-      <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+      <p style="color:var(--r-text-muted);font-size:13px;margin:4px 0 0">
         {{ trail[0].doc_type }} · agency: <code>{{ (trail[0].agency_key|agency_display) or 'unresolved' }}</code> · {{ trail|length }} transition(s)
       </p>
       {% endif %}
@@ -25,17 +26,17 @@
     {% if trail %}
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <a href="/api/quoting/status/{{ doc_id }}/export.csv"
-         style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
+         style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
         Export trail CSV
       </a>
       <a href="/api/quoting/status/{{ doc_id }}"
          target="_blank" rel="noopener"
-         style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
+         style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
         Export JSON
       </a>
       <button id="qs-copy-trail" type="button"
               title="Copy trail as plain text (for email/tickets)"
-              style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap">
+              style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap">
         Copy trail
       </button>
     </div>
@@ -43,7 +44,7 @@
   </div>
 
   {% if not trail %}
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px;color:var(--tx2)">
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:20px;color:var(--r-text-muted)">
       No audit trail found for this doc_id. It may never have been run through the orchestrator,
       or the doc_id may be wrong.
     </div>
@@ -68,8 +69,8 @@
     </span>
     {% endif %}
     <span style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;
-                 background:rgba(139,148,158,.12);color:var(--tx2);border:1px solid var(--bd)">
-      latest: <code style="background:none;color:var(--tx)">{{ latest.stage_to }}</code>
+                 background:rgba(139,148,158,.12);color:var(--r-text-muted);border:1px solid var(--r-border)">
+      latest: <code style="background:none;color:var(--r-text)">{{ latest.stage_to }}</code>
     </span>
   </div>
 
@@ -84,12 +85,12 @@
       <div style="font-size:12px;font-weight:700;color:#f85149;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
         Latest blocker — {{ latest.outcome }}
       </div>
-      <div style="font-size:13px;color:var(--tx);line-height:1.5">
+      <div style="font-size:13px;color:var(--r-text);line-height:1.5">
         {% for r in latest.reasons[:3] %}
         <div style="margin:2px 0">{{ r }}</div>
         {% endfor %}
         {% if latest.reasons|length > 3 %}
-        <div style="color:var(--tx2);font-size:12px;margin-top:4px">+{{ latest.reasons|length - 3 }} more — see timeline</div>
+        <div style="color:var(--r-text-muted);font-size:12px;margin-top:4px">+{{ latest.reasons|length - 3 }} more — see timeline</div>
         {% endif %}
       </div>
     </div>
@@ -97,9 +98,9 @@
   {% endif %}
 
   <!-- Stage Timeline (vertical stepper) -->
-  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:16px">
+  <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:18px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div style="font-size:14px;font-weight:600;color:var(--tx)">Stage Timeline</div>
+      <div style="font-size:14px;font-weight:600;color:var(--r-text)">Stage Timeline</div>
       {% if is_blocked %}
       <button id="open-action-modal" type="button"
               style="background:#d29922;border:0;color:#000;font-weight:600;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px">
@@ -115,17 +116,17 @@
         {# spine connector — drawn via ::before-style fallback inline #}
         {% if not loop.last %}
         <span aria-hidden="true"
-              style="position:absolute;left:11px;top:22px;bottom:0;width:2px;background:var(--bd)"></span>
+              style="position:absolute;left:11px;top:22px;bottom:0;width:2px;background:var(--r-border)"></span>
         {% endif %}
         <span aria-hidden="true"
               title="{{ t.outcome }}"
               style="position:absolute;left:0;top:2px;width:24px;height:24px;border-radius:50%;
-                     background:{{ color }};border:3px solid var(--sf);box-shadow:0 0 0 2px {{ color }}33;
+                     background:{{ color }};border:3px solid var(--r-surface);box-shadow:0 0 0 2px {{ color }}33;
                      display:flex;align-items:center;justify-content:center;color:#0d1117;font-size:11px;font-weight:800">
           {{ loop.index }}
         </span>
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-          <div style="font-family:monospace;font-size:13px;color:var(--tx)">
+          <div style="font-family:monospace;font-size:13px;color:var(--r-text)">
             {{ t.stage_from or '·' }} &rarr; {{ t.stage_to }}
             <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;
                          background:{{ color }}22;color:{{ color }};font-family:inherit;
@@ -134,16 +135,16 @@
               {{ t.outcome }}
             </span>
           </div>
-          <div style="font-size:12px;color:var(--tx2)">{{ t.at }}</div>
+          <div style="font-size:12px;color:var(--r-text-muted)">{{ t.at }}</div>
         </div>
         {% if t.reasons %}
-          <ul style="margin:6px 0 0 12px;padding:0;color:var(--tx2);font-size:12px">
+          <ul style="margin:6px 0 0 12px;padding:0;color:var(--r-text-muted);font-size:12px">
             {% for r in t.reasons %}
               <li style="margin:2px 0">{{ r }}</li>
             {% endfor %}
           </ul>
         {% endif %}
-        <div style="font-size:11px;color:var(--tx2);margin-top:6px">actor: {{ t.actor }}</div>
+        <div style="font-size:11px;color:var(--r-text-muted);margin-top:6px">actor: {{ t.actor }}</div>
       </li>
       {% endfor %}
     </ol>
@@ -155,26 +156,26 @@
        style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;
               align-items:center;justify-content:center;padding:20px">
     <div role="dialog" aria-modal="true" aria-labelledby="action-modal-title"
-         style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;
+         style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:12px;
                 max-width:560px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.5)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 id="action-modal-title" style="margin:0;font-size:16px;color:var(--tx)">
+        <h3 id="action-modal-title" style="margin:0;font-size:16px;color:var(--r-text)">
           Operator Action — {{ doc_id }}
         </h3>
         <button id="action-modal-close" type="button" aria-label="Close"
-                style="background:transparent;border:0;color:var(--tx2);font-size:20px;cursor:pointer;line-height:1">&times;</button>
+                style="background:transparent;border:0;color:var(--r-text-muted);font-size:20px;cursor:pointer;line-height:1">&times;</button>
       </div>
 
-      <p style="color:var(--tx2);font-size:12px;margin:0 0 14px">
+      <p style="color:var(--r-text-muted);font-size:12px;margin:0 0 14px">
         Latest stage: <code>{{ latest.stage_to }}</code> ·
         outcome: <strong style="color:{{ outcome_colors.get(latest.outcome, '#f85149') }}">{{ latest.outcome }}</strong>.
         Pick a reason category, add detail, then either record an override (audit only) or
         re-run the orchestrator from a target stage.
       </p>
 
-      <label for="action-reason-cat" style="display:block;font-size:12px;color:var(--tx2);margin-bottom:4px">Reason category</label>
+      <label for="action-reason-cat" style="display:block;font-size:12px;color:var(--r-text-muted);margin-bottom:4px">Reason category</label>
       <select id="action-reason-cat"
-              style="width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;margin-bottom:10px">
+              style="width:100%;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;margin-bottom:10px">
         <option value="missing_form">Missing form</option>
         <option value="price_error">Price error</option>
         <option value="compliance_gap">Compliance gap</option>
@@ -183,16 +184,16 @@
         <option value="other">Other (specify)</option>
       </select>
 
-      <label for="action-reason-text" style="display:block;font-size:12px;color:var(--tx2);margin-bottom:4px">Detail (required)</label>
+      <label for="action-reason-text" style="display:block;font-size:12px;color:var(--r-text-muted);margin-bottom:4px">Detail (required)</label>
       <textarea id="action-reason-text" rows="3"
-                style="width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;margin-bottom:14px"
+                style="width:100%;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;margin-bottom:14px"
                 placeholder="Why this happened, or what you fixed before retrying."></textarea>
 
-      <div style="border-top:1px solid var(--bd);padding-top:12px;margin-bottom:8px">
-        <div style="font-size:12px;color:var(--tx2);margin-bottom:6px">Retry target stage</div>
+      <div style="border-top:1px solid var(--r-border);padding-top:12px;margin-bottom:8px">
+        <div style="font-size:12px;color:var(--r-text-muted);margin-bottom:6px">Retry target stage</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           {% for stage in ['parsed', 'priced', 'qa_pass'] %}
-          <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--tx)">
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--r-text)">
             <input type="radio" name="action-target-stage" value="{{ stage }}" {% if stage == 'qa_pass' %}checked{% endif %}>
             <code>{{ stage }}</code>
           </label>
@@ -210,8 +211,8 @@
           Retry Orchestrator
         </button>
       </div>
-      <div id="action-status" style="margin-top:12px;font-size:12px;color:var(--tx2);min-height:1em"></div>
-      <pre id="action-result" style="display:none;margin-top:10px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;color:var(--tx);font-size:11px;white-space:pre-wrap;max-height:240px;overflow:auto"></pre>
+      <div id="action-status" style="margin-top:12px;font-size:12px;color:var(--r-text-muted);min-height:1em"></div>
+      <pre id="action-result" style="display:none;margin-top:10px;background:var(--r-bg);border:1px solid var(--r-border);border-radius:6px;padding:10px;color:var(--r-text);font-size:11px;white-space:pre-wrap;max-height:240px;overflow:auto"></pre>
     </div>
   </div>
 
@@ -231,7 +232,7 @@
 
     function open() {
       backdrop.style.display = 'flex';
-      if (status) { status.textContent = ''; status.style.color = 'var(--tx2)'; }
+      if (status) { status.textContent = ''; status.style.color = 'var(--r-text-muted)'; }
       if (resultBox) { resultBox.style.display = 'none'; resultBox.textContent = ''; }
       if (detailTa) detailTa.focus();
     }
@@ -277,7 +278,7 @@
         status.textContent = 'Detail is required.'; status.style.color = '#f85149'; return;
       }
       setBusy(true);
-      status.textContent = 'Recording override…'; status.style.color = 'var(--tx2)';
+      status.textContent = 'Recording override…'; status.style.color = 'var(--r-text-muted)';
       fetch('/api/quoting/override/' + encodeURIComponent(docId), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -311,7 +312,7 @@
       var target = selectedTargetStage();
       setBusy(true);
       status.textContent = 'Re-running orchestrator (target: ' + target + ')…';
-      status.style.color = 'var(--tx2)';
+      status.style.color = 'var(--r-text-muted)';
       fetch('/api/quoting/retry/' + encodeURIComponent(docId), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -379,5 +380,6 @@
 
   {% endif %}
 
+</div>
 </div>
 {% endblock %}
