@@ -1,485 +1,495 @@
 {% extends "base.html" %}
 {% block title %}Settings — Reytech{% endblock %}
 {% block content %}
-<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">⚙️ Settings</h2>
+{# 2026-05-28 UI/UX redesign port. Restyled against .r-* classes;
+   ALL server context vars + ALL JS funcs + ALL DOM ids preserved.
+   Sections: RFQ Package link · Master Form Templates (loadTmpls/deleteTmpl/
+   startRename/cancelRename/saveRename/upload) · Email Sender Blocklist
+   (saveBlocklist) · System Health (loadHealth /api/system/dashboard) ·
+   Data Storage (loadDataSizes /api/system/data-sizes) · Nav Customization
+   (loadNavConfig/saveNavConfig/resetNavConfig /api/settings) · Integrations
+   (loadIntegrations/saveIntegrations/testWebhook/testSms) · App Settings
+   (server-rendered groups dict /api/settings POST) · Admin Tools. #}
 
-<!-- ═══ RFQ Package Settings ═══ -->
-<div class="card" style="margin-bottom:12px">
- <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
-  <span>📦 RFQ Package Settings</span>
-  <a href="/settings/packages" class="btn btn-s" style="font-size:13px;padding:6px 14px;text-decoration:none">Configure →</a>
- </div>
- <div style="font-size:14px;color:var(--tx2);margin-top:8px">
-  Configure which forms are included in each agency's bid package. Set required/optional forms per agency with auto-matching from email sender.
- </div>
-</div>
+<div class="r-app">
 
-<!-- ═══ Master Form Templates ═══ -->
-<div class="card" style="margin-bottom:12px">
- <div class="card-t">📋 Master Form Templates</div>
- <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">Blank PDF templates used to generate bid package forms. These are auto-seeded on deploy but can be replaced here.</div>
- <div id="tmpl-list" style="margin-bottom:12px">Loading...</div>
- <form id="tmpl-upload" style="padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-   <input type="file" name="templates" accept=".pdf" multiple style="font-size:13px">
-   <label style="font-size:13px;color:var(--tx2);display:flex;align-items:center;gap:4px"><input type="checkbox" id="split-mode"> Auto-split bid package</label>
-   <button type="submit" class="btn btn-sm btn-p" style="font-size:13px">Upload</button>
+  <div style="display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+    <div>
+      <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em">Settings</h1>
+      <p style="margin:4px 0 0;font-size:14px;color:var(--r-text-muted)">System health, integrations, agencies, navigation, app preferences</p>
+    </div>
   </div>
-  <div style="font-size:12px;color:var(--tx2);margin-top:6px">Upload individual PDFs or a combined bid package. Check "Auto-split" to extract CalRecycle, CUF, DVBE 843, etc. from a combined package.</div>
- </form>
-</div>
-<script>
-(function(){
- var _hdr={'X-Requested-With':'XMLHttpRequest'};
- function loadTmpls(){
-  fetch('/api/v1/system/templates',{credentials:'same-origin',headers:_hdr}).then(function(r){return r.json();}).then(function(d){
-   if(!d.ok||!d.data)return;
-   var t=d.data.templates||[];
-   if(!t.length){document.getElementById('tmpl-list').innerHTML='<div style="color:var(--tx2)">No templates found</div>';return;}
-   var html='<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:6px 8px">Filename</th><th style="text-align:right;padding:6px 8px;width:70px">Size</th><th style="text-align:right;padding:6px 8px;width:180px">Actions</th></tr></thead><tbody>';
-   t.forEach(function(f){
-    var esc=f.filename.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-    var encName=encodeURIComponent(f.filename);
-    html+='<tr style="border-bottom:1px solid var(--sf2)" id="tmpl-row-'+encName+'">'
-     +'<td style="padding:6px 8px;color:var(--tx)" id="tmpl-name-'+encName+'"><span class="tmpl-display">'+esc+'</span>'
-     +'<span class="tmpl-edit" style="display:none"><input type="text" value="'+esc+'" style="background:var(--sf2);color:var(--tx);border:1px solid var(--ac);border-radius:4px;padding:2px 6px;font-size:13px;width:250px"> '
-     +'<button onclick="saveRename(\''+esc+'\')" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer">Save</button> '
-     +'<button onclick="cancelRename(\''+esc+'\')" style="background:none;border:1px solid var(--bd);color:var(--tx2);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer">Cancel</button></span></td>'
-     +'<td style="padding:6px 8px;text-align:right;color:var(--tx2)">'+f.size_kb+'KB</td>'
-     +'<td style="padding:6px 8px;text-align:right;white-space:nowrap">'
-     +'<a href="/api/v1/system/templates/'+encName+'/download" style="color:#58a6ff;font-size:13px;text-decoration:none;margin-right:8px" title="Download">Download</a>'
-     +'<button onclick="startRename(\''+esc+'\')" style="background:none;border:none;color:#d29922;font-size:13px;cursor:pointer;margin-right:8px" title="Rename">Rename</button>'
-     +'<button onclick="deleteTmpl(\''+esc+'\')" style="background:none;border:none;color:#f85149;font-size:13px;cursor:pointer" title="Delete">Delete</button>'
-     +'</td></tr>';
+
+  <!-- ═══ RFQ Package Settings ═══ -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--r-text)">📦 RFQ Package Settings</div>
+        <div style="font-size:12px;color:var(--r-text-muted);margin-top:4px">Configure which forms are included in each agency's bid package. Set required/optional forms per agency with auto-matching from email sender.</div>
+      </div>
+      <a href="/settings/packages" class="r-btn r-btn-sm" style="text-decoration:none">Configure →</a>
+    </div>
+  </div>
+
+  <!-- ═══ Master Form Templates ═══ -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px">
+    <div style="font-size:14px;font-weight:600;color:var(--r-text);margin-bottom:6px">📋 Master Form Templates</div>
+    <div style="font-size:12px;color:var(--r-text-muted);margin-bottom:12px">Blank PDF templates used to generate bid package forms. Auto-seeded on deploy but can be replaced here.</div>
+    <div id="tmpl-list" style="margin-bottom:12px;color:var(--r-text-muted)">Loading…</div>
+    <form id="tmpl-upload" style="padding:10px 14px;background:var(--r-bg-elev);border-radius:8px;border:1px solid var(--r-border-soft)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="file" name="templates" accept=".pdf" multiple style="font-size:12px;color:var(--r-text-muted)">
+        <label style="font-size:12px;color:var(--r-text-muted);display:flex;align-items:center;gap:4px"><input type="checkbox" id="split-mode" style="accent-color:var(--r-accent)"> Auto-split bid package</label>
+        <button type="submit" class="r-btn r-btn-primary r-btn-sm">Upload</button>
+      </div>
+      <div style="font-size:11px;color:var(--r-text-dim);margin-top:6px">Upload individual PDFs or a combined bid package. Check "Auto-split" to extract CalRecycle, CUF, DVBE 843, etc. from a combined package.</div>
+    </form>
+  </div>
+  <script>
+  (function(){
+   var _hdr={'X-Requested-With':'XMLHttpRequest'};
+   function loadTmpls(){
+    fetch('/api/v1/system/templates',{credentials:'same-origin',headers:_hdr}).then(function(r){return r.json();}).then(function(d){
+     if(!d.ok||!d.data)return;
+     var t=d.data.templates||[];
+     if(!t.length){document.getElementById('tmpl-list').innerHTML='<div style="color:var(--r-text-muted)">No templates found</div>';return;}
+     var html='<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--r-border)"><th style="text-align:left;padding:8px;color:var(--r-text-dim);font-weight:500;font-size:10px;text-transform:uppercase;letter-spacing:.08em">Filename</th><th style="text-align:right;padding:8px;width:80px;color:var(--r-text-dim);font-weight:500;font-size:10px;text-transform:uppercase;letter-spacing:.08em">Size</th><th style="text-align:right;padding:8px;width:200px;color:var(--r-text-dim);font-weight:500;font-size:10px;text-transform:uppercase;letter-spacing:.08em">Actions</th></tr></thead><tbody>';
+     t.forEach(function(f){
+      var esc=f.filename.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+      var encName=encodeURIComponent(f.filename);
+      html+='<tr style="border-bottom:1px solid var(--r-border-soft)" id="tmpl-row-'+encName+'">'
+       +'<td style="padding:8px;color:var(--r-text)" id="tmpl-name-'+encName+'"><span class="tmpl-display">'+esc+'</span>'
+       +'<span class="tmpl-edit" style="display:none"><input type="text" value="'+esc+'" style="background:var(--r-bg-elev);color:var(--r-text);border:1px solid var(--r-accent-edge);border-radius:4px;padding:2px 6px;font-size:13px;width:260px"> '
+       +'<button onclick="saveRename(\''+esc+'\')" class="r-btn r-btn-sm" style="background:var(--r-accent-soft);color:var(--r-accent);border-color:var(--r-accent-edge);padding:2px 8px">Save</button> '
+       +'<button onclick="cancelRename(\''+esc+'\')" class="r-btn r-btn-sm" style="padding:2px 8px">Cancel</button></span></td>'
+       +'<td class="num" style="padding:8px;text-align:right;color:var(--r-text-muted)">'+f.size_kb+'KB</td>'
+       +'<td style="padding:8px;text-align:right;white-space:nowrap">'
+       +'<a href="/api/v1/system/templates/'+encName+'/download" style="color:var(--r-accent);font-size:12px;text-decoration:none;margin-right:10px" title="Download">Download</a>'
+       +'<button onclick="startRename(\''+esc+'\')" style="background:none;border:none;color:var(--r-warn);font-size:12px;cursor:pointer;margin-right:10px" title="Rename">Rename</button>'
+       +'<button onclick="deleteTmpl(\''+esc+'\')" style="background:none;border:none;color:var(--r-bad);font-size:12px;cursor:pointer" title="Delete">Delete</button>'
+       +'</td></tr>';
+     });
+     html+='</tbody></table>';
+     document.getElementById('tmpl-list').innerHTML=html;
+    }).catch(function(){document.getElementById('tmpl-list').innerHTML='<div style="color:var(--r-bad)">Failed to load</div>';});
+   }
+   loadTmpls();
+   window.deleteTmpl=function(name){
+    if(!confirm('Delete template "'+name+'"? This cannot be undone.'))return;
+    fetch('/api/v1/system/templates/'+encodeURIComponent(name),{method:'DELETE',credentials:'same-origin',headers:_hdr})
+    .then(function(r){return r.json();}).then(function(d){
+     if(d.ok)loadTmpls();
+     else alert('Delete failed: '+(d.error||'unknown'));
+    }).catch(function(e){alert('Delete failed: '+e.message);});
+   };
+   window.startRename=function(name){
+    var encName=encodeURIComponent(name);
+    var row=document.getElementById('tmpl-name-'+encName);
+    if(!row)return;
+    row.querySelector('.tmpl-display').style.display='none';
+    row.querySelector('.tmpl-edit').style.display='inline';
+    row.querySelector('.tmpl-edit input').focus();
+   };
+   window.cancelRename=function(name){
+    var encName=encodeURIComponent(name);
+    var row=document.getElementById('tmpl-name-'+encName);
+    if(!row)return;
+    row.querySelector('.tmpl-display').style.display='';
+    row.querySelector('.tmpl-edit').style.display='none';
+   };
+   window.saveRename=function(name){
+    var encName=encodeURIComponent(name);
+    var row=document.getElementById('tmpl-name-'+encName);
+    if(!row)return;
+    var newName=row.querySelector('.tmpl-edit input').value.trim();
+    if(!newName||newName===name){cancelRename(name);return;}
+    fetch('/api/v1/system/templates/'+encodeURIComponent(name)+'/rename',{
+     method:'POST',credentials:'same-origin',
+     headers:Object.assign({'Content-Type':'application/json'},_hdr),
+     body:JSON.stringify({new_name:newName})
+    }).then(function(r){return r.json();}).then(function(d){
+     if(d.ok)loadTmpls();
+     else alert('Rename failed: '+(d.error||'unknown'));
+    }).catch(function(e){alert('Rename failed: '+e.message);});
+   };
+   document.getElementById('tmpl-upload').addEventListener('submit',function(e){
+    e.preventDefault();
+    var fd=new FormData(this);
+    var split=document.getElementById('split-mode').checked;
+    var url='/api/v1/system/templates/upload'+(split?'?split=1':'');
+    fetch(url,{method:'POST',credentials:'same-origin',headers:_hdr,body:fd})
+    .then(function(r){return r.json();}).then(function(d){
+     if(d.ok&&d.data){
+      var msg='Uploaded '+d.data.count+' file(s):\n';
+      (d.data.uploaded||[]).forEach(function(f){
+       if(f.error)msg+='  X '+f.file+': '+f.error+'\n';
+       else msg+='  OK '+f.file+(f.form?' ('+f.form+', pages '+JSON.stringify(f.pages)+')':'')+' '+f.size_kb+'KB\n';
+      });
+      alert(msg);loadTmpls();
+     } else alert('Error: '+(d.error||'failed'));
+    }).catch(function(err){alert('Upload failed: '+err.message);});
    });
-   html+='</tbody></table>';
-   document.getElementById('tmpl-list').innerHTML=html;
-  }).catch(function(){document.getElementById('tmpl-list').innerHTML='<div style="color:#f85149">Failed to load</div>';});
- }
- loadTmpls();
- window.deleteTmpl=function(name){
-  if(!confirm('Delete template "'+name+'"? This cannot be undone.'))return;
-  fetch('/api/v1/system/templates/'+encodeURIComponent(name),{method:'DELETE',credentials:'same-origin',headers:_hdr})
-  .then(function(r){return r.json();}).then(function(d){
-   if(d.ok)loadTmpls();
-   else alert('Delete failed: '+(d.error||'unknown'));
-  }).catch(function(e){alert('Delete failed: '+e.message);});
- };
- window.startRename=function(name){
-  var encName=encodeURIComponent(name);
-  var row=document.getElementById('tmpl-name-'+encName);
-  if(!row)return;
-  row.querySelector('.tmpl-display').style.display='none';
-  row.querySelector('.tmpl-edit').style.display='inline';
-  row.querySelector('.tmpl-edit input').focus();
- };
- window.cancelRename=function(name){
-  var encName=encodeURIComponent(name);
-  var row=document.getElementById('tmpl-name-'+encName);
-  if(!row)return;
-  row.querySelector('.tmpl-display').style.display='';
-  row.querySelector('.tmpl-edit').style.display='none';
- };
- window.saveRename=function(name){
-  var encName=encodeURIComponent(name);
-  var row=document.getElementById('tmpl-name-'+encName);
-  if(!row)return;
-  var newName=row.querySelector('.tmpl-edit input').value.trim();
-  if(!newName||newName===name){cancelRename(name);return;}
-  fetch('/api/v1/system/templates/'+encodeURIComponent(name)+'/rename',{
-   method:'POST',credentials:'same-origin',
-   headers:Object.assign({'Content-Type':'application/json'},_hdr),
-   body:JSON.stringify({new_name:newName})
-  }).then(function(r){return r.json();}).then(function(d){
-   if(d.ok)loadTmpls();
-   else alert('Rename failed: '+(d.error||'unknown'));
-  }).catch(function(e){alert('Rename failed: '+e.message);});
- };
- document.getElementById('tmpl-upload').addEventListener('submit',function(e){
-  e.preventDefault();
-  var fd=new FormData(this);
-  var split=document.getElementById('split-mode').checked;
-  var url='/api/v1/system/templates/upload'+(split?'?split=1':'');
-  fetch(url,{method:'POST',credentials:'same-origin',headers:_hdr,body:fd})
-  .then(function(r){return r.json();}).then(function(d){
-   if(d.ok&&d.data){
-    var msg='Uploaded '+d.data.count+' file(s):\n';
-    (d.data.uploaded||[]).forEach(function(f){
-     if(f.error)msg+='  X '+f.file+': '+f.error+'\n';
-     else msg+='  OK '+f.file+(f.form?' ('+f.form+', pages '+JSON.stringify(f.pages)+')':'')+' '+f.size_kb+'KB\n';
-    });
-    alert(msg);loadTmpls();
-   } else alert('Error: '+(d.error||'failed'));
-  }).catch(function(err){alert('Upload failed: '+err.message);});
- });
-})();
-</script>
+  })();
+  </script>
 
-<!-- ═══ Email Sender Blocklist ═══ -->
-<div class="card" style="margin-bottom:12px">
- <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
-  <span>🚫 Email Sender Blocklist</span>
-  <span id="blocklist-status" style="font-size:12px;color:var(--tx2)"></span>
- </div>
- <p style="font-size:13px;color:var(--tx2);margin:8px 0">Emails from these addresses will be automatically skipped during polling. One per line, or comma-separated. Use a domain fragment (e.g. <code>noreply</code>) to block all matching senders.</p>
- <textarea id="sender-blocklist" rows="5" style="width:100%;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:13px;font-family:monospace;resize:vertical" placeholder="noreply@example.com&#10;spam@vendor.com&#10;donotreply">{{ settings.get('email.sender_blocklist', '') }}</textarea>
- <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-  <button class="btn btn-s" onclick="saveBlocklist()" style="font-size:14px;padding:8px 16px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3)">💾 Save Blocklist</button>
-  <span style="font-size:12px;color:var(--tx2)" id="blocklist-count"></span>
- </div>
-</div>
-<script>
-(function(){
- var ta = document.getElementById('sender-blocklist');
- var count = document.getElementById('blocklist-count');
- function updateCount() {
-  var entries = ta.value.split(/[,\n]/).filter(function(e){ return e.trim(); });
-  count.textContent = entries.length + ' address' + (entries.length !== 1 ? 'es' : '');
- }
- ta.addEventListener('input', updateCount);
- updateCount();
-})();
-function saveBlocklist() {
- var val = document.getElementById('sender-blocklist').value.trim();
- var status = document.getElementById('blocklist-status');
- status.textContent = '⏳ Saving...';
- fetch('/api/settings', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({'email.sender_blocklist': val})
- })
- .then(function(r){ return r.json(); })
- .then(function(d){
-  if (d.ok) {
-   status.innerHTML = '<span style="color:#3fb950">✅ Saved</span>';
-   setTimeout(function(){ status.textContent = ''; }, 2000);
-  } else {
-   status.innerHTML = '<span style="color:#f85149">❌ ' + (d.error||'Failed') + '</span>';
+  <!-- ═══ Email Sender Blocklist ═══ -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:14px;font-weight:600;color:var(--r-text)">🚫 Email Sender Blocklist</div>
+      <span id="blocklist-status" style="font-size:11px;color:var(--r-text-muted)"></span>
+    </div>
+    <p style="font-size:12px;color:var(--r-text-muted);margin:8px 0">Emails from these addresses will be automatically skipped during polling. One per line, or comma-separated. Use a domain fragment (e.g. <code style="background:var(--r-bg-elev);padding:1px 6px;border-radius:4px;font-family:var(--r-mono)">noreply</code>) to block all matching senders.</p>
+    <textarea id="sender-blocklist" rows="5" style="width:100%;background:var(--r-bg-elev);color:var(--r-text);border:1px solid var(--r-border-soft);border-radius:6px;padding:10px;font-size:13px;font-family:var(--r-mono);resize:vertical" placeholder="noreply@example.com&#10;spam@vendor.com&#10;donotreply">{{ settings.get('email.sender_blocklist', '') }}</textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <button class="r-btn r-btn-sm" onclick="saveBlocklist()" style="background:var(--r-accent-soft);color:var(--r-accent);border-color:var(--r-accent-edge)">💾 Save Blocklist</button>
+      <span class="num" style="font-size:11px;color:var(--r-text-muted)" id="blocklist-count"></span>
+    </div>
+  </div>
+  <script>
+  (function(){
+   var ta = document.getElementById('sender-blocklist');
+   var count = document.getElementById('blocklist-count');
+   function updateCount() {
+    var entries = ta.value.split(/[,\n]/).filter(function(e){ return e.trim(); });
+    count.textContent = entries.length + ' address' + (entries.length !== 1 ? 'es' : '');
+   }
+   ta.addEventListener('input', updateCount);
+   updateCount();
+  })();
+  function saveBlocklist() {
+   var val = document.getElementById('sender-blocklist').value.trim();
+   var status = document.getElementById('blocklist-status');
+   status.textContent = '⏳ Saving…';
+   fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({'email.sender_blocklist': val})
+   })
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+    if (d.ok) {
+     status.innerHTML = '<span style="color:var(--r-accent)">✓ Saved</span>';
+     setTimeout(function(){ status.textContent = ''; }, 2000);
+    } else {
+     status.innerHTML = '<span style="color:var(--r-bad)">✕ ' + (d.error||'Failed') + '</span>';
+    }
+   });
   }
- });
-}
-</script>
+  </script>
 
-<!-- ═══ System Health ═══ -->
-<div class="card" style="margin-bottom:12px">
- <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
-  <span>🩺 System Health</span>
-  <button class="btn btn-s" onclick="loadHealth()" style="font-size:13px;padding:6px 14px" aria-label="Refresh">🔄 Refresh</button>
- </div>
- <div id="health-cards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px">
-  <div style="text-align:center;padding:16px;background:var(--sf);border-radius:8px"><div style="font-size:14px;color:var(--tx2)">Loading...</div></div>
- </div>
- <div id="health-integrations" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px"></div>
- <div id="health-errors" style="margin-top:12px;display:none"></div>
-</div>
+  <!-- ═══ System Health ═══ -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:14px;font-weight:600;color:var(--r-text)">🩺 System Health</div>
+      <button class="r-btn r-btn-sm" onclick="loadHealth()" aria-label="Refresh">🔄 Refresh</button>
+    </div>
+    <div id="health-cards" class="r-grid r-grid-4" style="margin-top:12px">
+      <div class="r-kpi"><div class="r-kpi-sub" style="text-align:center">Loading…</div></div>
+    </div>
+    <div id="health-integrations" class="r-grid r-grid-3" style="margin-top:10px"></div>
+    <div id="health-errors" style="margin-top:12px;display:none"></div>
+  </div>
 
-<!-- ═══ Data Storage ═══ -->
-<div class="card" style="margin-bottom:12px">
- <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
-  <span>💾 Data Storage</span>
-  <button class="btn btn-s" onclick="loadDataSizes()" style="font-size:13px;padding:6px 14px" aria-label="Load">📊 Load</button>
- </div>
- <div id="data-sizes" style="margin-top:12px"><div style="color:var(--tx2);font-size:14px">Click load to view storage details...</div></div>
-</div>
+  <!-- ═══ Data Storage ═══ -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:14px;font-weight:600;color:var(--r-text)">💾 Data Storage</div>
+      <button class="r-btn r-btn-sm" onclick="loadDataSizes()" aria-label="Load">📊 Load</button>
+    </div>
+    <div id="data-sizes" style="margin-top:12px"><div style="color:var(--r-text-muted);font-size:13px">Click load to view storage details…</div></div>
+  </div>
 
-<!-- ═══ Nav Customization ═══ -->
-<div class="card" style="margin-bottom:12px" id="nav">
- <div class="card-t">🧭 Navigation Bar</div>
- <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">
-  Check items to show in the top nav bar. Unchecked items go to "⋯ More" dropdown. Home is always first.
- </div>
- <div id="nav-items" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-  <!-- populated by JS -->
- </div>
- <div style="margin-top:12px;display:flex;gap:8px">
-  <button type="button" class="btn btn-p" onclick="saveNavConfig()" style="font-size:13px;padding:8px 16px" aria-label="Save Nav">💾 Save Nav</button>
-  <button type="button" class="btn btn-s" onclick="resetNavConfig()" style="font-size:13px;padding:8px 16px" aria-label="Reset Default">↩️ Reset Default</button>
- </div>
-</div>
+  <!-- ═══ Nav Customization ═══ -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px" id="nav">
+    <div style="font-size:14px;font-weight:600;color:var(--r-text)">🧭 Navigation Bar</div>
+    <div style="font-size:12px;color:var(--r-text-muted);margin:6px 0 12px">
+      Check items to show in the top nav bar. Unchecked items go to "⋯ More" dropdown. Home is always first.
+    </div>
+    <div id="nav-items" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button type="button" class="r-btn r-btn-primary r-btn-sm" onclick="saveNavConfig()" aria-label="Save Nav">💾 Save Nav</button>
+      <button type="button" class="r-btn r-btn-sm" onclick="resetNavConfig()" aria-label="Reset Default">↩️ Reset Default</button>
+    </div>
+  </div>
+  <script>
+  var ALL_NAV=[
+   {name:'PCs',label:'📋 PCs'},
+   {name:'Quotes',label:'📋 Quotes'},
+   {name:'Orders',label:'📦 Orders'},
+   {name:'PO Track',label:'📍 PO Track'},
+   {name:'Follow-Up',label:'📬 Follow-Up'},
+   {name:'CRM',label:'👥 CRM'},
+   {name:'Catalog',label:'📦 Catalog'},
+   {name:'Analytics',label:'📊 Analytics'},
+   {name:'Pipeline',label:'🔄 Pipeline'},
+   {name:'Search',label:'🔍 Search'},
+   {name:'Vendors',label:'🏭 Vendors'},
+   {name:'Competitors',label:'🎯 Competitors'},
+   {name:'Expand',label:'🏥 Expand'},
+   {name:'Campaigns',label:'📞 Campaigns'},
+   {name:'Shipping',label:'🚚 Shipping'},
+   {name:'Pricing',label:'💰 Pricing'},
+   {name:'Growth',label:'🚀 Growth'},
+   {name:'Intel',label:'🧠 Intel'},
+   {name:'Agents',label:'🤖 Agents'},
+   {name:'Revenue',label:'💰 Revenue'},
+   {name:'Brief',label:'☀️ Brief'},
+  ];
+  var DEFAULT_TOP=['PCs','Quotes','Orders','PO Track','Follow-Up','CRM','Catalog','Analytics','Pipeline'];
+  var currentTop=[];
 
-<script>
-var ALL_NAV=[
- {name:'PCs',label:'📋 PCs'},
- {name:'Quotes',label:'📋 Quotes'},
- {name:'Orders',label:'📦 Orders'},
- {name:'PO Track',label:'📍 PO Track'},
- {name:'Follow-Up',label:'📬 Follow-Up'},
- {name:'CRM',label:'👥 CRM'},
- {name:'Catalog',label:'📦 Catalog'},
- {name:'Analytics',label:'📊 Analytics'},
- {name:'Pipeline',label:'🔄 Pipeline'},
- {name:'Search',label:'🔍 Search'},
- {name:'Vendors',label:'🏭 Vendors'},
- {name:'Competitors',label:'🎯 Competitors'},
- {name:'Expand',label:'🏥 Expand'},
- {name:'Campaigns',label:'📞 Campaigns'},
- {name:'Shipping',label:'🚚 Shipping'},
- {name:'Pricing',label:'💰 Pricing'},
- {name:'Growth',label:'🚀 Growth'},
- {name:'Intel',label:'🧠 Intel'},
- {name:'Agents',label:'🤖 Agents'},
- {name:'Revenue',label:'💰 Revenue'},
- {name:'Brief',label:'☀️ Brief'},
-];
-var DEFAULT_TOP=['PCs','Quotes','Orders','PO Track','Follow-Up','CRM','Catalog','Analytics','Pipeline'];
-var currentTop=[];
-
-function loadNavConfig(){
- // Read from server
- fetch('/api/settings/get?key=nav_top_items').then(r=>r.json()).then(d=>{
-  if(d.value){currentTop=d.value.split(',').map(s=>s.trim()).filter(Boolean)}
-  else{currentTop=[...DEFAULT_TOP]}
-  renderNavEditor();
- }).catch(()=>{currentTop=[...DEFAULT_TOP];renderNavEditor()});
-}
-function renderNavEditor(){
- var c=document.getElementById('nav-items');
- c.innerHTML=ALL_NAV.map(function(item){
-  var checked=currentTop.indexOf(item.name)>=0;
-  return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;'
-   +(checked?'background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2)':'background:var(--sf);border:1px solid var(--bd)')
-   +'" ondragover="event.preventDefault()" draggable="false">'
-   +'<input type="checkbox" data-name="'+item.name+'" '+(checked?'checked':'')+' onchange="toggleNavItem(this)" style="width:16px;height:16px;accent-color:var(--ac)">'
-   +'<span style="font-size:13px">'+item.label+'</span>'
-   +(checked?'<span style="margin-left:auto;font-size:13px;color:#3fb950">TOP</span>':'')
-   +'</label>';
- }).join('');
-}
-function toggleNavItem(cb){
- var name=cb.dataset.name;
- if(cb.checked){
-  if(currentTop.indexOf(name)<0)currentTop.push(name);
- }else{
-  currentTop=currentTop.filter(n=>n!==name);
- }
- renderNavEditor();
-}
-function saveNavConfig(){
- var val=currentTop.join(',');
- fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({'nav_top_items':val})
- }).then(r=>r.json()).then(d=>{
-  if(d.ok){
-   var el=document.querySelector('.alert');
-   if(!el){el=document.createElement('div');el.className='alert al-s';el.style.marginBottom='12px';
-    document.getElementById('nav').before(el);}
-   el.textContent='✅ Nav saved — refresh to see changes';
-   el.style.display='block';
+  function loadNavConfig(){
+   fetch('/api/settings/get?key=nav_top_items').then(r=>r.json()).then(d=>{
+    if(d.value){currentTop=d.value.split(',').map(s=>s.trim()).filter(Boolean)}
+    else{currentTop=[...DEFAULT_TOP]}
+    renderNavEditor();
+   }).catch(()=>{currentTop=[...DEFAULT_TOP];renderNavEditor()});
   }
- });
-}
-function resetNavConfig(){
- currentTop=[...DEFAULT_TOP];
- renderNavEditor();
- saveNavConfig();
-}
-loadNavConfig();
-</script>
+  function renderNavEditor(){
+   var c=document.getElementById('nav-items');
+   c.innerHTML=ALL_NAV.map(function(item){
+    var checked=currentTop.indexOf(item.name)>=0;
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;cursor:pointer;'
+     +(checked?'background:var(--r-accent-soft);border:1px solid var(--r-accent-edge)':'background:var(--r-bg-elev);border:1px solid var(--r-border-soft)')
+     +'">'
+     +'<input type="checkbox" data-name="'+item.name+'" '+(checked?'checked':'')+' onchange="toggleNavItem(this)" style="width:14px;height:14px;accent-color:var(--r-accent)">'
+     +'<span style="font-size:13px">'+item.label+'</span>'
+     +(checked?'<span style="margin-left:auto;font-size:10px;color:var(--r-accent);font-weight:600">TOP</span>':'')
+     +'</label>';
+   }).join('');
+  }
+  function toggleNavItem(cb){
+   var name=cb.dataset.name;
+   if(cb.checked){
+    if(currentTop.indexOf(name)<0)currentTop.push(name);
+   }else{
+    currentTop=currentTop.filter(n=>n!==name);
+   }
+   renderNavEditor();
+  }
+  function saveNavConfig(){
+   var val=currentTop.join(',');
+   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({'nav_top_items':val})
+   }).then(r=>r.json()).then(d=>{
+    if(d.ok){
+     var el=document.querySelector('.r-alert.is-info');
+     if(!el){el=document.createElement('div');el.className='r-alert is-info';el.style.marginBottom='12px';
+      document.getElementById('nav').before(el);}
+     el.innerHTML='<span>ⓘ</span><span style="flex:1">✓ Nav saved — refresh to see changes</span>';
+     el.style.display='flex';
+    }
+   });
+  }
+  function resetNavConfig(){
+   currentTop=[...DEFAULT_TOP];
+   renderNavEditor();
+   saveNavConfig();
+  }
+  loadNavConfig();
+  </script>
 
-<!-- ═══ Integrations (Webhooks / SMS / Base URL) ═══ -->
-<div class="card" style="margin-bottom:12px" id="integrations">
- <div class="card-t">🔗 Integrations</div>
- <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">
-  Configure webhook URLs for n8n automation, SMS notifications, and the app base URL.
- </div>
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-  <div>
-   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">n8n RFQ Webhook URL</label>
-   <input type="text" id="int-webhook-rfq" placeholder="https://n8n.example.com/webhook/rfq-created" class="text-in" style="width:100%;font-size:13px;padding:8px">
+  <!-- ═══ Integrations ═══ -->
+  <div class="r-card r-card-pad" style="margin-bottom:14px" id="integrations">
+    <div style="font-size:14px;font-weight:600;color:var(--r-text)">🔗 Integrations</div>
+    <div style="font-size:12px;color:var(--r-text-muted);margin:6px 0 12px">Configure webhook URLs for n8n automation, SMS notifications, and the app base URL.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <label style="font-size:11px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:4px">n8n RFQ Webhook URL</label>
+        <input type="text" id="int-webhook-rfq" placeholder="https://n8n.example.com/webhook/rfq-created" style="width:100%;font-size:13px;padding:8px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:6px;color:var(--r-text);font-family:var(--r-mono)">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:4px">n8n Order Webhook URL</label>
+        <input type="text" id="int-webhook-order" placeholder="https://n8n.example.com/webhook/order-updated" style="width:100%;font-size:13px;padding:8px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:6px;color:var(--r-text);font-family:var(--r-mono)">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:4px">SMS Notify Phone</label>
+        <input type="text" id="int-notify-phone" placeholder="+15551234567" style="width:100%;font-size:13px;padding:8px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:6px;color:var(--r-text);font-family:var(--r-mono)">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:4px">App Base URL</label>
+        <input type="text" id="int-base-url" placeholder="https://web-production-dcee9.up.railway.app" style="width:100%;font-size:13px;padding:8px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:6px;color:var(--r-text);font-family:var(--r-mono)">
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="r-btn r-btn-primary r-btn-sm" onclick="saveIntegrations()">Save Integrations</button>
+      <button type="button" class="r-btn r-btn-sm" onclick="testWebhook()">Send Test Webhook</button>
+      <button type="button" class="r-btn r-btn-sm" onclick="testSms()">Send Test SMS</button>
+    </div>
+    <div id="int-msg" style="margin-top:8px;font-size:13px;display:none"></div>
   </div>
-  <div>
-   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">n8n Order Webhook URL</label>
-   <input type="text" id="int-webhook-order" placeholder="https://n8n.example.com/webhook/order-updated" class="text-in" style="width:100%;font-size:13px;padding:8px">
-  </div>
-  <div>
-   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">SMS Notify Phone</label>
-   <input type="text" id="int-notify-phone" placeholder="+15551234567" class="text-in" style="width:100%;font-size:13px;padding:8px">
-  </div>
-  <div>
-   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">App Base URL</label>
-   <input type="text" id="int-base-url" placeholder="https://web-production-dcee9.up.railway.app" class="text-in" style="width:100%;font-size:13px;padding:8px">
-  </div>
- </div>
- <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-  <button type="button" class="btn btn-p" onclick="saveIntegrations()" style="font-size:13px;padding:8px 16px">Save Integrations</button>
-  <button type="button" class="btn btn-s" onclick="testWebhook()" style="font-size:13px;padding:8px 16px">Send Test Webhook</button>
-  <button type="button" class="btn btn-s" onclick="testSms()" style="font-size:13px;padding:8px 16px">Send Test SMS</button>
- </div>
- <div id="int-msg" style="margin-top:8px;font-size:14px;display:none"></div>
-</div>
+  <script>
+  function loadIntegrations(){
+   fetch('/api/settings/integrations').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok)return;
+    var s=d.settings||{};
+    document.getElementById('int-webhook-rfq').value=s.webhook_rfq_created_url||'';
+    document.getElementById('int-webhook-order').value=s.webhook_order_updated_url||'';
+    document.getElementById('int-notify-phone').value=s.notify_phone||'';
+    document.getElementById('int-base-url').value=s.base_url||'';
+   }).catch(function(){});
+  }
+  function saveIntegrations(){
+   var payload={
+    webhook_rfq_created_url:document.getElementById('int-webhook-rfq').value.trim(),
+    webhook_order_updated_url:document.getElementById('int-webhook-order').value.trim(),
+    notify_phone:document.getElementById('int-notify-phone').value.trim(),
+    base_url:document.getElementById('int-base-url').value.trim()
+   };
+   fetch('/api/settings/integrations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+   .then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('int-msg');
+    el.style.display='block';
+    if(d.ok){el.style.color='var(--r-accent)';el.textContent='✓ Integrations saved.';}
+    else{el.style.color='var(--r-bad)';el.textContent='✕ '+(d.error||'unknown');}
+    setTimeout(function(){el.style.display='none'},4000);
+   });
+  }
+  function testWebhook(){
+   var el=document.getElementById('int-msg');
+   el.style.display='block';el.style.color='var(--r-text-muted)';el.textContent='Sending test webhook…';
+   fetch('/api/v1/webhook/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+   .then(function(r){return r.json()}).then(function(d){
+    el.style.color=d.ok?'var(--r-accent)':'var(--r-bad)';
+    el.textContent=d.ok?'✓ Test webhook sent.':'✕ Webhook failed: '+(d.error||'unknown');
+    setTimeout(function(){el.style.display='none'},5000);
+   }).catch(function(e){el.style.color='var(--r-bad)';el.textContent='✕ '+e.message;});
+  }
+  function testSms(){
+   var el=document.getElementById('int-msg');
+   el.style.display='block';el.style.color='var(--r-text-muted)';el.textContent='Sending test SMS…';
+   fetch('/api/v1/notify/test-sms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+   .then(function(r){return r.json()}).then(function(d){
+    el.style.color=d.ok?'var(--r-accent)':'var(--r-bad)';
+    el.textContent=d.ok?'✓ Test SMS sent.':'✕ SMS failed: '+(d.error||'unknown');
+    setTimeout(function(){el.style.display='none'},5000);
+   }).catch(function(e){el.style.color='var(--r-bad)';el.textContent='✕ '+e.message;});
+  }
+  loadIntegrations();
+  </script>
 
-<script>
-function loadIntegrations(){
- fetch('/api/settings/integrations').then(function(r){return r.json()}).then(function(d){
-  if(!d.ok)return;
-  var s=d.settings||{};
-  document.getElementById('int-webhook-rfq').value=s.webhook_rfq_created_url||'';
-  document.getElementById('int-webhook-order').value=s.webhook_order_updated_url||'';
-  document.getElementById('int-notify-phone').value=s.notify_phone||'';
-  document.getElementById('int-base-url').value=s.base_url||'';
- }).catch(function(){});
-}
-function saveIntegrations(){
- var payload={
-  webhook_rfq_created_url:document.getElementById('int-webhook-rfq').value.trim(),
-  webhook_order_updated_url:document.getElementById('int-webhook-order').value.trim(),
-  notify_phone:document.getElementById('int-notify-phone').value.trim(),
-  base_url:document.getElementById('int-base-url').value.trim()
- };
- fetch('/api/settings/integrations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
- .then(function(r){return r.json()}).then(function(d){
-  var el=document.getElementById('int-msg');
-  el.style.display='block';
-  if(d.ok){el.style.color='#3fb950';el.textContent='Integrations saved.';}
-  else{el.style.color='#f85149';el.textContent='Error: '+(d.error||'unknown');}
-  setTimeout(function(){el.style.display='none'},4000);
- });
-}
-function testWebhook(){
- var el=document.getElementById('int-msg');
- el.style.display='block';el.style.color='var(--tx2)';el.textContent='Sending test webhook...';
- fetch('/api/v1/webhook/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
- .then(function(r){return r.json()}).then(function(d){
-  el.style.color=d.ok?'#3fb950':'#f85149';
-  el.textContent=d.ok?'Test webhook sent.':'Webhook failed: '+(d.error||'unknown');
-  setTimeout(function(){el.style.display='none'},5000);
- }).catch(function(e){el.style.color='#f85149';el.textContent='Error: '+e.message;});
-}
-function testSms(){
- var el=document.getElementById('int-msg');
- el.style.display='block';el.style.color='var(--tx2)';el.textContent='Sending test SMS...';
- fetch('/api/v1/notify/test-sms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
- .then(function(r){return r.json()}).then(function(d){
-  el.style.color=d.ok?'#3fb950':'#f85149';
-  el.textContent=d.ok?'Test SMS sent.':'SMS failed: '+(d.error||'unknown');
-  setTimeout(function(){el.style.display='none'},5000);
- }).catch(function(e){el.style.color='#f85149';el.textContent='Error: '+e.message;});
-}
-loadIntegrations();
-</script>
-
-<!-- ═══ App Settings ═══ -->
-<form id="settings-form">
-{% for cat, items in groups.items()|sort %}
-<div class="card" style="margin-bottom:12px">
- <div class="card-t" style="text-transform:capitalize">{{cat}} Settings</div>
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
-  {% for key, value in items.items()|sort %}
-  <div>
-   <label style="font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">
-    {{key.split('.')[-1]|replace('_',' ')|title}}
-   </label>
-   {% if value is sameas true or value is sameas false %}
-   <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-    <input type="checkbox" name="{{key}}" {% if value %}checked{% endif %}
-     style="width:18px;height:18px;accent-color:var(--ac)"
-     onchange="this.nextElementSibling.textContent=this.checked?'On':'Off'">
-    <span style="font-size:13px;font-weight:500">{% if value %}On{% else %}Off{% endif %}</span>
-   </label>
-   {% elif value is number %}
-   <input type="number" name="{{key}}" value="{{value}}" class="num-in" style="width:120px;font-size:14px;padding:8px">
-   {% else %}
-   <input type="text" name="{{key}}" value="{{value}}" class="text-in" style="width:100%;font-size:13px;padding:8px">
-   {% endif %}
+  <!-- ═══ App Settings (server-rendered groups) ═══ -->
+  <form id="settings-form">
+  {% for cat, items in groups.items()|sort %}
+  <div class="r-card r-card-pad" style="margin-bottom:14px">
+    <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:capitalize">{{cat}} Settings</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+      {% for key, value in items.items()|sort %}
+      <div>
+        <label style="font-size:11px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:4px">
+          {{key.split('.')[-1]|replace('_',' ')|title}}
+        </label>
+        {% if value is sameas true or value is sameas false %}
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" name="{{key}}" {% if value %}checked{% endif %}
+            class="r-toggle"
+            onchange="this.nextElementSibling.textContent=this.checked?'On':'Off'">
+          <span style="font-size:13px;font-weight:500">{% if value %}On{% else %}Off{% endif %}</span>
+        </label>
+        {% elif value is number %}
+        <input type="number" name="{{key}}" value="{{value}}" style="width:140px;font-size:13px;padding:8px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:6px;color:var(--r-text);font-family:var(--r-mono)">
+        {% else %}
+        <input type="text" name="{{key}}" value="{{value}}" style="width:100%;font-size:13px;padding:8px;background:var(--r-bg-elev);border:1px solid var(--r-border-soft);border-radius:6px;color:var(--r-text)">
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
   </div>
   {% endfor %}
- </div>
+
+  <div style="display:flex;gap:12px;margin-top:16px">
+    <button type="button" class="r-btn r-btn-primary" onclick="saveSettings()" aria-label="Save Settings">💾 Save Settings</button>
+    <button type="button" class="r-btn" onclick="location.reload()" aria-label="Reset">↩️ Reset</button>
+  </div>
+  </form>
+
+  <script>
+  function saveSettings(){
+   var form=document.getElementById('settings-form');
+   var data={};
+   form.querySelectorAll('input').forEach(function(inp){
+    if(inp.type==='checkbox') data[inp.name]=inp.checked?'true':'false';
+    else data[inp.name]=inp.value;
+   });
+   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+   .then(r=>r.json()).then(d=>{
+    if(d.ok) alert('Settings saved ('+d.saved+' values)');
+    else alert('Error: '+(d.error||'unknown'));
+   });
+  }
+
+  /* ── System Health ── */
+  function loadHealth(){
+   fetch('/api/system/dashboard').then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('health-cards');
+    if(!d||d.error){el.innerHTML='<div style="color:var(--r-bad);padding:12px">Error loading</div>';return;}
+    var mk=function(v,l,c){return '<div class="r-kpi"><div class="r-kpi-value" style="color:'+(c||'var(--r-accent)')+'">'+v+'</div><div class="r-kpi-label" style="margin-top:4px">'+l+'</div></div>';};
+    var cards=[];
+    cards.push(mk(d.route_count||d.routes||'?','Routes','var(--r-accent)'));
+    cards.push(mk(d.template_count||d.templates||'?','Templates','#58a6ff'));
+    cards.push(mk(d.python_files||d.modules||'?','Python Files','#a78bfa'));
+    var db=d.db_size_mb||d.db_size||'?';
+    cards.push(mk(typeof db==='number'?db.toFixed(1)+'MB':db,'Database','var(--r-warn)'));
+    if(d.threads)cards.push(mk(d.threads,'Threads','var(--r-accent)'));
+    if(d.memory_mb)cards.push(mk(d.memory_mb+'MB','Memory','var(--r-warn)'));
+    el.innerHTML=cards.join('');
+    var intEl=document.getElementById('health-integrations');
+    var ints=d.integrations||d.services||{};
+    if(Object.keys(ints).length){var h='';for(var k in ints){var v=ints[k];var ok=v===true||v==='ok'||(v&&v.ok);h+='<div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--r-bg-elev);border-radius:8px;border:1px solid var(--r-border-soft)"><span class="w-2 h-2 r-poll-dot" style="background:'+(ok?'var(--r-accent)':'var(--r-bad)')+';box-shadow:0 0 6px '+(ok?'var(--r-accent)':'var(--r-bad)')+';animation:none"></span><span style="font-size:13px;font-weight:600">'+k.replace(/_/g,' ')+'</span><span style="margin-left:auto;font-size:12px;color:'+(ok?'var(--r-accent)':'var(--r-bad)')+'">'+( ok?'Active':'Off')+'</span></div>';}intEl.innerHTML=h;}
+   }).catch(function(e){document.getElementById('health-cards').innerHTML='<div style="color:var(--r-bad);padding:12px">'+e.message+'</div>';});
+  }
+  function loadDataSizes(){
+   fetch('/api/system/data-sizes').then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('data-sizes');
+    var files=d.files||d;
+    if(Array.isArray(files)){
+     var h='<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--r-border)"><th style="text-align:left;padding:8px;color:var(--r-text-dim);font-size:10px;text-transform:uppercase;font-weight:500">File</th><th style="text-align:right;padding:8px;color:var(--r-text-dim);font-size:10px;text-transform:uppercase;font-weight:500">Size</th><th style="text-align:right;padding:8px;color:var(--r-text-dim);font-size:10px;text-transform:uppercase;font-weight:500">Records</th></tr></thead><tbody>';
+     files.forEach(function(f){var sz=f.size_mb||f.size||0;h+='<tr style="border-bottom:1px solid var(--r-border-soft)"><td class="num" style="padding:8px;font-size:12px">'+(f.name||f.file||'?')+'</td><td class="num" style="text-align:right;padding:8px;font-size:12px">'+(typeof sz==='number'?sz.toFixed(2)+'MB':sz)+'</td><td class="num" style="text-align:right;padding:8px;font-size:12px;color:var(--r-text-muted)">'+(f.records||f.count||'—')+'</td></tr>';});
+     h+='</tbody></table>';el.innerHTML=h;
+    }else{el.innerHTML='<pre style="font-size:12px;color:var(--r-text-muted);font-family:var(--r-mono)">'+JSON.stringify(files,null,2)+'</pre>';}
+   }).catch(function(e){document.getElementById('data-sizes').innerHTML='<div style="color:var(--r-bad)">'+e.message+'</div>';});
+  }
+  loadHealth();
+  </script>
+
+  <!-- ═══ Admin Tools ═══ -->
+  <div class="r-card r-card-pad" style="margin-top:20px">
+    <div style="font-size:14px;font-weight:600;color:var(--r-text);margin-bottom:12px">🔧 Admin Tools</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="/api/admin/hard-cleanup" class="r-btn r-btn-sm" style="background:var(--r-bad-soft);color:var(--r-bad);border-color:rgba(239,68,68,0.2);min-width:240px;text-align:center;text-decoration:none;justify-content:center">🗑 Hard Cleanup (dry run)</a>
+        <span style="font-size:11px;color:var(--r-text-muted)">Preview what would be deleted</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="/api/admin/hard-cleanup?execute=true" class="r-btn r-btn-danger r-btn-sm" onclick="return confirm('Delete all junk entries? Cannot undo.')" style="min-width:240px;text-align:center;text-decoration:none;justify-content:center;font-weight:600">🗑 Hard Cleanup (EXECUTE)</a>
+        <span style="font-size:11px;color:var(--r-bad)">⚠ Cannot undo</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <a href="/api/admin/force-repoll" class="r-btn r-btn-sm" style="background:var(--r-accent-soft);color:var(--r-accent);border-color:var(--r-accent-edge);min-width:240px;text-align:center;text-decoration:none;justify-content:center">🔄 Force Re-Poll Emails</a>
+        <span style="font-size:11px;color:var(--r-text-muted)">Clears processed cache and re-scans</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="/api/admin/cleanup-queue" class="r-btn r-btn-sm" style="background:var(--r-warn-soft);color:var(--r-warn);border-color:rgba(245,158,11,0.2);min-width:240px;text-align:center;text-decoration:none;justify-content:center">🧹 Soft Cleanup (dry run)</a>
+        <span style="font-size:11px;color:var(--r-text-muted)">Remove obvious duplicates only</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="/api/admin/cleanup-queue?execute=true" class="r-btn r-btn-sm" onclick="return confirm('Run soft cleanup?')" style="background:var(--r-warn-soft);color:var(--r-warn);border-color:rgba(245,158,11,0.3);min-width:240px;text-align:center;text-decoration:none;justify-content:center">🧹 Soft Cleanup (EXECUTE)</a>
+        <span style="font-size:11px;color:var(--r-text-muted)">Deletes duplicates</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <a href="/api/admin/cleanup-quote-numbers" class="r-btn r-btn-sm" style="min-width:240px;text-align:center;text-decoration:none;justify-content:center">🔢 Cleanup Quote Numbers</a>
+        <span style="font-size:11px;color:var(--r-text-muted)">Fix ghost quotes and reset counter</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="/api/poll/reset-processed" class="r-btn r-btn-sm" style="min-width:240px;text-align:center;text-decoration:none;justify-content:center">📧 Reset Processed Emails</a>
+        <span style="font-size:11px;color:var(--r-text-muted)">Light version — just clears the processed list</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" onclick="if(confirm('Trigger a manual backup now?')){fetch('/api/admin/backup-now',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>alert(d.ok===false?('Backup failed: '+(d.error||'unknown')):('Backup triggered: '+JSON.stringify(d)))).catch(e=>alert('Backup request failed: '+e));}" class="r-btn r-btn-sm" style="background:var(--r-accent-soft);color:var(--r-accent);border-color:var(--r-accent-edge);min-width:240px;text-align:center;justify-content:center;cursor:pointer">💾 Backup to Drive Now</button>
+        <span style="font-size:11px;color:var(--r-text-muted)">Manual Google Drive backup</span>
+      </div>
+    </div>
+  </div>
+
 </div>
-{% endfor %}
-
-<div style="display:flex;gap:12px;margin-top:16px">
- <button type="button" class="btn btn-p" onclick="saveSettings()" aria-label="Save Settings">💾 Save Settings</button>
- <button type="button" class="btn btn-s" onclick="location.reload()" aria-label="Reset">↩️ Reset</button>
-</div>
-</form>
-
-<script>
-function saveSettings(){
- var form=document.getElementById('settings-form');
- var data={};
- form.querySelectorAll('input').forEach(function(inp){
-  if(inp.type==='checkbox') data[inp.name]=inp.checked?'true':'false';
-  else data[inp.name]=inp.value;
- });
- fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
- .then(r=>r.json()).then(d=>{
-  if(d.ok) alert('Settings saved ('+d.saved+' values)');
-  else alert('Error: '+(d.error||'unknown'));
- });
-}
-
-/* ── System Health ── */
-function loadHealth(){
- fetch('/api/system/dashboard').then(function(r){return r.json()}).then(function(d){
-  var el=document.getElementById('health-cards');
-  if(!d||d.error){el.innerHTML='<div style="color:#f85149;padding:12px">Error loading</div>';return;}
-  var mk=function(v,l,c){return '<div style="text-align:center;padding:14px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)"><div style="font-size:22px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+(c||'var(--ac)')+'">'+v+'</div><div style="font-size:13px;color:var(--tx2);margin-top:4px">'+l+'</div></div>';};
-  var cards=[];
-  cards.push(mk(d.route_count||d.routes||'?','Routes','var(--ac)'));
-  cards.push(mk(d.template_count||d.templates||'?','Templates','#58a6ff'));
-  cards.push(mk(d.python_files||d.modules||'?','Python Files','#a78bfa'));
-  var db=d.db_size_mb||d.db_size||'?';
-  cards.push(mk(typeof db==='number'?db.toFixed(1)+'MB':db,'Database','#fbbf24'));
-  if(d.threads)cards.push(mk(d.threads,'Threads','#3fb950'));
-  if(d.memory_mb)cards.push(mk(d.memory_mb+'MB','Memory','#d29922'));
-  el.innerHTML=cards.join('');
-  var intEl=document.getElementById('health-integrations');
-  var ints=d.integrations||d.services||{};
-  if(Object.keys(ints).length){var h='';for(var k in ints){var v=ints[k];var ok=v===true||v==='ok'||(v&&v.ok);h+='<div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)"><span style="font-size:16px">'+(ok?'\u2705':'\u274c')+'</span><span style="font-size:14px;font-weight:600">'+k.replace(/_/g,' ')+'</span><span style="margin-left:auto;font-size:13px;color:'+(ok?'#3fb950':'#f85149')+'">'+( ok?'Active':'Off')+'</span></div>';}intEl.innerHTML=h;}
- }).catch(function(e){document.getElementById('health-cards').innerHTML='<div style="color:#f85149;padding:12px">'+e.message+'</div>';});
-}
-function loadDataSizes(){
- fetch('/api/system/data-sizes').then(function(r){return r.json()}).then(function(d){
-  var el=document.getElementById('data-sizes');
-  var files=d.files||d;
-  if(Array.isArray(files)){
-   var h='<table style="width:100%;font-size:14px"><thead><tr><th style="text-align:left">File</th><th style="text-align:right">Size</th><th style="text-align:right">Records</th></tr></thead><tbody>';
-   files.forEach(function(f){var sz=f.size_mb||f.size||0;h+='<tr><td style="padding:4px 8px;font-family:JetBrains Mono,monospace;font-size:13px">'+(f.name||f.file||'?')+'</td><td style="text-align:right;padding:4px 8px;font-family:JetBrains Mono,monospace;font-size:13px">'+(typeof sz==='number'?sz.toFixed(2)+'MB':sz)+'</td><td style="text-align:right;padding:4px 8px;font-size:13px;color:var(--tx2)">'+(f.records||f.count||'\u2014')+'</td></tr>';});
-   h+='</tbody></table>';el.innerHTML=h;
-  }else{el.innerHTML='<pre style="font-size:13px;color:var(--tx2)">'+JSON.stringify(files,null,2)+'</pre>';}
- }).catch(function(e){document.getElementById('data-sizes').innerHTML='<div style="color:#f85149">'+e.message+'</div>';});
-}
-loadHealth();
-
-</script>
-
-<!-- ═══ Admin Tools ═══ -->
-<div class="card" style="margin-top:20px;padding:16px 20px">
- <div style="font-size:16px;font-weight:700;color:var(--tx);margin-bottom:12px">🔧 Admin Tools</div>
- <div style="display:flex;flex-direction:column;gap:8px">
-  <div style="display:flex;gap:8px;align-items:center">
-   <a href="/api/admin/hard-cleanup" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.2);min-width:220px;text-align:center;text-decoration:none">🗑 Hard Cleanup (dry run)</a>
-   <span style="font-size:12px;color:var(--tx2)">Preview what would be deleted</span>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center">
-   <a href="/api/admin/hard-cleanup?execute=true" class="btn btn-sm" onclick="return confirm('Delete all junk entries? Cannot undo.')" style="font-size:13px;padding:8px 16px;background:rgba(248,81,73,.2);color:#f85149;border:1px solid rgba(248,81,73,.3);min-width:220px;text-align:center;text-decoration:none;font-weight:600">🗑 Hard Cleanup (EXECUTE)</a>
-   <span style="font-size:12px;color:#f85149">⚠ Cannot undo</span>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-   <a href="/api/admin/force-repoll" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.2);min-width:220px;text-align:center;text-decoration:none">🔄 Force Re-Poll Emails</a>
-   <span style="font-size:12px;color:var(--tx2)">Clears processed cache and re-scans</span>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center">
-   <a href="/api/admin/cleanup-queue" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);min-width:220px;text-align:center;text-decoration:none">🧹 Soft Cleanup (dry run)</a>
-   <span style="font-size:12px;color:var(--tx2)">Remove obvious duplicates only</span>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center">
-   <a href="/api/admin/cleanup-queue?execute=true" class="btn btn-sm" onclick="return confirm('Run soft cleanup?')" style="font-size:13px;padding:8px 16px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);min-width:220px;text-align:center;text-decoration:none">🧹 Soft Cleanup (EXECUTE)</a>
-   <span style="font-size:12px;color:var(--tx2)">Deletes duplicates</span>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-   <a href="/api/admin/cleanup-quote-numbers" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);min-width:220px;text-align:center;text-decoration:none">🔢 Cleanup Quote Numbers</a>
-   <span style="font-size:12px;color:var(--tx2)">Fix ghost quotes and reset counter</span>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center">
-   <a href="/api/poll/reset-processed" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);min-width:220px;text-align:center;text-decoration:none">📧 Reset Processed Emails</a>
-   <span style="font-size:12px;color:var(--tx2)">Light version — just clears the processed list</span>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center">
-   <button type="button" onclick="if(confirm('Trigger a manual backup now?')){fetch('/api/admin/backup-now',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>alert(d.ok===false?('Backup failed: '+(d.error||'unknown')):('Backup triggered: '+JSON.stringify(d)))).catch(e=>alert('Backup request failed: '+e));}" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2);min-width:220px;text-align:center;cursor:pointer">💾 Backup to Drive Now</button>
-   <span style="font-size:12px;color:var(--tx2)">Manual Google Drive backup</span>
-  </div>
- </div>
-</div>
-
 {% endblock %}
