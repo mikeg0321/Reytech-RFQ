@@ -437,12 +437,14 @@ def test_build_704_item_fields_uses_buyer_qty_under_rfq_prefilled():
     )
     assert profile.field_values.get("QTYRow2") == "2"
 
-    # Simulate the per-facility upstream shape that triggered the bug:
-    # 2 line_items, each with qty=1 (= 1 per facility, NOT buyer's total).
+    # Simple SKU-aggregated upstream shape: 2 line_items each MFG#-tagged
+    # to a buyer-prefilled row. Option D's aggregator matches by MFG#.
     raw_items = [
         {"line_number": 1, "qty": 1, "unit_price": 1564.57,
+         "mfg_number": "8700-0893-01",
          "description": "Training Kit, for Zoll R Series Defibrillators"},
         {"line_number": 2, "qty": 1, "unit_price": 1467.75,
+         "mfg_number": "LF03699",
          "description": "Trainer Airway Mgmt W/ Stand"},
     ]
 
@@ -473,5 +475,129 @@ def test_build_704_item_fields_uses_buyer_qty_under_rfq_prefilled():
         "RFQ_PREFILLED must not overwrite buyer's ITEM NUMBER. "
         "writes_item_numbers regressed."
     )
+
+
+def test_build_704_item_fields_aggregates_per_facility_items_by_mfg():
+    """Option D — substrate fix for the per-facility splat bug class.
+
+    The 2026-05-28 18:04 PT prod regenerate after PR #1178 (Option C
+    alone) showed Row 1 correct but Row 2-21 splattered: writer was
+    iterating 21 per-facility entries (sequential line_numbers 1..21)
+    and writing each into a row, instead of grouping by SKU to match
+    the buyer's 2 prefilled rows.
+
+    Coleman 10842771 buyer template:
+      ITEM NUMBERRow1='8700-0893-01' (Zoll trainer), QTYRow1=19
+      ITEM NUMBERRow2='LF03699'      (airway mgmt),  QTYRow2=2
+
+    Upstream sends 21 per-facility line_items:
+      19 entries with mfg=8700-0893-01, qty=1, price=$1564.57
+      2  entries with mfg=LF03699,      qty=1, price=$1467.75
+
+    Option D aggregates by MFG# → 2 synthetic raw_items matched to
+    Row1 and Row2. Writer fills ONLY those two rows. Rows 3-15 and
+    Row1_2-Row6_2 stay empty (no SUBTOTAL/PRICE writes).
+    """
+    from src.forms.template_registry import get_profile
+    from src.forms.ams704_helpers import build_704_item_fields, FillStrategy
+
+    profile = get_profile(str(GOLDEN_704B))
+
+    # 19 trainer + 2 airway, each with qty=1, sequential line_numbers.
+    raw_items: list[dict] = []
+    for i in range(1, 20):
+        raw_items.append({
+            "line_number": i, "qty": 1, "unit_price": 1564.57,
+            "mfg_number": "8700-0893-01",
+            "description": "Training Kit, for Zoll R Series Defibrillators",
+        })
+    for i in range(20, 22):
+        raw_items.append({
+            "line_number": i, "qty": 1, "unit_price": 1467.75,
+            "mfg_number": "LF03699",
+            "description": "Trainer Airway Mgmt W/ Stand",
+        })
+
+    result = build_704_item_fields(
+        profile, raw_items, FillStrategy.RFQ_PREFILLED, convention="704b",
+    )
+
+    # Both buyer-prefilled rows must reflect SKU aggregates × buyer's qty.
+    assert result.field_values.get("SUBTOTALRow1") == "29726.83", (
+        f"Row1 must aggregate 19 trainer facilities × $1564.57. "
+        f"Got {result.field_values.get('SUBTOTALRow1')!r}."
+    )
+    assert result.field_values.get("SUBTOTALRow2") == "2935.50", (
+        f"Row2 must aggregate 2 airway facilities × $1467.75 — NOT "
+        f"li[1].unit_price ($1564.57 from a trainer facility). "
+        f"Got {result.field_values.get('SUBTOTALRow2')!r}."
+    )
+    assert result.field_values.get("PRICE PER UNITRow1") == "1564.57"
+    assert result.field_values.get("PRICE PER UNITRow2") == "1467.75"
+
+    # CRITICAL — rows 3-15 + Row1_2..Row6_2 must NOT be written.
+    # Pre-Option-D, these got splattered with per-facility data.
+    forbidden_suffixes = (
+        [f"Row{n}" for n in range(3, 20)]
+        + [f"Row{n}_2" for n in range(1, 9)]
+    )
+    for sfx in forbidden_suffixes:
+        for key in (
+            f"SUBTOTAL{sfx}",
+            f"PRICE PER UNIT{sfx}",
+            f"EXTENSION{sfx}",
+        ):
+            assert key not in result.field_values, (
+                f"Per-facility splat bug regressed: writer wrote {key!r} "
+                f"on a row the buyer did NOT prefill. Option D's "
+                f"SKU-aggregation step must collapse per-facility "
+                f"entries into the buyer's prefilled rows ONLY."
+            )
+
+    # Items priced should reflect the aggregated SKU rows (2), not
+    # the per-facility count (21).
+    assert result.items_priced == 2, (
+        f"Expected 2 SKU-aggregated rows priced, got {result.items_priced}"
+    )
+
+    # Merchandise subtotal stays computed from canonical (pre-
+    # aggregation) raw_items so customer-visible total is correct.
+    assert round(result.merchandise_subtotal, 2) == 32662.33, (
+        f"Merchandise subtotal must reflect canonical raw_items sum "
+        f"(19 × $1564.57 + 2 × $1467.75 = $32,662.33), "
+        f"got ${result.merchandise_subtotal}"
+    )
+
+
+def test_build_704_item_fields_routes_unmatched_skus_to_overflow():
+    """Option D edge — items whose MFG# doesn't match any buyer-
+    prefilled row must NOT splat into rows the buyer didn't prefill.
+    They go to overflow_items, where existing chunked-overflow logic
+    (PR #1171) can handle them on continuation pages.
+    """
+    from src.forms.template_registry import get_profile
+    from src.forms.ams704_helpers import build_704_item_fields, FillStrategy
+
+    profile = get_profile(str(GOLDEN_704B))
+    raw_items = [
+        # Matches buyer Row1 (trainer)
+        {"line_number": 1, "qty": 1, "unit_price": 1564.57,
+         "mfg_number": "8700-0893-01", "description": "Trainer"},
+        # Buyer did NOT prefill a row for this MFG# — route to overflow.
+        {"line_number": 2, "qty": 1, "unit_price": 99.00,
+         "mfg_number": "UNRELATED-SKU-XYZ", "description": "Some other item"},
+    ]
+
+    result = build_704_item_fields(
+        profile, raw_items, FillStrategy.RFQ_PREFILLED, convention="704b",
+    )
+
+    assert result.field_values.get("SUBTOTALRow1") == "29726.83"
+    # SUBTOTALRow2 must NOT have been written from the unmatched item.
+    assert "SUBTOTALRow2" not in result.field_values
+    assert "PRICE PER UNITRow2" not in result.field_values
+    # The unmatched item goes to overflow.
+    assert len(result.overflow_items) == 1
+    assert (result.overflow_items[0].mfg_number or "").upper() == "UNRELATED-SKU-XYZ"
 
 

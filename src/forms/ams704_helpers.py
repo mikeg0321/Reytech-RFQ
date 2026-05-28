@@ -679,6 +679,81 @@ class Fill704Result:
     overflow_items: list            # LineItems beyond form capacity (need overflow pages)
 
 
+def _aggregate_items_for_prefilled_rows(
+    raw_items: list[dict],
+    profile,  # TemplateProfile
+    prefilled_rows: dict[int, str],
+) -> tuple[list[dict], list[dict]]:
+    """Group raw_items by MFG#/part_number to match the buyer's prefilled
+    SKU rows. Closes the per-facility-splat bug on RFQ_PREFILLED.
+
+    Coleman 10842771 incident (2026-05-28): upstream sent 21 per-facility
+    line_items (sequential line_number 1..21) — 19 trainer + 2 airway.
+    Buyer's 704B template prefilled only Row1 (trainer SKU 8700-0893-01,
+    QTY=19) and Row2 (airway LF03699, QTY=2). The writer was iterating
+    per-facility entries and splattering them across rows 1..21 with the
+    wrong unit price on Row2 (li[1] was the SECOND trainer facility, not
+    airway).
+
+    This aggregator groups raw_items by MFG#/part_number, matches each
+    group to a buyer-prefilled row via `ITEM NUMBER{row_suffix}`, and
+    emits ONE synthetic raw_item per matched buyer row (line_number
+    set to the buyer's prefilled line_number so the existing row-suffix
+    lookup in the main loop maps cleanly).
+
+    Items whose MFG# doesn't match any buyer-prefilled row are returned
+    as `unmatched` — caller treats those as overflow rather than
+    splattering them into rows the buyer didn't prefill.
+
+    Returns:
+        (aggregated, unmatched) — both lists of raw_item dicts.
+    """
+    # Map buyer's PN → prefilled line_number.
+    buyer_pn_to_line_num: dict[str, int] = {}
+    for line_num, row_suffix in prefilled_rows.items():
+        buyer_pn = (
+            profile.field_values.get(f"ITEM NUMBER{row_suffix}", "") or ""
+        ).strip().upper()
+        if buyer_pn:
+            buyer_pn_to_line_num[buyer_pn] = line_num
+
+    # Group raw_items by matched buyer PN. Items without a matching PN
+    # go to `unmatched` (which the caller routes to overflow).
+    by_line_num: dict[int, list[dict]] = {}
+    unmatched: list[dict] = []
+    for raw_item in raw_items:
+        if isinstance(raw_item, dict) and raw_item.get("no_bid"):
+            continue
+        li = LineItem.from_dict(raw_item)
+        pn = (li.mfg_number or li.part_number or "").strip().upper()
+        if pn and pn in buyer_pn_to_line_num:
+            by_line_num.setdefault(buyer_pn_to_line_num[pn], []).append(raw_item)
+        else:
+            unmatched.append(raw_item)
+
+    # Emit one aggregated item per matched buyer row. Qty = sum of per-
+    # facility qtys; unit_price = unit_price from the first entry (all
+    # entries for the same SKU should carry the same per-unit price).
+    aggregated: list[dict] = []
+    for line_num in sorted(by_line_num.keys()):
+        group = by_line_num[line_num]
+        total_qty = 0.0
+        for item in group:
+            try:
+                total_qty += float(LineItem.from_dict(item).qty)
+            except (ValueError, TypeError):
+                continue
+        first_li = LineItem.from_dict(group[0])
+        agg = dict(group[0])
+        agg["line_number"] = line_num
+        # int when whole-number, float otherwise
+        agg["qty"] = int(total_qty) if total_qty == int(total_qty) else total_qty
+        agg["unit_price"] = first_li.unit_price
+        aggregated.append(agg)
+
+    return aggregated, unmatched
+
+
 def build_704_item_fields(
     profile,  # TemplateProfile
     raw_items: list[dict],
@@ -709,6 +784,30 @@ def build_704_item_fields(
     # Assign sequential line numbers
     for i, item in enumerate(raw_items, start=1):
         item.setdefault("line_number", i)
+
+    # Preserve the original (un-aggregated) item list for the canonical
+    # merchandise subtotal so customer-visible totals stay consistent
+    # even when upstream sends per-facility entries.
+    canonical_items_for_subtotal = list(raw_items)
+
+    # Option D — substrate fix for buyer-prefilled 704B templates.
+    # Under RFQ_PREFILLED on a buyer-prefilled template, the buyer's
+    # prefilled rows define a SKU-level structure. Upstream may send
+    # per-facility entries (Coleman 10842771 had 21 per-facility
+    # entries for 2 buyer-prefilled SKU rows). Aggregate raw_items
+    # by MFG# to match buyer's prefilled rows so the writer fills
+    # only those rows — never splattering per-facility data across
+    # rows the buyer didn't prefill.
+    if (
+        strategy == FillStrategy.RFQ_PREFILLED
+        and profile.is_prefilled
+        and prefilled_rows
+    ):
+        raw_items, _unmatched = _aggregate_items_for_prefilled_rows(
+            raw_items, profile, prefilled_rows,
+        )
+        for it in _unmatched:
+            overflow_items.append(LineItem.from_dict(it))
 
     seq = 0
     for raw_item in raw_items:
@@ -888,12 +987,16 @@ def build_704_item_fields(
     # disagree we trust `subtotal_of` because it filters on the canonical
     # `is_billable` predicate.
     from src.core.pricing_math import subtotal_of as _sub_of
-    _canonical_subtotal = _sub_of(raw_items)
+    # Use the canonical (pre-aggregation) item list so merchandise
+    # subtotal reflects every billable item the customer expects to
+    # see priced — even if Option D aggregation collapsed N
+    # per-facility entries into 1 buyer-row row.
+    _canonical_subtotal = _sub_of(canonical_items_for_subtotal)
     return Fill704Result(
         field_values=values,
         merchandise_subtotal=round(_canonical_subtotal, 2),
         items_priced=items_priced,
-        items_total=len(raw_items),
+        items_total=len(canonical_items_for_subtotal),
         overflow_items=overflow_items,
     )
 
