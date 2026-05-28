@@ -712,51 +712,31 @@ def verify_package_completeness(
         "generated": [], "missing": [], "extra": [],
     }
 
-    # Map filenames to form IDs
+    # Map filenames to form IDs via the canonical classifier
+    # (`src/forms/package_form_classifier.py`). This was a third inline
+    # copy until 2026-05-27 — same substrate-singleness sin as
+    # AVAILABLE_FORMS (PR #1166) and DEFAULT_AGENCY_CONFIGS (PR #1167).
+    # The inline copy was missing the 703A check entirely AND collapsed
+    # 703C → 703B (with explicit `# 703C counts as 703B requirement`),
+    # so on Coleman 10842771 the 703A PDF written to disk got classified
+    # `unknown` and Form QA reported `703a` missing on every package.
+    # `classify_package_filename` covers every form_id in the canonical
+    # AVAILABLE_FORMS set (incl. dsh_attA/B/C via the legacy pre-2026
+    # filename patterns checked below for backwards compatibility).
+    from src.forms.package_form_classifier import classify_package_filename
     generated_ids = set()
     for fn in generated_files:
-        fn_lower = fn.lower()
-        fid = "unknown"
-        if "quote" in fn_lower and "704" not in fn_lower:
-            fid = "quote"
-        elif "703c" in fn_lower:
-            fid = "703b"  # 703C counts as 703B requirement
-        elif "703b" in fn_lower:
-            fid = "703b"
-        elif "704b" in fn_lower:
-            fid = "704b"
-        elif "bidpackage" in fn_lower or "bidpkg" in fn_lower:
-            fid = "bidpkg"
-        elif "calrecycle" in fn_lower:
-            fid = "calrecycle74"
-        elif "dvbe" in fn_lower or "843" in fn_lower:
-            fid = "dvbe843"
-        elif "seller" in fn_lower or "permit" in fn_lower:
-            fid = "sellers_permit"
-        elif "darfur" in fn_lower:
-            fid = "darfur_act"
-        elif "bidder" in fn_lower:
-            fid = "bidder_decl"
-        elif "std204" in fn_lower or "payee" in fn_lower:
-            fid = "std204"
-        elif "std205" in fn_lower:
-            fid = "std205"
-        elif "std1000" in fn_lower:
-            fid = "std1000"
-        elif "barstow" in fn_lower:
-            fid = "barstow_cuf"
-        elif "cv012" in fn_lower or "cuf" in fn_lower:
-            fid = "cv012_cuf"
-        elif "obs" in fn_lower or "1600" in fn_lower:
-            fid = "obs_1600"
-        elif "drug" in fn_lower:
-            fid = "drug_free"
-        elif "dsh" in fn_lower and "atta" in fn_lower:
-            fid = "dsh_attA"
-        elif "dsh" in fn_lower and "attb" in fn_lower:
-            fid = "dsh_attB"
-        elif "dsh" in fn_lower and "attc" in fn_lower:
-            fid = "dsh_attC"
+        fid = classify_package_filename(fn)
+        if fid == "unknown":
+            # DSH AttA/B/C aren't in the shared classifier yet — preserve
+            # the legacy substring fallback so DSH packages don't regress.
+            fn_lower = fn.lower()
+            if "dsh" in fn_lower and "atta" in fn_lower:
+                fid = "dsh_attA"
+            elif "dsh" in fn_lower and "attb" in fn_lower:
+                fid = "dsh_attB"
+            elif "dsh" in fn_lower and "attc" in fn_lower:
+                fid = "dsh_attC"
         generated_ids.add(fid)
         result["generated"].append({"filename": fn, "form_id": fid})
 
@@ -776,11 +756,20 @@ def verify_package_completeness(
                     f"'{fid}' generated standalone but is inside bid package — remove standalone"
                 )
 
-    # Check for both 703B and 703C
-    has_703b_file = any("703b" in fn.lower() for fn in generated_files)
-    has_703c_file = any("703c" in fn.lower() for fn in generated_files)
-    if has_703b_file and has_703c_file:
-        result["warnings"].append("Both 703B and 703C generated — should be one or the other")
+    # Multiple 703 revisions in one package — the buyer's email contract
+    # picks exactly one revision (703a / 703b / 703c). If two or more
+    # show up the renderer dispatched twice on the same quote.
+    # Reuses the canonical classifier so this overlap check stays in
+    # sync with the id mapping that produced generated_ids above.
+    _703_revs_present = {
+        fid for fid in generated_ids if fid in ("703a", "703b", "703c")
+    }
+    if len(_703_revs_present) > 1:
+        emitted = sorted(r.upper() for r in _703_revs_present)
+        result["warnings"].append(
+            f"Multiple 703 revisions generated ({', '.join(emitted)}) — "
+            "the email contract should pick exactly one revision."
+        )
 
     return result
 

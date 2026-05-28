@@ -163,6 +163,49 @@ class TestPackageCompleteness:
         result = verify_package_completeness("cchcs", required, files, has_bid_package=False)
         assert any("703B" in w and "703C" in w for w in result.get("warnings", []))
 
+    def test_coleman_703a_not_reported_missing(self):
+        """Coleman 10842771 regression — Form QA reported `703a` missing
+        on every package because the inline classifier had no 703a check.
+        After consolidating onto `classify_package_filename`, the 703A
+        filename resolves to form_id `703a` and the QA report passes.
+
+        Prod log line that triggered the fix (2026-05-28 04:48:40 UTC,
+        rfq_5a55f1b5): `Form QA ISSUE: Required form not generated: 703a`
+        for a package that DID include `10842771_703A_Reytech.pdf`.
+        """
+        required = {"703a", "704b", "bidpkg", "quote"}
+        files = [
+            "10842771_703A_Reytech.pdf",
+            "10842771_704B_Reytech.pdf",
+            "10842771_BidPackage_Reytech.pdf",
+            "10842771_Quote_Reytech.pdf",
+        ]
+        result = verify_package_completeness("cchcs", required, files, has_bid_package=True)
+        assert result["passed"], (
+            f"Coleman package should pass — instead got missing={result.get('missing')!r} "
+            f"issues={result.get('issues')!r}"
+        )
+        assert "703a" not in result.get("missing", []), (
+            "703a must not be reported missing when the 703A file is in the package"
+        )
+
+    def test_703_revisions_each_classify_to_their_own_id(self):
+        """Substrate-singleness pin — `verify_package_completeness`'s
+        filename → form_id mapping must match `classify_package_filename`
+        exactly (no inline divergence). Pin the three revisions as
+        distinct ids so a future refactor can't re-collapse them."""
+        required = {"703a", "703b", "703c"}
+        files = [
+            "RFQ_703A_Reytech.pdf",
+            "RFQ_703B_Reytech.pdf",
+            "RFQ_703C_Reytech.pdf",
+        ]
+        result = verify_package_completeness("cchcs", required, files, has_bid_package=False)
+        generated_ids = {g["form_id"] for g in result.get("generated", [])}
+        assert {"703a", "703b", "703c"}.issubset(generated_ids), (
+            f"Expected 703a, 703b, 703c as distinct ids; got {generated_ids!r}"
+        )
+
 
 # ── BID_PACKAGE_INTERNAL_FORMS tests ──────────────────────────────────
 

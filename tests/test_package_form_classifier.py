@@ -57,9 +57,12 @@ class TestBarstowVsCv012:
 @pytest.mark.parametrize("filename, expected", [
     # Quote (must lose to 704 if both present in name)
     ("RFQ_Quote_Reytech.pdf", "quote"),
-    # 703 family
+    # 703 family — each revision is a distinct form_id (post 2026-05-27,
+    # see TestSeven03RevisionIdentity below for the regression that
+    # added 703A and split 703B/703C apart).
+    ("RFQ_703A_Reytech.pdf", "703a"),
     ("RFQ_703B_Reytech.pdf", "703b"),
-    ("RFQ_703C_Reytech.pdf", "703b"),  # 703C also classifies as 703b family
+    ("RFQ_703C_Reytech.pdf", "703c"),
     # 704
     ("RFQ_704B_Reytech.pdf", "704b"),
     # Compliance forms
@@ -87,6 +90,56 @@ def test_never_raises_on_garbage_input():
         # Should not raise — return "unknown" or a best-guess id
         result = classify_package_filename(v)
         assert isinstance(result, str)
+
+
+# ── The bug that triggered the 703-revision split ───────────────
+
+class TestSeven03RevisionIdentity:
+    """Coleman 10842771 (CCHCS, AMS 703A Rev. 03/2025) shipped with the
+    legacy `generate-package` route generating a `..._703A_Reytech.pdf`
+    file that the classifier tagged `"unknown"` — because the chain had
+    NO `703a` check at all, only `703b/703c`. Form QA reported
+    "Required form not generated: 703a" on every Coleman package even
+    though the 703A PDF was on disk AND bundled into the merged Package.
+
+    The fix split 703a / 703b / 703c into three distinct return values
+    (matching the canonical `AVAILABLE_FORMS` in `agency_config.py`).
+    These tests pin that identity so a future "consolidation" can't
+    re-collapse them.
+    """
+
+    def test_703a_classified_as_703a_not_unknown(self):
+        # Coleman 10842771's exact prod filename:
+        assert classify_package_filename(
+            "10842771_703A_Reytech.pdf"
+        ) == "703a"
+
+    def test_703b_still_classifies_as_703b(self):
+        assert classify_package_filename(
+            "10842771_703B_Reytech.pdf"
+        ) == "703b"
+
+    def test_703c_classifies_as_703c_not_703b(self):
+        """Pre-fix, the chain returned `"703b"` for any 703C filename —
+        losing the IT-RFQ variant identity. Pin the fix."""
+        assert classify_package_filename(
+            "10842771_703C_Reytech.pdf"
+        ) == "703c"
+
+    def test_703_revisions_are_three_distinct_ids(self):
+        """Substrate-singleness pin: a package emitting all three revs
+        must surface three distinct ids — never collapsed."""
+        files = [
+            "10842771_703A_Reytech.pdf",
+            "10842771_703B_Reytech.pdf",
+            "10842771_703C_Reytech.pdf",
+        ]
+        ids = {classify_package_filename(f) for f in files}
+        assert ids == {"703a", "703b", "703c"}, (
+            "703 revisions must classify as three distinct ids. "
+            f"Got {ids!r}. Pre-fix bug collapsed 703a→unknown, "
+            "703c→703b."
+        )
 
 
 # ── Property: ordering invariant ─────────────────────────────────
