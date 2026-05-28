@@ -219,6 +219,39 @@ class FillStrategy(Enum):
             return cls.RFQ_PREFILLED
         return cls.RFQ_FULL
 
+    @classmethod
+    def for_rfq_with_agency_override(
+        cls, is_prefilled: bool, agency: str = ""
+    ) -> "FillStrategy":
+        """Like for_rfq, but with agency-specific demotions for
+        buyer-uploaded templates known to ship with broken AcroForm
+        JavaScript calc fields that override our explicit value writes.
+
+        Currently demotes:
+        - CCHCS: RFQ_PREFILLED → RFQ_FULL. Buyer-uploaded CCHCS 704B
+          variants (Coleman 10842771, 2026-05-28 incident) carry a
+          JS calc on the EXTENSION column that defaults to row-1's
+          unit_price for every row. Our explicit /V writes land but
+          the JS overrides on viewer re-render; verify_704b_computations
+          then reads the post-JS value and the QA gate fires. Canonical
+          Reytech blank (RFQ_FULL path) carries no JS and produces the
+          known-good output Mike shipped to Coleman 2026-05-27. Until
+          a substrate fix (Path B: JS-strip on template clone) ships,
+          this override is the safe path. See:
+          - tests/test_coleman_10842771_canary.py
+          - tests/fixtures/coleman_10842771/704b_golden_pre_pr1170.pdf
+          - memory [[canary-rfq-gates-mark-sent]]
+          - memory [[no-blind-guess-on-pdf-field-names]]
+
+        Returns:
+            FillStrategy — either the agency-overridden value or the
+            default for_rfq() result.
+        """
+        base = cls.for_rfq(is_prefilled)
+        if str(agency).lower() == "cchcs" and base == cls.RFQ_PREFILLED:
+            return cls.RFQ_FULL
+        return base
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ROW FIELD NAME TEMPLATES
