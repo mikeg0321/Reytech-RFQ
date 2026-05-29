@@ -531,8 +531,13 @@ _CONTEXT_PORT_FIELDS = (
 )
 
 
-def _port_price_fields(rfq_item, pc_item) -> bool:
+def _port_price_fields(rfq_item, pc_item, overwrite=True) -> bool:
     """Port PC pricing onto an RFQ line and report whether a real price landed.
+
+    THE one canonical PC→RFQ price porter. Both the operator-confirmed promote
+    (`promote_pc_to_rfq_in_place`) and the auto-link path
+    (`dashboard._link_rfq_to_pc`) route through here so field mapping and the
+    "priced?" verdict can never drift apart again.
 
     Two failure modes this closes (incident 2026-05-28 — banner said
     "1 prices ported" while YOUR COST / BID PRICE rendered 0.00):
@@ -540,26 +545,32 @@ def _port_price_fields(rfq_item, pc_item) -> bool:
     1. NESTING DRIFT. The Pricing Oracle persists cost/price NESTED under
        ``pc_item["pricing"]`` (``unit_cost`` / ``recommended_price`` /
        ``scprs_price``); older/manual PCs carry the same data at the top
-       level. The previous verbatim loop read top-level only, so nested
-       pricing never copied.
+       level. A top-level-only read never copied nested pricing.
     2. FIELD-NAME DRIFT. PCs name cost ``vendor_cost`` / ``pricing.unit_cost``
        and bid ``unit_price`` / ``pricing.recommended_price``; the RFQ line
        renders ``supplier_cost`` and ``price_per_unit``. A same-name copy
        landed values in keys the template never reads.
 
-    This reads BOTH levels and maps every source spelling onto the canonical
-    RFQ render field. Verbatim semantics preserved (Mike 2026-04-20: the PC
-    commitment wins) — cost / bid / markup overwrite. Returns True only when a
-    real COST or BID actually landed: SCPRS is a ceiling, not a cost basis
-    (Pricing Guard Rails), so an SCPRS-only line is NOT counted as priced.
+    `overwrite` — True (operator-confirmed promote): the PC commitment wins,
+    values overwrite stale RFQ fields (Mike 2026-04-20). False (auto-link
+    during ingest): fill only gaps, never clobber a value already on the RFQ.
+
+    Returns True only when a real COST or BID was available from the PC for
+    this line. SCPRS is a ceiling, not a cost basis (Pricing Guard Rails), so
+    an SCPRS-only line is NOT counted as priced. Amazon retail is reference,
+    never cost — it is intentionally NOT read as a cost source.
     """
+    def _put(key, val):
+        """Set rfq_item[key]=val honoring `overwrite`; skip empty values."""
+        if val in (None, "", 0, 0.0):
+            return
+        if overwrite or not rfq_item.get(key):
+            rfq_item[key] = val
+
     # (1) Verbatim same-name copy — back-compat for any consumer that reads the
     # PC's original field names (unit_price / bid_price / oracle_audit, etc.).
-    # The PC commitment overwrites stale RFQ values (Mike 2026-04-20).
     for field in _VERBATIM_PRICE_FIELDS:
-        val = pc_item.get(field)
-        if val is not None and val != "":
-            rfq_item[field] = val
+        _put(field, pc_item.get(field))
 
     # (2) Canonical render-field population. The RFQ price table renders ONLY
     # `supplier_cost` (YOUR COST) and `price_per_unit` (BID PRICE) — see
@@ -583,18 +594,18 @@ def _port_price_fields(rfq_item, pc_item) -> bool:
     scprs = _first(pc_item.get("scprs_last_price"), pricing.get("scprs_price"))
 
     if cost is not None:
-        rfq_item["supplier_cost"] = cost
-        rfq_item["cost_source"] = "PC"
+        _put("supplier_cost", cost)
+        _put("cost_source", "PC")
     if bid is not None:
-        rfq_item["price_per_unit"] = bid
+        _put("price_per_unit", bid)
     if markup is not None:
-        rfq_item["markup_pct"] = markup
+        _put("markup_pct", markup)
     if scprs is not None:
-        rfq_item["scprs_last_price"] = scprs
+        _put("scprs_last_price", scprs)
         if pricing.get("scprs_po"):
-            rfq_item["scprs_po"] = pricing["scprs_po"]
+            _put("scprs_po", pricing["scprs_po"])
         if pricing.get("scprs_match"):
-            rfq_item["scprs_vendor"] = pricing["scprs_match"]
+            _put("scprs_vendor", pricing["scprs_match"])
     if pc_item.get("oracle_audit") and not rfq_item.get("oracle_audit"):
         rfq_item["oracle_audit"] = pc_item["oracle_audit"]
 

@@ -2773,31 +2773,17 @@ def _rfq_relink_pc_locked(rid):
             items = r.get("line_items", [])
             priced = sum(1 for it in items if it.get("supplier_cost") or it.get("price_per_unit") or it.get("scprs_last_price"))
             
-            # FALLBACK: if link matched but 0 prices ported, manually copy
-            if priced == 0:
-                pc_id = r.get("linked_pc_id", "")
-                pcs2 = _load_price_checks()
-                pc2 = pcs2.get(pc_id, {})
-                pc_items = pc2.get("items", [])
-                for ri in items:
-                    rd = (ri.get("description") or "").lower()[:40]
-                    for pci in pc_items:
-                        pd = (pci.get("description") or "").lower()[:40]
-                        if rd == pd or (len(rd) > 8 and rd in pd) or (len(pd) > 8 and pd in rd):
-                            p = pci.get("pricing") or {}
-                            cost = p.get("unit_cost") or p.get("scprs_price") or p.get("catalog_cost") or p.get("web_price") or p.get("amazon_price") or 0
-                            bid = p.get("recommended_price") or 0
-                            if cost:
-                                ri["supplier_cost"] = float(cost)
-                                priced += 1
-                            if bid:
-                                ri["price_per_unit"] = float(bid)
-                            elif cost:
-                                ri["price_per_unit"] = round(float(cost) * 1.25, 2)
-                            ri["_from_pc"] = pc2.get("pc_number", "")
-                            break
-                trace.append(f"Fallback direct copy: {priced} items priced")
-            
+            # LAW 2 deletion (2026-05-29): the "if 0 priced, manually copy"
+            # fallback was removed. It existed only because the auto-link
+            # porter under-ported (counted matches as ports, read the wrong
+            # nesting level); that porter now routes through the canonical
+            # pc_rfq_linker._port_price_fields (nesting-aware, honest count),
+            # so by the time we get here prices have already landed when the
+            # PC carried them. The fallback also used amazon_price / scprs_price
+            # as a cost basis — a Pricing-Guard-Rail violation (SCPRS = ceiling,
+            # Amazon = reference, never cost). See memory
+            # project-pc-rfq-porter-convergence-followup.
+
             # Save
             rfqs[rid] = r
             _save_single_rfq(rid, r)
