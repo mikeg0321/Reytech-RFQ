@@ -154,6 +154,21 @@ def temp_data_dir(tmp_path, monkeypatch):
             _db_mod.init_db()
         except Exception:
             pass
+        # Belt-and-suspenders: init_db() runs _migrate_columns() AFTER
+        # executescript(SCHEMA) (db.py:1622-1624). In constrained CI envs
+        # (xdist workers) init_db() can raise at the executescript step and
+        # the swallow above leaves the write-path columns (e.g.
+        # rfqs.solicitation_number) missing — which surfaces three layers
+        # later as a misleading "KeyError: <rfq_id>" instead of a clear
+        # schema error (the 2026-05-28 flaky-CI failure of
+        # test_reparse_rfq_merges_templates_across_uploads). Re-run the
+        # idempotent column migration on the patched DB_PATH so the test DB
+        # deterministically matches the production write path.
+        try:
+            _db_mod.close_thread_db()
+            _db_mod._migrate_columns()
+        except Exception:
+            pass
         _db_mod.close_thread_db()  # Reset connection after init
     except Exception:
         pass
