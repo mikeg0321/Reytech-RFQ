@@ -2076,6 +2076,7 @@ def _create_record(
     # canonical-fallback rather than the buyer's actual delivery
     # address; operator retyped it on every record.
     _ff_ship_to = ""
+    _ff_release_date = ""
     if all_paths:
         try:
             from src.agents.form_field_extractor import extract_from_attachments
@@ -2083,9 +2084,16 @@ def _create_record(
                         for p in all_paths if p]
             _ff = extract_from_attachments(_ff_atts)
             _ff_ship_to = (_ff.ship_to or "").strip() if _ff else ""
+            # Buyer's Release/Issue Date typed into the AcroForm (e.g. 703B
+            # header) — the form-field value is the buyer's literal entry, so
+            # it's the most authoritative source. Threaded onto the record
+            # below so the 703B "Release Date" fills (#1207/#1210 follow-up:
+            # the email-text path was already threaded; this is the form path).
+            _ff_release_date = (_ff.release_date or "").strip() if _ff else ""
         except Exception as _ffe:
             log.debug("AV-4 form-field ship_to read failed (non-fatal): %s", _ffe)
             _ff_ship_to = ""
+            _ff_release_date = ""
 
     # Buyer's explicit ship_to in the parsed PDF/email overrides the canonical
     # registry only when it's substantive (>3 chars, not just "CA"). A
@@ -2307,6 +2315,12 @@ def _create_record(
         "solicitation_number": resolved_sol,
         "institution": canonical_institution,
         "ship_to": resolved_ship_to,
+        # Buyer's Release/Issue Date — form-field value (most authoritative)
+        # then any header-parsed value. Lands on the record so the 703B/703C
+        # "Release Date" fills via both the legacy filler (rfq_data.get) and
+        # the Spine contract (_opt_dt). Email-text capture is threaded
+        # separately at the requirement_extractor sites (#1210).
+        "release_date": _ff_release_date or (header.get("release_date") or ""),
         "agency": classification.agency,
         "requestor_email": email_sender,
         # contact_email mirrors requestor_email at write time so the buyer-
