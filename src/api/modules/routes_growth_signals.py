@@ -50,11 +50,16 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Mapping
 
-from flask import Blueprint, jsonify
+from flask import jsonify
+
+# Use the SHARED blueprint that dashboard.py actually registers. Creating a
+# private `Blueprint("growth_signals", __name__)` here left the route orphaned
+# (never register_blueprint'd) — every request to it 404'd from the day it
+# shipped (PR-3, 2026-05-06). Every other route module imports `bp` from
+# src.api.shared; this one didn't. (Found by the 2026-05-28 Chrome bug-sweep.)
+from src.api.shared import bp, auth_required
 
 log = logging.getLogger("reytech.growth_signals")
-
-bp = Blueprint("growth_signals", __name__)
 
 
 # ── helpers ───────────────────────────────────────────────────────
@@ -180,6 +185,7 @@ def _load_record(doc_type: str, rid: str):
 
 
 @bp.route("/api/quote/<doc_type>/<rid>/growth-signals")
+@auth_required
 def api_quote_growth_signals(doc_type, rid):
     """Per-line buyer-last-won + SCPRS ceiling for a quote.
 

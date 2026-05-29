@@ -98,3 +98,34 @@ def test_scprs_lookup_uses_part_number_and_description():
     # Both match arms documented at the top of the helper
     assert "part_number" in src
     assert "description" in src.lower()
+
+
+# ── INVOCATION tests (not source greps) ──────────────────────────────
+# The 11 tests above are all static _read() source-string checks. They
+# ALL passed while the endpoint 404'd in production for ~3 weeks, because
+# the module created its OWN Blueprint("growth_signals") instead of
+# importing the shared one — so the route was defined but never registered
+# on the app. A source grep can't see that; only booting the app and
+# hitting the route can. These tests close that gap.
+# (Bug found by the 2026-05-28 Chrome bug-sweep.)
+
+def test_bad_doc_type_returns_400_not_404(client):
+    """The killer test: a bad doc_type must hit the handler's own 400
+    validation. Pre-fix the route wasn't registered, so ANY path returned
+    Flask's generic 404 — proving the handler never ran. A 400 here proves
+    the route is registered AND the handler body executes."""
+    resp = client.get("/api/quote/zzz/anything/growth-signals")
+    assert resp.status_code == 400, (
+        f"expected 400 from doc_type validation, got {resp.status_code} "
+        "(404 = route still orphaned)"
+    )
+
+
+def test_endpoint_requires_auth(anon_client):
+    """The route exposes buyer pricing intelligence — it must be auth-gated
+    like its 40 sibling /api/quote endpoints. (The orphan module never
+    imported auth_required.)"""
+    resp = anon_client.get("/api/quote/rfq/anything/growth-signals")
+    assert resp.status_code == 401, (
+        f"expected 401 auth challenge, got {resp.status_code}"
+    )
