@@ -4140,7 +4140,7 @@ def api_qa_regressions():
         from src.agents.qa_agent import _qa_db
         conn = _qa_db()
         rows = conn.execute(
-            'SELECT id, detected_at, check_name, prev_score, new_score, "drop" as drop, acknowledged FROM qa_regressions ORDER BY detected_at DESC LIMIT 20'
+            'SELECT id, detected_at, check_name, prev_score, new_score, score_drop as "drop", acknowledged FROM qa_regressions ORDER BY detected_at DESC LIMIT 20'
         ).fetchall()
         return jsonify({"ok": True, "regressions": [dict(r) for r in rows]})
     except Exception as e:
