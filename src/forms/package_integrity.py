@@ -31,10 +31,13 @@ log = logging.getLogger("reytech.package_integrity")
 # separators / overflow pages and excluded from duplicate detection (otherwise
 # two blank pages would false-flag as a "duplicate form").
 _BLANK_PAGE_MAX_CHARS = 40
-# How many leading normalized chars form a page's identity signature. Long enough
-# to distinguish forms, short enough that per-instance fill values (which sit lower
-# on the page) don't make two copies of the SAME blank form look different.
-_SIG_CHARS = 600
+# A page's identity signature is its FULL normalized text. Using only a prefix
+# (the original 600-char attempt) false-positived multi-page forms whose pages
+# share a long boilerplate header (CalRecycle 74's 4 pages all begin "STATE OF
+# CALIFORNIA To be completed by the State agency..." — flagged as duplicates of
+# each other). Full text distinguishes the pages of one form while still matching
+# two byte-identical COPIES of the same form (the real duplication). Verified on
+# the 10842771 regen: full-hash finds only the genuine seller's-permit dup.
 
 
 def _norm(text: str) -> str:
@@ -42,7 +45,7 @@ def _norm(text: str) -> str:
 
 
 def _page_signature(text: str) -> str:
-    return hashlib.md5(_norm(text)[:_SIG_CHARS].encode("utf-8", "ignore")).hexdigest()
+    return hashlib.md5(_norm(text).encode("utf-8", "ignore")).hexdigest()
 
 
 def _extract_pages(pdf_path: str) -> list[str]:
