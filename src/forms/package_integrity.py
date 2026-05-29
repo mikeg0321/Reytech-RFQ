@@ -60,15 +60,20 @@ def _extract_pages(pdf_path: str) -> list[str]:
         return []
 
 
-def detect_duplicate_forms(pdf_path: str) -> list[dict]:
+def detect_duplicate_forms(pdf_path: str, pages: list[str] | None = None) -> list[dict]:
     """Find form pages that appear more than once in the assembled package.
 
     Returns a list of {"pages": [int...], "snippet": str} — one entry per repeated
     page signature. Empty list = no duplicate forms. Blank/separator pages are
     ignored. A multi-page form duplicated as a block surfaces as several entries
     (one per page), which is fine — any non-empty result means BLOCK.
+
+    `pages` (optional): precomputed per-page text from a single _extract_pages()
+    call by the caller, so check_package doesn't parse the (large) package twice.
+    None => extract here.
     """
-    pages = _extract_pages(pdf_path)
+    if pages is None:
+        pages = _extract_pages(pdf_path)
     sigs: dict[str, dict] = {}
     for i, text in enumerate(pages):
         if len(_norm(text)) < _BLANK_PAGE_MAX_CHARS:
@@ -83,7 +88,7 @@ def detect_duplicate_forms(pdf_path: str) -> list[dict]:
     ]
 
 
-def find_blank_bidder_info(pdf_path: str, company_name: str) -> dict:
+def find_blank_bidder_info(pdf_path: str, company_name: str, pages: list[str] | None = None) -> dict:
     """Assert the bidder/company identity actually landed on the response forms.
 
     The 703A/703B etc. carry a BIDDER INFORMATION block (Business Name / Address /
@@ -98,7 +103,8 @@ def find_blank_bidder_info(pdf_path: str, company_name: str) -> dict:
     name_norm = _norm(company_name)
     if not name_norm:
         return {"present": True, "company_name": company_name}  # nothing to assert
-    pages = _extract_pages(pdf_path)
+    if pages is None:
+        pages = _extract_pages(pdf_path)
     for text in pages:
         if name_norm in _norm(text):
             return {"present": True, "company_name": company_name}
@@ -112,7 +118,11 @@ def check_package(pdf_path: str, company_name: str = "") -> dict:
     Returns {"ok": bool, "blockers": [str], "duplicate_forms": [...],
              "bidder_info_present": bool}. ok=False ⇒ do not ship.
     """
-    dups = detect_duplicate_forms(pdf_path)
+    # Parse the package's per-page text ONCE and feed both detectors — they
+    # previously each called _extract_pages independently, parsing the (often
+    # ~9 MB merged) package twice per gate run.
+    pages = _extract_pages(pdf_path)
+    dups = detect_duplicate_forms(pdf_path, pages=pages)
     blockers: list[str] = []
     for d in dups:
         blockers.append(
@@ -122,7 +132,7 @@ def check_package(pdf_path: str, company_name: str = "") -> dict:
         )
     bidder_present = True
     if company_name:
-        info = find_blank_bidder_info(pdf_path, company_name)
+        info = find_blank_bidder_info(pdf_path, company_name, pages=pages)
         bidder_present = info["present"]
         if not bidder_present:
             blockers.append(
