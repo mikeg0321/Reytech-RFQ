@@ -129,6 +129,33 @@ def heartbeat(name: str, success: bool = True, error: str = None):
             job.error_count += 1
             job.last_error = error or "unknown"
             job.status = "error"
+        _interval = job.interval_sec
+    # Durably mirror the heartbeat to the scheduler_heartbeats table. The
+    # in-memory registry above is per-process and lost on restart, so the
+    # cross-worker / post-restart readers — qa_heartbeat's
+    # check_scheduler_heartbeats and award_tracker's staleness verdict —
+    # were reading an unfed table (qa-heartbeat perpetually "fail: 0 jobs
+    # heartbeating"). Done OUTSIDE _lock so DB latency never serializes the
+    # in-memory registry, and best-effort so a DB hiccup never breaks a
+    # job's heartbeat. (Table created by numbered migration 5; the write
+    # no-ops harmlessly if it is absent.)
+    _persist_heartbeat(name, now, _interval, "ok" if success else "error")
+
+
+def _persist_heartbeat(name: str, ts: str, interval_sec: int, status: str):
+    """Best-effort durable mirror of an in-memory heartbeat into the
+    scheduler_heartbeats table (one row per job_name, upserted)."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scheduler_heartbeats "
+                "(job_name, last_heartbeat, interval_sec, status) "
+                "VALUES (?, ?, ?, ?)",
+                (name, ts, interval_sec, status),
+            )
+    except Exception as e:
+        log.debug("scheduler_heartbeats persist failed for %s: %s", name, e)
 
 
 def mark_started(name: str, thread: threading.Thread = None):
