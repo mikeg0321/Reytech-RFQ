@@ -329,12 +329,12 @@ window.openItemHistory = function(idx){
 <header class="hdr" role="banner" style="padding:10px 28px 0;gap:0;flex-direction:column;align-items:stretch">
  <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px">
   <a href="/" aria-label="Reytech RFQ Dashboard — Home" style="display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0">
-   <img src="/api/logo" alt="Reytech logo" style="height:36px;background:#fff;padding:4px 10px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\'font-size:18px;font-weight:700;color:var(--ac)\'>Reytech</span>'">
-   <span style="font-size:15px;font-weight:600;color:var(--tx);letter-spacing:-0.3px" aria-hidden="true">RFQ Dashboard</span>
+   <img src="/api/logo" alt="Reytech logo" style="height:36px;background:#fff;padding:4px 10px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\'font-size:18px;font-weight:700;color:var(--r-accent)\'>Reytech</span>'">
+   <span style="font-size:15px;font-weight:600;color:var(--r-text);letter-spacing:-0.3px" aria-hidden="true">RFQ Dashboard</span>
   </a>
   <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
    <button class="mobile-toggle" onclick="document.querySelector('nav').classList.toggle('mobile-open')" aria-label="Toggle navigation menu">☰</button>
-   <a href="/rfq/upload-manual" class="hdr-btn" id="add-rfq-btn" aria-label="Manually upload a new RFQ packet" title="Upload a DSH/Proofpoint or off-Gmail RFQ packet" style="padding:7px 14px;font-size:14px;background:var(--ac);color:#fff;font-weight:600">➕ RFQ</a>
+   <a href="/rfq/upload-manual" class="hdr-btn" id="add-rfq-btn" aria-label="Manually upload a new RFQ packet" title="Upload a DSH/Proofpoint or off-Gmail RFQ packet" style="padding:7px 14px;font-size:14px;background:var(--r-accent);color:#fff;font-weight:600">➕ RFQ</a>
    <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" aria-label="Check for new emails now" style="padding:7px 14px;font-size:14px">⚡ Check Now</button>
    <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Re-import emails (keeps sent/won)" aria-label="Resync emails from inbox" style="padding:7px 14px;font-size:14px">🔄 Resync</button>
    {# UX Audit 2026-04-14 §9.3: Force Reprocess button removed from
@@ -349,9 +349,9 @@ window.openItemHistory = function(idx){
      <div class="notif-panel-hdr">
       <h4>🔔 Notifications</h4>
       <div style="display:flex;gap:8px;align-items:center">
-       <span id="notif-cs-count" style="font-size:14px;color:var(--yl);display:none"></span>
-       <button onclick="markAllRead()" style="font-size:14px;color:var(--tx2);background:none;border:none;cursor:pointer;padding:2px 6px" aria-label="Mark all read">Mark all read</button>
-       <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--tx2);background:none;border:none;cursor:pointer;line-height:1" aria-label="Close notifications panel">×</button>
+       <span id="notif-cs-count" style="font-size:14px;color:var(--r-warn);display:none"></span>
+       <button onclick="markAllRead()" style="font-size:14px;color:var(--r-text-muted);background:none;border:none;cursor:pointer;padding:2px 6px" aria-label="Mark all read">Mark all read</button>
+       <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--r-text-muted);background:none;border:none;cursor:pointer;line-height:1" aria-label="Close notifications panel">×</button>
       </div>
      </div>
      <div class="notif-panel-body" id="notif-list"><div class="notif-empty">Loading...</div></div>
@@ -423,14 +423,14 @@ window.openItemHistory = function(idx){
    <a href="/settings#nav" class="hdr-btn" style="padding:9px 12px;font-size:13px" title="Nav & Settings" aria-label="Navigation and Settings">⚙️</a>
    <div style="position:relative;display:inline-block" id="more-nav">
     <button class="hdr-btn" style="padding:9px 18px;font-size:13px" onclick="var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'" aria-label="More">⋯ More</button>
-    <div id="more-menu" style="display:none;position:absolute;right:0;top:38px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+    <div id="more-menu" style="display:none;position:absolute;right:0;top:38px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:8px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.5)">
      {% for href, label, name in all_pages %}
       {% if name not in top_names %}
-     <a href="{{ href }}" style="display:block;padding:8px 16px;font-size:13px;color:var(--tx);text-decoration:none;white-space:nowrap" onmouseover="this.style.background='var(--sf)'" onmouseout="this.style.background='transparent'">{{ label }}</a>
+     <a href="{{ href }}" style="display:block;padding:8px 16px;font-size:13px;color:var(--r-text);text-decoration:none;white-space:nowrap" onmouseover="this.style.background='var(--r-surface)'" onmouseout="this.style.background='transparent'">{{ label }}</a>
       {% endif %}
      {% endfor %}
-     <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
-     <a href="/settings" style="display:block;padding:8px 16px;font-size:13px;color:var(--tx);text-decoration:none;white-space:nowrap" onmouseover="this.style.background='var(--sf)'" onmouseout="this.style.background='transparent'">⚙️ Settings</a>
+     <div style="border-top:1px solid var(--r-border);margin:4px 0"></div>
+     <a href="/settings" style="display:block;padding:8px 16px;font-size:13px;color:var(--r-text);text-decoration:none;white-space:nowrap" onmouseover="this.style.background='var(--r-surface)'" onmouseout="this.style.background='transparent'">⚙️ Settings</a>
     </div>
    </div>
   </div>
@@ -536,10 +536,10 @@ function pollNow(btn) {
 </script>
 <!-- Command Palette: Ctrl+K -->
 <div id="cmd-palette" role="dialog" aria-modal="true" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:flex-start;justify-content:center;padding-top:15vh">
- <div style="background:var(--sf);border:1px solid var(--bd);border-radius:14px;width:540px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden">
-  <input id="cmd-input" placeholder="Search pages, actions, quotes..." autocomplete="off" style="width:100%;padding:16px 20px;border:none;border-bottom:1px solid var(--bd);background:transparent;color:var(--tx);font-size:17px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box" oninput="filterCmd(this.value)" onkeydown="cmdKey(event)">
+ <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:14px;width:540px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden">
+  <input id="cmd-input" placeholder="Search pages, actions, quotes..." autocomplete="off" style="width:100%;padding:16px 20px;border:none;border-bottom:1px solid var(--r-border);background:transparent;color:var(--r-text);font-size:17px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box" oninput="filterCmd(this.value)" onkeydown="cmdKey(event)">
   <div id="cmd-list" style="max-height:320px;overflow-y:auto;padding:6px"></div>
-  <div style="padding:8px 16px;font-size:12px;color:var(--tx2);border-top:1px solid var(--bd);display:flex;gap:12px"><span>\u2191\u2193 navigate</span><span>\u21b5 open</span><span>esc close</span><span style="margin-left:auto">Ctrl+K</span></div>
+  <div style="padding:8px 16px;font-size:12px;color:var(--r-text-muted);border-top:1px solid var(--r-border);display:flex;gap:12px"><span>\u2191\u2193 navigate</span><span>\u21b5 open</span><span>esc close</span><span style="margin-left:auto">Ctrl+K</span></div>
  </div>
 </div>
 <script>
@@ -576,7 +576,7 @@ function filterCmd(q){
  var m=CMD_ITEMS.filter(function(c){return !q||c.n.toLowerCase().indexOf(q)>=0||c.k.indexOf(q)>=0;});
  if(cmdIdx>=m.length)cmdIdx=0;
  el.innerHTML=m.map(function(c,i){
-  return '<div onclick="location.href=\''+c.u+'\'" onmouseenter="cmdIdx='+i+';filterCmd(document.getElementById(\'cmd-input\').value)" style="padding:10px 16px;cursor:pointer;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:8px;'+(i===cmdIdx?'background:rgba(79,140,255,.12);color:var(--ac)':'')+'" class="cmd-i">'+c.n+'<span style="margin-left:auto;font-size:12px;color:var(--tx2)">'+c.u+'</span></div>';
+  return '<div onclick="location.href=\''+c.u+'\'" onmouseenter="cmdIdx='+i+';filterCmd(document.getElementById(\'cmd-input\').value)" style="padding:10px 16px;cursor:pointer;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:8px;'+(i===cmdIdx?'background:rgba(79,140,255,.12);color:var(--r-accent)':'')+'" class="cmd-i">'+c.n+'<span style="margin-left:auto;font-size:12px;color:var(--r-text-muted)">'+c.u+'</span></div>';
  }).join('');
 }
 function cmdKey(e){
@@ -594,8 +594,8 @@ document.getElementById('cmd-palette').addEventListener('click',function(e){if(e
 </script>
 <style>
 /* Accessibility: visible focus indicators */
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--ac,#4f8cff);outline-offset:2px;border-radius:4px}
-[role="button"]:focus-visible{outline:2px solid var(--ac,#4f8cff);outline-offset:2px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--r-accent,#4f8cff);outline-offset:2px;border-radius:4px}
+[role="button"]:focus-visible{outline:2px solid var(--r-accent,#4f8cff);outline-offset:2px}
 /* Global: textareas auto-expand to fit content */
 textarea{overflow:hidden;resize:vertical}
 /* Clickable truncated text expands on click */

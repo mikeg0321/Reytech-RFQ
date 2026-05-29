@@ -1,6 +1,6 @@
 {# Growth suite tab bar — shared across growth pages #}
 {% macro growth_tabs(active) %}
-<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--r-border)">
  {# 2026-04-25 (Phase 1.2 of PLAN_ONCE_AND_FOR_ALL.md): /growth-discovery
     URL was wrong (real route is /intel/growth-discovery). /market-intel
     tab pointed at a route that never shipped — removed. #}
@@ -12,7 +12,7 @@
  {% if key == active %}
  <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">{{ label }}</a>
  {% else %}
- <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">{{ label }}</a>
+ <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--r-text-muted);text-decoration:none">{{ label }}</a>
  {% endif %}
  {% endfor %}
 </div>

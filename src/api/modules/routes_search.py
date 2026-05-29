@@ -14,7 +14,7 @@ from markupsafe import escape as esc
 log = logging.getLogger("reytech.search")
 
 STATUS_CHIPS = {
-    "sent":      ("📤 Sent",    "all", "rgba(79,140,255,.1)",  "rgba(79,140,255,.3)",  "var(--ac)"),
+    "sent":      ("📤 Sent",    "all", "rgba(79,140,255,.1)",  "rgba(79,140,255,.3)",  "var(--r-accent)"),
     "won":       ("🏆 Won",     "all", "rgba(52,211,153,.1)",  "rgba(52,211,153,.3)",  "#3fb950"),
     "draft":     ("📝 Draft",   "all", "rgba(139,148,158,.1)", "rgba(139,148,158,.3)", "#8b949e"),
     "generated": ("📦 Package", "rfq", "rgba(167,139,250,.1)", "rgba(167,139,250,.3)", "#a78bfa"),
@@ -90,9 +90,9 @@ def search_page():
         <span class="sr-title">{esc(r["title"])}</span>
       </div>
       <div class="sr-detail">{esc(r["subtitle"])}</div>
-      {f'<div style="font-size:12px;color:var(--tx2);margin-top:2px">{esc(meta_str)}</div>' if meta_str else ""}
+      {f'<div style="font-size:12px;color:var(--r-text-muted);margin-top:2px">{esc(meta_str)}</div>' if meta_str else ""}
     </div>
-    <span style="font-size:12px;color:var(--tx2);flex-shrink:0;padding-top:4px">→</span>
+    <span style="font-size:12px;color:var(--r-text-muted);flex-shrink:0;padding-top:4px">→</span>
   </div>
 </a>'''
 
@@ -101,20 +101,20 @@ def search_page():
     filter_html = ""
     if type_counts:
         filter_html = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center">'
-        filter_html += '<span style="font-size:13px;color:var(--tx2)">Filter:</span>'
+        filter_html += '<span style="font-size:13px;color:var(--r-text-muted)">Filter:</span>'
         all_active = not type_filter
-        filter_html += f'<a href="/search?q={display_q}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"var(--ac)" if all_active else "var(--bd)"};background:{"rgba(79,140,255,.15)" if all_active else "var(--sf2)"};color:{"var(--ac)" if all_active else "var(--tx2)"};text-decoration:none;font-weight:{"600" if all_active else "400"}">All ({len(results)})</a>'
+        filter_html += f'<a href="/search?q={display_q}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"var(--r-accent)" if all_active else "var(--r-border)"};background:{"rgba(79,140,255,.15)" if all_active else "var(--r-surface-2)"};color:{"var(--r-accent)" if all_active else "var(--r-text-muted)"};text-decoration:none;font-weight:{"600" if all_active else "400"}">All ({len(results)})</a>'
         for t, count in sorted(type_counts.items()):
             tc, tbg = TYPE_COLORS.get(t, ("#8b949e", "rgba(139,148,158,.1)"))
             active = type_filter == t
             label = TYPE_LABELS.get(t, t.title())
-            filter_html += f'<a href="/search?q={display_q}&type={t}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"rgba(79,140,255,.4)" if active else "var(--bd)"};background:{"rgba(79,140,255,.15)" if active else "var(--sf2)"};color:{"var(--ac)" if active else tc};text-decoration:none;font-weight:{"600" if active else "400"}">{label} ({count})</a>'
+            filter_html += f'<a href="/search?q={display_q}&type={t}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"rgba(79,140,255,.4)" if active else "var(--r-border)"};background:{"rgba(79,140,255,.15)" if active else "var(--r-surface-2)"};color:{"var(--r-accent)" if active else tc};text-decoration:none;font-weight:{"600" if active else "400"}">{label} ({count})</a>'
         filter_html += '</div>'
 
     # Empty state
     empty_state = ""
     if (q or status_filter) and not results:
-        empty_state = f'''<div style="text-align:center;padding:40px;color:var(--tx2)">
+        empty_state = f'''<div style="text-align:center;padding:40px;color:var(--r-text-muted)">
   <div style="font-size:36px;margin-bottom:10px">🔍</div>
   <div style="font-size:15px;font-weight:600;margin-bottom:4px">No results for "{esc(display_q)}"</div>
   <div style="font-size:13px">Try a different keyword — searches PCs, RFQs, quotes, orders, contacts, vendors, emails, leads, catalog, PO numbers, item descriptions</div>
@@ -133,12 +133,12 @@ def search_page():
         type_badges += f'<span style="font-size:13px;padding:4px 10px;border-radius:6px;background:{tbg};color:{tc}">{badge_label}</span>'
 
     # Quick chips
-    quick_chips_html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"><span style="font-size:14px;color:var(--tx2);padding:6px 0;align-self:center">Quick:</span>'
+    quick_chips_html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"><span style="font-size:14px;color:var(--r-text-muted);padding:6px 0;align-self:center">Quick:</span>'
     for chip_key, (chip_label, _, chip_bg, chip_border, chip_color) in STATUS_CHIPS.items():
         active = status_filter == chip_key
         quick_chips_html += f'<a href="/search?q={chip_key}" style="font-size:14px;padding:6px 14px;border-radius:8px;background:{"rgba(79,140,255,.2)" if active else chip_bg};border:1px solid {chip_border};color:{chip_color};text-decoration:none;font-weight:{"700" if active else "400"}">{chip_label}</a>'
     for agency in ["CDCR", "CCHCS", "CalVet", "DSH"]:
-        quick_chips_html += f'<a href="/search?q={agency}" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">{agency}</a>'
+        quick_chips_html += f'<a href="/search?q={agency}" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--r-surface-2);border:1px solid var(--r-border);color:var(--r-text);text-decoration:none">{agency}</a>'
     quick_chips_html += '</div>'
 
     return render_page("search.html", active_page="Search",

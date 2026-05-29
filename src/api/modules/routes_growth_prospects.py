@@ -119,19 +119,19 @@ def growth_prospect_detail(prospect_id):
         etype = ev.get("type","").replace("_"," ").title()
         detail = ev.get("detail","")
         actor = ev.get("actor","")
-        actor_badge = f'<span style="font-size:13px;padding:1px 6px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac);margin-left:4px">{actor}</span>' if actor and actor != "system" else ""
+        actor_badge = f'<span style="font-size:13px;padding:1px 6px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--r-accent);margin-left:4px">{actor}</span>' if actor and actor != "system" else ""
         meta = ev.get("metadata",{})
         meta_html = ""
         if meta.get("amount"): meta_html += f' · <span style="color:#3fb950">${float(meta["amount"]):,.0f}</span>'
-        if meta.get("subject"): meta_html += f' · <i style="color:var(--tx2)">{str(meta["subject"])[:50]}</i>'
-        tl_html += f'<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(46,51,69,.5)"><span style="font-size:18px;flex-shrink:0;width:24px;text-align:center">{icon}</span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:4px">{etype}{actor_badge}</div><div style="font-size:14px;color:var(--tx2);margin-top:2px;word-break:break-word">{detail}{meta_html}</div></div><span style="font-size:13px;color:var(--tx2);font-family:monospace;white-space:nowrap;flex-shrink:0">{ts}</span></div>'
+        if meta.get("subject"): meta_html += f' · <i style="color:var(--r-text-muted)">{str(meta["subject"])[:50]}</i>'
+        tl_html += f'<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(46,51,69,.5)"><span style="font-size:18px;flex-shrink:0;width:24px;text-align:center">{icon}</span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:4px">{etype}{actor_badge}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:2px;word-break:break-word">{detail}{meta_html}</div></div><span style="font-size:13px;color:var(--r-text-muted);font-family:monospace;white-space:nowrap;flex-shrink:0">{ts}</span></div>'
     if not tl_html:
-        tl_html = '<div style="color:var(--tx2);font-size:13px;padding:16px;text-align:center">No activity yet — log a call, email, or note above</div>'
+        tl_html = '<div style="color:var(--r-text-muted);font-size:13px;padding:16px;text-align:center">No activity yet — log a call, email, or note above</div>'
 
     # PO history
     po_html = ""
     for po in pr.get("purchase_orders",[]):
-        po_html += f'<tr><td class="mono" style="color:var(--ac)">{po.get("po_number","—")}</td><td class="mono">{po.get("date","—")}</td><td style="font-size:14px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{str(po.get("items","—"))[:80]}</td><td style="font-size:14px">{po.get("category","—")}</td><td class="mono" style="color:#3fb950;text-align:right">${po.get("total_num",0) or po.get("total",0) or 0:,.0f}</td></tr>'
+        po_html += f'<tr><td class="mono" style="color:var(--r-accent)">{po.get("po_number","—")}</td><td class="mono">{po.get("date","—")}</td><td style="font-size:14px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{str(po.get("items","—"))[:80]}</td><td style="font-size:14px">{po.get("category","—")}</td><td class="mono" style="color:#3fb950;text-align:right">${po.get("total_num",0) or po.get("total",0) or 0:,.0f}</td></tr>'
 
     # Items purchased
     items_html = ""
@@ -155,18 +155,18 @@ def growth_prospect_detail(prospect_id):
     for cat, spend in sorted(cats_dict.items(), key=lambda x: x[1], reverse=True):
         pct = round(spend/total_cat*100)
         cc = cat_colors.get(cat,"#8b90a0")
-        cats_html += f'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px"><span style="color:{cc};font-weight:600">{cat}</span><span class="mono">${spend:,.0f} ({pct}%)</span></div><div style="background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:{pct}%;height:100%;background:{cc};border-radius:4px"></div></div></div>'
+        cats_html += f'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px"><span style="color:{cc};font-weight:600">{cat}</span><span class="mono">${spend:,.0f} ({pct}%)</span></div><div style="background:var(--r-surface-2);border-radius:4px;height:6px;overflow:hidden"><div style="width:{pct}%;height:100%;background:{cc};border-radius:4px"></div></div></div>'
 
     # Outreach records
     or_html = ""
     for o in outreach_recs:
         flags = (''.join([
-            '<span style="color:#3fb950">✅ Sent</span> ' if o.get("email_sent") else '<span style="color:var(--tx2)">⏳ Draft</span> ',
+            '<span style="color:#3fb950">✅ Sent</span> ' if o.get("email_sent") else '<span style="color:var(--r-text-muted)">⏳ Draft</span> ',
             '<span style="color:#f85149">⛔ Bounced</span> ' if o.get("bounced") else '',
             '<span style="color:#3fb950">✅ Replied</span> ' if o.get("response_received") else '',
             '<span style="color:#fb923c">📞 Called</span>' if o.get("voice_called") else '',
         ]))
-        or_html += f'<div style="padding:10px;background:var(--sf2);border-radius:8px;margin-bottom:8px;font-size:14px"><div style="font-weight:600;margin-bottom:4px">{o.get("email_subject","—")}</div><div style="color:var(--tx2);display:flex;gap:12px;flex-wrap:wrap"><span>To: {o.get("email","—")}</span>{flags}</div></div>'
+        or_html += f'<div style="padding:10px;background:var(--r-surface-2);border-radius:8px;margin-bottom:8px;font-size:14px"><div style="font-weight:600;margin-bottom:4px">{o.get("email_subject","—")}</div><div style="color:var(--r-text-muted);display:flex;gap:12px;flex-wrap:wrap"><span>To: {o.get("email","—")}</span>{flags}</div></div>'
 
     stat = pr.get("outreach_status","new")
     sc = {"new":"#4f8cff","emailed":"#fbbf24","called":"#fb923c","responded":"#a78bfa","won":"#3fb950","lost":"#f87171","dead":"#8b90a0","bounced":"#f85149","follow_up_due":"#d29922"}

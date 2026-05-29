@@ -167,9 +167,9 @@ function loadNotifications(){
     if(d.count>0){
       var draftSection=document.createElement('div');
       draftSection.id='notif-draft-section';
-      draftSection.style.cssText='padding:8px 12px;border-bottom:1px solid var(--bd);background:rgba(210,153,34,.08)';
+      draftSection.style.cssText='padding:8px 12px;border-bottom:1px solid var(--r-border);background:rgba(210,153,34,.08)';
       draftSection.innerHTML='<div style="font-size:13px;font-weight:600;color:#d29922;margin-bottom:4px">' + d.count + ' draft(s) pending</div>'
-        + '<a href="/outbox" style="font-size:12px;color:var(--ac)">Review in Outbox &rarr;</a>';
+        + '<a href="/outbox" style="font-size:12px;color:var(--r-accent)">Review in Outbox &rarr;</a>';
       var body=document.getElementById('notif-list');
       if(body&&body.parentNode)body.parentNode.insertBefore(draftSection,body);
     }

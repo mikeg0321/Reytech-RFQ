@@ -14,23 +14,23 @@
 
   <div style="margin-bottom:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
     <div>
-      <h2 style="margin:0;font-size:20px;color:var(--tx)">Quoting Status</h2>
-      <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+      <h2 style="margin:0;font-size:20px;color:var(--r-text)">Quoting Status</h2>
+      <p style="color:var(--r-text-muted);font-size:13px;margin:4px 0 0">
         Latest state machine transition per quote (newest first, up to 50).
         Data source: <code>quote_audit_log</code>.
       </p>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--tx2)">
+    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--r-text-muted)">
       <span id="qs-live-dot" title="Live updates enabled"
             style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3fb950;box-shadow:0 0 0 0 rgba(63,185,80,.6);animation:qsPulse 2s infinite"></span>
       <span>Live</span>
       <span id="qs-last-updated">just now</span>
       <button id="qs-refresh-btn" type="button"
-              style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px">
+              style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px">
         Refresh now
       </button>
       <a id="qs-export-csv" href="/api/quoting/status/export.csv"
-         style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">
+         style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">
         Export CSV
       </a>
     </div>
@@ -40,9 +40,9 @@
   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center">
     <input id="qs-search" type="search" placeholder="Search doc id, agency, reason…"
            aria-label="Search quoting status rows"
-           style="flex:1;min-width:220px;padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:12px">
+           style="flex:1;min-width:220px;padding:6px 10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;color:var(--r-text);font-size:12px">
     <button type="button" id="qs-last24h" class="qs-chip"
-            style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 12px;border-radius:999px;cursor:pointer;font-size:12px"
+            style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:4px 12px;border-radius:999px;cursor:pointer;font-size:12px"
             title="Show only transitions in the last 24 hours">
       ⏱ Last 24h
     </button>
@@ -61,7 +61,7 @@
     ] %}
       <button type="button" data-filter="{{ key }}"
               class="qs-chip{% if key == 'all' %} qs-chip-active{% endif %}"
-              style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 12px;border-radius:999px;cursor:pointer;font-size:12px">
+              style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:4px 12px;border-radius:999px;cursor:pointer;font-size:12px">
         {{ label }}
       </button>
     {% endfor %}
@@ -70,39 +70,39 @@
   <!-- Agency chips (populated from rows) -->
   <div id="qs-agency-filters" role="group" aria-label="Filter by agency"
        style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center">
-    <span style="font-size:11px;color:var(--tx2);margin-right:4px">Agency:</span>
+    <span style="font-size:11px;color:var(--r-text-muted);margin-right:4px">Agency:</span>
   </div>
 
   <!-- Stage chips (populated from rows) -->
   <div id="qs-stage-filters" role="group" aria-label="Filter by stage"
        style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center">
-    <span style="font-size:11px;color:var(--tx2);margin-right:4px">Stage:</span>
+    <span style="font-size:11px;color:var(--r-text-muted);margin-right:4px">Stage:</span>
   </div>
 
   <!-- KPI tiles -->
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px" id="qs-kpis">
     {% for label, key, color in [
-      ('Total', 'total', 'var(--tx)'),
+      ('Total', 'total', 'var(--r-text)'),
       ('Advanced', 'advanced', '#3fb950'),
       ('Blocked', 'blocked', '#f85149'),
       ('Error', 'error', '#f85149'),
       ('Override', 'override', '#d29922'),
     ] %}
       {% set count = (rows|length) if key == 'total' else outcome_counts.get(key, 0) %}
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center"
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:14px;text-align:center"
            data-kpi="{{ key }}">
         <div style="font-size:28px;font-weight:800;color:{{ color }}" data-kpi-value>{{ count }}</div>
-        <div style="font-size:12px;color:var(--tx2);margin-top:4px">{{ label }}</div>
+        <div style="font-size:12px;color:var(--r-text-muted);margin-top:4px">{{ label }}</div>
       </div>
     {% endfor %}
   </div>
 
   <!-- Quote list -->
-  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px">
-    <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:10px">Recent Quotes</div>
+  <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px">
+    <div style="font-size:14px;font-weight:600;color:var(--r-text);margin-bottom:10px">Recent Quotes</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px" id="qs-table">
       <thead>
-        <tr style="border-bottom:2px solid var(--bd);color:var(--tx2);text-align:left">
+        <tr style="border-bottom:2px solid var(--r-border);color:var(--r-text-muted);text-align:left">
           <th style="padding:6px 8px">Doc ID</th>
           <th style="padding:6px 8px">Type</th>
           <th style="padding:6px 8px">Agency</th>
@@ -116,8 +116,8 @@
       <tbody id="qs-tbody">
         {% if rows %}
           {% for r in rows %}
-          {% set color = outcome_colors.get(r.outcome, 'var(--tx2)') %}
-          <tr style="border-bottom:1px solid var(--bd)">
+          {% set color = outcome_colors.get(r.outcome, 'var(--r-text-muted)') %}
+          <tr style="border-bottom:1px solid var(--r-border)">
             <td style="padding:6px 8px">
               <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff">{{ r.doc_id or '(blank)' }}</a>
             </td>
@@ -129,21 +129,21 @@
             <td style="padding:6px 8px">
               <span style="color:{{ color }};font-weight:600">{{ r.outcome }}</span>
             </td>
-            <td style="padding:6px 8px;max-width:380px;color:var(--tx2)">
+            <td style="padding:6px 8px;max-width:380px;color:var(--r-text-muted)">
               {% if r.reasons %}
                 <span title="{{ r.reasons|join(' | ') }}">
                   {{ r.reasons[0]|truncate(80) }}
-                  {% if r.reasons|length > 1 %}<span style="color:var(--tx2)">(+{{ r.reasons|length - 1 }})</span>{% endif %}
+                  {% if r.reasons|length > 1 %}<span style="color:var(--r-text-muted)">(+{{ r.reasons|length - 1 }})</span>{% endif %}
                 </span>
               {% else %}
                 —
               {% endif %}
             </td>
-            <td style="padding:6px 8px;color:var(--tx2);font-size:12px">{{ r.at|truncate(19, true, '') }}</td>
+            <td style="padding:6px 8px;color:var(--r-text-muted);font-size:12px">{{ r.at|truncate(19, true, '') }}</td>
             <td style="padding:6px 8px;text-align:center">
               <button type="button" class="qs-preview-btn" data-doc-id="{{ r.doc_id }}"
                       title="Preview PDF"
-                      style="background:transparent;border:none;color:var(--tx2);cursor:pointer;padding:2px 6px;font-size:14px">👁</button>
+                      style="background:transparent;border:none;color:var(--r-text-muted);cursor:pointer;padding:2px 6px;font-size:14px">👁</button>
             </td>
           </tr>
           {% endfor %}
@@ -155,19 +155,19 @@
   <!-- Preview modal (hidden by default) -->
   <div id="qs-preview-modal" role="dialog" aria-modal="true" aria-hidden="true"
        style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;width:min(90vw,1000px);height:90vh;display:flex;flex-direction:column;overflow:hidden">
-      <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:12px">
-        <div style="font-size:13px;color:var(--tx)">
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;width:min(90vw,1000px);height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div style="font-size:13px;color:var(--r-text)">
           <span id="qs-preview-title">Preview</span>
-          <span id="qs-preview-label" style="margin-left:8px;font-size:11px;color:var(--tx2)"></span>
+          <span id="qs-preview-label" style="margin-left:8px;font-size:11px;color:var(--r-text-muted)"></span>
         </div>
         <div style="display:flex;gap:6px">
           <a id="qs-preview-open" href="#" target="_blank" rel="noopener"
-             style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:6px;text-decoration:none;font-size:12px">
+             style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:3px 10px;border-radius:6px;text-decoration:none;font-size:12px">
             Open in new tab
           </a>
           <button type="button" id="qs-preview-close"
-                  style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:3px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+                  style="background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:3px 12px;border-radius:6px;cursor:pointer;font-size:12px">
             Close (Esc)
           </button>
         </div>
@@ -176,7 +176,7 @@
     </div>
   </div>
 
-  <div id="qs-empty" style="color:var(--tx2);font-size:13px;padding:20px 0;{% if rows %}display:none{% endif %}">
+  <div id="qs-empty" style="color:var(--r-text-muted);font-size:13px;padding:20px 0;{% if rows %}display:none{% endif %}">
     No audit log rows yet. Run the orchestrator to populate.
   </div>
 
@@ -189,8 +189,8 @@
     100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); }
   }
   #qs-live-dot.qs-stale { background:#8b949e; animation:none; }
-  .qs-chip-active { background:var(--tx) !important; color:var(--bg) !important; border-color:var(--tx) !important; font-weight:600; }
-  .qs-chip:hover { border-color:var(--tx2); }
+  .qs-chip-active { background:var(--r-text) !important; color:var(--r-bg) !important; border-color:var(--r-text) !important; font-weight:600; }
+  .qs-chip:hover { border-color:var(--r-text-muted); }
 </style>
 
 <script>
@@ -206,7 +206,7 @@
   };
 
   var KPI_KEYS = ['total', 'advanced', 'blocked', 'error', 'override'];
-  var KPI_FALLBACK_COLOR = 'var(--tx)';
+  var KPI_FALLBACK_COLOR = 'var(--r-text)';
 
   var tbody = document.getElementById('qs-tbody');
   var emptyEl = document.getElementById('qs-empty');
@@ -246,15 +246,15 @@
   }
 
   function renderRow(r) {
-    var color = OUTCOME_COLORS[r.outcome] || 'var(--tx2)';
+    var color = OUTCOME_COLORS[r.outcome] || 'var(--r-text-muted)';
     var docLink = r.doc_id
       ? '<a href="/quoting/status/' + encodeURIComponent(r.doc_id) + '" style="color:#58a6ff">' + escapeHtml(r.doc_id) + '</a>'
-      : '<span style="color:var(--tx2)">(blank)</span>';
+      : '<span style="color:var(--r-text-muted)">(blank)</span>';
     var reasonsHtml = '—';
     if (r.reasons && r.reasons.length) {
       var first = escapeHtml(truncate(r.reasons[0], 80));
       var more = r.reasons.length > 1
-        ? ' <span style="color:var(--tx2)">(+' + (r.reasons.length - 1) + ')</span>'
+        ? ' <span style="color:var(--r-text-muted)">(+' + (r.reasons.length - 1) + ')</span>'
         : '';
       var titleAttr = escapeHtml(r.reasons.join(' | '));
       reasonsHtml = '<span title="' + titleAttr + '">' + first + more + '</span>';
@@ -263,9 +263,9 @@
     var previewBtn = r.doc_id
       ? '<button type="button" class="qs-preview-btn" data-doc-id="' + escapeHtml(r.doc_id) + '"'
         + ' title="Preview PDF"'
-        + ' style="background:transparent;border:none;color:var(--tx2);cursor:pointer;padding:2px 6px;font-size:14px">👁</button>'
+        + ' style="background:transparent;border:none;color:var(--r-text-muted);cursor:pointer;padding:2px 6px;font-size:14px">👁</button>'
       : '';
-    return '<tr style="border-bottom:1px solid var(--bd)">'
+    return '<tr style="border-bottom:1px solid var(--r-border)">'
       +   '<td style="padding:6px 8px">' + docLink + '</td>'
       +   '<td style="padding:6px 8px">' + escapeHtml(r.doc_type || '—') + '</td>'
       +   '<td style="padding:6px 8px">' + escapeHtml(r.agency_key || '—') + '</td>'
@@ -275,8 +275,8 @@
       +   '<td style="padding:6px 8px">'
       +     '<span style="color:' + color + ';font-weight:600">' + escapeHtml(r.outcome || '—') + '</span>'
       +   '</td>'
-      +   '<td style="padding:6px 8px;max-width:380px;color:var(--tx2)">' + reasonsHtml + '</td>'
-      +   '<td style="padding:6px 8px;color:var(--tx2);font-size:12px">' + at + '</td>'
+      +   '<td style="padding:6px 8px;max-width:380px;color:var(--r-text-muted)">' + reasonsHtml + '</td>'
+      +   '<td style="padding:6px 8px;color:var(--r-text-muted);font-size:12px">' + at + '</td>'
       +   '<td style="padding:6px 8px;text-align:center">' + previewBtn + '</td>'
       + '</tr>';
   }
@@ -328,7 +328,7 @@
       btn.type = 'button';
       btn.className = 'qs-chip' + (v === activeKey ? ' qs-chip-active' : '');
       btn.setAttribute('data-' + prefix, v);
-      btn.style.cssText = 'background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:999px;cursor:pointer;font-size:11px';
+      btn.style.cssText = 'background:transparent;border:1px solid var(--r-border);color:var(--r-text-muted);padding:3px 10px;border-radius:999px;cursor:pointer;font-size:11px';
       btn.textContent = v === 'all' ? 'All' : v;
       el.appendChild(btn);
     });

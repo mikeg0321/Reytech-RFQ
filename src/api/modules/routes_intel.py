@@ -1629,15 +1629,15 @@ def universal_search_page_intel():
     for r in results:
         color, bg, lbl = type_styles.get(r["type"], ("#8b949e","rgba(139,148,160,.12)","?"))
         rows_html += f"""
-        <a href="{r['url']}" style="display:block;text-decoration:none;padding:14px 16px;border-bottom:1px solid var(--bd);transition:background .1s" onmouseover="this.style.background='rgba(79,140,255,.06)'" onmouseout="this.style.background=''">
+        <a href="{r['url']}" style="display:block;text-decoration:none;padding:14px 16px;border-bottom:1px solid var(--r-border);transition:background .1s" onmouseover="this.style.background='rgba(79,140,255,.06)'" onmouseout="this.style.background=''">
          <div style="display:flex;align-items:center;gap:12px">
           <span style="font-size:14px;padding:3px 8px;border-radius:10px;color:{color};background:{bg};white-space:nowrap;font-weight:600">{lbl}</span>
           <div style="flex:1;min-width:0">
-           <div style="font-weight:600;font-size:14px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{esc(r['title'])}</div>
-           <div style="font-size:14px;color:var(--tx2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{esc(r['subtitle'])}</div>
+           <div style="font-weight:600;font-size:14px;color:var(--r-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{esc(r['title'])}</div>
+           <div style="font-size:14px;color:var(--r-text-muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{esc(r['subtitle'])}</div>
           </div>
-          <div style="font-size:14px;color:var(--tx2);white-space:nowrap;text-align:right">{esc(r['meta'])}</div>
-          <span style="color:var(--ac);font-size:16px">→</span>
+          <div style="font-size:14px;color:var(--r-text-muted);white-space:nowrap;text-align:right">{esc(r['meta'])}</div>
+          <span style="color:var(--r-accent);font-size:16px">→</span>
          </div>
         </a>"""
 
@@ -1651,14 +1651,14 @@ def universal_search_page_intel():
     empty_state = ""
     if q and len(q) >= 2 and not results:
         empty_state = f"""
-        <div style="text-align:center;padding:48px 24px;color:var(--tx2)">
+        <div style="text-align:center;padding:48px 24px;color:var(--r-text-muted)">
          <div style="font-size:40px;margin-bottom:12px">🔍</div>
          <div style="font-size:16px;font-weight:600;margin-bottom:6px">No results for "{esc(q)}"</div>
          <div style="font-size:13px;margin-bottom:20px">Try a name, agency, email, item description, or quote number</div>
          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-          <a href="/quotes" style="padding:8px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;text-decoration:none">📋 Browse Quotes</a>
-          <a href="/contacts" style="padding:8px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;text-decoration:none">👥 Browse CRM</a>
-          <a href="/intelligence" style="padding:8px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;text-decoration:none">🧠 Sales Intel</a>
+          <a href="/quotes" style="padding:8px 16px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:7px;color:var(--r-text);font-size:13px;text-decoration:none">📋 Browse Quotes</a>
+          <a href="/contacts" style="padding:8px 16px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:7px;color:var(--r-text);font-size:13px;text-decoration:none">👥 Browse CRM</a>
+          <a href="/intelligence" style="padding:8px 16px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:7px;color:var(--r-text);font-size:13px;text-decoration:none">🧠 Sales Intel</a>
          </div>
         </div>"""
 
@@ -1828,12 +1828,12 @@ def quotes_list():
                     pn_link = f'<span style="color:#8b949e;font-size:13px">{pn}</span>'
                 else:
                     pn_link = ""
-                detail_rows += f'<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0"><span style="color:var(--tx2);font-size:14px;flex:1">{desc}</span>{pn_link}<span style="font-family:monospace;font-size:14px;color:#d29922">${it.get("unit_price",0):.2f} × {it.get("qty",0)}</span></div>'
+                detail_rows += f'<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0"><span style="color:var(--r-text-muted);font-size:14px;flex:1">{desc}</span>{pn_link}<span style="font-family:monospace;font-size:14px;color:#d29922">${it.get("unit_price",0):.2f} × {it.get("qty",0)}</span></div>'
         elif items_text:
-            detail_rows = f'<div style="color:var(--tx2);font-size:14px;padding:2px 0">{esc(items_text[:200])}</div>'
+            detail_rows = f'<div style="color:var(--r-text-muted);font-size:14px;padding:2px 0">{esc(items_text[:200])}</div>'
 
         detail_id = f"detail-{qn.replace(' ','')}"
-        toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
+        toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--r-text-muted);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
 
         # Quote number links to source RFQ/PC page for editing + resend
         # Falls back to quote detail page if no source link
@@ -1876,7 +1876,7 @@ def quotes_list():
             qn_href = f"/quote/{qn}"
         
         test_badge = ' <span style="background:#d29922;color:#000;font-size:13px;padding:1px 5px;border-radius:4px;font-weight:700">TEST</span>' if qt.get("is_test") or qt.get("source_pc_id", "").startswith("test_") else ""
-        qn_cell = f'<a href="{qn_href}" style="color:var(--ac);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="Open RFQ to edit and resend">{esc(qn)}</a>{test_badge}'
+        qn_cell = f'<a href="{qn_href}" style="color:var(--r-accent);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="Open RFQ to edit and resend">{esc(qn)}</a>{test_badge}'
 
         # RFQ # column — also links to RFQ detail
         rfq_cell = f'<a href="{qn_href}" style="color:#58a6ff;text-decoration:none">{esc(rfq_num_val)}</a>' if rfq_num_val else "—"
@@ -1900,7 +1900,7 @@ def quotes_list():
           {dl}
          </td>
         </tr>
-        <tr id="{detail_id}" style="display:none"><td colspan="9" style="background:var(--sf2);padding:8px 16px;border-left:3px solid var(--ac)">{detail_rows if detail_rows else '<span style="color:var(--tx2);font-size:14px">No item details available</span>'}</td></tr>"""
+        <tr id="{detail_id}" style="display:none"><td colspan="9" style="background:var(--r-surface-2);padding:8px 16px;border-left:3px solid var(--r-accent)">{detail_rows if detail_rows else '<span style="color:var(--r-text-muted);font-size:14px">No item details available</span>'}</td></tr>"""
 
     # Win rate stats bar
     wr = stats.get("win_rate", 0)
@@ -1914,7 +1914,7 @@ def quotes_list():
       <span style="color:#d29922"><b>{stats['pending']}</b> pending</span>
       {f'<span style="color:#8b949e"><b>{expired_count}</b> expired</span>' if expired_count else ''}
       <span>WR: <b style="color:{wr_color}">{wr}%</b></span>
-      <span style="color:#8b949e">Next: <b style="color:var(--tx)">{next_num}</b></span>
+      <span style="color:#8b949e">Next: <b style="color:var(--r-text)">{next_num}</b></span>
      </div>
     """
 
@@ -2017,26 +2017,26 @@ def quote_detail(qn):
             days_left = (exp_dt.replace(tzinfo=None) - _dt.now()).days
             if days_left < 0:
                 expiry_display = "Expired"
-                expiry_class = "color:var(--rd);font-weight:600"
+                expiry_class = "color:var(--r-bad);font-weight:600"
             elif days_left <= 7:
                 expiry_display = f"{days_left}d left"
-                expiry_class = "color:var(--rd);font-weight:600"
+                expiry_class = "color:var(--r-bad);font-weight:600"
             elif days_left <= 14:
                 expiry_display = f"{days_left}d left"
-                expiry_class = "color:var(--yl);font-weight:600"
+                expiry_class = "color:var(--r-warn);font-weight:600"
             else:
                 expiry_display = f"{days_left}d left"
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
     elif st == "won":
         expiry_display = "Won ✅"
-        expiry_class = "color:var(--gn);font-weight:600"
+        expiry_class = "color:var(--r-accent);font-weight:600"
     elif st == "lost":
         expiry_display = "Lost"
-        expiry_class = "color:var(--rd)"
+        expiry_class = "color:var(--r-bad)"
     elif st == "expired":
         expiry_display = "Expired"
-        expiry_class = "color:var(--tx2)"
+        expiry_class = "color:var(--r-text-muted)"
 
     close_reason = qt.get("close_reason", "")
     closed_by = qt.get("closed_by_agent", "")
@@ -2102,12 +2102,12 @@ def quote_detail(qn):
 
     # Status config
     status_cfg = {
-        "won":     ("✅ Won",     "var(--gn)", "rgba(52,211,153,.1)"),
-        "lost":    ("❌ Lost",    "var(--rd)", "rgba(248,113,113,.1)"),
-        "pending": ("⏳ Pending", "var(--yl)", "rgba(251,191,36,.1)"),
-        "draft":   ("📝 Draft",   "var(--tx2)", "rgba(139,148,160,.1)"),
-        "sent":    ("📤 Sent",    "var(--ac)", "rgba(79,140,255,.1)"),
-        "expired": ("⏰ Expired", "var(--tx2)", "rgba(139,148,160,.1)"),
+        "won":     ("✅ Won",     "var(--r-accent)", "rgba(52,211,153,.1)"),
+        "lost":    ("❌ Lost",    "var(--r-bad)", "rgba(248,113,113,.1)"),
+        "pending": ("⏳ Pending", "var(--r-warn)", "rgba(251,191,36,.1)"),
+        "draft":   ("📝 Draft",   "var(--r-text-muted)", "rgba(139,148,160,.1)"),
+        "sent":    ("📤 Sent",    "var(--r-accent)", "rgba(79,140,255,.1)"),
+        "expired": ("⏰ Expired", "var(--r-text-muted)", "rgba(139,148,160,.1)"),
     }
     lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
 
@@ -2116,11 +2116,11 @@ def quote_detail(qn):
     for it in items:
         desc = str(it.get("description", ""))
         pn = it.get("part_number", "")
-        pn_cell = f'<a href="https://amazon.com/dp/{esc(pn)}" target="_blank" style="color:var(--ac)">{esc(pn)}</a>' if pn and pn.startswith("B0") else (esc(pn) or "—")
+        pn_cell = f'<a href="https://amazon.com/dp/{esc(pn)}" target="_blank" style="color:var(--r-accent)">{esc(pn)}</a>' if pn and pn.startswith("B0") else (esc(pn) or "—")
         up = it.get("unit_price", 0)
         qty = it.get("qty", 0)
         items_html += f"""<tr>
-         <td style="color:var(--tx2)">{it.get('line_number', '')}</td>
+         <td style="color:var(--r-text-muted)">{it.get('line_number', '')}</td>
          <td style="max-width:400px;word-wrap:break-word;white-space:normal">{esc(desc)}</td>
          <td class="mono">{pn_cell}</td>
          <td class="mono" style="text-align:center">{qty}</td>
@@ -2132,7 +2132,7 @@ def quote_detail(qn):
     history = qt.get("status_history", [])
     history_html = ""
     for h in reversed(history[-10:]):
-        history_html += f'<div style="font-size:14px;color:var(--tx2);padding:3px 0"><span class="mono">{esc(h.get("timestamp","")[:16])}</span> → <b>{esc(h.get("status",""))}</b>{" by " + str(esc(h.get("actor",""))) if h.get("actor") else ""}{" (PO: " + str(esc(h["po_number"])) + ")" if h.get("po_number") else ""}</div>'
+        history_html += f'<div style="font-size:14px;color:var(--r-text-muted);padding:3px 0"><span class="mono">{esc(h.get("timestamp","")[:16])}</span> → <b>{esc(h.get("status",""))}</b>{" by " + str(esc(h.get("actor",""))) if h.get("actor") else ""}{" (PO: " + str(esc(h["po_number"])) + ")" if h.get("po_number") else ""}</div>'
 
     # Build action buttons separately to avoid f-string escaping
     has_order = False
@@ -2143,20 +2143,20 @@ def quote_detail(qn):
         log.debug("suppressed: %s", _e)
 
     if st in ('pending', 'sent'):
-        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        action_btns = '<div style="border-top:1px solid var(--r-border);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
         action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;won&quot;)" class="btn btn-g" style="font-size:13px">✅ Mark Won</button>'
-        action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;lost&quot;)" class="btn" style="background:rgba(248,113,113,.15);color:var(--rd);border:1px solid rgba(248,113,113,.3);font-size:13px">❌ Mark Lost</button>'
+        action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;lost&quot;)" class="btn" style="background:rgba(248,113,113,.15);color:var(--r-bad);border:1px solid rgba(248,113,113,.3);font-size:13px">❌ Mark Lost</button>'
         # Plan §6.1: Mark Cancelled = lifecycle hygiene (buyer pulled, solicitation
         # withdrawn). Removes from pipeline without polluting the oracle.
-        action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;cancelled&quot;)" class="btn" style="background:rgba(139,148,158,.15);color:var(--tx2);border:1px solid rgba(139,148,158,.3);font-size:13px">🗑️ Mark Cancelled</button>'
+        action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;cancelled&quot;)" class="btn" style="background:rgba(139,148,158,.15);color:var(--r-text-muted);border:1px solid rgba(139,148,158,.3);font-size:13px">🗑️ Mark Cancelled</button>'
         action_btns += f'<button onclick="convertToOrder(&quot;{qn}&quot;)" class="btn" style="background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);font-size:13px">📦 Convert to Order</button>'
         action_btns += '</div>'
     elif st == 'won' and not has_order:
-        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
+        action_btns = '<div style="border-top:1px solid var(--r-border);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
         action_btns += f'<button onclick="convertToOrder(&quot;{qn}&quot;)" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Convert to Order</button>'
         action_btns += '</div>'
     elif st == 'won' and has_order:
-        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
+        action_btns = '<div style="border-top:1px solid var(--r-border);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
         action_btns += f'<a href="/order/ORD-{qn}" class="btn btn-g" style="font-size:14px;padding:10px 24px;text-decoration:none">📦 View Order</a>'
         action_btns += '</div>'
     else:
@@ -2305,7 +2305,7 @@ def pipeline_page():
           <span style="font-size:14px;font-weight:600">{label}</span>
           <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:{color}">{count}</span>
          </div>
-         <div style="background:var(--sf2);border-radius:6px;height:24px;overflow:hidden">
+         <div style="background:var(--r-surface-2);border-radius:6px;height:24px;overflow:hidden">
           <div style="width:{pct}%;height:100%;background:{color};border-radius:6px;display:flex;align-items:center;padding-left:8px">
            <span style="font-size:13px;color:#fff;font-weight:600">{sublabel}</span>
           </div>
@@ -2332,9 +2332,9 @@ def pipeline_page():
     for e in recent:
         icon = evt_icons.get(e.get("event_type", ""), "●")
         ts = e.get("timestamp", "")[:16].replace("T", " ")
-        events_html += f"""<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px;display:flex;gap:8px;align-items:flex-start">
+        events_html += f"""<div style="padding:6px 0;border-bottom:1px solid var(--r-border);font-size:14px;display:flex;gap:8px;align-items:flex-start">
          <span style="flex-shrink:0">{icon}</span>
-         <div style="flex:1"><div>{e.get('description','')[:100]}</div><div style="color:var(--tx2);font-size:13px;margin-top:2px">{ts}</div></div>
+         <div style="flex:1"><div>{e.get('description','')[:100]}</div><div style="color:var(--r-text-muted);font-size:13px;margin-top:2px">{ts}</div></div>
         </div>"""
 
     # ── Prediction leaderboard for pending quotes ──
@@ -2353,10 +2353,10 @@ def pipeline_page():
         for q in preds[:10]:
             prob = round(q["win_prob"] * 100)
             clr = "#3fb950" if prob >= 60 else ("#d29922" if prob >= 40 else "#f85149")
-            predictions_html += f"""<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">
+            predictions_html += f"""<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--r-border);font-size:14px">
              <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{clr};min-width:36px">{prob}%</span>
-             <a href="/quote/{esc(q.get('quote_number',''))}" style="color:var(--ac);text-decoration:none;font-weight:600">{esc(q.get('quote_number',''))}</a>
-             <span style="color:var(--tx2);flex:1">{esc(q.get('institution','')[:30])}</span>
+             <a href="/quote/{esc(q.get('quote_number',''))}" style="color:var(--r-accent);text-decoration:none;font-weight:600">{esc(q.get('quote_number',''))}</a>
+             <span style="color:var(--r-text-muted);flex:1">{esc(q.get('institution','')[:30])}</span>
              <span style="font-family:'JetBrains Mono',monospace">${q.get('total',0):,.0f}</span>
             </div>"""
 
