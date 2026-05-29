@@ -3630,6 +3630,22 @@ def _generate_pc_pdf(pcid):
         except Exception as _qe:
             log.debug("GENERATE %s: Form QA skipped: %s", pcid, _qe)
 
+        # Canonical package-integrity gate (Mike/Architect 2026-05-29, §0 LAW 1) —
+        # same detector that guards RFQ packages, applied to the PC output so the
+        # check is canonical across all file types. A PC is a single 704 today so
+        # duplicates shouldn't arise, but this future-proofs PC bundling and
+        # surfaces a blank bidder block. Non-blocking on the PC side (advisory).
+        try:
+            from src.forms.package_integrity import check_package as _check_pkg
+            _pc_integrity = _check_pkg(pipe_result.output_path,
+                                       company_name=CONFIG.get("company", {}).get("name", ""))
+            if not _pc_integrity["ok"]:
+                for _b in _pc_integrity["blockers"]:
+                    log.warning("GENERATE %s: package integrity — %s", pcid, _b)
+                _qa_warnings = list(_qa_warnings) + _pc_integrity["blockers"]
+        except Exception as _pie:
+            log.debug("GENERATE %s: package integrity skipped: %s", pcid, _pie)
+
         # Visual QA now runs INSIDE the pipeline verify step (V2).
 
         # Shadow-mode: run new fill engine in background, diff against legacy output
