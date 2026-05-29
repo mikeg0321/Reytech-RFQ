@@ -200,8 +200,22 @@ class TestFoodDetection:
     def test_agricultural(self):
         assert _detect_food_items("Agricultural product certification needed") is True
 
-    def test_perishable(self):
-        assert _detect_food_items("Perishable goods included") is True
+    def test_perishable_alone_is_not_food(self):
+        # "perishable" was removed — refrigerated meds/vaccines are perishable
+        # but are NOT agricultural food (OBS 1600 does not apply).
+        assert _detect_food_items("Perishable goods included") is False
+
+    def test_nutritional_alone_is_not_food(self):
+        # "nutritional supplement" = vitamins/medical, not OBS-1600 food.
+        assert _detect_food_items("Nutritional supplement, 90 count") is False
+
+    def test_expiration_boilerplate_is_not_food(self):
+        # Incident 2026-05-28: standard CDCR dating clause flipped the food
+        # flag on a durable IV-pole mount. This boilerplate must NOT trigger.
+        clause = ("ALL dated materials must have a manufacturer's expiration "
+                  "date at least 13 months after the material is received by "
+                  "the institution's warehouse")
+        assert _detect_food_items(clause) is False
 
     def test_no_food(self):
         assert _detect_food_items("Medical supplies order") is False

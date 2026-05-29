@@ -2685,6 +2685,25 @@ def detail(rid):
     except Exception as _e:
         log.debug('suppressed in detail: %s', _e)
 
+    # Reconcile the email-derived food flag against the AUTHORITATIVE line
+    # items. OBS 1600 is a per-line-item food-classification form, so "food
+    # items present" is answered by the items — not by a fuzzy read of the
+    # email body. The LLM extractor (claude · 85% conf) flips this flag on a
+    # standard "expiration date / dated materials" boilerplate clause read as
+    # "perishable", flagging food on durable goods (e.g. an IV-pole mount).
+    # When items exist and none classify as food, suppress the false banner.
+    # With no parsed items yet, trust the email flag (best available signal).
+    try:
+        if _requirements.get("food_items_present"):
+            _items = r.get("line_items") or []
+            if _items:
+                from src.forms.food_classifier import any_food_line_item
+                if not any_food_line_item(_items):
+                    _requirements["food_items_present"] = False
+                    _requirements["food_flag_suppressed"] = "no_food_line_items"
+    except Exception as _e:
+        log.debug('suppressed food reconcile in detail: %s', _e)
+
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid,
                        agency_required_forms=_agency_req,
                        agency_key=_agency_key,

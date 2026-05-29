@@ -174,7 +174,7 @@ Form IDs to use: std204, std205, dvbe843, darfur_act, cv012_cuf, calrecycle74,
 bidder_decl, std1000, sellers_permit, w9, obs_1600, 703b, 703c, 704b, quote.
 
 Rules:
-- food_items_present = true if email mentions food, agricultural products, OBS 1600, or perishable items
+- food_items_present = true ONLY if the order is for actual food / agricultural / grocery products (e.g. produce, meat, dairy, canned goods) or the email explicitly requests OBS 1600. A standard "expiration date" / "shelf life" / "dated materials" clause is boilerplate that applies to medical and other durable goods too — it is NOT by itself a food signal. When unsure, set false.
 - Only include forms that are explicitly requested, not inferred
 - template_urls: only include actual URLs from the email body
 - If a field is not found, use empty string or empty list"""
@@ -568,10 +568,13 @@ def _detect_food_items(text: str) -> bool:
     """Detect if email mentions food items (triggers OBS-1600 requirement)."""
     if not text:
         return False
+    # NOTE: "perishable" and "nutritional" were removed — both fire on
+    # non-food orders (refrigerated meds are "perishable"; supplements are
+    # "nutritional"). Keep only explicit food / agricultural / OBS-1600 terms.
     food_keywords = [
         "food item", "food product", "agricultural product",
-        "perishable", "obs 1600", "obs-1600", "food cert",
-        "food service", "nutritional",
+        "obs 1600", "obs-1600", "food cert", "food service",
+        "grocery", "produce item",
     ]
     lower = text.lower()
     return any(kw in lower for kw in food_keywords)
