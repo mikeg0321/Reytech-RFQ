@@ -423,7 +423,16 @@
      {% endif %}
     {% endif %}
   </div>
-  <a href="/pricecheck/{{r.linked_pc_id}}" style="margin-left:auto;color:#58a6ff;font-size:13px;font-weight:600">View PC →</a>
+  <button onclick="relinkPc()" id="relink-pc-btn" title="Re-run PC matching and re-port pricing from the matched Price Check"
+          style="margin-left:auto;font-size:12px;padding:3px 10px;background:var(--sf,#161b22);border:1px solid var(--bd,#30363d);border-radius:5px;color:#58a6ff;cursor:pointer">↻ Relink</button>
+  <a href="/pricecheck/{{r.linked_pc_id}}" style="margin-left:10px;color:#58a6ff;font-size:13px;font-weight:600">View PC →</a>
+ </div>
+ {% else %}
+ <div style="background:rgba(139,148,158,.06);border:1px solid rgba(139,148,158,.2);border-radius:8px;padding:8px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px;color:#8b949e">
+  <span style="font-size:16px">🔗</span>
+  <span>No Price Check linked.</span>
+  <button onclick="relinkPc()" id="relink-pc-btn" title="Search for a matching Price Check and port its pricing"
+          style="margin-left:auto;font-size:12px;padding:3px 10px;background:var(--sf,#161b22);border:1px solid var(--bd,#30363d);border-radius:5px;color:#58a6ff;cursor:pointer">🔗 Find &amp; link PC</button>
  </div>
  {% endif %}
 
@@ -3961,6 +3970,33 @@ function saveDraft(){
 // the double-sig pre-flight, draft creation, and Gmail open-in-new-tab.
 function sendQuoteEmail(){
  location.href = '/rfq/{{ rid }}/review-package';
+}
+
+// Force re-run of PC↔RFQ matching + price porting. Clears the prior link and
+// any zero/empty prices, re-matches a Price Check, and re-ports pricing via
+// the canonical porter. Works whether or not the RFQ is currently linked.
+function relinkPc(){
+ var btn=document.getElementById('relink-pc-btn');
+ if(btn){btn.disabled=true; btn.dataset.orig=btn.textContent; btn.textContent='⏳ Relinking…';}
+ function _restore(){ if(btn){btn.disabled=false; btn.textContent=btn.dataset.orig||'↻ Relink';} }
+ fetch('/api/rfq/'+RID+'/relink-pc',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  credentials:'same-origin'
+ }).then(function(r){return r.json();}).then(function(d){
+  if(d&&d.ok){
+   var diff=d.diff||{};
+   var msg='✅ '+(d.message||('Linked to PC '+(d.linked_pc||'(none)')));
+   if(diff.ported!=null){
+    msg+='\n\n'+diff.ported+' priced / '+(diff.matched!=null?diff.matched:diff.ported)+' matched';
+   }
+   alert(msg);
+   location.reload();
+  } else {
+   alert('⚠️ '+((d&&d.error)||'Relink failed — no matching Price Check found'));
+   _restore();
+  }
+ }).catch(function(e){ alert('Error: '+e.message); _restore(); });
 }
 
 function generateOBS1600(){
