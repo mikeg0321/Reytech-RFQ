@@ -4052,6 +4052,9 @@ def _api_rfq_re_extract_requirements_locked(rid):
             # Supplement due date if missing
             if r.get("due_date") in ("TBD", "", None) and req.due_date:
                 r["due_date"] = req.due_date
+            # Supplement Release/Issue Date so the 703B/703C fills (#1207 follow-up)
+            if req.release_date and not r.get("release_date"):
+                r["release_date"] = req.release_date
             rfqs[rid] = r
             _save_single_rfq(rid, r)
             return jsonify({

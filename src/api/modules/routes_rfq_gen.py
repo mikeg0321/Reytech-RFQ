@@ -4575,6 +4575,9 @@ def _auto_extract_email_on_upload(rid: str, screenshot_path: str) -> None:
                 r["requirements_json"] = json.dumps(req.to_dict(), default=str)
                 if r.get("due_date") in ("TBD", "", None) and getattr(req, "due_date", ""):
                     r["due_date"] = req.due_date
+                # Thread Release/Issue Date so the 703B/703C fills (#1207 follow-up)
+                if getattr(req, "release_date", "") and not r.get("release_date"):
+                    r["release_date"] = req.release_date
 
             _save_single_rfq(rid, r)
             _log_rfq_activity(rid, "auto_extract_email",
