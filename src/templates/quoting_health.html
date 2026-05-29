@@ -2,9 +2,9 @@
 {% block title %}Quoting Health — Reytech{% endblock %}
 {% block content %}
 {% macro stat(value, label, color='#58a6ff', suffix='') -%}
-  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:22px;font-weight:700;color:{{ color }};font-family:monospace">{{ value }}{{ suffix }}</div>
-    <div style="font-size:12px;color:var(--tx2,#8b949e)">{{ label }}</div>
+    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">{{ label }}</div>
   </div>
 {%- endmacro %}
 
@@ -14,9 +14,9 @@
     {% for d in [1, 7, 30, 90] %}
       <a href="/health/quoting?days={{d}}"
          style="padding:6px 14px;border-radius:6px;font-size:13px;
-                background:{% if days == d %}#1f6feb{% else %}var(--sf2,#161b22){% endif %};
-                color:{% if days == d %}#fff{% else %}var(--tx2,#8b949e){% endif %};
-                text-decoration:none;border:1px solid var(--bd,#30363d)">
+                background:{% if days == d %}#1f6feb{% else %}var(--r-surface-2,#161b22){% endif %};
+                color:{% if days == d %}#fff{% else %}var(--r-text-muted,#8b949e){% endif %};
+                text-decoration:none;border:1px solid var(--r-border,#30363d)">
         {{ d }}d
       </a>
     {% endfor %}
@@ -34,7 +34,7 @@
           {% if flag_card.classifier_v2_on %}ENABLED{% else %}DISABLED{% endif %}
         </span>
       </div>
-      <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:2px">
+      <div style="font-size:13px;color:var(--r-text-muted,#8b949e);margin-top:2px">
         {{ flag_card.flag_count }} runtime flag{{ 's' if flag_card.flag_count != 1 else '' }} active.
         Manage via <code>/api/admin/flags</code>.
       </div>
@@ -58,7 +58,7 @@
     {{ stat(classifier_window.avg_ms, 'Avg latency', '#8b949e', ' ms') }}
   </div>
   {% if classifier_window.invocations == 0 %}
-    <div style="margin-top:12px;padding:10px;background:var(--sf2,#161b22);border-radius:6px;color:var(--tx2,#8b949e);font-size:13px">
+    <div style="margin-top:12px;padding:10px;background:var(--r-surface-2,#161b22);border-radius:6px;color:var(--r-text-muted,#8b949e);font-size:13px">
       No classifier invocations in the window. Either the flag is off or no buyer
       requests have hit the pipeline yet. Check <code>/api/admin/flags</code>.
     </div>
@@ -70,7 +70,7 @@
   <div class="card" style="margin-bottom:0">
     <div class="card-t">Confidence distribution — last {{ days }}d</div>
     {% if confidence.total == 0 %}
-      <div style="margin-top:12px;color:var(--tx2,#8b949e);font-size:13px">No confidence data yet.</div>
+      <div style="margin-top:12px;color:var(--r-text-muted,#8b949e);font-size:13px">No confidence data yet.</div>
     {% else %}
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px">
         {{ stat(confidence.high, 'High (≥0.85)', '#3fb950') }}
@@ -78,12 +78,12 @@
         {{ stat(confidence.low, 'Low (<0.60)', '#f85149') }}
       </div>
       {# bar chart #}
-      <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:12px;background:var(--sf2,#161b22)">
+      <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:12px;background:var(--r-surface-2,#161b22)">
         {% if confidence.high_pct %}<div style="width:{{ confidence.high_pct }}%;background:#3fb950" title="High {{ confidence.high_pct }}%"></div>{% endif %}
         {% if confidence.mid_pct %}<div style="width:{{ confidence.mid_pct }}%;background:#d29922" title="Mid {{ confidence.mid_pct }}%"></div>{% endif %}
         {% if confidence.low_pct %}<div style="width:{{ confidence.low_pct }}%;background:#f85149" title="Low {{ confidence.low_pct }}%"></div>{% endif %}
       </div>
-      <div style="margin-top:8px;font-size:12px;color:var(--tx2,#8b949e)">
+      <div style="margin-top:8px;font-size:12px;color:var(--r-text-muted,#8b949e)">
         {{ confidence.total }} classified request{{ 's' if confidence.total != 1 else '' }}
       </div>
     {% endif %}
@@ -93,23 +93,23 @@
     <div class="card-t">Top shapes / agencies — last {{ days }}d</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px">
       <div>
-        <div style="font-size:12px;color:var(--tx2,#8b949e);margin-bottom:6px">Shapes</div>
+        <div style="font-size:12px;color:var(--r-text-muted,#8b949e);margin-bottom:6px">Shapes</div>
         {% for shape, n in confidence.top_shapes %}
-          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--bd,#30363d)">
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--r-border,#30363d)">
             <span>{{ shape }}</span><strong style="color:#58a6ff">{{ n }}</strong>
           </div>
         {% else %}
-          <div style="color:var(--tx2,#8b949e);font-size:13px">--</div>
+          <div style="color:var(--r-text-muted,#8b949e);font-size:13px">--</div>
         {% endfor %}
       </div>
       <div>
-        <div style="font-size:12px;color:var(--tx2,#8b949e);margin-bottom:6px">Agencies</div>
+        <div style="font-size:12px;color:var(--r-text-muted,#8b949e);margin-bottom:6px">Agencies</div>
         {% for agency, n in confidence.top_agencies %}
-          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--bd,#30363d)">
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--r-border,#30363d)">
             <span>{{ agency|agency_display }}</span><strong style="color:#58a6ff">{{ n }}</strong>
           </div>
         {% else %}
-          <div style="color:var(--tx2,#8b949e);font-size:13px">--</div>
+          <div style="color:var(--r-text-muted,#8b949e);font-size:13px">--</div>
         {% endfor %}
       </div>
     </div>
@@ -127,7 +127,7 @@
     {{ stat(funnel_window.quotes_won, 'Quotes won', '#3fb950') }}
     {{ stat('$' ~ '{:,.0f}'.format(funnel_window.won_total), 'Won $', '#3fb950') }}
   </div>
-  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:13px;color:var(--r-text-muted,#8b949e)">
     Last 24h: {{ funnel_1d.ingested }} ingested · {{ funnel_1d.pcs }} PCs ·
     {{ funnel_1d.quotes }} quotes · {{ funnel_1d.quotes_sent }} sent ·
     {{ funnel_1d.quotes_won }} won (${{ '{:,.0f}'.format(funnel_1d.won_total) }})
@@ -172,7 +172,7 @@
          else '#8b949e',
         '%' if _oc.win_rate_pct is not none else '') }}
   </div>
-  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:13px;color:var(--r-text-muted,#8b949e)">
     {% if _oc.status == 'no_data' %}
       No calibration data yet — the 4 runtime triggers haven't fired. If
       you've marked quotes won/lost, check
@@ -207,34 +207,34 @@
                     else '#3fb950' if _kpi.status == 'healthy'
                     else '#8b949e' %}
 <div class="card" style="margin-bottom:14px;border-left:4px solid {{ _kpi_border }}">
-  <div class="card-t">⏱ Time-to-send KPI <span style="font-size:11px;color:var(--tx2);font-weight:400">— target: ≥ {{ _kpi.kpi_target_pct|default(60) }}% under 90s</span></div>
+  <div class="card-t">⏱ Time-to-send KPI <span style="font-size:11px;color:var(--r-text-muted);font-weight:400">— target: ≥ {{ _kpi.kpi_target_pct|default(60) }}% under 90s</span></div>
   <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px">
     {# Last 24h column #}
-    <div style="padding:10px;border:1px solid var(--bd,#30363d);border-radius:6px">
-      <div style="font-size:11px;color:var(--tx2);margin-bottom:6px;letter-spacing:0.5px">LAST 24H</div>
+    <div style="padding:10px;border:1px solid var(--r-border,#30363d);border-radius:6px">
+      <div style="font-size:11px;color:var(--r-text-muted);margin-bottom:6px;letter-spacing:0.5px">LAST 24H</div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:13px">
-        <div><div style="font-size:18px;font-weight:700">{{ _kpi.window_24h.count|default(0) }}</div><div style="color:var(--tx2);font-size:11px">Sent</div></div>
-        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_24h.median_seconds is not none %}{{ _kpi.window_24h.median_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">Median</div></div>
-        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_24h.p95_seconds is not none %}{{ _kpi.window_24h.p95_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">p95</div></div>
-        <div><div style="font-size:18px;font-weight:700;color:{% if _kpi.window_24h.under_90_pct is not none and _kpi.window_24h.under_90_pct >= 60 %}#3fb950{% elif _kpi.window_24h.under_90_pct is not none and _kpi.window_24h.under_90_pct >= 30 %}#d29922{% elif _kpi.window_24h.under_90_pct is not none %}#f85149{% else %}var(--tx2){% endif %}">
+        <div><div style="font-size:18px;font-weight:700">{{ _kpi.window_24h.count|default(0) }}</div><div style="color:var(--r-text-muted);font-size:11px">Sent</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_24h.median_seconds is not none %}{{ _kpi.window_24h.median_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--r-text-muted);font-size:11px">Median</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_24h.p95_seconds is not none %}{{ _kpi.window_24h.p95_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--r-text-muted);font-size:11px">p95</div></div>
+        <div><div style="font-size:18px;font-weight:700;color:{% if _kpi.window_24h.under_90_pct is not none and _kpi.window_24h.under_90_pct >= 60 %}#3fb950{% elif _kpi.window_24h.under_90_pct is not none and _kpi.window_24h.under_90_pct >= 30 %}#d29922{% elif _kpi.window_24h.under_90_pct is not none %}#f85149{% else %}var(--r-text-muted){% endif %}">
           {% if _kpi.window_24h.under_90_pct is not none %}{{ _kpi.window_24h.under_90_pct }}%{% else %}—{% endif %}
-        </div><div style="color:var(--tx2);font-size:11px">&lt;90s</div></div>
+        </div><div style="color:var(--r-text-muted);font-size:11px">&lt;90s</div></div>
       </div>
     </div>
     {# Last 7d column #}
-    <div style="padding:10px;border:1px solid var(--bd,#30363d);border-radius:6px">
-      <div style="font-size:11px;color:var(--tx2);margin-bottom:6px;letter-spacing:0.5px">LAST 7D</div>
+    <div style="padding:10px;border:1px solid var(--r-border,#30363d);border-radius:6px">
+      <div style="font-size:11px;color:var(--r-text-muted);margin-bottom:6px;letter-spacing:0.5px">LAST 7D</div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:13px">
-        <div><div style="font-size:18px;font-weight:700">{{ _kpi.window_7d.count|default(0) }}</div><div style="color:var(--tx2);font-size:11px">Sent</div></div>
-        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_7d.median_seconds is not none %}{{ _kpi.window_7d.median_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">Median</div></div>
-        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_7d.p95_seconds is not none %}{{ _kpi.window_7d.p95_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">p95</div></div>
-        <div><div style="font-size:18px;font-weight:700;color:{% if _kpi.window_7d.under_90_pct is not none and _kpi.window_7d.under_90_pct >= 60 %}#3fb950{% elif _kpi.window_7d.under_90_pct is not none and _kpi.window_7d.under_90_pct >= 30 %}#d29922{% elif _kpi.window_7d.under_90_pct is not none %}#f85149{% else %}var(--tx2){% endif %}">
+        <div><div style="font-size:18px;font-weight:700">{{ _kpi.window_7d.count|default(0) }}</div><div style="color:var(--r-text-muted);font-size:11px">Sent</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_7d.median_seconds is not none %}{{ _kpi.window_7d.median_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--r-text-muted);font-size:11px">Median</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_7d.p95_seconds is not none %}{{ _kpi.window_7d.p95_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--r-text-muted);font-size:11px">p95</div></div>
+        <div><div style="font-size:18px;font-weight:700;color:{% if _kpi.window_7d.under_90_pct is not none and _kpi.window_7d.under_90_pct >= 60 %}#3fb950{% elif _kpi.window_7d.under_90_pct is not none and _kpi.window_7d.under_90_pct >= 30 %}#d29922{% elif _kpi.window_7d.under_90_pct is not none %}#f85149{% else %}var(--r-text-muted){% endif %}">
           {% if _kpi.window_7d.under_90_pct is not none %}{{ _kpi.window_7d.under_90_pct }}%{% else %}—{% endif %}
-        </div><div style="color:var(--tx2);font-size:11px">&lt;90s</div></div>
+        </div><div style="color:var(--r-text-muted);font-size:11px">&lt;90s</div></div>
       </div>
     </div>
   </div>
-  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:13px;color:var(--r-text-muted,#8b949e)">
     {% if _kpi.status == 'unknown' %}
       No <code>operator_quote_sent</code> rows in the last 7 days. Once the operator
       ships a quote (PC or RFQ Mark Sent), this card lights up.
@@ -277,7 +277,7 @@
     {{ stat(_ep.emails_found_7d|default(0),
             'RFQs in last 7d', '#58a6ff') }}
   </div>
-  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:13px;color:var(--r-text-muted,#8b949e)">
     {% if _ep.status == 'error' %}
       <strong style="color:#f85149">⚠ Last poll failed:</strong>
       <code style="font-size:12px">{{ _ep.error|default('') }}</code>
@@ -330,7 +330,7 @@
              else '#58a6ff' if (_gs.pending_drafts|default(0)) > 0
              else '#8b949e') }}
   </div>
-  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:13px;color:var(--r-text-muted,#8b949e)">
     {% if _gs.status == 'error' %}
       <strong style="color:#f85149">⚠ {{ _gs.failed_24h }} send failure(s) in last 24h.</strong>
       {% if _gs.last_error %}
@@ -1221,14 +1221,14 @@
   <div class="card-t">Last 5 quotes — cost_source mix</div>
   <div style="margin-top:12px">
     {% if not _rq.quotes %}
-      <div style="color:var(--tx2,#8b949e);font-size:13px;padding:10px 0">
+      <div style="color:var(--r-text-muted,#8b949e);font-size:13px;padding:10px 0">
         No quotes sent yet. Once <code>operator_quote_sent</code> records its first
         Mark Sent, the chips appear here.
       </div>
     {% else %}
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
-          <tr style="color:var(--tx2,#8b949e);text-align:left;border-bottom:1px solid var(--bd,#30363d)">
+          <tr style="color:var(--r-text-muted,#8b949e);text-align:left;border-bottom:1px solid var(--r-border,#30363d)">
             <th style="padding:6px 8px">Quote</th>
             <th style="padding:6px 8px">Sent</th>
             <th style="padding:6px 8px;text-align:right">Items</th>
@@ -1237,14 +1237,14 @@
         </thead>
         <tbody>
           {% for q in _rq.quotes %}
-          <tr style="border-bottom:1px solid var(--bd,#30363d)">
+          <tr style="border-bottom:1px solid var(--r-border,#30363d)">
             <td style="padding:8px">
               <code style="font-size:12px">{{ q.quote_id[:12] }}{% if q.quote_id|length > 12 %}…{% endif %}</code>
-              <span style="color:var(--tx2,#8b949e);font-size:11px">
+              <span style="color:var(--r-text-muted,#8b949e);font-size:11px">
                 {{ q.quote_type|upper }}{% if q.agency_key %} · {{ q.agency_key }}{% endif %}
               </span>
             </td>
-            <td style="padding:8px;color:var(--tx2,#8b949e)">{{ q.lag_human }}</td>
+            <td style="padding:8px;color:var(--r-text-muted,#8b949e)">{{ q.lag_human }}</td>
             <td style="padding:8px;text-align:right">{{ q.item_count }}</td>
             <td style="padding:8px">
               {% if q.missing_source %}
@@ -1262,8 +1262,8 @@
           {% endfor %}
         </tbody>
       </table>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:12px;color:var(--tx2,#8b949e)">
-        <strong style="color:var(--tx,#e6edf3)">Totals:</strong>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:12px;color:var(--r-text-muted,#8b949e)">
+        <strong style="color:var(--r-text,#e6edf3)">Totals:</strong>
         {{ _rq.totals.operator|default(0) }} operator ·
         {{ _rq.totals.catalog|default(0) }} catalog ·
         {{ _rq.totals.amazon|default(0) }} amazon ·
@@ -1298,7 +1298,7 @@
   {% if _pl.recent_links %}
     <table style="width:100%;margin-top:12px;font-size:13px;border-collapse:collapse">
       <thead>
-        <tr style="color:var(--tx2,#8b949e);text-align:left">
+        <tr style="color:var(--r-text-muted,#8b949e);text-align:left">
           <th style="padding:6px 0">When</th>
           <th style="padding:6px 0">RFQ</th>
           <th style="padding:6px 0">What</th>
@@ -1306,8 +1306,8 @@
       </thead>
       <tbody>
         {% for row in _pl.recent_links %}
-          <tr style="border-top:1px solid var(--bd,#30363d)">
-            <td style="padding:6px 0;color:var(--tx2,#8b949e);white-space:nowrap;font-family:monospace;font-size:12px">{{ row.timestamp[:19] }}</td>
+          <tr style="border-top:1px solid var(--r-border,#30363d)">
+            <td style="padding:6px 0;color:var(--r-text-muted,#8b949e);white-space:nowrap;font-family:monospace;font-size:12px">{{ row.timestamp[:19] }}</td>
             <td style="padding:6px 0;font-family:monospace">{{ row.ref_id }}</td>
             <td style="padding:6px 0">{{ row.description }}</td>
           </tr>
@@ -1315,7 +1315,7 @@
       </tbody>
     </table>
   {% else %}
-    <div style="margin-top:12px;color:var(--tx2,#8b949e);font-size:13px">
+    <div style="margin-top:12px;color:var(--r-text-muted,#8b949e);font-size:13px">
       No PC→RFQ links recorded yet. Operators confirm links from the
       CCHCS PC panel on the RFQ detail page; each confirm writes a
       <code>pc_rfq_linked</code> event. JSON mirror at
@@ -1330,7 +1330,7 @@
   {% if top_errors %}
     <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
       <thead>
-        <tr style="color:var(--tx2,#8b949e);text-align:left">
+        <tr style="color:var(--r-text-muted,#8b949e);text-align:left">
           <th style="padding:6px 0">Feature</th>
           <th style="padding:6px 0;text-align:right">Uses</th>
           <th style="padding:6px 0;text-align:right">Errors</th>
@@ -1340,12 +1340,12 @@
       </thead>
       <tbody>
         {% for row in top_errors %}
-          <tr style="border-top:1px solid var(--bd,#30363d)">
+          <tr style="border-top:1px solid var(--r-border,#30363d)">
             <td style="padding:6px 0;font-family:monospace">{{ row.feature }}</td>
             <td style="padding:6px 0;text-align:right">{{ row.uses }}</td>
             <td style="padding:6px 0;text-align:right;color:#f85149;font-weight:700">{{ row.errors }}</td>
             <td style="padding:6px 0;text-align:right">{{ row.error_rate }}%</td>
-            <td style="padding:6px 0;text-align:right;color:var(--tx2,#8b949e)">{{ row.avg_ms }}</td>
+            <td style="padding:6px 0;text-align:right;color:var(--r-text-muted,#8b949e)">{{ row.avg_ms }}</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -1361,7 +1361,7 @@
   {% if recent_crashes %}
     <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
       <thead>
-        <tr style="color:var(--tx2,#8b949e);text-align:left">
+        <tr style="color:var(--r-text-muted,#8b949e);text-align:left">
           <th style="padding:6px 0">When</th>
           <th style="padding:6px 0">Error type</th>
           <th style="padding:6px 0">Sender</th>
@@ -1371,8 +1371,8 @@
       </thead>
       <tbody>
         {% for row in recent_crashes %}
-          <tr style="border-top:1px solid var(--bd,#30363d)">
-            <td style="padding:6px 0;color:var(--tx2,#8b949e);white-space:nowrap">{{ row.created_at[:19] }}</td>
+          <tr style="border-top:1px solid var(--r-border,#30363d)">
+            <td style="padding:6px 0;color:var(--r-text-muted,#8b949e);white-space:nowrap">{{ row.created_at[:19] }}</td>
             <td style="padding:6px 0;font-family:monospace">{{ row.error_type }}</td>
             <td style="padding:6px 0;font-size:12px">{{ row.sender }}</td>
             <td style="padding:6px 0;text-align:right">{{ row.file_count }}</td>
@@ -1386,7 +1386,7 @@
   {% endif %}
 </div>
 
-<div style="font-size:12px;color:var(--tx2,#8b949e);margin-top:20px">
+<div style="font-size:12px;color:var(--r-text-muted,#8b949e);margin-top:20px">
   All data is read-only. JSON mirror at
   <a href="/api/health/quoting?days={{days}}" style="color:#58a6ff">/api/health/quoting?days={{days}}</a>
 </div>

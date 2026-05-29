@@ -29,10 +29,10 @@
 
 <!-- ═══ Bar 1: Search + Quick Nav — PRIMARY ═══ -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
- <form method="get" action="/search" style="display:flex;gap:0;flex:1;min-width:360px;background:var(--sf);border:2px solid var(--bd);border-radius:12px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
-  <span style="padding:0 16px;font-size:20px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
-  <input name="q" placeholder="Search quotes, agencies, PO numbers, items, contacts..." style="flex:1;padding:16px 4px 16px 0;background:transparent;border:none;color:var(--tx);font-size:16px;outline:none" autocomplete="off">
-  <button type="submit" style="padding:16px 26px;background:var(--ac);border:none;color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px" onmouseover="this.style.background='var(--ac2)'" onmouseout="this.style.background='var(--ac)'">Search</button>
+ <form method="get" action="/search" style="display:flex;gap:0;flex:1;min-width:360px;background:var(--r-surface);border:2px solid var(--r-border);border-radius:12px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--r-accent)'" onfocusout="this.style.borderColor='var(--r-border)'">
+  <span style="padding:0 16px;font-size:20px;display:flex;align-items:center;color:var(--r-text-muted)">🔍</span>
+  <input name="q" placeholder="Search quotes, agencies, PO numbers, items, contacts..." style="flex:1;padding:16px 4px 16px 0;background:transparent;border:none;color:var(--r-text);font-size:16px;outline:none" autocomplete="off">
+  <button type="submit" style="padding:16px 26px;background:var(--r-accent);border:none;color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px" onmouseover="this.style.background='var(--r-accent)'" onmouseout="this.style.background='var(--r-accent)'">Search</button>
  </form>
  <a href="/quotes" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📋 Quotes DB</a>
  <a href="/contacts" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;border-color:rgba(167,139,250,.4);color:#a78bfa" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='rgba(167,139,250,.4)'">👥 CRM</a>
@@ -100,10 +100,10 @@ function renderExpiring(){
   }
   if (!rows.length) { el.style.display = 'none'; return; }
   el.style.display = 'block';
-  var head = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:var(--tx2)">'
+  var head = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:var(--r-text-muted)">'
     + '<span><b>' + rows.length + '</b> expiring quote' + (rows.length===1?'':'s') + '</span>'
     + '<span>·</span>'
-    + '<label>Sort: <select id="expiry-sort" onchange="renderExpiring()" style="font-size:12px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:4px;padding:1px 4px">'
+    + '<label>Sort: <select id="expiry-sort" onchange="renderExpiring()" style="font-size:12px;background:var(--r-surface-2);border:1px solid var(--r-border);color:var(--r-text);border-radius:4px;padding:1px 4px">'
     + '<option value="value"' + (sortBy==='value'?' selected':'') + '>$ desc</option>'
     + '<option value="days"' + (sortBy==='days'?' selected':'') + '>Days asc</option>'
     + '</select></label>'
@@ -113,10 +113,10 @@ function renderExpiring(){
     var c = sev ? 'rgba(248,113,113,.12)' : 'rgba(210,153,34,.08)';
     var b = sev ? 'rgba(248,113,113,.3)' : 'rgba(210,153,34,.25)';
     var t = sev ? '#f87171' : '#d29922';
-    var dollarBit = q.total ? ' <span style="color:var(--tx2)">· $' + Math.round(q.total).toLocaleString() + '</span>' : '';
+    var dollarBit = q.total ? ' <span style="color:var(--r-text-muted)">· $' + Math.round(q.total).toLocaleString() + '</span>' : '';
     return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;border:1px solid ' + b + ';background:' + c + ';font-size:13px;margin-bottom:6px">'
       + '<span>' + (sev?'🔴':'🟡') + ' <span style="color:' + t + '"><b>' + q.quote_number + '</b> (' + (q.agency||'?') + ') expires in <b>' + q.days_remaining + '</b> day(s)</span>' + dollarBit + '</span>'
-      + '<button type="button" onclick="dismissExpiring(\'' + q.quote_number.replace(/\\/g,'\\\\').replace(/\'/g,"\\'") + '\')" style="margin-left:auto;background:none;border:none;color:var(--tx2);cursor:pointer;font-size:14px;padding:0 4px" title="Snooze 24h" aria-label="Snooze this expiring quote for 24 hours">✕</button>'
+      + '<button type="button" onclick="dismissExpiring(\'' + q.quote_number.replace(/\\/g,'\\\\').replace(/\'/g,"\\'") + '\')" style="margin-left:auto;background:none;border:none;color:var(--r-text-muted);cursor:pointer;font-size:14px;padding:0 4px" title="Snooze 24h" aria-label="Snooze this expiring quote for 24 hours">✕</button>'
       + '</div>';
   }).join('');
   el.innerHTML = head + body;
@@ -138,9 +138,9 @@ setTimeout(function(){
   <span style="font-size:28px">🏆</span>
   <div style="flex:1">
    <div style="font-size:16px;font-weight:700;color:#3fb950" id="po-banner-title">PO Award Requires Review</div>
-   <div style="font-size:14px;color:var(--tx2)" id="po-banner-detail">Click to review and approve before creating order</div>
+   <div style="font-size:14px;color:var(--r-text-muted)" id="po-banner-detail">Click to review and approve before creating order</div>
   </div>
-  <span style="font-size:14px;color:var(--ac)">Review →</span>
+  <span style="font-size:14px;color:var(--r-accent)">Review →</span>
  </div>
 </div>
 
@@ -242,29 +242,29 @@ fetch('/api/awards/pending',{credentials:'same-origin'}).then(r=>r.json()).then(
 
 
 <!-- ═══ Agent Status Card — Layer 2 ═══ -->
-<div id="agent-status" style="background:var(--crd);border:1px solid var(--bd);border-radius:10px;padding:14px 18px;margin-bottom:14px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
- <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Agents</div>
+<div id="agent-status" style="background:var(--crd);border:1px solid var(--r-border);border-radius:10px;padding:14px 18px;margin-bottom:14px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+ <div style="font-size:13px;font-weight:700;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px">Agents</div>
  <div id="as-poller" style="display:flex;align-items:center;gap:6px;font-size:14px">
   <span id="as-poller-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
-  <span style="color:var(--tx2)">Email Poller:</span>
-  <span id="as-poller-txt" style="color:var(--tx)">loading...</span>
+  <span style="color:var(--r-text-muted)">Email Poller:</span>
+  <span id="as-poller-txt" style="color:var(--r-text)">loading...</span>
  </div>
  <div style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 0">
   <span id="as-mike-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
-  <span style="color:var(--tx2)">mike@ Inbox:</span>
-  <span id="as-mike-txt" style="color:var(--tx)">loading...</span>
+  <span style="color:var(--r-text-muted)">mike@ Inbox:</span>
+  <span id="as-mike-txt" style="color:var(--r-text)">loading...</span>
  </div>
  <div id="as-award" style="display:flex;align-items:center;gap:6px;font-size:14px">
   <span id="as-award-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
-  <span style="color:var(--tx2)">Award Tracker:</span>
-  <span id="as-award-txt" style="color:var(--tx)">loading...</span>
+  <span style="color:var(--r-text-muted)">Award Tracker:</span>
+  <span id="as-award-txt" style="color:var(--r-text)">loading...</span>
  </div>
  <a href="/quoting/status" id="as-quoting" style="display:flex;align-items:center;gap:6px;font-size:14px;text-decoration:none;color:inherit" title="Click to open live quoting status audit">
   <span id="as-quoting-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
-  <span style="color:var(--tx2)">Quoting:</span>
-  <span id="as-quoting-txt" style="color:var(--tx)">loading...</span>
+  <span style="color:var(--r-text-muted)">Quoting:</span>
+  <span id="as-quoting-txt" style="color:var(--r-text)">loading...</span>
  </a>
- <button onclick="_runAwardTracker(this)" style="margin-left:auto;padding:5px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px;cursor:pointer" title="Run award tracker now">Run Now</button>
+ <button onclick="_runAwardTracker(this)" style="margin-left:auto;padding:5px 12px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:13px;cursor:pointer" title="Run award tracker now">Run Now</button>
  <button onclick="_recoverMissedEmails(this)" style="padding:5px 12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);border-radius:6px;color:#d29922;font-size:13px;cursor:pointer;margin-left:6px" title="Scan last 7 days for emails that were missed or stuck in processing">🔄 Recover Missed</button>
 </div>
 <script>
@@ -397,7 +397,7 @@ function _runAwardTracker(btn){
    <div class="kpi-cell-l">Losses (30d)</div>
   </div>
  </div>
- <div id="scprs-freshness" style="font-size:13px;color:var(--tx2);margin-top:10px"></div>
+ <div id="scprs-freshness" style="font-size:13px;color:var(--r-text-muted);margin-top:10px"></div>
 </div>
 
 <!-- ═══ Urgent (Mike P0 2026-05-06: Home = Urgent ONLY) ═══
@@ -410,7 +410,7 @@ function _runAwardTracker(btn){
 <div id="action-dash">
  <div id="ad-urgent" class="card-tight tone-urgent">
   <div class="card-h"><h3>🔴 Urgent</h3></div>
-  <div id="ad-urgent-items" style="font-size:14px;color:var(--tx2);min-height:60px"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
+  <div id="ad-urgent-items" style="font-size:14px;color:var(--r-text-muted);min-height:60px"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 </div>
 <script>
@@ -423,9 +423,9 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   // ── Actions widget ──
   if(d.actions && d.actions.ok){
     function renderItems(items,el){
-      if(!items||!items.length){el.innerHTML='<span style="color:var(--tx2)">✅ All clear</span>';return;}
+      if(!items||!items.length){el.innerHTML='<span style="color:var(--r-text-muted)">✅ All clear</span>';return;}
       el.innerHTML=items.map(i=>
-        '<a href="'+(i.link||'#')+'" style="display:block;padding:4px 0;color:var(--tx);text-decoration:none;border-bottom:1px solid var(--bd);font-size:14px" onmouseover="this.style.color=\'var(--ac)\'" onmouseout="this.style.color=\'var(--tx)\'">'
+        '<a href="'+(i.link||'#')+'" style="display:block;padding:4px 0;color:var(--r-text);text-decoration:none;border-bottom:1px solid var(--r-border);font-size:14px" onmouseover="this.style.color=\'var(--r-accent)\'" onmouseout="this.style.color=\'var(--r-text)\'">'
         +i.icon+' '+i.label+'</a>'
       ).join('');
     }
@@ -441,13 +441,13 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
     if (hasItems) {
       renderItems(d.actions.urgent, itemsBody);
     } else if (itemsBody) {
-      itemsBody.innerHTML = '<span style="color:var(--tx2);font-size:13px">No urgent items right now.</span>';
+      itemsBody.innerHTML = '<span style="color:var(--r-text-muted);font-size:13px">No urgent items right now.</span>';
     }
     if (urgentCard) {
       var h3 = urgentCard.querySelector('.card-h h3');
       if (h3) h3.textContent = hasItems ? '🔴 Urgent' : '✓ All clear';
       urgentCard.classList.toggle('tone-urgent', hasItems);
-      if (h3) h3.style.color = hasItems ? '' : 'var(--gn)';
+      if (h3) h3.style.color = hasItems ? '' : 'var(--r-accent)';
       urgentCard.style.borderColor = hasItems ? '' : 'rgba(52,211,153,.3)';
     }
     // ad-action-items / ad-progress-items deleted from DOM 2026-05-06 (Home = Urgent only)
@@ -512,7 +512,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 <!-- ═══ Action Bar ═══ -->
 <div class="actionbar">
  <div class="actionbar-primary">
-  <button onclick="document.getElementById('new-rfq-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer">+ New RFQ</button>
+  <button onclick="document.getElementById('new-rfq-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:var(--r-accent);color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer">+ New RFQ</button>
   <button onclick="document.getElementById('new-pc-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:8px;font-weight:600;cursor:pointer">+ New PC</button>
   <button onclick="openMultiPcUpload()" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer">📑 Multi-PC Upload</button>
  </div>
@@ -564,14 +564,14 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 <div id="cap-inactive-banner" data-testid="cap-inactive-banner"
      style="margin-bottom:14px;border-radius:8px;padding:10px 16px;
             background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.4);
-            color:var(--yl);font-size:13px;display:flex;align-items:center;gap:10px">
+            color:var(--r-warn);font-size:13px;display:flex;align-items:center;gap:10px">
  <span style="font-size:18px">⚠️</span>
  <div style="flex:1">
   <strong>SCPRS rollup cap is INACTIVE</strong>
   <span style="color:var(--mu);margin-left:6px">({{ cap_state.get('reason', 'unknown') }})</span>
   <div style="margin-top:2px;color:var(--mu);font-size:12px">{{ cap_state.get('message', '') }}</div>
  </div>
- <a href="/admin/qa/heartbeat" style="font-size:11px;color:var(--ac);text-decoration:none;
+ <a href="/admin/qa/heartbeat" style="font-size:11px;color:var(--r-accent);text-decoration:none;
                                        background:rgba(79,140,255,.12);padding:4px 10px;
                                        border-radius:6px;border:1px solid rgba(79,140,255,.3)">
   Diagnose →
@@ -591,7 +591,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  <div style="overflow-x:auto">
  <table style="width:100%;border-collapse:collapse;font-size:13px">
   <thead>
-   <tr style="background:rgba(79,140,255,.06);border-bottom:1px solid var(--bd)">
+   <tr style="background:rgba(79,140,255,.06);border-bottom:1px solid var(--r-border)">
     <th style="text-align:left;padding:6px 10px;font-weight:600">PC</th>
     <th style="text-align:left;padding:6px 10px;font-weight:600">Agency</th>
     <th style="text-align:right;padding:6px 10px;font-weight:600">Value</th>
@@ -605,17 +605,17 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
    {% for tp in top_priority_pcs %}
    <tr data-testid="top-priority-row" data-pc-id="{{ tp.pc_id }}"
        style="border-bottom:1px solid rgba(255,255,255,.04)">
-    <td style="padding:8px 10px"><a href="/pricecheck/{{ tp.pc_id }}" style="color:var(--ac);text-decoration:none">{{ tp.pc_number }}</a></td>
+    <td style="padding:8px 10px"><a href="/pricecheck/{{ tp.pc_id }}" style="color:var(--r-accent);text-decoration:none">{{ tp.pc_number }}</a></td>
     <td style="padding:8px 10px">{{ tp.agency or '—' }}</td>
     <td style="padding:8px 10px;text-align:right">${{ '{:,.0f}'.format(tp.total_value or 0) }}</td>
     <td style="padding:8px 10px;text-align:center">{{ tp.items_priced }}/{{ tp.items_total }}</td>
     <td style="padding:8px 10px;text-align:center">
      {% if tp.deadline_hours is not none and tp.deadline_hours < 0 %}
-      <span style="color:var(--rd);font-weight:600">OVERDUE</span>
+      <span style="color:var(--r-bad);font-weight:600">OVERDUE</span>
      {% elif tp.deadline_hours is not none and tp.deadline_hours <= 24 %}
-      <span style="color:var(--rd);font-weight:600">{{ tp.deadline_hours|round(0) }}h</span>
+      <span style="color:var(--r-bad);font-weight:600">{{ tp.deadline_hours|round(0) }}h</span>
      {% elif tp.deadline_hours is not none and tp.deadline_hours <= 72 %}
-      <span style="color:var(--yl)">{{ tp.deadline_hours|round(0) }}h</span>
+      <span style="color:var(--r-warn)">{{ tp.deadline_hours|round(0) }}h</span>
      {% elif tp.deadline_hours is not none %}
       <span style="color:var(--mu)">{{ tp.deadline_hours|round(0) }}h</span>
      {% else %}
@@ -644,19 +644,19 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 <style>
 /* Skeleton loader animation */
 @keyframes skeleton-pulse{0%{opacity:.6}50%{opacity:.3}100%{opacity:.6}}
-.skeleton{background:var(--bd);border-radius:4px;animation:skeleton-pulse 1.5s ease-in-out infinite}
+.skeleton{background:var(--r-border);border-radius:4px;animation:skeleton-pulse 1.5s ease-in-out infinite}
 .skeleton-line{height:14px;margin:8px 0;border-radius:4px}
 .skeleton-row{display:flex;gap:12px;margin:8px 0}
 .skeleton-row .skeleton{height:16px;border-radius:4px}
 /* Global dismiss popup — rendered on body, outside table */
 #global-dismiss-popup {
-  display:none;position:fixed;background:var(--sf2);border:1px solid var(--bd);
+  display:none;position:fixed;background:var(--r-surface-2);border:1px solid var(--r-border);
   border-radius:8px;padding:6px 0;min-width:200px;z-index:99999;
   box-shadow:0 8px 24px rgba(0,0,0,.4);
 }
 #global-dismiss-popup button {
   display:block;width:100%;text-align:left;padding:8px 14px;font-size:13px;
-  background:none;border:none;color:var(--tx);cursor:pointer;white-space:nowrap;
+  background:none;border:none;color:var(--r-text);cursor:pointer;white-space:nowrap;
 }
 #global-dismiss-popup button:hover { background:rgba(79,140,255,.15); }
 /* Bug 4 (2026-05-02): right-click context menu for queue rows.
@@ -665,41 +665,41 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
    as the dismiss menu so right-click and dismiss-X feel like one
    coherent action surface. */
 #global-queue-ctx-menu {
-  display:none;position:fixed;background:var(--sf2);border:1px solid var(--bd);
+  display:none;position:fixed;background:var(--r-surface-2);border:1px solid var(--r-border);
   border-radius:8px;padding:6px 0;min-width:200px;z-index:99999;
   box-shadow:0 8px 24px rgba(0,0,0,.4);
 }
 #global-queue-ctx-menu button,
 #global-queue-ctx-menu a {
   display:block;width:100%;text-align:left;padding:8px 14px;font-size:13px;
-  background:none;border:none;color:var(--tx);cursor:pointer;white-space:nowrap;
+  background:none;border:none;color:var(--r-text);cursor:pointer;white-space:nowrap;
   text-decoration:none;
 }
 #global-queue-ctx-menu button:hover,
 #global-queue-ctx-menu a:hover { background:rgba(79,140,255,.15); }
 #global-queue-ctx-menu button[disabled] {
-  color:var(--tx2);opacity:.5;cursor:not-allowed;
+  color:var(--r-text-muted);opacity:.5;cursor:not-allowed;
 }
 #global-queue-ctx-menu button[disabled]:hover { background:none; }
 </style>
 <!-- Global dismiss popup (lives outside tables) -->
 <div id="global-dismiss-popup">
- <div style="padding:6px 14px;font-size:14px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
+ <div style="padding:6px 14px;font-size:14px;color:var(--r-text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
  <button onclick="doDismiss('cs_question')" aria-label="CS / Admin Question">CS / Admin Question</button>
  <button onclick="doDismiss('no_response')" aria-label="Reytech Did Not Respond">Reytech Did Not Respond</button>
  <button onclick="doDismiss('not_responding')" aria-label="Customer Not Responding">Customer Not Responding</button>
  <button onclick="doDismiss('duplicate')" aria-label="Duplicate">Duplicate</button>
  <button onclick="doDismiss('other')" aria-label="Other">Other</button>
- <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+ <div style="border-top:1px solid var(--r-border);margin:4px 0"></div>
  <button onclick="doDismiss('delete')" style="color:#f85149" aria-label="Permanently Delete">🗑 Permanently Delete</button>
 </div>
 <!-- Right-click context menu for queue rows (Bug 4, 2026-05-02) -->
 <div id="global-queue-ctx-menu" data-testid="queue-row-context-menu">
- <div style="padding:6px 14px;font-size:11px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px" data-testid="queue-ctx-title">Quick Actions</div>
+ <div style="padding:6px 14px;font-size:11px;color:var(--r-text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px" data-testid="queue-ctx-title">Quick Actions</div>
  <button id="queue-ctx-mark-sent" data-testid="queue-ctx-mark-sent" onclick="_quickMarkSent()" aria-label="Mark Sent (manual)" title="Use when you emailed this outside the app">📨 Mark Sent</button>
  <a id="queue-ctx-open" data-testid="queue-ctx-open" href="#" target="_blank" rel="noopener" aria-label="Open in new tab">↗️ Open in new tab</a>
- <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
- <button onclick="document.getElementById('global-queue-ctx-menu').style.display='none'" style="color:var(--tx2)" aria-label="Cancel">Cancel</button>
+ <div style="border-top:1px solid var(--r-border);margin:4px 0"></div>
+ <button onclick="document.getElementById('global-queue-ctx-menu').style.display='none'" style="color:var(--r-text-muted)" aria-label="Cancel">Cancel</button>
 </div>
 <script>
 // Global dismiss state
@@ -981,18 +981,18 @@ function searchActive(qtype, query) {
 <!-- ═══ Stale Quotes Widget ═══ -->
 <div class="card" id="stale-widget" style="display:none;margin-bottom:12px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.04)">
  <div style="display:flex;justify-content:space-between;align-items:center">
-  <div class="card-t" style="margin:0;color:var(--yl)">📬 Awaiting Response <span id="stale-badge" style="font-family:'JetBrains Mono',monospace;font-weight:700"></span></div>
+  <div class="card-t" style="margin:0;color:var(--r-warn)">📬 Awaiting Response <span id="stale-badge" style="font-family:'JetBrains Mono',monospace;font-weight:700"></span></div>
   <a href="/follow-ups" class="btn btn-sm btn-s" style="font-size:14px">View All →</a>
  </div>
  <div id="stale-items" style="margin-top:8px;font-size:14px"></div>
 </div>
 
 <!-- ═══ Quick-Price Slide Panel ═══ -->
-<div id="qp-panel" style="display:none;position:fixed;right:0;top:0;bottom:0;width:520px;background:var(--bg);border-left:2px solid var(--ac);z-index:1000;overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.4)">
- <div style="padding:16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg);z-index:1">
+<div id="qp-panel" style="display:none;position:fixed;right:0;top:0;bottom:0;width:520px;background:var(--r-bg);border-left:2px solid var(--r-accent);z-index:1000;overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.4)">
+ <div style="padding:16px;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--r-bg);z-index:1">
   <div>
    <div style="font-size:16px;font-weight:700" id="qp-title">Quick Price</div>
-   <div style="font-size:14px;color:var(--tx2)" id="qp-subtitle"></div>
+   <div style="font-size:14px;color:var(--r-text-muted)" id="qp-subtitle"></div>
   </div>
   <div style="display:flex;gap:6px">
    <button class="btn btn-sm btn-p" onclick="saveQuickPrices()" aria-label="Save & Close">💾 Save & Close</button>
@@ -1075,7 +1075,7 @@ function _renderGrowth(g){
  el.style.display='block';
  var k=g.kpis||{};
  var kpis=[
-  {v:k.total_prospects||0,l:'Prospects',c:'var(--ac)'},
+  {v:k.total_prospects||0,l:'Prospects',c:'var(--r-accent)'},
   {v:k.emailed||0,l:'Emailed',c:'#4f8cff'},
   {v:k.responded||0,l:'Responded',c:'#3fb950'},
   {v:(k.response_rate||0)+'%',l:'Response Rate',c:k.response_rate>=20?'#3fb950':k.response_rate>=10?'#fbbf24':'#f85149'},
@@ -1096,7 +1096,7 @@ function _renderGrowth(g){
    return '<div class="dash-row dash-row-tight">'
     +'<span class="pct-badge">'+(w.win_prob||0).toFixed(0)+'%</span>'
     +'<span class="dash-row-grow" style="font-weight:600">'+(w.agency||'Unknown')+'</span>'
-    +'<span style="font-size:13px;color:var(--tx2)">'+(w.buyer_name||'')+'</span>'
+    +'<span style="font-size:13px;color:var(--r-text-muted)">'+(w.buyer_name||'')+'</span>'
     +'<a href="/growth-intel" class="dash-row-link">View</a></div>';
   }).join('');
  }
@@ -1106,61 +1106,61 @@ function _renderGrowth(g){
 <!-- Pipeline Funnel — stat strip (actual) -->
 <div class="card" style="margin-bottom:12px;padding:18px 24px">
  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
-  <span style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
-  <span style="flex:1;height:1px;background:var(--bd)"></span>
-  <span id="next-quote-badge" style="font-size:14px;color:var(--tx2)">—</span>
-  <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
-  <a href="/pipeline" style="font-size:14px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
+  <span style="font-size:14px;font-weight:700;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
+  <span style="flex:1;height:1px;background:var(--r-border)"></span>
+  <span id="next-quote-badge" style="font-size:14px;color:var(--r-text-muted)">—</span>
+  <span style="width:1px;height:14px;background:var(--r-border);margin:0 8px"></span>
+  <a href="/pipeline" style="font-size:14px;color:var(--r-accent);font-weight:600">View Full Pipeline →</a>
  </div>
  <div id="funnel-row" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">
-  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--tx2)">—</div><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
+  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--r-text-muted)">—</div><div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
  </div>
 </div>
 <script>
 function _renderFunnel(d){
  const items = [
-  {icon:'📥', val:d.inbox||0, label:'Inbox', href:'/#queues', color:'var(--ac)', fmt:'n', tip:'New PCs + RFQs awaiting pricing (704s from email)'},
-  {icon:'💰', val:d.priced||0, label:'Priced', href:'/pricechecks', color:'var(--yl)', fmt:'n', tip:'Items priced, ready for formal quote generation'},
+  {icon:'📥', val:d.inbox||0, label:'Inbox', href:'/#queues', color:'var(--r-accent)', fmt:'n', tip:'New PCs + RFQs awaiting pricing (704s from email)'},
+  {icon:'💰', val:d.priced||0, label:'Priced', href:'/pricechecks', color:'var(--r-warn)', fmt:'n', tip:'Items priced, ready for formal quote generation'},
   {icon:'📄', val:d.quoted||0, label:'Quoted', href:'/quotes?status=pending', color:'#a78bfa', fmt:'n', tip:'Formal quotes created, not yet sent to customer'},
-  {icon:'📤', val:d.sent||0, label:'Sent', href:'/quotes?status=sent', color:'var(--or)', fmt:'n', tip:'Quotes emailed to customer, awaiting PO response'},
-  {icon:'✅', val:d.won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n', tip:'Quotes accepted — customer issued a purchase order'},
-  {icon:'📦', val:d.orders||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n', tip:'Active purchase orders being sourced and fulfilled'},
-  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$', tip:'Total dollar value of quoted + sent quotes'},
+  {icon:'📤', val:d.sent||0, label:'Sent', href:'/quotes?status=sent', color:'var(--r-warn)', fmt:'n', tip:'Quotes emailed to customer, awaiting PO response'},
+  {icon:'✅', val:d.won||0, label:'Won', href:'/quotes?status=won', color:'var(--r-accent)', fmt:'n', tip:'Quotes accepted — customer issued a purchase order'},
+  {icon:'📦', val:d.orders||0, label:'Orders', href:'/orders', color:'var(--r-warn)', fmt:'n', tip:'Active purchase orders being sourced and fulfilled'},
+  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--r-accent)', fmt:'$', tip:'Total dollar value of quoted + sent quotes'},
  ];
  const cols = items.map((it,i)=>{
   const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
-  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">&rsaquo;</div>' : '';
+  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--r-border);font-size:20px;font-weight:300">&rsaquo;</div>' : '';
   return '<a href="'+it.href+'" class="funnel-link" title="'+it.tip+'" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
    '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
    '<div class="kpi-big" style="color:'+it.color+'">'+fmtVal+'</div>'+
-   '<div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
+   '<div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
    sep+'</a>';
  });
  document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
  document.getElementById('funnel-row').innerHTML = cols.join('');
- if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb){nb.innerHTML='';var b=document.createElement('b');b.className='kpi-small';b.style.color='var(--ac)';b.textContent=d.next_quote;nb.appendChild(document.createTextNode('🎯 Next: '));nb.appendChild(b);if(d.win_rate){nb.innerHTML+=' · Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>';};}}
+ if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb){nb.innerHTML='';var b=document.createElement('b');b.className='kpi-small';b.style.color='var(--r-accent)';b.textContent=d.next_quote;nb.appendChild(document.createTextNode('🎯 Next: '));nb.appendChild(b);if(d.win_rate){nb.innerHTML+=' · Win Rate: <b style="color:var(--r-accent)">'+d.win_rate+'%</b>';};}}
 }
 </script>
 
 <!-- Annual Revenue Goal -->
 <div id="rev-bi" class="card" style="margin-bottom:12px;padding:18px 24px;display:block">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-  <span style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
+  <span style="font-size:14px;font-weight:700;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
   <div style="display:flex;gap:20px;align-items:center" id="rev-meta">
-   <span style="font-size:14px;color:var(--tx2)">Gap: <b id="rev-gap" style="color:var(--rd);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
-   <span style="font-size:14px;color:var(--tx2)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--rd)">$0</b></span>
-   <span style="font-size:14px;color:var(--tx2)">Status: <b id="rev-track" style="color:var(--rd)">Behind</b></span>
+   <span style="font-size:14px;color:var(--r-text-muted)">Gap: <b id="rev-gap" style="color:var(--r-bad);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
+   <span style="font-size:14px;color:var(--r-text-muted)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--r-bad)">$0</b></span>
+   <span style="font-size:14px;color:var(--r-text-muted)">Status: <b id="rev-track" style="color:var(--r-bad)">Behind</b></span>
   </div>
  </div>
  <div style="display:flex;align-items:center;gap:16px">
-  <span id="rev-closed" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn);white-space:nowrap">$0</span>
+  <span id="rev-closed" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--r-accent);white-space:nowrap">$0</span>
   <div style="flex:1">
-   <div style="background:var(--sf2);border-radius:10px;height:28px;overflow:hidden;position:relative;border:1px solid var(--bd)">
-    <div id="rev-bar" style="height:100%;border-radius:10px;transition:width .8s ease;background:var(--rd);min-width:2px"></div>
+   <div style="background:var(--r-surface-2);border-radius:10px;height:28px;overflow:hidden;position:relative;border:1px solid var(--r-border)">
+    <div id="rev-bar" style="height:100%;border-radius:10px;transition:width .8s ease;background:var(--r-bad);min-width:2px"></div>
     <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)">$0 / $2M (0%)</span>
    </div>
   </div>
-  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">$2M Goal</span>
+  <span style="font-size:14px;color:var(--r-text-muted);white-space:nowrap">$2M Goal</span>
  </div>
 </div>
 <script>
@@ -1192,12 +1192,12 @@ function _renderRevenue(d){
    <div class="kpi-panel-title">Monthly Revenue Goal</div>
    <div class="tw-flex tw-items-center tw-gap-4" style="margin:12px 0 8px">
     {{ ui.progress_ring(value=0, max=100, size=72,
-                        color='var(--gn)', label='0%',
+                        color='var(--r-accent)', label='0%',
                         sublabel='of goal', id='goal-ring') }}
     <div class="tw-grow">
      <div style="display:flex;align-items:flex-end;gap:12px">
-      <span id="goal-current" class="kpi-big" style="color:var(--gn)">$0</span>
-      <span style="font-size:13px;color:var(--tx2)">of <span id="goal-target">$25,000</span></span>
+      <span id="goal-current" class="kpi-big" style="color:var(--r-accent)">$0</span>
+      <span style="font-size:13px;color:var(--r-text-muted)">of <span id="goal-target">$25,000</span></span>
      </div>
      <div class="progress-track" style="margin-top:8px"><div class="progress-fill" id="goal-bar" style="width:0%"></div></div>
      <div style="display:flex;justify-content:space-between;margin-top:6px">
@@ -1227,10 +1227,10 @@ function _renderRevenue(d){
 
 <!-- Manual Upload — collapsed fallback -->
 <details class="card" style="cursor:default">
- <summary style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px">
+ <summary style="font-size:14px;font-weight:600;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:1px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px">
   <span style="font-size:13px;transition:transform .2s" class="upload-arrow">▶</span>
   Manual Upload
-  <span style="font-weight:400;font-size:14px;color:var(--tx2);margin-left:auto">Use if email automation doesn't catch it</span>
+  <span style="font-weight:400;font-size:14px;color:var(--r-text-muted);margin-left:auto">Use if email automation doesn't catch it</span>
  </summary>
  <form method="POST" action="/upload" enctype="multipart/form-data" id="uf" style="margin-top:14px">
   <div class="upl" id="dz" onclick="document.getElementById('fi').click()" style="padding:24px;border-width:1px">
@@ -1246,10 +1246,10 @@ function _renderRevenue(d){
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
   <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px">
    ⚡ Recent Activity
-   <span id="feed-count" style="font-size:13px;padding:2px 8px;border-radius:10px;background:var(--sf2);color:var(--tx2)"></span>
+   <span id="feed-count" style="font-size:13px;padding:2px 8px;border-radius:10px;background:var(--r-surface-2);color:var(--r-text-muted)"></span>
   </div>
   <div style="display:flex;gap:6px;align-items:center">
-   <select id="feed-filter" onchange="renderFeed()" style="font-size:13px;padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
+   <select id="feed-filter" onchange="renderFeed()" style="font-size:13px;padding:4px 10px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text)">
     <option value="">All</option>
     <option value="crm">CRM</option>
     <option value="quotes">Quotes</option>
@@ -1258,11 +1258,11 @@ function _renderRevenue(d){
     <option value="errors">⚠️ Errors only</option>
     <option value="notifications">🔔 Notifications</option>
    </select>
-   <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer" aria-label="Refresh activity feed">🔄</button>
+   <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--r-accent);border-radius:6px;cursor:pointer" aria-label="Refresh activity feed">🔄</button>
   </div>
  </div>
  <div id="activity-feed" style="max-height:340px;overflow-y:auto">
-  <div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">Loading activity...</div>
+  <div style="text-align:center;padding:20px;color:var(--r-text-muted);font-size:14px">Loading activity...</div>
  </div>
 </div>
 
@@ -1270,8 +1270,8 @@ function _renderRevenue(d){
 // ── Upload drag/drop ──
 const dz=document.getElementById('dz'),fi=document.getElementById('fi'),uf=document.getElementById('uf');
 if(dz){
- ['dragover','dragenter'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--ac)'}));
- ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--bd)'}));
+ ['dragover','dragenter'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--r-accent)'}));
+ ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--r-border)'}));
  dz.addEventListener('drop',ev=>{fi.files=ev.dataTransfer.files;uf.submit()});
  fi.addEventListener('change',()=>{if(fi.files.length)uf.submit()});
 }
@@ -1378,8 +1378,8 @@ function _renderMetrics(data){
  var q={won:0, lost:0, pending:0, sent:0, win_rate:0};
  // Big KPI cards (simplified — using combined data)
  var cards=[
-  {label:'Total Revenue',value:'$'+(rev.total||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--gn)',sub:data.total_quotes+' total quotes'},
-  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--ac)',sub:'Active quotes'},
+  {label:'Total Revenue',value:'$'+(rev.total||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--r-accent)',sub:data.total_quotes+' total quotes'},
+  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--r-accent)',sub:'Active quotes'},
  ];
  document.getElementById('kpi-cards').innerHTML=cards.map(function(c){
   return '<div class="card kpi-card"><div class="kpi-card-label">'+c.label+'</div>'
@@ -1396,7 +1396,7 @@ function _renderMetrics(data){
  var bar=document.getElementById('goal-bar');
  var pct=Math.min(rev.goal_pct||0,100);
  bar.style.width=pct+'%';
- var goalColor=rev.goal_pct>=100?'var(--gn)':rev.goal_pct>=50?'var(--ac)':'var(--yl)';
+ var goalColor=rev.goal_pct>=100?'var(--r-accent)':rev.goal_pct>=50?'var(--r-accent)':'var(--r-warn)';
  bar.style.background=goalColor;
  // Sync the SVG progress ring next to the bar.
  var ringWrap=document.getElementById('goal-ring');
@@ -1415,18 +1415,18 @@ function _renderMetrics(data){
  // Funnel — clean business pipeline
  var fn=data.funnel||{};
  var funnelData=[
-  {label:'Price Checks',value:fn.pcs_total||0,color:'var(--ac)'},
-  {label:'Quoted',value:fn.quoted||0,color:'var(--yl)'},
-  {label:'Sent',value:fn.sent||0,color:'var(--or)'},
-  {label:'Won',value:fn.won||0,color:'var(--gn)'},
+  {label:'Price Checks',value:fn.pcs_total||0,color:'var(--r-accent)'},
+  {label:'Quoted',value:fn.quoted||0,color:'var(--r-warn)'},
+  {label:'Sent',value:fn.sent||0,color:'var(--r-warn)'},
+  {label:'Won',value:fn.won||0,color:'var(--r-accent)'},
   {label:'Orders',value:fn.orders_active||0,color:'#34d399'},
  ];
  var fMax=Math.max.apply(null,funnelData.map(function(f){return f.value}))||1;
  document.getElementById('funnel-bars').innerHTML=funnelData.map(function(f){
   var pct=Math.max(f.value/fMax*100,4);
   return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
-   +'<div style="width:80px;font-size:14px;color:var(--tx2);text-align:right">'+f.label+'</div>'
-   +'<div style="flex:1;height:20px;background:var(--sf2);border-radius:4px;overflow:hidden">'
+   +'<div style="width:80px;font-size:14px;color:var(--r-text-muted);text-align:right">'+f.label+'</div>'
+   +'<div style="flex:1;height:20px;background:var(--r-surface-2);border-radius:4px;overflow:hidden">'
    +'<div style="height:100%;width:'+pct+'%;background:'+f.color+';border-radius:4px;transition:width .6s"></div></div>'
    +'<div style="width:30px;font-size:14px;font-weight:600;font-family:JetBrains Mono,monospace">'+f.value+'</div></div>';
  }).join('');
@@ -1437,9 +1437,9 @@ function _renderMetrics(data){
  document.getElementById('weekly-chart').innerHTML=wv.map(function(w){
   var h=Math.max(w.quotes/wMax*80,4);
   return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
-   +'<div style="font-size:13px;font-family:JetBrains Mono,monospace;color:var(--tx2)">'+w.quotes+'</div>'
-   +'<div style="width:100%;height:'+h+'px;background:var(--ac);border-radius:4px 4px 0 0;transition:height .4s"></div>'
-   +'<div style="font-size:13px;color:var(--tx2)">'+w.label+'</div></div>';
+   +'<div style="font-size:13px;font-family:JetBrains Mono,monospace;color:var(--r-text-muted)">'+w.quotes+'</div>'
+   +'<div style="width:100%;height:'+h+'px;background:var(--r-accent);border-radius:4px 4px 0 0;transition:height .4s"></div>'
+   +'<div style="font-size:13px;color:var(--r-text-muted)">'+w.label+'</div></div>';
  }).join('');
 
  // Top institutions
@@ -1449,10 +1449,10 @@ function _renderMetrics(data){
   document.getElementById('top-inst').innerHTML=ti.map(function(t){
    var pct=Math.max(t.revenue/tiMax*100,4);
    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
-    +'<div style="min-width:120px;max-width:160px;font-size:14px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>'
-    +'<div style="flex:1;height:16px;background:var(--sf2);border-radius:4px;overflow:hidden">'
-    +'<div style="height:100%;width:'+pct+'%;background:var(--gn);border-radius:4px;transition:width .6s"></div></div>'
-    +'<div style="width:70px;font-size:14px;font-weight:600;font-family:JetBrains Mono,monospace;text-align:right;color:var(--gn)">$'+t.revenue.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+    +'<div style="min-width:120px;max-width:160px;font-size:14px;color:var(--r-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>'
+    +'<div style="flex:1;height:16px;background:var(--r-surface-2);border-radius:4px;overflow:hidden">'
+    +'<div style="height:100%;width:'+pct+'%;background:var(--r-accent);border-radius:4px;transition:width .6s"></div></div>'
+    +'<div style="width:70px;font-size:14px;font-weight:600;font-family:JetBrains Mono,monospace;text-align:right;color:var(--r-accent)">$'+t.revenue.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
   }).join('');
  } else {
   document.getElementById('top-inst').innerHTML='<div class="brief-empty">Win quotes to see top institutions here</div>';
@@ -1473,17 +1473,17 @@ setTimeout(function(){
   var html='';
   d.stale.slice(0,5).forEach(function(s){
    // SLA coloring per audit: 14d+ red, 7d+ orange, else yellow
-   var c=s.days_since>=14?'#f85149':s.days_since>=7?'#f0883e':'var(--yl)';
-   html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--bd)">';
-   html+='<a href="'+s.link+'" style="color:var(--tx);text-decoration:none;font-weight:600">#'+s.number+'</a>';
-   html+='<span style="color:var(--tx2)">'+s.institution+'</span>';
+   var c=s.days_since>=14?'#f85149':s.days_since>=7?'#f0883e':'var(--r-warn)';
+   html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--r-border)">';
+   html+='<a href="'+s.link+'" style="color:var(--r-text);text-decoration:none;font-weight:600">#'+s.number+'</a>';
+   html+='<span style="color:var(--r-text-muted)">'+s.institution+'</span>';
    html+='<span style="font-weight:700;color:'+c+';font-family:\x27JetBrains Mono\x27,monospace">'+s.days_since+'d</span>';
    if(s.email){
-    html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="event.stopPropagation();sendQuickFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
+    html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(79,140,255,.1);color:var(--r-accent);border:1px solid rgba(79,140,255,.3)" onclick="event.stopPropagation();sendQuickFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
    }
    html+='</div>';
   });
-  if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--tx2);font-size:14px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--ac)">view all</a></div>';
+  if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--r-text-muted);font-size:14px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--r-accent)">view all</a></div>';
   document.getElementById('stale-items').innerHTML=html;
  }).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
 },6000);
@@ -1501,7 +1501,7 @@ function openQP(entityType,eid,evt){
  _qpEntity=entityType;_qpId=eid;
  var panel=document.getElementById('qp-panel');
  panel.style.display='block';
- document.getElementById('qp-items').innerHTML='<div style="color:var(--tx2);padding:20px;text-align:center">Loading items...</div>';
+ document.getElementById('qp-items').innerHTML='<div style="color:var(--r-text-muted);padding:20px;text-align:center">Loading items...</div>';
  fetch('/api/quick-price/'+entityType+'/'+eid,{credentials:'same-origin'})
  .then(function(r){return r.json();})
  .then(function(d){
@@ -1511,9 +1511,9 @@ function openQP(entityType,eid,evt){
   var html='';
   d.items.forEach(function(item){
    var rec=item.recommended;
-   html+='<div style="padding:10px;margin-bottom:8px;border:1px solid var(--bd);border-radius:8px;background:var(--sf)">';
+   html+='<div style="padding:10px;margin-bottom:8px;border:1px solid var(--r-border);border-radius:8px;background:var(--r-surface)">';
    html+='<div style="font-weight:600;font-size:14px;margin-bottom:4px">'+item.description+'</div>';
-   html+='<div style="display:flex;gap:12px;font-size:14px;color:var(--tx2);margin-bottom:6px">';
+   html+='<div style="display:flex;gap:12px;font-size:14px;color:var(--r-text-muted);margin-bottom:6px">';
    html+='<span>Qty: <b>'+item.qty+'</b></span>';
    if(item.scprs)html+='<span>SCPRS: <b style="color:#58a6ff">$'+item.scprs.toFixed(2)+'</b></span>';
    if(item.amazon)html+='<span>Amazon: <b style="color:#f0883e">$'+item.amazon.toFixed(2)+'</b></span>';
@@ -1521,15 +1521,15 @@ function openQP(entityType,eid,evt){
    html+='</div>';
    // Won history
    if(item.won_history&&item.won_history.length){
-    html+='<div style="font-size:13px;color:var(--gn);margin-bottom:4px">🏆 Won: ';
+    html+='<div style="font-size:13px;color:var(--r-accent);margin-bottom:4px">🏆 Won: ';
     item.won_history.slice(0,2).forEach(function(w){html+='$'+w.price.toFixed(2)+' ('+w.institution.substring(0,15)+') ';});
     html+='</div>';
    }
    // Price input
    html+='<div style="display:flex;gap:6px;align-items:center">';
    html+='<span style="font-size:14px;font-weight:600">Your Price:</span>';
-   html+='<input type="number" step="0.01" class="qp-price" data-idx="'+item.idx+'" value="'+(item.current_price||rec&&rec.price||'')+'" style="width:100px;padding:6px 8px;border-radius:6px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-family:\x27JetBrains Mono\x27,monospace;font-size:13px">';
-   if(rec){html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(52,211,153,.1);color:var(--gn);border:1px solid rgba(52,211,153,.3)" onclick="this.previousElementSibling.value='+rec.price+'" title="'+rec.reason+'">⚡ $'+rec.price.toFixed(2)+'</button>';}
+   html+='<input type="number" step="0.01" class="qp-price" data-idx="'+item.idx+'" value="'+(item.current_price||rec&&rec.price||'')+'" style="width:100px;padding:6px 8px;border-radius:6px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);font-family:\x27JetBrains Mono\x27,monospace;font-size:13px">';
+   if(rec){html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(52,211,153,.1);color:var(--r-accent);border:1px solid rgba(52,211,153,.3)" onclick="this.previousElementSibling.value='+rec.price+'" title="'+rec.reason+'">⚡ $'+rec.price.toFixed(2)+'</button>';}
    html+='</div></div>';
   });
   document.getElementById('qp-items').innerHTML=html;
@@ -1562,7 +1562,7 @@ function loadFeed(){
   document.getElementById('feed-count').textContent=_feedData.length+' events';
   renderFeed();
  }).catch(function(){
-  document.getElementById('activity-feed').innerHTML='<div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Unable to load feed</div>';
+  document.getElementById('activity-feed').innerHTML='<div style="text-align:center;padding:16px;color:var(--r-text-muted);font-size:14px">Unable to load feed</div>';
  });
 }
 function renderFeed(){
@@ -1586,19 +1586,19 @@ function renderFeed(){
  }
  var el=document.getElementById('activity-feed');
  if(!items.length){
-  el.innerHTML='<div style="text-align:center;padding:24px;color:var(--tx2)">No recent activity</div>';
+  el.innerHTML='<div style="text-align:center;padding:24px;color:var(--r-text-muted)">No recent activity</div>';
   return;
  }
  el.innerHTML=items.slice(0,25).map(function(e){
   var ago=timeAgo(e.ts);
-  var sc={'crm':'rgba(79,140,255,.12)','quotes':'rgba(167,139,250,.12)','orders':'rgba(52,211,153,.12)','growth':'rgba(251,191,36,.12)'}[e.source]||'var(--sf2)';
-  var bc={'crm':'rgba(79,140,255,.3)','quotes':'rgba(167,139,250,.3)','orders':'rgba(52,211,153,.3)','growth':'rgba(251,191,36,.3)'}[e.source]||'var(--bd)';
+  var sc={'crm':'rgba(79,140,255,.12)','quotes':'rgba(167,139,250,.12)','orders':'rgba(52,211,153,.12)','growth':'rgba(251,191,36,.12)'}[e.source]||'var(--r-surface-2)';
+  var bc={'crm':'rgba(79,140,255,.3)','quotes':'rgba(167,139,250,.3)','orders':'rgba(52,211,153,.3)','growth':'rgba(251,191,36,.3)'}[e.source]||'var(--r-border)';
   return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 8px;border-bottom:1px solid rgba(46,51,69,.3);transition:.15s;cursor:'+(e.link?'pointer':'default')+'" '+(e.link?'onclick="location.href=\''+e.link+'\'"':'')+'>'
    +'<span style="font-size:18px;flex-shrink:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:'+sc+';border:1px solid '+bc+'">'+e.icon+'</span>'
    +'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;line-height:1.3">'+e.title+'</div>'
-   +(e.detail?'<div style="font-size:13px;color:var(--tx2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e.detail+'</div>':'')
+   +(e.detail?'<div style="font-size:13px;color:var(--r-text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e.detail+'</div>':'')
    +'</div>'
-   +'<span style="font-size:13px;color:var(--tx2);white-space:nowrap;flex-shrink:0">'+ago+'</span>'
+   +'<span style="font-size:13px;color:var(--r-text-muted);white-space:nowrap;flex-shrink:0">'+ago+'</span>'
    +'</div>';
  }).join('');
 }
@@ -1617,20 +1617,20 @@ setTimeout(loadFeed,5000); // defer — not needed for initial render
 
 <!-- New RFQ Modal -->
 <div id="new-rfq-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;justify-content:center;align-items:center" onclick="if(event.target===this)this.style.display='none'">
- <div style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
+ <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-   <h2 style="font-size:18px;color:var(--tx);margin:0">📦 New RFQ</h2>
-   <button onclick="document.getElementById('new-rfq-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer" aria-label="Close new RFQ dialog">✕</button>
+   <h2 style="font-size:18px;color:var(--r-text);margin:0">📦 New RFQ</h2>
+   <button onclick="document.getElementById('new-rfq-modal').style.display='none'" style="background:none;border:none;color:var(--r-text-muted);font-size:20px;cursor:pointer" aria-label="Close new RFQ dialog">✕</button>
   </div>
   <div style="display:flex;flex-direction:column;gap:12px">
    <div style="display:flex;gap:10px">
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Solicitation #</label>
-     <input id="nr-sol" placeholder="e.g. 25CB019" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Solicitation #</label>
+     <input id="nr-sol" placeholder="e.g. 25CB019" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:15px">
     </div>
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Agency</label>
-     <select id="nr-agency" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Agency</label>
+     <select id="nr-agency" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:14px">
       <option value="">Select...</option>
       <option value="calvet">CalVet / DVA</option>
       <option value="cchcs">CCHCS / CDCR</option>
@@ -1642,64 +1642,64 @@ setTimeout(loadFeed,5000); // defer — not needed for initial render
    </div>
    <div style="display:flex;gap:10px">
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Buyer Name</label>
-     <input id="nr-buyer" placeholder="e.g. Grace Pfost" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Buyer Name</label>
+     <input id="nr-buyer" placeholder="e.g. Grace Pfost" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:15px">
     </div>
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Buyer Email</label>
-     <input id="nr-email" placeholder="buyer@agency.ca.gov" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Buyer Email</label>
+     <input id="nr-email" placeholder="buyer@agency.ca.gov" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:14px">
     </div>
    </div>
    <div style="display:flex;gap:10px">
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Due Date</label>
-     <input id="nr-due" type="date" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Due Date</label>
+     <input id="nr-due" type="date" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:14px">
     </div>
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Ship To</label>
-     <input id="nr-shipto" placeholder="190 California Dr, Yountville" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Ship To</label>
+     <input id="nr-shipto" placeholder="190 California Dr, Yountville" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:14px">
     </div>
    </div>
    <div>
-    <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Notes (optional)</label>
-    <input id="nr-notes" placeholder="e.g. Secure portal email, upload PDF manually" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+    <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Notes (optional)</label>
+    <input id="nr-notes" placeholder="e.g. Secure portal email, upload PDF manually" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:14px">
    </div>
    <div id="nr-msg" style="font-size:13px;display:none"></div>
-   <button onclick="createRfq()" style="width:100%;padding:12px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create RFQ →</button>
+   <button onclick="createRfq()" style="width:100%;padding:12px;background:var(--r-accent);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create RFQ →</button>
   </div>
  </div>
 </div>
 
 <!-- New PC Modal -->
 <div id="new-pc-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;justify-content:center;align-items:center" onclick="if(event.target===this)this.style.display='none'">
- <div style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
+ <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-   <h2 style="font-size:18px;color:var(--tx);margin:0">📋 New Price Check</h2>
-   <button onclick="document.getElementById('new-pc-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer" aria-label="Close new price check dialog">✕</button>
+   <h2 style="font-size:18px;color:var(--r-text);margin:0">📋 New Price Check</h2>
+   <button onclick="document.getElementById('new-pc-modal').style.display='none'" style="background:none;border:none;color:var(--r-text-muted);font-size:20px;cursor:pointer" aria-label="Close new price check dialog">✕</button>
   </div>
   <div style="display:flex;flex-direction:column;gap:12px">
    <div style="display:flex;gap:10px">
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Solicitation / PC #</label>
-     <input id="np-sol" placeholder="e.g. 45007500" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Solicitation / PC #</label>
+     <input id="np-sol" placeholder="e.g. 45007500" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:15px">
     </div>
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Institution</label>
-     <input id="np-inst" placeholder="e.g. CSP Sacramento" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Institution</label>
+     <input id="np-inst" placeholder="e.g. CSP Sacramento" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:14px">
     </div>
    </div>
    <div style="display:flex;gap:10px">
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Buyer Name</label>
-     <input id="np-buyer" placeholder="e.g. Valentina Demidenko" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Buyer Name</label>
+     <input id="np-buyer" placeholder="e.g. Valentina Demidenko" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:15px">
     </div>
     <div style="flex:1">
-     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Due Date</label>
-     <input id="np-due" type="date" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+     <label style="font-size:12px;color:var(--r-text-muted);display:block;margin-bottom:4px">Due Date</label>
+     <input id="np-due" type="date" style="width:100%;padding:10px 12px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);border-radius:6px;font-size:14px">
     </div>
    </div>
    <div id="np-msg" style="font-size:13px;display:none"></div>
-   <button onclick="createPc()" style="width:100%;padding:12px;background:var(--gn);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create Price Check →</button>
+   <button onclick="createPc()" style="width:100%;padding:12px;background:var(--r-accent);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create Price Check →</button>
   </div>
  </div>
 </div>
@@ -1717,7 +1717,7 @@ function createRfq() {
 
  if (!sol) { msg.style.display='block'; msg.style.color='#f85149'; msg.textContent='Solicitation # required'; return; }
 
- msg.style.display='block'; msg.style.color='var(--tx2)'; msg.textContent='⏳ Creating...';
+ msg.style.display='block'; msg.style.color='var(--r-text-muted)'; msg.textContent='⏳ Creating...';
 
  fetch('/api/rfq/create-manual', {
   method: 'POST',
@@ -1747,7 +1747,7 @@ function createPc() {
 
  if (!sol && !inst) { msg.style.display='block'; msg.style.color='#f85149'; msg.textContent='Solicitation # or Institution required'; return; }
 
- msg.style.display='block'; msg.style.color='var(--tx2)'; msg.textContent='⏳ Creating...';
+ msg.style.display='block'; msg.style.color='var(--r-text-muted)'; msg.textContent='⏳ Creating...';
 
  fetch('/api/pricecheck/create-manual', {
   method: 'POST',
@@ -1992,9 +1992,9 @@ function confirmMpcCreate(){
   for(var i=0;i<btns.length;i++){
    var b=btns[i];
    if(parseInt(b.getAttribute('data-days'))===days){
-    b.style.borderColor='var(--ac)';b.style.background='rgba(79,140,255,.15)';b.style.color='var(--ac)';
+    b.style.borderColor='var(--r-accent)';b.style.background='rgba(79,140,255,.15)';b.style.color='var(--r-accent)';
    }else{
-    b.style.borderColor='var(--bd)';b.style.background='var(--sf)';b.style.color='var(--tx2)';
+    b.style.borderColor='var(--r-border)';b.style.background='var(--r-surface)';b.style.color='var(--r-text-muted)';
    }
   }
   for(var i=0;i<rows.length;i++){
