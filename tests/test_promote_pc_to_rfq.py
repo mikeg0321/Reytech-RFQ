@@ -37,7 +37,7 @@ def test_pc_prices_port_verbatim_to_matched_rfq_line():
         ],
     }
     out = promote_pc_to_rfq_in_place(rfq_data, "pc_123", pc_data)
-    assert out == {"promoted": 1, "qty_changed": 0, "no_match": 0}
+    assert out == {"promoted": 1, "matched": 1, "qty_changed": 0, "no_match": 0}
 
     line = rfq_data["line_items"][0]
     # Verbatim: PC values overwrite the RFQ's stale ones
@@ -198,4 +198,75 @@ def test_empty_pc_items_returns_zero_counts():
     rfq = {"line_items": [{"description": "x", "quantity": 1}]}
     pc = {"agency": "CCHCS", "items": []}
     out = promote_pc_to_rfq_in_place(rfq, "pc", pc)
-    assert out == {"promoted": 0, "qty_changed": 0, "no_match": 0}
+    assert out == {"promoted": 0, "matched": 0, "qty_changed": 0, "no_match": 0}
+
+
+# ── Incident 2026-05-28: "1 prices ported" but YOUR COST / BID PRICE 0.00 ────
+# Root cause: PC pricing is persisted NESTED under `pricing` and named
+# differently (vendor_cost / unit_price / recommended_price) than the fields
+# the RFQ table renders (supplier_cost / price_per_unit). The old verbatim
+# same-name copy never reached the rendered fields, yet `promoted` counted the
+# match → green banner over an empty price.
+
+def test_nested_pricing_lands_in_rendered_fields():
+    """PC stores cost/bid nested under `pricing` (Oracle shape). They MUST
+    populate the rendered RFQ fields supplier_cost + price_per_unit."""
+    rfq = {"line_items": [{"description": "MOUNT, IV POLE", "quantity": 2}]}
+    pc = {"agency": "CCHCS", "items": [{
+        "description": "MOUNT, IV POLE",
+        "quantity": 2,
+        "pricing": {"unit_cost": 41.20, "recommended_price": 51.50, "markup_pct": 25.0},
+    }]}
+    out = promote_pc_to_rfq_in_place(rfq, "pc", pc)
+    line = rfq["line_items"][0]
+    assert line["supplier_cost"] == 41.20    # YOUR COST cell (rfq_detail.html:692)
+    assert line["price_per_unit"] == 51.50   # BID PRICE cell (rfq_detail.html:728)
+    assert out["promoted"] == 1
+    assert out["matched"] == 1
+    assert not line.get("price_port_empty")
+
+
+def test_aliased_top_level_cost_maps_to_supplier_cost():
+    """PC names cost `vendor_cost` and bid `unit_price`; render reads
+    supplier_cost / price_per_unit. The mapping must bridge the names."""
+    rfq = {"line_items": [{"description": "thing", "quantity": 1}]}
+    pc = {"agency": "CCHCS", "items": [
+        {"description": "thing", "quantity": 1, "vendor_cost": 12.58, "unit_price": 15.72},
+    ]}
+    promote_pc_to_rfq_in_place(rfq, "pc", pc)
+    line = rfq["line_items"][0]
+    assert line["supplier_cost"] == 12.58
+    assert line["price_per_unit"] == 15.72
+
+
+def test_unpriced_pc_line_matches_but_does_not_count_as_ported():
+    """The incident: a matched PC line carrying NO usable cost/bid must NOT
+    inflate `promoted`. It is counted as matched, flagged price_port_empty, so
+    the banner can warn instead of falsely claiming a port."""
+    rfq = {"line_items": [{"description": "MOUNT, IV POLE", "quantity": 2}]}
+    pc = {"agency": "CCHCS", "items": [
+        {"description": "MOUNT, IV POLE", "quantity": 2},  # no price anywhere
+    ]}
+    out = promote_pc_to_rfq_in_place(rfq, "pc", pc)
+    line = rfq["line_items"][0]
+    assert out["matched"] == 1
+    assert out["promoted"] == 0          # banner must say "0 prices ported"
+    assert line.get("price_port_empty") is True
+    assert not line.get("supplier_cost")
+    assert not line.get("price_per_unit")
+
+
+def test_scprs_only_line_is_a_ceiling_not_a_port():
+    """SCPRS is a ceiling, never a cost basis (Pricing Guard Rails). An
+    SCPRS-only PC line carries the reference but does NOT count as priced —
+    the operator still has no cost/bid to render."""
+    rfq = {"line_items": [{"description": "gauze", "quantity": 1}]}
+    pc = {"agency": "CCHCS", "items": [
+        {"description": "gauze", "quantity": 1, "pricing": {"scprs_price": 9.99}},
+    ]}
+    out = promote_pc_to_rfq_in_place(rfq, "pc", pc)
+    line = rfq["line_items"][0]
+    assert line["scprs_last_price"] == 9.99
+    assert out["promoted"] == 0
+    assert out["matched"] == 1
+    assert not line.get("supplier_cost")

@@ -531,6 +531,76 @@ _CONTEXT_PORT_FIELDS = (
 )
 
 
+def _port_price_fields(rfq_item, pc_item) -> bool:
+    """Port PC pricing onto an RFQ line and report whether a real price landed.
+
+    Two failure modes this closes (incident 2026-05-28 — banner said
+    "1 prices ported" while YOUR COST / BID PRICE rendered 0.00):
+
+    1. NESTING DRIFT. The Pricing Oracle persists cost/price NESTED under
+       ``pc_item["pricing"]`` (``unit_cost`` / ``recommended_price`` /
+       ``scprs_price``); older/manual PCs carry the same data at the top
+       level. The previous verbatim loop read top-level only, so nested
+       pricing never copied.
+    2. FIELD-NAME DRIFT. PCs name cost ``vendor_cost`` / ``pricing.unit_cost``
+       and bid ``unit_price`` / ``pricing.recommended_price``; the RFQ line
+       renders ``supplier_cost`` and ``price_per_unit``. A same-name copy
+       landed values in keys the template never reads.
+
+    This reads BOTH levels and maps every source spelling onto the canonical
+    RFQ render field. Verbatim semantics preserved (Mike 2026-04-20: the PC
+    commitment wins) — cost / bid / markup overwrite. Returns True only when a
+    real COST or BID actually landed: SCPRS is a ceiling, not a cost basis
+    (Pricing Guard Rails), so an SCPRS-only line is NOT counted as priced.
+    """
+    # (1) Verbatim same-name copy — back-compat for any consumer that reads the
+    # PC's original field names (unit_price / bid_price / oracle_audit, etc.).
+    # The PC commitment overwrites stale RFQ values (Mike 2026-04-20).
+    for field in _VERBATIM_PRICE_FIELDS:
+        val = pc_item.get(field)
+        if val is not None and val != "":
+            rfq_item[field] = val
+
+    # (2) Canonical render-field population. The RFQ price table renders ONLY
+    # `supplier_cost` (YOUR COST) and `price_per_unit` (BID PRICE) — see
+    # rfq_detail.html:692,728. Map every PC spelling / nesting onto those.
+    pricing = pc_item.get("pricing") if isinstance(pc_item.get("pricing"), dict) else {}
+
+    def _first(*vals):
+        for v in vals:
+            if v not in (None, "", 0, 0.0):
+                return v
+        return None
+
+    cost = _first(pc_item.get("supplier_cost"), pc_item.get("vendor_cost"),
+                  pc_item.get("cost"), pc_item.get("unit_cost"),
+                  pricing.get("unit_cost"), pricing.get("vendor_cost"),
+                  pricing.get("catalog_cost"))
+    bid = _first(pc_item.get("price_per_unit"), pc_item.get("unit_price"),
+                 pc_item.get("bid_price"), pc_item.get("sell_price"),
+                 pricing.get("recommended_price"))
+    markup = _first(pc_item.get("markup_pct"), pricing.get("markup_pct"))
+    scprs = _first(pc_item.get("scprs_last_price"), pricing.get("scprs_price"))
+
+    if cost is not None:
+        rfq_item["supplier_cost"] = cost
+        rfq_item["cost_source"] = "PC"
+    if bid is not None:
+        rfq_item["price_per_unit"] = bid
+    if markup is not None:
+        rfq_item["markup_pct"] = markup
+    if scprs is not None:
+        rfq_item["scprs_last_price"] = scprs
+        if pricing.get("scprs_po"):
+            rfq_item["scprs_po"] = pricing["scprs_po"]
+        if pricing.get("scprs_match"):
+            rfq_item["scprs_vendor"] = pricing["scprs_match"]
+    if pc_item.get("oracle_audit") and not rfq_item.get("oracle_audit"):
+        rfq_item["oracle_audit"] = pc_item["oracle_audit"]
+
+    return cost is not None or bid is not None
+
+
 def _as_int_qty(v) -> int:
     """Coerce qty to int for change comparison. 0 on failure."""
     if v is None or v == "":
@@ -575,11 +645,12 @@ def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
     pc_items = inner.get("items") or pc_data.get("items") or []
     if not pc_items:
         log.warning("promote_pc_to_rfq_in_place: PC %s has no items", pc_id)
-        return {"promoted": 0, "qty_changed": 0, "no_match": 0}
+        return {"promoted": 0, "matched": 0, "qty_changed": 0, "no_match": 0}
 
     rfq_items = rfq_data.get("line_items") or rfq_data.get("items") or []
 
-    promoted = 0
+    promoted = 0   # lines that received a real cost or bid
+    matched = 0    # lines matched to a PC line (priced or not)
     qty_changed = 0
     no_match = 0
 
@@ -592,12 +663,19 @@ def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
             item.setdefault("description", pc_item.get("desc", ""))
             item.setdefault("quantity", pc_item.get("qty", 1))
             item.setdefault("uom", pc_item.get("uom", "EACH"))
+            # Normalize nested/aliased PC pricing onto canonical render fields
+            # so a carried line shows its cost/bid (not 0.00).
+            wrote_price = _port_price_fields(item, pc_item)
             item["source_pc"] = pc_id
             item["promoted_from_pc"] = True
             item["pc_original_qty"] = _as_int_qty(pc_item.get("quantity") or pc_item.get("qty"))
             item["qty_changed"] = False
+            if not wrote_price:
+                item["price_port_empty"] = True
             new_items.append(item)
-            promoted += 1
+            matched += 1
+            if wrote_price:
+                promoted += 1
         rfq_data["line_items"] = new_items
         rfq_data["items"] = new_items
     else:
@@ -638,11 +716,10 @@ def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
             claimed_pc_idx.add(best_idx)
             pc_item = pc_items[best_idx]
 
-            # Verbatim price port — overwrites any existing values.
-            for field in _VERBATIM_PRICE_FIELDS:
-                val = pc_item.get(field)
-                if val is not None and val != "":
-                    rfq_item[field] = val
+            # Verbatim price port — reads nested+top-level, maps to canonical
+            # render fields, overwrites existing values. Returns whether a real
+            # cost or bid actually landed (see _port_price_fields).
+            wrote_price = _port_price_fields(rfq_item, pc_item)
             # Context fields — fill only if the RFQ line doesn't already have
             # a value (don't overwrite a buyer-provided description, etc.).
             for field in _CONTEXT_PORT_FIELDS:
@@ -661,7 +738,14 @@ def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
             rfq_item["source_pc"] = pc_id
             rfq_item["promoted_from_pc"] = True
             rfq_item["line_match_kind"] = best_kind
-            promoted += 1
+            matched += 1
+            if wrote_price:
+                promoted += 1
+            else:
+                # Matched a PC line that carried no usable cost/bid (PC not yet
+                # priced, or only an SCPRS ceiling). Flag it so the operator
+                # surface can warn instead of falsely claiming a port.
+                rfq_item["price_port_empty"] = True
 
     rfq_data["linked_pc_id"] = pc_id
     rfq_data["linked_pc_number"] = inner.get("pc_number") or pc_data.get("pc_number", "")
@@ -672,9 +756,10 @@ def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
     if bundle_id:
         rfq_data["bundle_id"] = bundle_id
 
-    log.info("Promoted PC %s → RFQ: %d lines (qty_changed=%d, no_match=%d)",
-             pc_id, promoted, qty_changed, no_match)
-    return {"promoted": promoted, "qty_changed": qty_changed, "no_match": no_match}
+    log.info("Promoted PC %s → RFQ: %d priced / %d matched (qty_changed=%d, no_match=%d)",
+             pc_id, promoted, matched, qty_changed, no_match)
+    return {"promoted": promoted, "matched": matched,
+            "qty_changed": qty_changed, "no_match": no_match}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
