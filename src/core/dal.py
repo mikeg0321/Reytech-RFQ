@@ -1545,15 +1545,30 @@ def update_manifest_status(manifest_id, status, package_filename=None, package_s
 
 
 def review_form(manifest_id, form_id, verdict, reviewed_by="user", notes=""):
-    """Record a review verdict for a specific form in a manifest."""
-    try:
+    """Record a review verdict for a specific form in a manifest.
+
+    Returns (ok, error):
+      - (True, None)        verdict recorded.
+      - (False, "<reason>") no matching (manifest_id, form_id) row, or the
+                            write failed — `error` is operator-facing.
+
+    Never returns a contentless failure. Incident 2026-05-29 (manifest 144,
+    Coleman bid): a transient `database is locked` during the 2.4 GB DB-bloat
+    window surfaced to the operator as "Review failed: unknown" with zero
+    diagnostics. The write is now retried on transient locks (`db_retry`)
+    and a no-match row is reported distinctly from a real DB error.
+    """
+    from src.core.db import db_retry
+
+    def _do():
         with get_db() as conn:
-            conn.execute("""
+            cur = conn.execute("""
                 UPDATE package_review
                 SET verdict = ?, reviewed_at = ?, reviewed_by = ?, notes = ?
                 WHERE manifest_id = ? AND form_id = ?
             """, (verdict, datetime.now().isoformat(), reviewed_by, notes,
                   manifest_id, form_id))
+            matched = cur.rowcount
             pending = conn.execute(
                 "SELECT COUNT(*) FROM package_review WHERE manifest_id = ? AND verdict = 'pending'",
                 (manifest_id,)).fetchone()[0]
@@ -1561,10 +1576,17 @@ def review_form(manifest_id, form_id, verdict, reviewed_by="user", notes=""):
                 conn.execute(
                     "UPDATE package_manifest SET overall_status = 'reviewed' WHERE id = ? AND overall_status = 'draft'",
                     (manifest_id,))
-            return True
+            return matched
+
+    try:
+        matched = db_retry(_do)
+        if not matched:
+            return False, f"No '{form_id}' form found in manifest {manifest_id} to review"
+        return True, None
     except Exception as e:
-        log.error("review_form failed: %s", e)
-        return False
+        log.error("review_form failed (manifest=%s form=%s): %s",
+                  manifest_id, form_id, e)
+        return False, f"Could not record review: {e}"
 
 
 def reset_form_verdict(manifest_id, form_id):
