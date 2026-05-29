@@ -153,7 +153,10 @@ class TestDeadlineNotCritical:
         today_gaps = [g for g in out["gaps"] if g["type"] == "deadline_today"]
         assert all(g["severity"] == "warning" for g in today_gaps)
 
-    def test_past_deadline_is_warning_not_critical(self):
+    def test_genuinely_past_deadline_stays_critical(self):
+        # The midnight bug only mis-fired for TODAY. A deadline that has
+        # really passed (yesterday or earlier) MUST still hard-block — you
+        # don't submit a closed solicitation without buyer confirmation.
         yesterday = (datetime.now().date() - timedelta(days=1)).isoformat()
         out = validate_against_requirements(
             generated_files=["x.pdf"],
@@ -163,8 +166,8 @@ class TestDeadlineNotCritical:
             strict=True,
         )
         passed_gaps = [g for g in out["gaps"] if g["type"] == "deadline_passed"]
-        assert passed_gaps and all(g["severity"] == "warning" for g in passed_gaps)
-        assert out["passed"] is True
+        assert passed_gaps and all(g["severity"] == "critical" for g in passed_gaps)
+        assert out["passed"] is False
 
 
 # ── Problem 2: review_form returns (ok, error), never a silent "unknown" ─

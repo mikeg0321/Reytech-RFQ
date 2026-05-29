@@ -252,6 +252,29 @@ BID_PACKAGE_INTERNAL_FORMS = {
 }
 
 
+def _renderable_form_ids() -> set:
+    """Lower-cased ids of every form the generator can actually produce —
+    sourced from the canonical `agency_config.AVAILABLE_FORMS` (the same
+    list `package_form_classifier` and the operator packages UI read).
+
+    Used to keep the Email-as-Contract `missing_form` gate honest: a buyer
+    email that *mentions* a form we render and didn't emit is a real
+    LAW-6 critical (e.g. STD 204); a form we have no renderer for — lifted
+    from T&C boilerplate (e.g. STD 817 in the CDCR Special Terms) — can't
+    be "missing" because we could never generate it, so it's advisory.
+    Falls back to an empty set (→ everything advisory) if the import fails,
+    never raising inside the QA gate.
+    """
+    try:
+        from src.core.agency_config import AVAILABLE_FORMS
+        return {str(f["id"]).strip().lower() for f in AVAILABLE_FORMS if f.get("id")}
+    except Exception:
+        return set()
+
+
+RENDERABLE_FORM_IDS = _renderable_form_ids()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Verification Functions
 # ═══════════════════════════════════════════════════════════════════════
@@ -902,23 +925,31 @@ def validate_against_requirements(
         if found:
             result["confirmed"].append(form_id)
         else:
-            # The buyer's email *mentioned* this form, but the requirements
-            # extractor reads the full body + attachments — including dense
-            # T&C boilerplate (e.g. the CDCR Special Terms in a bid package)
-            # that references STD forms the bidder never submits. Treating
-            # that as a CRITICAL hard-block produces false finalize-locks
-            # (Coleman 10847187: STD817 lifted from boilerplate, no renderer
-            # exists). The authoritative completeness blocker is
-            # `verify_package_completeness` against the AGENCY required set;
-            # this validator stays ADVISORY so a boilerplate mention is
-            # surfaced (LAW 6 — still visible) but never silently blocks.
-            _add_gap(
-                "missing_form",
-                form_id,
-                f"Email mentions {form_id.upper()} but none generated — "
-                f"verify it isn't boilerplate / bid-package-internal",
-                "warning",
-            )
+            # A form the buyer's email asked for that we DIDN'T emit. Only a
+            # hard CRITICAL when it's a form we can actually generate — then
+            # a missing one is a real LAW-6 gap (e.g. STD 204). When it's a
+            # form we have no renderer for, the requirements extractor lifted
+            # it from dense T&C boilerplate (e.g. STD 817 in the CDCR Special
+            # Terms of a bid package) — we could never have generated it, so
+            # "missing" is meaningless and a CRITICAL there is a false
+            # finalize-block (Coleman 10847187). Surface it as advisory
+            # (LAW 6 — still visible), never a silent block.
+            _renderable = str(form_id).strip().lower() in RENDERABLE_FORM_IDS
+            if _renderable:
+                _add_gap(
+                    "missing_form",
+                    form_id,
+                    f"Email requires {form_id.upper()} but none generated",
+                    "critical" if strict else "warning",
+                )
+            else:
+                _add_gap(
+                    "missing_form",
+                    form_id,
+                    f"Email mentions {form_id.upper()} but it isn't a form we "
+                    f"generate — verify it isn't boilerplate / bid-package-internal",
+                    "warning",
+                )
 
     # ── Food items → OBS-1600 heuristic ─────────────────────────────
     if reqs.get("food_items_present") and "obs_1600" not in forms_required:
@@ -942,11 +973,13 @@ def validate_against_requirements(
         )
     # If both are set, also verify we're still BEFORE the deadline.
     # Compare on DATE granularity, not datetime: `_parse_requirement_date`
-    # yields midnight for a date-only due, so a `< datetime.now()` test
-    # marked a bid due TODAY as "already passed" all day — and as a
-    # CRITICAL hard-block, locking the operator out on the exact day they
-    # must submit (Coleman 10847187, due 2026-05-29, blocked 2026-05-29).
-    # A deadline is a warning to confirm, never a silent finalize-block.
+    # yields midnight for a date-only due, so the old `< datetime.now()`
+    # test marked a bid due TODAY as "already passed" all day and
+    # hard-blocked finalize on the exact day the operator must submit
+    # (Coleman 10847187, due 2026-05-29, blocked 2026-05-29). A due date of
+    # TODAY is a warning; a GENUINELY past date stays critical (you don't
+    # submit a closed solicitation without buyer confirmation — the
+    # operator can still ?force=1 for a confirmed late submission).
     if req_due:
         parsed_due = _parse_requirement_date(req_due)
         if parsed_due:
@@ -956,9 +989,9 @@ def validate_against_requirements(
                 _add_gap(
                     "deadline_passed",
                     "",
-                    f"Email due date {req_due} has passed — "
-                    f"confirm with buyer before submitting",
-                    "warning",
+                    f"Email due date {req_due} has already passed — "
+                    f"do not submit without buyer confirmation",
+                    "critical",
                 )
             elif _due_date == _today:
                 _add_gap(
