@@ -1559,9 +1559,70 @@ def _classify_703b_slot_template(pdf_path):
     return "unknown"
 
 
+def _build_703a_bidder_values(config, rfq_data, sign_date):
+    """Reytech's BIDDER INFORMATION block for the AMS 703A, keyed to the actual
+    703A_ field names (dumped from data/templates/703a_blank.pdf). Same field set
+    fill_703b fills from config. The 703A historically relied ONLY on mirror-fill
+    from a prior 703B and shipped BLANK when none existed (Coleman 10842771 — empty
+    Business Name/Address/FEIN/Seller's-Permit). Filling from config makes the
+    bidder block authoritative and always present, mirror or not."""
+    c = config.get("company", {})
+    try:
+        _bid_exp = (datetime.strptime(sign_date, "%m/%d/%Y") + timedelta(days=45)).strftime("%m/%d/%Y")
+    except Exception:
+        _bid_exp = ""
+    return {
+        "703A_Business Name": c.get("name", ""),
+        "703A_Address": c.get("address", ""),
+        "703A_Contact Person": c.get("owner", ""),
+        "703A_Title": c.get("title", ""),
+        "703A_Phone": c.get("phone", ""),
+        "703A_Email": c.get("email", ""),
+        "703A_Federal Employer Identification Number FEIN": c.get("fein", ""),
+        "703A_Retailers CA Sellers Permit Number": c.get("sellers_permit", ""),
+        "703A_SBMBDVBE Certification.0": c.get("cert_number", ""),
+        "703A_Certification Expiration Date": c.get("cert_expiration", ""),
+        "703A_Solicitation Number": _sol_display(rfq_data.get("solicitation_number", "")),
+        "703A_Release Date": rfq_data.get("release_date", ""),
+        "703A_Due Date": rfq_data.get("due_date", ""),
+        "703A_BidExpirationDate": _bid_exp,
+        "703A_Name": rfq_data.get("requestor_name", ""),
+        "703A_Email_2": rfq_data.get("requestor_email", ""),
+        "703A_Phone_2": rfq_data.get("requestor_phone", ""),
+    }
+
+
+def _apply_703a_signature(output_path, sign_date):
+    """Sign the filled 703A. /Sig field present (703A Rev. 03/2025
+    `703A_Signature`) → writer-based _overlay_signature; else positional overlay.
+    One path per fill (CLAUDE.md 'never double-sign')."""
+    try:
+        _reader_sig = PdfReader(output_path)
+        _has_sig_field = False
+        for _pg in _reader_sig.pages:
+            if "/Annots" in _pg:
+                for _ann in _pg["/Annots"]:
+                    if str(_ann.get_object().get("/FT", "")) == "/Sig":
+                        _has_sig_field = True
+                        break
+            if _has_sig_field:
+                break
+        if _has_sig_field:
+            _sig_writer = PdfWriter()
+            _sig_writer.append(_reader_sig)
+            _overlay_signature(_sig_writer, sign_date)
+            with open(output_path, "wb") as _f:
+                _sig_writer.write(_f)
+        else:
+            _703b_overlay_signature(output_path, sign_date)
+    except Exception as _se:
+        log.warning("fill_703a: signature overlay failed (%s) — 703A ships unsigned", _se)
+
+
 def fill_703a(input_path, rfq_data, config, output_path):
-    """Fill an AMS 703A SB-DVBE Option form via mirror-fill from a
-    prior 703B submission.
+    """Fill an AMS 703A SB-DVBE Option form. Bidder block fills from config
+    (authoritative); buyer-specific fields + signature blocks mirror-fill from a
+    prior 703B when one exists.
 
     PR mr-wolf #4. Closes the 703A code-fill gap (Pattern 4): when a
     buyer sends a 703A instead of the more common 703B, the dispatcher
@@ -1632,13 +1693,24 @@ def fill_703a(input_path, rfq_data, config, output_path):
     prior_pdf = "prior_submissions (DB or FS fallback)" if prior_pdf_bytes else None
 
     if prior_pdf_bytes is None:
+        # No prior 703B to mirror — fill the BIDDER INFORMATION block DIRECTLY
+        # from config so the 703A is never blank (Coleman 10842771 shipped with
+        # empty Business Name/Address/FEIN because this branch copied the blank
+        # buyer input unchanged). Then sign.
         log.warning(
-            "fill_703a: no prior %s submission found via DB or FS — copying "
-            "buyer's input unchanged. Next %s that ships via Mark Sent gets "
-            "auto-captured, activating mirror-fill on the subsequent 703A.",
-            fallback, fallback,
+            "fill_703a: no prior %s submission — filling bidder block directly "
+            "from config (not mirror-fill).", fallback,
         )
-        _shutil.copyfile(input_path, output_path)
+        try:
+            fill_and_sign_pdf(
+                input_path,
+                _build_703a_bidder_values(config, rfq_data, sign_date),
+                output_path, sign_date=sign_date,
+            )
+            _apply_703a_signature(output_path, sign_date)
+        except Exception as _de:
+            log.warning("fill_703a: direct config fill failed (%s); copying input unchanged", _de)
+            _shutil.copyfile(input_path, output_path)
         return
 
     source_prefix = _field_prefix(fallback) or "703B_"
@@ -1660,6 +1732,11 @@ def fill_703a(input_path, rfq_data, config, output_path):
     # Common date-field name variants — set each present on target.
     for suffix in ("Date", "Date Signed", "Signed Date", "Bid Date"):
         overrides[f"{target_prefix}{suffix}"] = sign_date
+
+    # Bidder/company block from config is AUTHORITATIVE — overrides win over
+    # whatever the prior carried, so the 703A bidder info is always correct/present
+    # even if the prior 703B was stale or partially filled (Coleman 10842771).
+    overrides.update(_build_703a_bidder_values(config, rfq_data, sign_date))
 
     try:
         filled = mirror_fill_from_prior_pdf(
@@ -1699,28 +1776,7 @@ def fill_703a(input_path, rfq_data, config, output_path):
     #
     # Per CLAUDE.md "Never double-sign" guard rail, only ONE path
     # fires per fill.
-    try:
-        _reader_sig = PdfReader(output_path)
-        _has_sig_field = False
-        for _pg in _reader_sig.pages:
-            if "/Annots" in _pg:
-                for _ann in _pg["/Annots"]:
-                    _obj = _ann.get_object()
-                    if str(_obj.get("/FT", "")) == "/Sig":
-                        _has_sig_field = True
-                        break
-            if _has_sig_field:
-                break
-        if _has_sig_field:
-            _sig_writer = PdfWriter()
-            _sig_writer.append(_reader_sig)
-            _overlay_signature(_sig_writer, sign_date)
-            with open(output_path, "wb") as _f:
-                _sig_writer.write(_f)
-        else:
-            _703b_overlay_signature(output_path, sign_date)
-    except Exception as _se:
-        log.warning("fill_703a: signature overlay failed (%s) — 703A ships unsigned", _se)
+    _apply_703a_signature(output_path, sign_date)
 
 
 def fill_obs1600_fields(rfq_data, config, food_items=None):
