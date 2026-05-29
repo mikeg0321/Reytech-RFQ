@@ -1850,7 +1850,7 @@ def fill_obs1600_fields(rfq_data, config, food_items=None):
     return values
 
 
-def _overlay_obs1600_header(writer, solicitation_number, vendor_name="Reytech Inc.", page_index=None):
+def _overlay_obs1600_header(writer, solicitation_number, vendor_name="Reytech Inc.", page_index=None, page_texts=None):
     """Overlay Vendor Name and Solicitation # onto the OBS 1600 page header.
 
     These are static labels on the OBS 1600 Food Service certification
@@ -1875,11 +1875,17 @@ def _overlay_obs1600_header(writer, solicitation_number, vendor_name="Reytech In
 
     target = page_index
     if target is None:
+        # `page_texts` (optional): caller's single snapshot of this writer's
+        # per-page text, reused to avoid a redundant full extract_text() pass.
+        _use_cache = page_texts is not None and len(page_texts) == len(writer.pages)
         for _i, _pg in enumerate(writer.pages):
-            try:
-                _txt = (_pg.extract_text() or "").upper()
-            except Exception:
-                continue
+            if _use_cache:
+                _txt = (page_texts[_i] or "").upper()
+            else:
+                try:
+                    _txt = (_pg.extract_text() or "").upper()
+                except Exception:
+                    continue
             if "OBS 1600" in _txt or "OBS1600" in _txt:
                 target = _i
                 break
@@ -3487,11 +3493,16 @@ def _calrecycle_clean_desc(item):
     desc = _re.sub(r'\s{2,}', ' ', desc).strip(" ,;-:/")
     return desc
 
-def _calrecycle_fix_date(pdf_path, sign_date):
+def _calrecycle_fix_date(pdf_path, sign_date, page_texts=None):
     """
     Overlay the date onto CalRecycle 74 Date fields ONLY.
     The CalRecycle 74 has an unnamed "Date" field that can't be filled via the values dict.
     IMPORTANT: Only overlay on CalRecycle pages — never on Darfur, DVBE, CUF, PD802, etc.
+
+    `page_texts` (optional): a precomputed list of per-page extract_text() for
+    this PDF, supplied by the caller's single snapshot so we skip a redundant
+    full text pass. Falls back to per-page extraction when absent or when its
+    length doesn't match this reader (stale / different document).
     """
     import io as _io
     from pypdf import PdfReader as _PR, PdfWriter as _PW
@@ -3502,12 +3513,16 @@ def _calrecycle_fix_date(pdf_path, sign_date):
         writer.append(reader)
 
         # Find CalRecycle pages first, then look for "Date" fields ONLY on those pages
+        _use_cache = page_texts is not None and len(page_texts) == len(reader.pages)
         cr_pages = set()
         for pg_idx, pg in enumerate(reader.pages):
-            try:
-                txt = (pg.extract_text() or "").upper()
-            except Exception:
-                txt = ""
+            if _use_cache:
+                txt = (page_texts[pg_idx] or "").upper()
+            else:
+                try:
+                    txt = (pg.extract_text() or "").upper()
+                except Exception:
+                    txt = ""
             if "CALRECYCLE" in txt or "POSTCONSUMER RECYCLED" in txt:
                 cr_pages.add(pg_idx)
 
@@ -3969,9 +3984,26 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
 
+    # ── Parse-once snapshot ──────────────────────────────────────────────
+    # The calrecycle-date, OBS-1600-header, and page-trim scans below each
+    # previously re-opened the filled output and ran a full extract_text()
+    # pass — the dominant cost of bid-package fill (~3 passes over a 16-17pg
+    # / ~5MB PDF). Snapshot the per-page text ONCE here and thread it into
+    # all three. The intervening overlays only merge a date / vendor / sol
+    # string onto specific pages and never add or remove pages, so one
+    # snapshot is valid for every locator below (each self-extracts if the
+    # snapshot is missing or its length stops matching). _highlight_darfur_
+    # option1 runs AFTER trim+splice (different page set) and is left to
+    # extract on its own.
+    try:
+        _filled_texts = [(_p.extract_text() or "") for _p in PdfReader(output_path).pages]
+    except Exception as _ft_e:
+        log.debug("bidpkg parse-once snapshot failed (%s) — scans self-extract", _ft_e)
+        _filled_texts = None
+
     # Fix CalRecycle unnamed Date field (no /T name — can't be filled via values dict)
     try:
-        _calrecycle_fix_date(output_path, sign_date)
+        _calrecycle_fix_date(output_path, sign_date, page_texts=_filled_texts)
     except Exception as _crd_e:
         print(f"  ⚠ CalRecycle date fix skipped: {_crd_e}")
 
@@ -3983,7 +4015,7 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         reader = PdfReader(output_path)
         writer = PdfWriter()
         writer.append(reader)
-        _overlay_obs1600_header(writer, sol, vendor_name="Reytech Inc.")
+        _overlay_obs1600_header(writer, sol, vendor_name="Reytech Inc.", page_texts=_filled_texts)
         with open(output_path, "wb") as f:
             writer.write(f)
     except Exception as _e:
@@ -4002,9 +4034,14 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         total_pages = len(reader.pages)
         valid_keep = []
 
+        _trim_texts = _filled_texts if (_filled_texts is not None and len(_filled_texts) == total_pages) else None
         for i in range(total_pages):
             # PRIMARY: scan the filled output directly — most reliable for skip pages
-            reason = _bidpkg_page_skip_reason(reader.pages[i], replaced_by_standalone=_bidpkg_replaced)
+            reason = _bidpkg_page_skip_reason(
+                reader.pages[i],
+                replaced_by_standalone=_bidpkg_replaced,
+                page_text=(_trim_texts[i] if _trim_texts is not None else None),
+            )
             if reason:
                 print(f"  BidPkg skip pg{i:02d} (filled scan): {reason}")
                 continue
@@ -4259,7 +4296,7 @@ if __name__ == "__main__":
 _BIDPKG_KEEP_CACHE = {}  # {template_path: (mtime, [indices])}
 
 
-def _bidpkg_page_skip_reason(page, replaced_by_standalone=frozenset()):
+def _bidpkg_page_skip_reason(page, replaced_by_standalone=frozenset(), page_text=None):
     """
     Shared logic: return skip reason string if page should be excluded from the
     submission package, or None if it should be kept.
@@ -4279,8 +4316,18 @@ def _bidpkg_page_skip_reason(page, replaced_by_standalone=frozenset()):
     page-trim still skipped those inline pages assuming they'd be
     replaced. CCHCS BidPackage shipped missing Bidder Decl + Darfur
     + CUF pages.
+
+    `page_text` (optional): precomputed extract_text() for THIS page, supplied
+    by the bid-package trim's single snapshot so the per-page loop avoids a
+    second full extraction pass. None => extract here (the blank-template scan
+    in _compute_bidpkg_keep_indices and every other caller keep their own
+    extraction). The /Annots field-name fingerprints are always read fresh
+    from `page` — only the text body is reused.
     """
-    text = (page.extract_text() or "").strip()
+    if page_text is None:
+        text = (page.extract_text() or "").strip()
+    else:
+        text = (page_text or "").strip()
     t = text.lower()
     # /Annots can be stored as an IndirectObject referencing the array; resolve
     # before len/indexing. Incident 2026-04-20: unresolved indirect raised
