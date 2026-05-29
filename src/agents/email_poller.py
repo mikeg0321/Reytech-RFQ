@@ -251,6 +251,13 @@ BLOCKED_SENDERS = [
     # Government non-procurement (automated notices)
     "@edd.ca.gov", "@ftb.ca.gov", "@dmv.ca.gov",
     "@calpers.ca.gov", "@sos.ca.gov",
+    # Reytech internal service providers — our own vendors/contractors,
+    # NEVER buyers. They send invoices, AP follow-ups, bookkeeping
+    # questions — not RFQs. Block the whole domain.
+    # (Shaina Saadaie-Jahromi @ Streamline OC = Reytech's outsourced
+    #  bookkeeper. 2026-05-29: her AP/invoice reply thread was
+    #  mis-ingested as a 13-item CCHCS RFQ #13428237.)
+    "@streamlineoc.com",
 ]
 
 # Subject patterns that indicate non-procurement emails (invoices, receipts, etc.)
@@ -2133,6 +2140,55 @@ class EmailPoller:
                     except Exception as _ce:
                         log.debug("Classifier pre-gate error (non-blocking): %s", _ce)
                     # ── END CLASSIFIER PRE-GATE ────────────────────────────
+
+                    # ── UNKNOWN-SENDER QUARANTINE ──────────────────────────
+                    # A real RFQ/PC originates ONLY from a CA agency
+                    # (.gov / known procurement domain), a known CRM buyer, or
+                    # a manual forward by us. Anything else that looks
+                    # record-creating is QUARANTINED to email_rejections
+                    # (operator-reviewable at /api/email-rejections; recover via
+                    # force-reprocess) instead of silently creating a junk RFQ.
+                    # Surface-not-drop: nothing is deleted, just held for review.
+                    # This inverts the admit-by-default denylist that let an
+                    # internal vendor through. (2026-05-29: Streamline OC
+                    # bookkeeper's AP reply became a 13-item CCHCS RFQ
+                    # #13428237 — a hand-maintained denylist can't keep up.)
+                    _AGENCY_DOMAINS = (
+                        "cchcs.ca.gov", "cdcr.ca.gov", "dsh.ca.gov",
+                        "calvet.ca.gov", "fire.ca.gov", "dgs.ca.gov", "cdph.ca.gov",
+                    )
+                    _sender_trusted = (
+                        _is_self_forward
+                        or sender_email_raw.endswith(".gov")
+                        or any(d in sender_email_raw for d in _AGENCY_DOMAINS)
+                        or "reytechinc.com" in sender_email_raw
+                        or "reytech.com" in sender_email_raw
+                    )
+                    if not _sender_trusted:
+                        try:
+                            from src.agents.cs_agent import _lookup_contact
+                            if _lookup_contact(sender_email_raw):
+                                _sender_trusted = True  # known CRM buyer
+                        except Exception as _e:
+                            log.debug("contact lookup failed (treat as unknown): %s", _e)
+                    if not _sender_trusted:
+                        _record_creating = (
+                            has_pdfs
+                            or is_rfq_email(subject, body, pdf_names, sender_email_raw)
+                            or bool(is_price_check_email(subject, body, sender_email_raw, pdf_names))
+                        )
+                        if _record_creating:
+                            log.info("QUARANTINE (unknown_sender): %s — %s (not agency/known-buyer/forward)",
+                                     sender_email_raw, subject[:50])
+                            self._diag.setdefault("unknown_sender", 0)
+                            self._diag["unknown_sender"] += 1
+                            _log_email_rejection(
+                                uid, sender_email_raw, subject, "unknown_sender",
+                                "Sender is not a CA agency (.gov), a known CRM buyer, or a "
+                                "manual forward — quarantined from auto-ingest pending review")
+                            self._processed.add(uid)
+                            continue
+                    # ── END UNKNOWN-SENDER QUARANTINE ──────────────────────
 
                     # ── RECALL DETECTION — fires FIRST ─────────────────────
                     # Outlook/Exchange recall requests delete the original PC
