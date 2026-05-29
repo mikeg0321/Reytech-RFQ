@@ -12,12 +12,12 @@
 <div class="card" style="margin:0;overflow:visible">
  {# ── Card Header ── #}
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-  <div class="card-t" style="margin:0">{{ title }} <span style="font-size:14px;font-weight:400;color:var(--tx2)">{{ subtitle }}</span> <span id="{{ queue_type }}-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{ items|length }}</span></div>
+  <div class="card-t" style="margin:0">{{ title }} <span style="font-size:14px;font-weight:400;color:var(--r-text-muted)">{{ subtitle }}</span> <span id="{{ queue_type }}-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{ items|length }}</span></div>
  </div>
 
  {# ── E2: Active Queue Search ── #}
  <div style="margin-bottom:10px">
-  <input type="text" placeholder="Filter {{ title|lower }}..." oninput="searchActive('{{ queue_type }}',this.value)" style="width:100%;max-width:280px;padding:5px 10px;font-size:13px;border-radius:6px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);outline:none" onfocus="this.style.borderColor='var(--ac)'" onblur="this.style.borderColor='var(--bd)'">
+  <input type="text" placeholder="Filter {{ title|lower }}..." oninput="searchActive('{{ queue_type }}',this.value)" style="width:100%;max-width:280px;padding:5px 10px;font-size:13px;border-radius:6px;border:1px solid var(--r-border);background:var(--r-surface);color:var(--r-text);outline:none" onfocus="this.style.borderColor='var(--r-accent)'" onblur="this.style.borderColor='var(--r-border)'">
  </div>
 
  {# ── Bulk Action Bar ── #}
@@ -40,7 +40,7 @@
   {% if r._urgency == 'overdue' %}{% set ns.overdue = ns.overdue + 1 %}{% endif %}
   {% set ns.priced_sum = ns.priced_sum + r._readiness.get('priced', 0)|default(0) %}
  {% endfor %}
- <div id="{{ queue_type }}-summary" style="display:{% if ns.total > 0 %}flex{% else %}none{% endif %};gap:16px;font-size:12px;color:var(--tx2);margin-bottom:8px;font-family:'JetBrains Mono',monospace;letter-spacing:.3px">
+ <div id="{{ queue_type }}-summary" style="display:{% if ns.total > 0 %}flex{% else %}none{% endif %};gap:16px;font-size:12px;color:var(--r-text-muted);margin-bottom:8px;font-family:'JetBrains Mono',monospace;letter-spacing:.3px">
   <span><span id="{{ queue_type }}-summary-total">{{ ns.total }}</span> active</span>
   <span id="{{ queue_type }}-summary-overdue-wrap" style="color:#f85149;font-weight:600;display:{% if ns.overdue > 0 %}inline{% else %}none{% endif %}"><span id="{{ queue_type }}-summary-overdue">{{ ns.overdue }}</span> overdue</span>
   <span><span id="{{ queue_type }}-summary-priced">{{ ns.priced_sum }}</span> items priced</span>
@@ -79,14 +79,14 @@
     {# Col 0: Checkbox #}
     <td onclick="event.stopPropagation()"><input type="checkbox" class="{{ queue_type }}-check row-check" value="{{ id }}" onchange="updateBulkBar('{{ queue_type }}')"></td>
     {# Col 1: Number #}
-    <td><a href="{{ r.url }}" class="sol">{% if r.number %}#{{ r.number }}{% else %}<span style="color:var(--tx2);opacity:.6">Pending</span>{% endif %}</a></td>
+    <td><a href="{{ r.url }}" class="sol">{% if r.number %}#{{ r.number }}{% else %}<span style="color:var(--r-text-muted);opacity:.6">Pending</span>{% endif %}</a></td>
     {# Col 2: Institution #}
     <td style="font-weight:600">{{ r.institution }}</td>
     {# Col 3: Buyer #}
     <td>
      <span style="font-weight:600">{{ r.buyer }}</span>
      {% if r.buyer_sub %}{% for line in r.buyer_sub.split('\n') %}
-     <span style="display:block;font-size:12px;{% if loop.last and r.buyer_sub.split('\n')|length > 1 %}font-weight:500;color:#a78bfa{% else %}color:var(--tx2){% endif %}">{% if loop.first and 'Req:' not in line %}Req: {% endif %}{{ line }}</span>
+     <span style="display:block;font-size:12px;{% if loop.last and r.buyer_sub.split('\n')|length > 1 %}font-weight:500;color:#a78bfa{% else %}color:var(--r-text-muted){% endif %}">{% if loop.first and 'Req:' not in line %}Req: {% endif %}{{ line }}</span>
      {% endfor %}{% endif %}
     </td>
     {# Col 4: Due date + time with urgency. Hours-granular countdown when <24h
@@ -100,9 +100,9 @@
      {% elif r._urgency == 'urgent' %}<span style="color:#e6a700;font-weight:700">{{ r.due_date }}</span>
      {% elif r._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{ r.due_date }}</span>
      {% elif r.due_date %}{{ r.due_date }}
-     {% else %}<span style="color:var(--tx2);font-size:12px;opacity:.6">TBD</span>{% endif %}
+     {% else %}<span style="color:var(--r-text-muted);font-size:12px;opacity:.6">TBD</span>{% endif %}
      {% if r.due_date %}
-      {% if r.due_time %}<span style="font-size:12px;color:var(--tx2);margin-left:4px">{{ r.due_time }}</span>
+      {% if r.due_time %}<span style="font-size:12px;color:var(--r-text-muted);margin-left:4px">{{ r.due_time }}</span>
       {% else %}<span title="No explicit close time — defaulting urgency to 2 PM PST" style="display:inline-block;margin-left:4px;font-size:10px;padding:1px 5px;border-radius:8px;background:rgba(230,167,0,.14);color:#e6a700;border:1px solid rgba(230,167,0,.35);font-weight:700;letter-spacing:.3px">&#9888; 2 PM?</span>{% endif %}
       {# ⚠ DEFAULT badge: the due date itself is a fallback guess (2 biz days
          from ingest), not a parsed buyer deadline. Without this badge 10+
@@ -116,7 +116,7 @@
        {% elif r._hours_left < 1 %}&lt;1h left
        {% else %}{{ r._hours_left|round(0,'floor')|int }}h left{% endif %}
       </div>
-     {% elif r._days_left is not none %}<div style="font-size:13px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
+     {% elif r._days_left is not none %}<div style="font-size:13px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--r-text-muted){% endif %}">
       {% if r._days_left < 0 %}{{ -r._days_left }}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{ r._days_left }}d left{% endif %}
      </div>{% endif %}
     </td>
@@ -140,7 +140,7 @@
      </span>
     </td>
     {# Col 7: Quote number #}
-    <td style="text-align:center" onclick="event.stopPropagation()">{% if r.quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:14px">{{ r.quote_number }}</span>{% else %}&mdash;{% endif %}</td>
+    <td style="text-align:center" onclick="event.stopPropagation()">{% if r.quote_number %}<span style="color:var(--r-accent);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:14px">{{ r.quote_number }}</span>{% else %}&mdash;{% endif %}</td>
     {# Col 8: Status pill #}
     <td style="text-align:center">
      <span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:14px;font-weight:600;color:{{ r.status_color }};background:{{ r.status_color }}18;white-space:nowrap">{{ r.display_status }}</span>
@@ -162,17 +162,17 @@
  {# ── Sent / Completed Section ── #}
  {% if sent_items %}
  <details style="margin-top:8px" id="sent-{{ queue_type }}s-section">
-  <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">&#128232; Sent / Completed (<span id="sent-{{ queue_type }}-count">{{ sent_items|length }}</span>)</summary>
+  <summary style="font-size:13px;color:var(--r-text-muted);cursor:pointer;padding:6px 0">&#128232; Sent / Completed (<span id="sent-{{ queue_type }}-count">{{ sent_items|length }}</span>)</summary>
   <div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
    <div style="display:flex;gap:4px">
-    <button onclick="filterSent('{{ queue_type }}',15)" class="sent-filter-btn" data-section="{{ queue_type }}" data-days="15" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">15 days</button>
-    <button onclick="filterSent('{{ queue_type }}',30)" class="sent-filter-btn" data-section="{{ queue_type }}" data-days="30" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">30 days</button>
-    <button onclick="filterSent('{{ queue_type }}',0)" class="sent-filter-btn active" data-section="{{ queue_type }}" data-days="0" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--ac);background:rgba(79,140,255,.15);color:var(--ac);cursor:pointer">All</button>
+    <button onclick="filterSent('{{ queue_type }}',15)" class="sent-filter-btn" data-section="{{ queue_type }}" data-days="15" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--r-border);background:var(--r-surface);color:var(--r-text-muted);cursor:pointer">15 days</button>
+    <button onclick="filterSent('{{ queue_type }}',30)" class="sent-filter-btn" data-section="{{ queue_type }}" data-days="30" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--r-border);background:var(--r-surface);color:var(--r-text-muted);cursor:pointer">30 days</button>
+    <button onclick="filterSent('{{ queue_type }}',0)" class="sent-filter-btn active" data-section="{{ queue_type }}" data-days="0" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--r-accent);background:rgba(79,140,255,.15);color:var(--r-accent);cursor:pointer">All</button>
    </div>
-   <input type="text" placeholder="Filter sent..." oninput="searchSent('{{ queue_type }}',this.value)" style="flex:1;min-width:140px;max-width:240px;padding:4px 8px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);outline:none" onfocus="this.style.borderColor='var(--ac)'" onblur="this.style.borderColor='var(--bd)'">
+   <input type="text" placeholder="Filter sent..." oninput="searchSent('{{ queue_type }}',this.value)" style="flex:1;min-width:140px;max-width:240px;padding:4px 8px;font-size:12px;border-radius:4px;border:1px solid var(--r-border);background:var(--r-surface);color:var(--r-text);outline:none" onfocus="this.style.borderColor='var(--r-accent)'" onblur="this.style.borderColor='var(--r-border)'">
   </div>
   <table style="width:100%;font-size:13px;margin-top:4px">
-   <thead><tr style="color:var(--tx2);font-size:11px;text-transform:uppercase;letter-spacing:.3px">
+   <thead><tr style="color:var(--r-text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.3px">
     <th style="padding:4px 8px;text-align:left;font-weight:500">Number</th>
     <th style="padding:4px 8px;text-align:left;font-weight:500">Institution</th>
     <th style="padding:4px 8px;text-align:left;font-weight:500">Buyer</th>
@@ -186,12 +186,12 @@
         data-sent="{{ s.sent_date }}"
         data-search="{{ s.search_text }}"
         onclick="location.href='{{ s.url }}'"
-        style="border-bottom:1px solid var(--bd);opacity:0.7">
-     <td style="padding:6px 8px"><a href="{{ s.url }}" style="color:var(--ac)">#{{ s.number or '?' }}</a></td>
-     <td style="padding:6px 8px;color:var(--tx2)">{{ s.institution }}</td>
-     <td style="padding:6px 8px;color:var(--tx2)">{{ s.buyer }}</td>
-     <td style="padding:6px 8px;color:var(--tx2);text-align:center">{{ s.item_count }}</td>
-     <td style="padding:6px 8px;color:var(--tx2);font-size:12px;white-space:nowrap">{{ s.sent_date[:10] if s.sent_date|length >= 10 else '&mdash;' }}</td>
+        style="border-bottom:1px solid var(--r-border);opacity:0.7">
+     <td style="padding:6px 8px"><a href="{{ s.url }}" style="color:var(--r-accent)">#{{ s.number or '?' }}</a></td>
+     <td style="padding:6px 8px;color:var(--r-text-muted)">{{ s.institution }}</td>
+     <td style="padding:6px 8px;color:var(--r-text-muted)">{{ s.buyer }}</td>
+     <td style="padding:6px 8px;color:var(--r-text-muted);text-align:center">{{ s.item_count }}</td>
+     <td style="padding:6px 8px;color:var(--r-text-muted);font-size:12px;white-space:nowrap">{{ s.sent_date[:10] if s.sent_date|length >= 10 else '&mdash;' }}</td>
      <td style="padding:6px 8px;text-align:center">
       <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;color:{{ s.status_color }};background:{{ s.status_color }}18">{{ s.display_status }}</span>
      </td>

@@ -1068,7 +1068,7 @@ def competitors_page():
           <td style="text-align:right">${l.get('our_price',0):,.2f}</td>
           <td style="text-align:center;color:{'#f85149' if (l.get('price_delta_pct') or 0) > 0 else '#3fb950'}">{l.get('price_delta_pct',0):+.1f}%</td></tr>'''
 
-    empty = '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:20px">No award tracking data yet</td></tr>'
+    empty = '<tr><td colspan="6" style="text-align:center;color:var(--r-text-muted);padding:20px">No award tracking data yet</td></tr>'
 
     # ── Pull catalog margin data for pricing positioning ──
     margin_risk_rows = ""
@@ -1108,7 +1108,7 @@ def competitors_page():
                   <td class="mono" style="text-align:right">${p.get("sell_price",0):,.2f}</td>
                   <td class="mono" style="text-align:right">${p.get("cost",0):,.2f}</td>
                   <td class="mono" style="text-align:center;color:{clr};font-weight:700">{m:.1f}%</td>
-                  <td style="font-size:14px;color:var(--tx2)">{p.get("category","")}</td>
+                  <td style="font-size:14px;color:var(--r-text-muted)">{p.get("category","")}</td>
                 </tr>'''
 
             # Opportunity items: high value, low margin (room to increase price)
@@ -1125,8 +1125,8 @@ def competitors_page():
                   <td style="font-size:14px">{p.get("name","")[:50]}</td>
                   <td class="mono" style="text-align:right">${p.get("sell_price",0):,.2f}</td>
                   <td class="mono" style="text-align:center;color:#d29922">{m:.1f}%</td>
-                  <td class="mono" style="text-align:right;color:var(--gn)">${target_price:,.2f}</td>
-                  <td class="mono" style="text-align:right;color:var(--gn)">${gain:,.2f}</td>
+                  <td class="mono" style="text-align:right;color:var(--r-accent)">${target_price:,.2f}</td>
+                  <td class="mono" style="text-align:right;color:var(--r-accent)">${gain:,.2f}</td>
                 </tr>'''
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
@@ -1137,32 +1137,32 @@ def competitors_page():
 
     content = f'''
     <h2 style="margin-bottom:4px">🎯 Competitive Intelligence</h2>
-    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Award tracking + pricing position analysis from catalog ({catalog_stats["total"]} products)</p>
+    <p style="font-size:13px;color:var(--r-text-muted);margin-bottom:16px">Award tracking + pricing position analysis from catalog ({catalog_stats["total"]} products)</p>
 
     <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:#f85149">{total_losses}</div><div style="font-size:13px;color:var(--tx2)">LOSSES TRACKED</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:var(--tx)">{unique_comp}</div><div style="font-size:13px;color:var(--tx2)">COMPETITORS</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:{'#f85149' if neg > 0 else '#d29922'}">{neg + low}</div><div style="font-size:13px;color:var(--tx2)">AT-RISK ITEMS</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:{'#3fb950' if catalog_stats['avg_margin'] > 15 else '#d29922'}">{catalog_stats['avg_margin']:.1f}%</div><div style="font-size:13px;color:var(--tx2)">AVG MARGIN</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:#f85149">{total_losses}</div><div style="font-size:13px;color:var(--r-text-muted)">LOSSES TRACKED</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:var(--r-text)">{unique_comp}</div><div style="font-size:13px;color:var(--r-text-muted)">COMPETITORS</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:{'#f85149' if neg > 0 else '#d29922'}">{neg + low}</div><div style="font-size:13px;color:var(--r-text-muted)">AT-RISK ITEMS</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:{'#3fb950' if catalog_stats['avg_margin'] > 15 else '#d29922'}">{catalog_stats['avg_margin']:.1f}%</div><div style="font-size:13px;color:var(--r-text-muted)">AVG MARGIN</div></div>
     </div>'''
 
     if has_award_data:
         content += f'''
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
-        <h3 style="margin:0 0 12px;font-size:14px;color:var(--tx2)">TOP COMPETITORS</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx2)">
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 12px;font-size:14px;color:var(--r-text-muted)">TOP COMPETITORS</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--r-border);font-size:14px;color:var(--r-text-muted)">
           <th style="text-align:left;padding:6px">Vendor</th><th style="text-align:center;padding:6px">Losses</th>
           <th style="text-align:center;padding:6px">Avg Gap</th><th style="text-align:right;padding:6px">$ Won</th>
           <th style="text-align:left;padding:6px">Agencies</th>
         </tr></thead><tbody>{comp_rows or empty}</tbody></table></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
-        <h3 style="margin:0 0 12px;font-size:14px;color:var(--tx2)">RECENT LOSSES</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx2)">
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 12px;font-size:14px;color:var(--r-text-muted)">RECENT LOSSES</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--r-border);font-size:14px;color:var(--r-text-muted)">
           <th style="text-align:left;padding:6px">Date</th><th style="text-align:left;padding:6px">Institution</th>
           <th style="text-align:left;padding:6px">Winner</th><th style="text-align:right;padding:6px">Their $</th>
           <th style="text-align:right;padding:6px">Our $</th><th style="text-align:center;padding:6px">Gap</th>
@@ -1172,37 +1172,37 @@ def competitors_page():
     # Always show pricing position from catalog
     content += f'''
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div style="background:var(--sf);border:1px solid {'#f8514930' if neg > 0 else 'var(--bd)'};border-radius:8px;padding:16px">
+      <div style="background:var(--r-surface);border:1px solid {'#f8514930' if neg > 0 else 'var(--r-border)'};border-radius:8px;padding:16px">
         <h3 style="margin:0 0 4px;font-size:14px;color:#f85149">⚠️ Margin Risk — Vulnerable to Undercutting</h3>
-        <p style="font-size:14px;color:var(--tx2);margin:0 0 12px">Items below 5% margin — competitors can easily beat these prices</p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2)">
+        <p style="font-size:14px;color:var(--r-text-muted);margin:0 0 12px">Items below 5% margin — competitors can easily beat these prices</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--r-border);font-size:13px;color:var(--r-text-muted)">
           <th style="text-align:left;padding:5px">Product</th><th style="text-align:left;padding:5px">SKU</th>
           <th style="text-align:right;padding:5px">Sell</th><th style="text-align:right;padding:5px">Cost</th>
           <th style="text-align:center;padding:5px">Margin</th><th style="text-align:left;padding:5px">Category</th>
-        </tr></thead><tbody>{margin_risk_rows or '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:16px">No at-risk items 🎉</td></tr>'}</tbody></table>
-        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:14px;color:var(--ac)">View full catalog →</a></div>
+        </tr></thead><tbody>{margin_risk_rows or '<tr><td colspan="6" style="text-align:center;color:var(--r-text-muted);padding:16px">No at-risk items 🎉</td></tr>'}</tbody></table>
+        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:14px;color:var(--r-accent)">View full catalog →</a></div>
       </div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
-        <h3 style="margin:0 0 4px;font-size:14px;color:var(--gn)">💰 Repricing Opportunities</h3>
-        <p style="font-size:14px;color:var(--tx2);margin:0 0 12px">High-value items below 15% margin — room to increase price</p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2)">
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 4px;font-size:14px;color:var(--r-accent)">💰 Repricing Opportunities</h3>
+        <p style="font-size:14px;color:var(--r-text-muted);margin:0 0 12px">High-value items below 15% margin — room to increase price</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--r-border);font-size:13px;color:var(--r-text-muted)">
           <th style="text-align:left;padding:5px">Product</th><th style="text-align:right;padding:5px">Current</th>
           <th style="text-align:center;padding:5px">Margin</th><th style="text-align:right;padding:5px">Target (15%)</th>
           <th style="text-align:right;padding:5px">Gain/Unit</th>
-        </tr></thead><tbody>{margin_opp_rows or '<tr><td colspan="5" style="text-align:center;color:var(--tx2);padding:16px">No repricing opportunities</td></tr>'}</tbody></table>
-        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:14px;color:var(--ac)">Pricing engine →</a></div>
+        </tr></thead><tbody>{margin_opp_rows or '<tr><td colspan="5" style="text-align:center;color:var(--r-text-muted);padding:16px">No repricing opportunities</td></tr>'}</tbody></table>
+        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:14px;color:var(--r-accent)">Pricing engine →</a></div>
       </div>
     </div>
 
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
-      <h3 style="margin:0 0 8px;font-size:14px;color:var(--tx2)">📊 Catalog Margin Distribution</h3>
-      <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;background:var(--sf2)">
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:16px">
+      <h3 style="margin:0 0 8px;font-size:14px;color:var(--r-text-muted)">📊 Catalog Margin Distribution</h3>
+      <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;background:var(--r-surface-2)">
         {'<div style="width:' + str(round(catalog_stats["negative"]/max(catalog_stats["total"],1)*100,1)) + '%;background:#f85149;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="Negative margin">' + str(catalog_stats["negative"]) + '</div>' if catalog_stats["negative"] else ''}
         <div style="width:{round(catalog_stats['low']/max(catalog_stats['total'],1)*100,1)}%;background:#d29922;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="Low margin (0-10%)">{catalog_stats['low']}</div>
         <div style="width:{round(catalog_stats['mid']/max(catalog_stats['total'],1)*100,1)}%;background:#3fb950;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="Mid margin (10-25%)">{catalog_stats['mid']}</div>
         <div style="width:{round(catalog_stats['high']/max(catalog_stats['total'],1)*100,1)}%;background:#58a6ff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="High margin (25%+)">{catalog_stats['high']}</div>
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px;color:var(--tx2)">
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px;color:var(--r-text-muted)">
         <span><span style="color:#f85149">●</span> Negative: {catalog_stats['negative']}</span>
         <span><span style="color:#d29922">●</span> Low (&lt;10%): {catalog_stats['low']}</span>
         <span><span style="color:#3fb950">●</span> Mid (10-25%): {catalog_stats['mid']}</span>
@@ -4833,23 +4833,23 @@ def qa_email_pipeline_page():
 
     content = f'''
     <h2>Email Pipeline QA</h2>
-    <p style="color:var(--tx2);margin-bottom:16px">
+    <p style="color:var(--r-text-muted);margin-bottom:16px">
       Tests the full email intake pipeline: classification accuracy, inbox vs system state, gap detection.
     </p>
 
     <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('latest_score','—')}</div>
-        <div style="font-size:14px;color:var(--tx2)">LATEST SCORE</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('latest_grade','—')}</div>
-        <div style="font-size:14px;color:var(--tx2)">GRADE</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('runs',0)}</div>
-        <div style="font-size:14px;color:var(--tx2)">QA RUNS</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('trend','—')}</div>
-        <div style="font-size:14px;color:var(--tx2)">TREND</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--r-text)">{trends.get('latest_score','—')}</div>
+        <div style="font-size:14px;color:var(--r-text-muted)">LATEST SCORE</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--r-text)">{trends.get('latest_grade','—')}</div>
+        <div style="font-size:14px;color:var(--r-text-muted)">GRADE</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--r-text)">{trends.get('runs',0)}</div>
+        <div style="font-size:14px;color:var(--r-text-muted)">QA RUNS</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--r-text)">{trends.get('trend','—')}</div>
+        <div style="font-size:14px;color:var(--r-text-muted)">TREND</div></div>
     </div>
 
     <div style="display:flex;gap:12px;margin-bottom:20px">
@@ -4859,14 +4859,14 @@ def qa_email_pipeline_page():
         Run Classification Tests</button>
     </div>
 
-    <div id="qa-results" style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px;min-height:200px">
-      <p style="color:var(--tx2)">Click a button above to run QA tests...</p>
+    <div id="qa-results" style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:16px;min-height:200px">
+      <p style="color:var(--r-text-muted)">Click a button above to run QA tests...</p>
     </div>
 
     <script>
     function runFullQA() {{
       var el = document.getElementById('qa-results');
-      el.innerHTML = '<p style="color:var(--yl)">Running full inbox audit... (connects to Gmail, may take 10-30s)</p>';
+      el.innerHTML = '<p style="color:var(--r-warn)">Running full inbox audit... (connects to Gmail, may take 10-30s)</p>';
       fetch('/api/qa/email-pipeline', {{method:'POST'}})
         .then(function(r) {{ return r.json(); }})
         .then(function(d) {{
@@ -4875,9 +4875,9 @@ def qa_email_pipeline_page():
           h += '<p>Emails scanned: ' + d.emails_scanned + ' | Actionable: ' + d.total_actionable + ' | Matched: ' + d.matched + ' | Gaps: ' + d.gap_count + '</p>';
           if (d.gaps && d.gaps.length > 0) {{
             h += '<h4 style="color:#f85149;margin-top:12px">GAPS (missing from system):</h4><table style="width:100%;font-size:13px;border-collapse:collapse">';
-            h += '<tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:6px">Subject</th><th>Expected</th><th>Sender</th><th>PDFs</th><th>Confidence</th></tr>';
+            h += '<tr style="border-bottom:1px solid var(--r-border)"><th style="text-align:left;padding:6px">Subject</th><th>Expected</th><th>Sender</th><th>PDFs</th><th>Confidence</th></tr>';
             d.gaps.forEach(function(g) {{
-              h += '<tr style="border-bottom:1px solid var(--bd);color:#f85149"><td style="padding:6px">' + g.subject + '</td><td>' + g.expected_type + '</td><td>' + (g.sender||'').substring(0,30) + '</td><td>' + g.pdf_count + '</td><td>' + g.confidence + '%</td></tr>';
+              h += '<tr style="border-bottom:1px solid var(--r-border);color:#f85149"><td style="padding:6px">' + g.subject + '</td><td>' + g.expected_type + '</td><td>' + (g.sender||'').substring(0,30) + '</td><td>' + g.pdf_count + '</td><td>' + g.confidence + '%</td></tr>';
             }});
             h += '</table>';
           }}
@@ -4886,10 +4886,10 @@ def qa_email_pipeline_page():
             h += '<h4 style="margin-top:16px">Classification Tests: ' + ct.passed + '/' + ct.total_tests + ' (' + ct.score + '%)</h4>';
             if (ct.results) {{
               h += '<table style="width:100%;font-size:14px;border-collapse:collapse">';
-              h += '<tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:4px">Test</th><th>RFQ</th><th>Recall</th><th>CS</th><th>Pass</th></tr>';
+              h += '<tr style="border-bottom:1px solid var(--r-border)"><th style="text-align:left;padding:4px">Test</th><th>RFQ</th><th>Recall</th><th>CS</th><th>Pass</th></tr>';
               ct.results.forEach(function(t) {{
                 var color = t.passed ? '#3fb950' : '#f85149';
-                h += '<tr style="border-bottom:1px solid var(--bd);color:' + color + '"><td style="padding:4px">' + t.label + '</td>';
+                h += '<tr style="border-bottom:1px solid var(--r-border);color:' + color + '"><td style="padding:4px">' + t.label + '</td>';
                 h += '<td>' + (t.rfq.ok ? 'OK' : 'FAIL') + '</td>';
                 h += '<td>' + (t.recall.ok ? 'OK' : 'FAIL') + '</td>';
                 h += '<td>' + (t.cs.ok ? 'OK' : 'FAIL') + '</td>';
@@ -4904,16 +4904,16 @@ def qa_email_pipeline_page():
     }}
     function runClassTests() {{
       var el = document.getElementById('qa-results');
-      el.innerHTML = '<p style="color:var(--yl)">Running classification tests...</p>';
+      el.innerHTML = '<p style="color:var(--r-warn)">Running classification tests...</p>';
       fetch('/api/qa/classification-test')
         .then(function(r) {{ return r.json(); }})
         .then(function(d) {{
           var h = '<h3>Classification: ' + d.passed + '/' + d.total_tests + ' passed (' + d.score + '% — Grade ' + d.grade + ')</h3>';
           h += '<table style="width:100%;font-size:13px;border-collapse:collapse">';
-          h += '<tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:6px">Test</th><th>Subject</th><th>RFQ</th><th>Recall</th><th>CS</th><th>Result</th></tr>';
+          h += '<tr style="border-bottom:1px solid var(--r-border)"><th style="text-align:left;padding:6px">Test</th><th>Subject</th><th>RFQ</th><th>Recall</th><th>CS</th><th>Result</th></tr>';
           (d.results||[]).forEach(function(t) {{
             var color = t.passed ? '#3fb950' : '#f85149';
-            h += '<tr style="border-bottom:1px solid var(--bd)"><td style="padding:6px;color:' + color + ';font-weight:600">' + t.label + '</td>';
+            h += '<tr style="border-bottom:1px solid var(--r-border)"><td style="padding:6px;color:' + color + ';font-weight:600">' + t.label + '</td>';
             h += '<td style="font-size:14px">' + t.subject + '</td>';
             h += '<td style="text-align:center;color:' + (t.rfq.ok ? '#3fb950' : '#f85149') + '">' + (t.rfq.ok ? 'OK' : t.rfq.expected + '!=' + t.rfq.actual) + '</td>';
             h += '<td style="text-align:center;color:' + (t.recall.ok ? '#3fb950' : '#f85149') + '">' + (t.recall.ok ? 'OK' : 'FAIL') + '</td>';

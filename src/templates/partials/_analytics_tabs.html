@@ -1,6 +1,6 @@
 {# Analytics suite tab bar — shared across all analytics pages #}
 {% macro analytics_tabs(active, total_rfqs=0, total_pcs=0) %}
-<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--r-border)">
  {% set tabs = [
    ('pipeline', '/analytics?tab=pipeline', '📊 Pipeline'),
    ('business_intel', '/analytics?tab=business_intel', '📈 Business Intel'),
@@ -13,12 +13,12 @@
  {% if key == active %}
  <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">{{ label }}</a>
  {% else %}
- <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">{{ label }}</a>
+ <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--r-text-muted);text-decoration:none">{{ label }}</a>
  {% endif %}
  {% endfor %}
  <div style="flex:1"></div>
  {% if total_rfqs or total_pcs %}
- <div style="padding:10px 0;color:var(--tx2);font-size:14px">{{ total_rfqs }} RFQs · {{ total_pcs }} PCs</div>
+ <div style="padding:10px 0;color:var(--r-text-muted);font-size:14px">{{ total_rfqs }} RFQs · {{ total_pcs }} PCs</div>
  {% endif %}
 </div>
 {% endmacro %}

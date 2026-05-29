@@ -19,8 +19,8 @@
    sublabel: small text below the centre label. Optional.
    id: optional DOM id so JS can update value attrs in-place.
 #}
-{% macro progress_ring(value=0, max=100, size=56, color='var(--ac)',
-                       track='var(--sf2)', label='', sublabel='', id='') -%}
+{% macro progress_ring(value=0, max=100, size=56, color='var(--r-accent)',
+                       track='var(--r-surface-2)', label='', sublabel='', id='') -%}
 {%- set _max = max if max and max > 0 else 1 -%}
 {%- set _v = value if value is not none else 0 -%}
 {%- set _pct_raw = (_v * 100.0) / _max -%}

@@ -162,17 +162,17 @@ def orders_unresolved_page():
         oid = (u.get("order_id") or "").replace("'", "&#39;")
         rows_html += (
             "<tr>"
-            f'<td><a href="/order/{oid}" style="color:var(--ac);text-decoration:none">{oid}</a></td>'
+            f'<td><a href="/order/{oid}" style="color:var(--r-accent);text-decoration:none">{oid}</a></td>'
             f'<td>{(u.get("po_number") or "").replace("<","&lt;")}</td>'
             f'<td>{(u.get("agency") or "").replace("<","&lt;")}</td>'
             f'<td style="text-align:right;font-family:JetBrains Mono,monospace">${(u.get("total") or 0):,.2f}</td>'
-            f'<td class="mono" style="font-size:13px;color:var(--tx2)">{(u.get("created_at") or "")[:16]}</td>'
+            f'<td class="mono" style="font-size:13px;color:var(--r-text-muted)">{(u.get("created_at") or "")[:16]}</td>'
             f'<td style="text-align:center"><button type="button" class="btn btn-s" '
             f'onclick="retryMatch(this, \'{oid}\')">🔁 Retry match</button></td>'
             "</tr>"
         )
     if not rows_html:
-        rows_html = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--tx2)">🎉 All POs matched to quotes.</td></tr>'
+        rows_html = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--r-text-muted)">🎉 All POs matched to quotes.</td></tr>'
     body = f"""
      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <h2 style="margin:0;font-size:20px;font-weight:700">📦 Unresolved POs</h2>
@@ -288,8 +288,8 @@ def order_detail(oid):
         log.error("Order detail render error for %s: %s\n%s", oid, e, traceback.format_exc())
         return _wrap_page(f"""
         <div class="card" style="padding:24px">
-         <h2 style="color:var(--rd)">⚠️ Error rendering order {oid}</h2>
-         <pre style="color:var(--tx2);font-size:14px;overflow:auto;max-height:400px">{type(e).__name__}: {e}</pre>
+         <h2 style="color:var(--r-bad)">⚠️ Error rendering order {oid}</h2>
+         <pre style="color:var(--r-text-muted);font-size:14px;overflow:auto;max-height:400px">{type(e).__name__}: {e}</pre>
          <a href="/orders" class="btn btn-s" style="margin-top:12px">← Back to Orders</a>
         </div>""", f"Error: {oid}")
 
@@ -3187,11 +3187,11 @@ def supplier_record_page(name):
     rows = ""
     for si in supplier_items:
         ss = si["sourcing_status"]
-        s_colors = {"pending": "var(--tx2)", "ordered": "#58a6ff", "shipped": "#bc8cff", "delivered": "#3fb950"}
-        clr = s_colors.get(ss, "var(--tx2)")
+        s_colors = {"pending": "var(--r-text-muted)", "ordered": "#58a6ff", "shipped": "#bc8cff", "delivered": "#3fb950"}
+        clr = s_colors.get(ss, "var(--r-text-muted)")
         track = f'{si["carrier"]} {si["tracking"]}' if si["tracking"] else "—"
         rows += f"""<tr>
-         <td><a href="/order/{si['order_id']}" style="color:var(--ac);font-size:13px">{si['order_id']}</a></td>
+         <td><a href="/order/{si['order_id']}" style="color:var(--r-accent);font-size:13px">{si['order_id']}</a></td>
          <td style="font-size:13px">{si['institution']}</td>
          <td style="font-size:14px">{si['description']}</td>
          <td class="mono" style="font-size:13px">{si['part_number']}</td>
@@ -3206,9 +3206,9 @@ def supplier_record_page(name):
         f'<a href="/orders" class="btn btn-s" style="font-size:14px">← Orders</a>'
         f'<h2 style="margin:0;font-size:22px;font-weight:700">🏪 {supplier_name}</h2></div>'
         f'<div class="bento bento-3" style="margin-bottom:14px">'
-        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--tx2);text-transform:uppercase">Orders</div><div style="font-size:28px;font-weight:700;color:var(--ac)">{len(order_ids)}</div></div>'
-        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--tx2);text-transform:uppercase">Line Items</div><div style="font-size:28px;font-weight:700;color:#58a6ff">{len(supplier_items)}</div></div>'
-        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--tx2);text-transform:uppercase">Total Spend</div><div style="font-size:28px;font-weight:700;color:#3fb950">${total_spend:,.2f}</div></div>'
+        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--r-text-muted);text-transform:uppercase">Orders</div><div style="font-size:28px;font-weight:700;color:var(--r-accent)">{len(order_ids)}</div></div>'
+        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--r-text-muted);text-transform:uppercase">Line Items</div><div style="font-size:28px;font-weight:700;color:#58a6ff">{len(supplier_items)}</div></div>'
+        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--r-text-muted);text-transform:uppercase">Total Spend</div><div style="font-size:28px;font-weight:700;color:#3fb950">${total_spend:,.2f}</div></div>'
         f'</div>'
         f'<div class="card"><div class="card-t" style="font-size:16px">All Items from {supplier_name}</div>'
         f'<div style="overflow-x:auto"><table class="home-tbl" style="min-width:800px;font-size:14px">'

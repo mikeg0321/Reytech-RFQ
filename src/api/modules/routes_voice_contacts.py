@@ -52,7 +52,7 @@ def intelligence_page():
             continue
         cats = ", ".join(list(ag.get("categories", {}).keys())[:3])
         sb = ag.get("sb_admin")
-        sb_cell = f'<span style="color:#3fb950">{sb.get("email","") or sb.get("name","")}</span>' if sb else '<span style="color:var(--tx2)">—</span>'
+        sb_cell = f'<span style="color:#3fb950">{sb.get("email","") or sb.get("name","")}</span>' if sb else '<span style="color:var(--r-text-muted)">—</span>'
         buyer_count = len(ag.get("buyers", {}))
         opp_rows += f"""<tr>
          <td style="font-weight:600">{ag.get('dept_code','—')}</td>
@@ -79,7 +79,7 @@ def intelligence_page():
          <td class="mono" style="color:#3fb950">${b.get('total_spend',0):,.0f}</td>
          <td class="mono">{b.get('opportunity_score',0)}</td>
          <td style="font-size:14px">{cats}</td>
-         <td style="font-size:13px;color:var(--tx2)">{items[:60]}</td>
+         <td style="font-size:13px;color:var(--r-text-muted)">{items[:60]}</td>
         </tr>"""
         if len(buyer_rows) > 25000:
             break
@@ -107,24 +107,24 @@ def intelligence_page():
 
     content = f"""
     <style>
-     .card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}}
-     .card h3{{font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}}
-     .g-btn{{padding:8px 14px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:5px}}
-     .g-btn:hover{{border-color:var(--ac);background:rgba(79,140,255,.1)}}
+     .card{{background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px;margin-bottom:14px}}
+     .card h3{{font-size:14px;font-weight:700;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}}
+     .g-btn{{padding:8px 14px;border-radius:7px;border:1px solid var(--r-border);background:var(--r-surface-2);color:var(--r-text);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:5px}}
+     .g-btn:hover{{border-color:var(--r-accent);background:rgba(79,140,255,.1)}}
      .g-btn-go{{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}}
      .g-btn-warn{{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}}
      .g-btn-red{{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}}
      .g-btn-purple{{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}}
      table{{width:100%;border-collapse:collapse;font-size:14px}}
-     th{{text-align:left;padding:8px;font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}}
+     th{{text-align:left;padding:8px;font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--r-border)}}
      td{{padding:8px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}}
      tr:hover td{{background:rgba(79,140,255,.04)}}
      .mono{{font-family:'JetBrains Mono',monospace}}
      .modal-bg{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}}
-     .modal-box{{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto}}
-     .form-lbl{{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}}
-     .form-input{{width:100%;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;box-sizing:border-box;margin-bottom:12px;font-family:'DM Sans',sans-serif}}
-     .form-input:focus{{outline:none;border-color:var(--ac)}}
+     .modal-box{{background:var(--r-surface);border:1px solid var(--r-border);border-radius:12px;padding:24px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto}}
+     .form-lbl{{font-size:14px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}}
+     .form-input{{width:100%;padding:10px 12px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:7px;color:var(--r-text);font-size:13px;box-sizing:border-box;margin-bottom:12px;font-family:'DM Sans',sans-serif}}
+     .form-input:focus{{outline:none;border-color:var(--r-accent)}}
      textarea.form-input{{resize:vertical;min-height:120px}}
     </style>
 
@@ -132,7 +132,7 @@ def intelligence_page():
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
      <div>
       <h1 style="font-size:22px;font-weight:700;margin-bottom:4px">🧠 Sales Intelligence</h1>
-      <div style="font-size:13px;color:var(--tx2)">SCPRS buyer database — contacts, spend, categories, opportunities</div>
+      <div style="font-size:13px;color:var(--r-text-muted)">SCPRS buyer database — contacts, spend, categories, opportunities</div>
      </div>
      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <span id="scprs-dot" style="font-size:14px;padding:4px 10px;border-radius:12px;background:{'rgba(52,211,153,.15)' if scprs_ok else 'rgba(248,113,113,.15)'};color:{'#3fb950' if scprs_ok else '#f87171'};border:1px solid {'rgba(52,211,153,.3)' if scprs_ok else 'rgba(248,113,113,.3)'}">
@@ -143,28 +143,28 @@ def intelligence_page():
     </div>
 
     <!-- SCPRS offline banner -->
-    {'<div id="scprs-banner" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px"><b style=\'color:#f87171\'>⚠️ SCPRS Unreachable</b> — Deep Pull requires Railway static IP.<br><span style=\'color:var(--tx2);font-size:14px\'>Fix: railway.app → your project → Settings → Networking → Static IP → Enable. Then retry Deep Pull.</span><br><span style=\'color:var(--tx2);font-size:14px\'>In the meantime, use <b style=\'color:#fbbf24\'>Load Demo Data</b> to see the full UI, or <b style=\'color:#3fb950\'>Add Buyer Manually</b> to enter real contacts.</span></div>' if not scprs_ok else ''}
+    {'<div id="scprs-banner" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px"><b style=\'color:#f87171\'>⚠️ SCPRS Unreachable</b> — Deep Pull requires Railway static IP.<br><span style=\'color:var(--r-text-muted);font-size:14px\'>Fix: railway.app → your project → Settings → Networking → Static IP → Enable. Then retry Deep Pull.</span><br><span style=\'color:var(--r-text-muted);font-size:14px\'>In the meantime, use <b style=\'color:#fbbf24\'>Load Demo Data</b> to see the full UI, or <b style=\'color:#3fb950\'>Add Buyer Manually</b> to enter real contacts.</span></div>' if not scprs_ok else ''}
 
     <!-- Stats bar -->
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Buyers</div>
-      <div style="font-size:26px;font-weight:700;color:var(--ac);font-family:monospace">{total_buyers}</div>
+      <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;margin-bottom:4px">Buyers</div>
+      <div style="font-size:26px;font-weight:700;color:var(--r-accent);font-family:monospace">{total_buyers}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Agencies</div>
+      <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;margin-bottom:4px">Agencies</div>
       <div style="font-size:26px;font-weight:700;color:#a78bfa;font-family:monospace">{total_agencies}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Addressable</div>
+      <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;margin-bottom:4px">Addressable</div>
       <div style="font-size:22px;font-weight:700;color:#fbbf24;font-family:monospace">${sum(b.get('total_spend',0) for b in buyers):,.0f}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Revenue Closed</div>
+      <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;margin-bottom:4px">Revenue Closed</div>
       <div style="font-size:22px;font-weight:700;color:#3fb950;font-family:monospace">${closed:,.0f}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Goal Progress</div>
+      <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;margin-bottom:4px">Goal Progress</div>
       <div style="font-size:22px;font-weight:700;color:{'#3fb950' if pct>=50 else '#d29922'};font-family:monospace">{pct:.0f}%</div>
      </div>
     </div>
@@ -178,14 +178,14 @@ def intelligence_page():
        <h3>⚡ Data Collection</h3>
        <div id="pull-progress-wrap" style="display:{'block' if pull_running else 'none'};margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-         <span style="font-size:14px;font-weight:600;color:var(--tx2)" id="pull-phase-label">Deep Pull Running...</span>
-         <span style="font-size:14px;font-family:monospace;color:var(--ac)" id="pull-counts"></span>
+         <span style="font-size:14px;font-weight:600;color:var(--r-text-muted)" id="pull-phase-label">Deep Pull Running...</span>
+         <span style="font-size:14px;font-family:monospace;color:var(--r-accent)" id="pull-counts"></span>
         </div>
-        <div style="background:var(--sf2);border-radius:8px;height:22px;overflow:hidden;position:relative;border:1px solid var(--bd)">
+        <div style="background:var(--r-surface-2);border-radius:8px;height:22px;overflow:hidden;position:relative;border:1px solid var(--r-border)">
          <div id="pull-bar-fill" style="height:100%;border-radius:8px;transition:width .5s;background:linear-gradient(90deg,#4f8cff,#34d399);width:0%"></div>
          <span id="pull-bar-text" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:600;color:#fff;white-space:nowrap">Starting...</span>
         </div>
-        <div style="margin-top:6px;font-size:14px;color:var(--tx2)" id="pull-detail-text"></div>
+        <div style="margin-top:6px;font-size:14px;color:var(--r-text-muted)" id="pull-detail-text"></div>
         <div id="pull-errors" style="margin-top:6px;font-size:14px;color:#f87171;display:none"></div>
        </div>
        <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -203,21 +203,21 @@ def intelligence_page():
       <div class="card">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h3 style="margin:0">🔥 Buyer Database ({total_buyers})</h3>
-        <input id="buyer-search" placeholder="Filter buyers..." style="padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;width:180px" oninput="filterBuyers()">
+        <input id="buyer-search" placeholder="Filter buyers..." style="padding:6px 10px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:14px;width:180px" oninput="filterBuyers()">
        </div>
        {'<div style="overflow-x:auto"><table id="buyer-table"><thead><tr><th>Agency</th><th>Name</th><th>Email</th><th>Categories</th><th>Spend</th><th>Score</th><th>Status</th><th></th></tr></thead><tbody id="buyer-tbody">' + ''.join(
            f'<tr data-search="{b.get("agency","").lower()} {b.get("name","").lower()} {b.get("email","").lower()}">'
            f'<td style="font-weight:600">{b.get("agency","—")}</td>'
            f'<td>{b.get("name") or b.get("buyer_name","—")}</td>'
-           f'<td style="font-family:monospace;font-size:14px"><a href="mailto:{b.get("email","")}" style="color:var(--ac)">{b.get("email","—")}</a></td>'
+           f'<td style="font-family:monospace;font-size:14px"><a href="mailto:{b.get("email","")}" style="color:var(--r-accent)">{b.get("email","—")}</a></td>'
            f'<td style="font-size:14px">{", ".join(list(b.get("categories",{}).keys())[:2])}</td>'
            f'<td class="mono" style="color:#3fb950">${b.get("total_spend",0):,.0f}</td>'
            f'<td class="mono" style="color:#a78bfa">{b.get("opportunity_score",0) or int((b.get("score",0) or 0)*100)}</td>'
-           f'<td><span style="font-size:13px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac)">{b.get("outreach_status","new")}</span></td>'
-           f'<td><a href="/growth/prospect/{b.get("id","")}" style="color:var(--ac);font-size:14px">View →</a></td>'
+           f'<td><span style="font-size:13px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--r-accent)">{b.get("outreach_status","new")}</span></td>'
+           f'<td><a href="/growth/prospect/{b.get("id","")}" style="color:var(--r-accent);font-size:14px">View →</a></td>'
            f'</tr>'
            for b in buyers
-       ) + '</tbody></table></div>' if has_buyers else '<div style="text-align:center;padding:32px;color:var(--tx2)"><div style="font-size:32px;margin-bottom:10px">📭</div><div style="font-size:14px;font-weight:600;margin-bottom:6px">No buyers yet</div><div style="font-size:13px;margin-bottom:16px">Use the buttons above to pull from SCPRS, import CSV, or add manually</div><button class="g-btn g-btn-warn" onclick="seedDemo(this)" style="margin:0 auto">🌱 Load Demo Data (15 CA agencies)</button></div>'}
+       ) + '</tbody></table></div>' if has_buyers else '<div style="text-align:center;padding:32px;color:var(--r-text-muted)"><div style="font-size:32px;margin-bottom:10px">📭</div><div style="font-size:14px;font-weight:600;margin-bottom:6px">No buyers yet</div><div style="font-size:13px;margin-bottom:16px">Use the buttons above to pull from SCPRS, import CSV, or add manually</div><button class="g-btn g-btn-warn" onclick="seedDemo(this)" style="margin:0 auto">🌱 Load Demo Data (15 CA agencies)</button></div>'}
       </div>
 
       <!-- Opportunity Agencies -->
@@ -234,15 +234,15 @@ def intelligence_page():
       <!-- Revenue Goal -->
       <div class="card">
        <h3>📈 Revenue Goal — 2026</h3>
-       <div style="background:var(--sf2);border-radius:8px;height:22px;overflow:hidden;position:relative;margin-bottom:10px">
+       <div style="background:var(--r-surface-2);border-radius:8px;height:22px;overflow:hidden;position:relative;margin-bottom:10px">
         <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:8px;transition:width .5s"></div>
         <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:700;color:#fff">${closed:,.0f} / $2M</span>
        </div>
        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:14px;margin-bottom:12px">
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Gap</div><div style="font-weight:700;color:#f85149;font-family:monospace">${gap:,.0f}</div></div>
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Mo. Needed</div><div style="font-weight:700;color:#fbbf24;font-family:monospace">${monthly:,.0f}</div></div>
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Run Rate</div><div style="font-weight:700;color:{'#3fb950' if on_track else '#f87171'};font-family:monospace">${run_rate:,.0f}</div></div>
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Pipeline</div><div style="font-weight:700;color:#58a6ff;font-family:monospace">${pipeline:,.0f}</div></div>
+        <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Gap</div><div style="font-weight:700;color:#f85149;font-family:monospace">${gap:,.0f}</div></div>
+        <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Mo. Needed</div><div style="font-weight:700;color:#fbbf24;font-family:monospace">${monthly:,.0f}</div></div>
+        <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Run Rate</div><div style="font-weight:700;color:{'#3fb950' if on_track else '#f87171'};font-family:monospace">${run_rate:,.0f}</div></div>
+        <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Pipeline</div><div style="font-weight:700;color:#58a6ff;font-family:monospace">${pipeline:,.0f}</div></div>
        </div>
        <div style="display:flex;gap:6px">
         <button class="g-btn g-btn-go" onclick="openLogRevenue()" style="flex:1;justify-content:center">💰 Log Revenue</button>
@@ -254,9 +254,9 @@ def intelligence_page():
       <div class="card">
        <h3>📡 Pull Status</h3>
        <div id="pull-status-card" style="font-size:14px">
-        {'<div style="color:#f87171">⚠️ Last pull failed: ' + pull.get("progress","")[:80] + '</div>' if pull.get("phase") == "error" else '<div style="color:var(--tx2)">No pull run yet</div>' if not pull.get("phase") else '<div style="color:#3fb950">✅ ' + str(pull.get("progress",""))[:80] + '</div>'}
-        {f'<div style="font-size:14px;color:var(--tx2);margin-top:6px">{pull.get("total_buyers",0)} buyers · {pull.get("total_agencies",0)} agencies · {pull.get("total_pos",0)} POs scanned</div>' if pull.get("total_buyers") else ''}
-        {f'<div style="font-size:14px;color:var(--tx2);margin-top:4px">Finished: {str(pull.get("finished_at",""))[:16].replace("T"," ")}</div>' if pull.get("finished_at") else ''}
+        {'<div style="color:#f87171">⚠️ Last pull failed: ' + pull.get("progress","")[:80] + '</div>' if pull.get("phase") == "error" else '<div style="color:var(--r-text-muted)">No pull run yet</div>' if not pull.get("phase") else '<div style="color:#3fb950">✅ ' + str(pull.get("progress",""))[:80] + '</div>'}
+        {f'<div style="font-size:14px;color:var(--r-text-muted);margin-top:6px">{pull.get("total_buyers",0)} buyers · {pull.get("total_agencies",0)} agencies · {pull.get("total_pos",0)} POs scanned</div>' if pull.get("total_buyers") else ''}
+        {f'<div style="font-size:14px;color:var(--r-text-muted);margin-top:4px">Finished: {str(pull.get("finished_at",""))[:16].replace("T"," ")}</div>' if pull.get("finished_at") else ''}
        </div>
       </div>
 
@@ -264,7 +264,7 @@ def intelligence_page():
       <div id="result-wrap" style="display:none" class="card">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <h3 style="margin:0" id="result-title">Result</h3>
-        <button onclick="document.getElementById('result-wrap').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:16px">✕</button>
+        <button onclick="document.getElementById('result-wrap').style.display='none'" style="background:none;border:none;color:var(--r-text-muted);cursor:pointer;font-size:16px">✕</button>
        </div>
        <div id="result-content" style="font-size:14px;line-height:1.6"></div>
       </div>
@@ -272,8 +272,8 @@ def intelligence_page():
       <!-- CSV template -->
       <div class="card">
        <h3>📋 CSV Import Format</h3>
-       <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">Copy this template, fill it out, and click Import CSV:</div>
-       <pre style="font-size:13px;background:var(--sf2);padding:10px;border-radius:6px;overflow-x:auto;color:var(--tx);line-height:1.4">agency,email,name,phone,categories,annual_spend,notes
+       <div style="font-size:14px;color:var(--r-text-muted);margin-bottom:8px">Copy this template, fill it out, and click Import CSV:</div>
+       <pre style="font-size:13px;background:var(--r-surface-2);padding:10px;border-radius:6px;overflow-x:auto;color:var(--r-text);line-height:1.4">agency,email,name,phone,categories,annual_spend,notes
 CDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,"Medical,Safety",125000,High priority
 CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
        <button class="g-btn" onclick="copyTemplate(this)" style="margin-top:6px;font-size:14px;padding:5px 10px">📋 Copy Template</button>
@@ -287,7 +287,7 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
      <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
        <span style="font-size:16px;font-weight:700">➕ Add Buyer Manually</span>
-       <button onclick="closeModal('add-buyer-modal')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+       <button onclick="closeModal('add-buyer-modal')" style="background:none;border:none;color:var(--r-text-muted);cursor:pointer;font-size:20px">✕</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
        <div><label class="form-lbl">Agency *</label><input id="ab-agency" class="form-input" placeholder="e.g. CDCR, CalTrans"></div>
@@ -310,9 +310,9 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
      <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
        <span style="font-size:16px;font-weight:700">📥 Import Buyers CSV</span>
-       <button onclick="closeModal('csv-modal')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+       <button onclick="closeModal('csv-modal')" style="background:none;border:none;color:var(--r-text-muted);cursor:pointer;font-size:20px">✕</button>
       </div>
-      <div style="font-size:14px;color:var(--tx2);margin-bottom:10px">Paste CSV with headers: agency, email, name, phone, categories, annual_spend, notes</div>
+      <div style="font-size:14px;color:var(--r-text-muted);margin-bottom:10px">Paste CSV with headers: agency, email, name, phone, categories, annual_spend, notes</div>
       <textarea id="csv-input" class="form-input" rows="10" placeholder="agency,email,name,phone,categories,annual_spend,notes&#10;CDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,&quot;Medical,Safety&quot;,125000,"></textarea>
       <div style="display:flex;gap:8px;margin-top:4px">
        <button onclick="submitCSV()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px">📥 Import</button>
@@ -326,7 +326,7 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
      <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
        <span style="font-size:16px;font-weight:700">💰 Log Revenue</span>
-       <button onclick="closeModal('rev-modal')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+       <button onclick="closeModal('rev-modal')" style="background:none;border:none;color:var(--r-text-muted);cursor:pointer;font-size:20px">✕</button>
       </div>
       <label class="form-lbl">Amount ($) *</label>
       <input id="rev-amount" class="form-input" type="number" placeholder="e.g. 12500">
@@ -344,12 +344,12 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
       document.getElementById('result-wrap').style.display = 'block';
       document.getElementById('result-title').textContent = title;
       const el = document.getElementById('result-content');
-      el.style.color = isError ? '#f87171' : 'var(--tx)';
+      el.style.color = isError ? '#f87171' : 'var(--r-text)';
       if(typeof content === 'object') {{
         if(content.error) {{
           el.innerHTML = '<b style="color:#f87171">❌ ' + content.error + '</b>' +
             (content.hint ? '<br><br>💡 ' + content.hint : '') +
-            (content.railway_guide ? '<br><a href="' + content.railway_guide + '" target="_blank" style="color:var(--ac)">📖 Railway guide →</a>' : '');
+            (content.railway_guide ? '<br><a href="' + content.railway_guide + '" target="_blank" style="color:var(--r-accent)">📖 Railway guide →</a>' : '');
         }} else {{
           const lines = [];
           if(content.message) lines.push('✅ ' + content.message);

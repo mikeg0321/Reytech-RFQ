@@ -683,14 +683,14 @@ def pricechecks_archive():
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
         overdue_style = "border-left:3px solid #f85149;" if is_overdue else ""
-        due_color = "#f85149;font-weight:700" if is_overdue else "var(--tx2)"
+        due_color = "#f85149;font-weight:700" if is_overdue else "var(--r-text-muted)"
         rows += f'''<tr data-status="{p['display_status']}" data-search="{search_index}" data-id="{p['id']}" style="cursor:pointer;{overdue_style}" onclick="if(!event.target.closest('input,button'))location.href='/pricecheck/{p['id']}'">
          <td style="padding:8px 6px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="pc-bulk-check" value="{p['id']}" onchange="updateBulkBar()" style="width:16px;height:16px;cursor:pointer"></td>
          <td style="padding:14px 12px"><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
          <td style="padding:14px 12px;font-size:15px;font-weight:500">{p['institution']}</td>
          <td style="padding:14px 12px;font-size:15px">{p['requestor'][:30]}</td>
          <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:{due_color}">{due_str}{' 🔴' if is_overdue else ''}</td>
-         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--tx2)">{date_str}</td>
+         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--r-text-muted)">{date_str}</td>
          <td style="padding:14px 12px;text-align:center;font-size:16px;font-weight:700">{p['items_count']}</td>
          <td style="padding:14px 12px;text-align:right;font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace">{total_str}</td>
          <td style="padding:14px 12px;text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:700;font-size:14px">{qn}</span>' if qn else chr(8212)}</td>
@@ -710,22 +710,22 @@ def pricechecks_archive():
       </div>
     </div>
     <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap">
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Total</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total_new}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">New</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#fbbf24">{total_draft}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Draft</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{total_sent}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Sent</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{total_not_responding}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Not Responding</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Total</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total_new}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">New</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#fbbf24">{total_draft}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Draft</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{total_sent}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Sent</div></div>
+      <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{total_not_responding}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Not Responding</div></div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
-      <input id="pc-search" placeholder="🔍 Search PC#, institution, requestor, status..." oninput="filterPCs()" style="flex:1;padding:10px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:16px">
-      <select id="pc-status" onchange="filterPCs()" style="padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
+      <input id="pc-search" placeholder="🔍 Search PC#, institution, requestor, status..." oninput="filterPCs()" style="flex:1;padding:10px 16px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;color:var(--r-text);font-size:16px">
+      <select id="pc-status" onchange="filterPCs()" style="padding:10px 14px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;color:var(--r-text);font-size:15px">
         <option value="">All Statuses</option>{status_options}</select>
-      <span id="pc-count" style="font-size:15px;color:var(--tx2);white-space:nowrap">{total} PCs</span>
+      <span id="pc-count" style="font-size:15px;color:var(--r-text-muted);white-space:nowrap">{total} PCs</span>
     </div>
     <div id="bulk-bar" style="display:none;align-items:center;gap:12px;padding:8px 16px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:8px;margin-bottom:8px">
       <span id="bulk-count" style="font-size:14px;font-weight:600;color:#58a6ff">0 selected</span>
@@ -733,9 +733,9 @@ def pricechecks_archive():
       <button onclick="bulkAction('duplicate')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:13px;cursor:pointer">📋 Duplicate</button>
       <button onclick="bulkAction('delete')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#f85149;font-size:13px;cursor:pointer">🗑 Delete</button>
     </div>
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow-x:auto">
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:15px">
-        <thead><tr style="border-bottom:2px solid var(--bd);text-transform:uppercase;font-size:14px;color:var(--tx2);letter-spacing:.5px">
+        <thead><tr style="border-bottom:2px solid var(--r-border);text-transform:uppercase;font-size:14px;color:var(--r-text-muted);letter-spacing:.5px">
           <th style="padding:8px 6px;text-align:center;width:30px"><input type="checkbox" onchange="toggleAllPCs(this)" style="width:16px;height:16px;cursor:pointer" title="Select all"></th>
           <th style="padding:14px 12px;text-align:left;font-weight:600">PC #</th><th style="padding:14px 12px;text-align:left;font-weight:600">Institution</th>
           <th style="padding:14px 12px;text-align:left;font-weight:600">Requestor</th><th style="padding:14px 12px;text-align:left;font-weight:600">Due</th><th style="padding:14px 12px;text-align:left;font-weight:600">Created</th>
@@ -1230,16 +1230,16 @@ def pricecheck_documents(pcid):
       <h2 style="margin:0">📄 Sent Documents — PC #{pc.get("pc_number","?")}</h2>
       <a href="/pricecheck/{pcid}" style="color:#58a6ff;text-decoration:none;font-size:13px">← Back to PC Detail</a>
     </div>
-    <div style="font-size:13px;color:var(--tx2);margin-bottom:16px">{pc.get("institution","")} · {len(docs)} version(s)</div>
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+    <div style="font-size:13px;color:var(--r-text-muted);margin-bottom:16px">{pc.get("institution","")} · {len(docs)} version(s)</div>
+    <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;overflow:hidden">
      <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx2);text-transform:uppercase">
+      <thead><tr style="border-bottom:1px solid var(--r-border);font-size:14px;color:var(--r-text-muted);text-transform:uppercase">
        <th style="padding:10px;text-align:left">Ver</th><th style="padding:10px">Date</th>
        <th style="padding:10px">Notes</th><th style="padding:10px">Changes</th>
        <th style="padding:10px">Status</th><th style="padding:10px;text-align:right">Size</th>
        <th style="padding:10px"></th>
       </tr></thead>
-      <tbody>{rows if rows else '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--tx2)">No documents yet — mark PC as Sent to create the first version</td></tr>'}</tbody>
+      <tbody>{rows if rows else '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--r-text-muted)">No documents yet — mark PC as Sent to create the first version</td></tr>'}</tbody>
      </table>
     </div>'''
     from src.api.render import render_page
@@ -1300,11 +1300,11 @@ def pricecheck_document_editor(pcid, doc_id):
         ext = round(float(price) * int(qty), 2) if price else 0
         item_rows += f'''<tr>
          <td style="text-align:center;padding:8px;font-weight:600">{i+1}</td>
-         <td style="padding:4px"><input name="ed_qty_{i}" value="{qty}" type="number" min="1" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center" onchange="recalcDoc()"></td>
-         <td style="padding:4px"><input name="ed_uom_{i}" value="{uom}" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center"></td>
-         <td style="padding:4px"><textarea name="ed_desc_{i}" rows="2" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;resize:vertical">{desc}</textarea></td>
-         <td style="padding:4px"><input name="ed_mfg_{i}" value="{mfg}" style="width:120px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;font-family:monospace"></td>
-         <td style="padding:4px"><input name="ed_price_{i}" value="{float(price):.2f}" type="text" inputmode="decimal" style="min-width:90px;field-sizing:content;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:right" oninput="if(window.sanitizePrice)sanitizePrice(this)" onblur="if(window.fmtCurrency)fmtCurrency(this)" onchange="recalcDoc()"></td>
+         <td style="padding:4px"><input name="ed_qty_{i}" value="{qty}" type="number" min="1" style="width:60px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:4px;padding:6px;color:var(--r-text);font-size:13px;text-align:center" onchange="recalcDoc()"></td>
+         <td style="padding:4px"><input name="ed_uom_{i}" value="{uom}" style="width:60px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:4px;padding:6px;color:var(--r-text);font-size:13px;text-align:center"></td>
+         <td style="padding:4px"><textarea name="ed_desc_{i}" rows="2" style="width:100%;background:var(--r-surface);border:1px solid var(--r-border);border-radius:4px;padding:6px;color:var(--r-text);font-size:14px;resize:vertical">{desc}</textarea></td>
+         <td style="padding:4px"><input name="ed_mfg_{i}" value="{mfg}" style="width:120px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:4px;padding:6px;color:var(--r-text);font-size:14px;font-family:monospace"></td>
+         <td style="padding:4px"><input name="ed_price_{i}" value="{float(price):.2f}" type="text" inputmode="decimal" style="min-width:90px;field-sizing:content;background:var(--r-surface);border:1px solid var(--r-border);border-radius:4px;padding:6px;color:var(--r-text);font-size:13px;text-align:right" oninput="if(window.sanitizePrice)sanitizePrice(this)" onblur="if(window.fmtCurrency)fmtCurrency(this)" onchange="recalcDoc()"></td>
          <td style="padding:8px;text-align:right;font-weight:600;font-family:monospace" class="doc-ext">${ext:,.2f}</td>
         </tr>'''
     
@@ -1315,21 +1315,21 @@ def pricecheck_document_editor(pcid, doc_id):
     content = f'''
     <style>
      .doc-split {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; height:calc(100vh - 180px); }}
-     .doc-pdf {{ border:1px solid var(--bd); border-radius:8px; overflow:hidden; background:#1e1e1e; }}
+     .doc-pdf {{ border:1px solid var(--r-border); border-radius:8px; overflow:hidden; background:#1e1e1e; }}
      .doc-editor {{ overflow-y:auto; }}
      @media(max-width:1100px) {{ .doc-split {{ grid-template-columns:1fr; height:auto; }} .doc-pdf {{ height:600px; }} }}
     </style>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
      <div>
       <h2 style="margin:0;font-size:18px">📄 PC #{pc.get("pc_number","")} — {pc.get("institution","")}</h2>
-      <div style="font-size:14px;color:var(--tx2);margin-top:2px">
+      <div style="font-size:14px;color:var(--r-text-muted);margin-top:2px">
        Version {doc.get("version",1)} · {doc.get("created_at","")[:19].replace("T"," ")}
        · <span style="color:{("#3fb950" if doc.get("status")=="current" else "#8b949e")}">{doc.get("status","").title()}</span>
        {change_log}
       </div>
      </div>
      <div style="display:flex;gap:8px;align-items:center">
-      <select id="verSelect" onchange="location.href='/pricecheck/{pcid}/document/'+this.value" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;color:var(--tx);font-size:14px">{ver_options}</select>
+      <select id="verSelect" onchange="location.href='/pricecheck/{pcid}/document/'+this.value" style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;padding:6px 10px;color:var(--r-text);font-size:14px">{ver_options}</select>
       <a href="/pricecheck/{pcid}/documents" style="color:#58a6ff;font-size:14px;text-decoration:none">📋 All Versions</a>
       <a href="/pricecheck/{pcid}" style="color:#58a6ff;font-size:14px;text-decoration:none">← PC Detail</a>
      </div>
@@ -1338,26 +1338,26 @@ def pricecheck_document_editor(pcid, doc_id):
      <div class="doc-pdf">
       <iframe src="/api/pricecheck/document/{doc_id}/pdf" style="width:100%;height:100%;border:none"></iframe>
      </div>
-     <div class="doc-editor" style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px">
+     <div class="doc-editor" style="background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:8px;padding:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-       <span style="font-size:14px;font-weight:700;color:var(--tx)">✏️ Edit Line Items</span>
+       <span style="font-size:14px;font-weight:700;color:var(--r-text)">✏️ Edit Line Items</span>
        <div style="display:flex;gap:8px">
         <button onclick="saveDocument(this)" class="btn btn-sm" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600">💾 Save & Regenerate</button>
         <a href="/api/pricecheck/document/{doc_id}/pdf" download class="btn btn-sm" style="background:#21262d;color:#58a6ff;font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #30363d;text-decoration:none">📥 Download</a>
        </div>
       </div>
       <div id="docMsg" style="display:none;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:10px"></div>
-      <textarea id="ed_notes" placeholder="Revision notes (optional)" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;resize:none;margin-bottom:10px;height:32px">{doc.get("notes","")}</textarea>
+      <textarea id="ed_notes" placeholder="Revision notes (optional)" style="width:100%;background:var(--r-surface);border:1px solid var(--r-border);border-radius:4px;padding:6px;color:var(--r-text);font-size:14px;resize:none;margin-bottom:10px;height:32px">{doc.get("notes","")}</textarea>
       <div style="overflow-x:auto">
        <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2);text-transform:uppercase">
+        <thead><tr style="border-bottom:1px solid var(--r-border);font-size:13px;color:var(--r-text-muted);text-transform:uppercase">
          <th style="padding:8px;width:30px">#</th><th style="padding:8px;width:60px">Qty</th><th style="padding:8px;width:60px">UOM</th>
          <th style="padding:8px">Description</th><th style="padding:8px;width:120px">MFG#</th>
          <th style="padding:8px;width:90px;text-align:right">Price</th><th style="padding:8px;width:90px;text-align:right">Extension</th>
         </tr></thead>
         <tbody>{item_rows}</tbody>
         <tfoot>
-         <tr style="border-top:2px solid var(--bd)">
+         <tr style="border-top:2px solid var(--r-border)">
           <td colspan="6" style="text-align:right;padding:10px;font-weight:700;font-size:14px">Subtotal:</td>
           <td style="text-align:right;padding:10px;font-weight:700;font-size:14px;font-family:monospace" id="docSubtotal">—</td>
          </tr>

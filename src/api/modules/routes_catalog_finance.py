@@ -58,11 +58,11 @@ def catalog_page():
         setup_needed = [v for v in vendors if v.get("integration_status") == "setup_needed"]
 
         STATUS_BADGE = {
-            "active": ("<span style='color:var(--gn);font-size:14px;font-weight:600'>● ACTIVE</span>", "var(--gn)"),
-            "email_po": ("<span style='color:var(--ac);font-size:14px;font-weight:600'>✉ EMAIL PO</span>", "var(--ac)"),
-            "setup_needed": ("<span style='color:var(--yl);font-size:14px;font-weight:600'>⚙ SETUP</span>", "var(--yl)"),
-            "ready": ("<span style='color:var(--or);font-size:14px;font-weight:600'>◑ PARTIAL</span>", "var(--or)"),
-            "manual_only": ("<span style='color:var(--tx2);font-size:14px'>— MANUAL</span>", "var(--tx2)"),
+            "active": ("<span style='color:var(--r-accent);font-size:14px;font-weight:600'>● ACTIVE</span>", "var(--r-accent)"),
+            "email_po": ("<span style='color:var(--r-accent);font-size:14px;font-weight:600'>✉ EMAIL PO</span>", "var(--r-accent)"),
+            "setup_needed": ("<span style='color:var(--r-warn);font-size:14px;font-weight:600'>⚙ SETUP</span>", "var(--r-warn)"),
+            "ready": ("<span style='color:var(--r-warn);font-size:14px;font-weight:600'>◑ PARTIAL</span>", "var(--r-warn)"),
+            "manual_only": ("<span style='color:var(--r-text-muted);font-size:14px'>— MANUAL</span>", "var(--r-text-muted)"),
         }
 
         def vendor_row(v):
@@ -75,17 +75,17 @@ def catalog_page():
             cats = esc(", ".join(v.get("categories",[])[:3]) or "—")
             note = esc(v.get("note","") or v.get("action",""))
             oscore = v.get("overall_score", 0) or 0
-            score_color = "var(--gn)" if oscore >= 70 else "var(--yl)" if oscore >= 40 else "var(--rd)" if oscore > 0 else "var(--tx2)"
-            score_html = f'<div style="display:flex;align-items:center;gap:5px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:40px;overflow:hidden"><div style="width:{oscore}%;height:100%;background:{score_color};border-radius:3px"></div></div><span style="font-size:14px;font-family:monospace">{oscore:.0f}</span></div>' if oscore > 0 else '<span style="font-size:13px;color:var(--tx2)">—</span>'
-            return f"""<tr style="border-bottom:1px solid var(--bd)">
+            score_color = "var(--r-accent)" if oscore >= 70 else "var(--r-warn)" if oscore >= 40 else "var(--r-bad)" if oscore > 0 else "var(--r-text-muted)"
+            score_html = f'<div style="display:flex;align-items:center;gap:5px"><div style="background:var(--r-surface-2);border-radius:3px;height:6px;width:40px;overflow:hidden"><div style="width:{oscore}%;height:100%;background:{score_color};border-radius:3px"></div></div><span style="font-size:14px;font-family:monospace">{oscore:.0f}</span></div>' if oscore > 0 else '<span style="font-size:13px;color:var(--r-text-muted)">—</span>'
+            return f"""<tr style="border-bottom:1px solid var(--r-border)">
   <td style="padding:10px 12px;font-weight:500;color:{color}">{name}</td>
   <td style="padding:10px 12px;font-size:14px">{badge_html}</td>
   <td style="padding:10px 12px;font-size:14px">{score_html}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--tx2)">{cats}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--ac)">{email}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--tx2)">{phone}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--yl)">{f"${float(balance):,.2f}" if balance else ""}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--tx2);max-width:200px">{note[:80] if note else ""}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--r-text-muted)">{cats}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--r-accent)">{email}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--r-text-muted)">{phone}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--r-warn)">{f"${float(balance):,.2f}" if balance else ""}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--r-text-muted);max-width:200px">{note[:80] if note else ""}</td>
 </tr>"""
 
         priority_vendors = [v for v in vendors if v.get("integration_status") in ("active","email_po","setup_needed","ready")]
@@ -96,7 +96,7 @@ def catalog_page():
         if recent_orders:
             for o in recent_orders[:10]:
                 ts = (o.get("submitted_at","")[:16] or "").replace("T"," ")
-                status_color = {"submitted":"var(--ac)","confirmed":"var(--gn)","shipped":"var(--yl)","failed":"var(--rd)"}.get(o.get("status",""),("var(--tx2)"))
+                status_color = {"submitted":"var(--r-accent)","confirmed":"var(--r-accent)","shipped":"var(--r-warn)","failed":"var(--r-bad)"}.get(o.get("status",""),("var(--r-text-muted)"))
                 orders_html += f"""<tr>
   <td style="padding:8px 12px;font-size:14px">{ts}</td>
   <td style="padding:8px 12px;font-size:14px;font-weight:500">{esc(o.get("vendor_name",""))}</td>
@@ -106,7 +106,7 @@ def catalog_page():
   <td style="padding:8px 12px;font-size:14px;color:{status_color}">{o.get("status","").upper()}</td>
 </tr>"""
         else:
-            orders_html = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--tx2)">No vendor orders yet — orders appear here when quotes are won</td></tr>'
+            orders_html = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--r-text-muted)">No vendor orders yet — orders appear here when quotes are won</td></tr>'
 
         return render_page("catalog.html", active_page="Catalog",
             tab="vendors",
@@ -208,11 +208,11 @@ def catalog_page():
         strat_badge = {"loss_leader": "🔴", "margin_protect": "🟡", "competitive": "🟢", "premium": "🔵"}.get(strat, "")
         desc_short = (p.get("description", "") or "")[:60].replace("\n", " ")
         p_url = p.get("primary_url", "")
-        url_icon = f'<a href="{p_url}" target="_blank" style="color:var(--ac)" onclick="event.stopPropagation()">🔗</a>' if p_url else '<span style="color:var(--tx2)">—</span>'
+        url_icon = f'<a href="{p_url}" target="_blank" style="color:var(--r-accent)" onclick="event.stopPropagation()">🔗</a>' if p_url else '<span style="color:var(--r-text-muted)">—</span>'
         checked_date = (p.get("last_price_checked", "") or "")[:10]
         rows += f"""<tr onclick="location.href='/catalog/{p['id']}'" style="cursor:pointer">
-         <td class="mono" style="font-weight:600;color:var(--ac)">{p.get('name','')[:25]}</td>
-         <td style="font-size:14px;color:var(--tx2)">{desc_short}</td>
+         <td class="mono" style="font-weight:600;color:var(--r-accent)">{p.get('name','')[:25]}</td>
+         <td style="font-size:14px;color:var(--r-text-muted)">{desc_short}</td>
          <td class="mono">{p.get('sku','')}</td>
          <td style="font-size:14px">{p.get('category','')}</td>
          <td class="mono" style="text-align:right">${p.get('sell_price',0):,.2f}</td>
@@ -220,13 +220,13 @@ def catalog_page():
          <td class="mono" style="text-align:right;color:{mc};font-weight:700">{margin:.1f}%</td>
          <td style="text-align:center">{strat_badge}</td>
          <td style="text-align:center">{url_icon}</td>
-         <td class="mono" style="font-size:13px;color:var(--tx2)">{checked_date}</td>
+         <td class="mono" style="font-size:13px;color:var(--r-text-muted)">{checked_date}</td>
         </tr>"""
 
     # Negative margin alerts
     neg_alerts = ""
     for ni in stats.get("negative_margin_items", [])[:5]:
-        neg_alerts += f"""<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)">
+        neg_alerts += f"""<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--r-border)">
          <span style="font-weight:600">{ni['name'][:30]}</span>
          <span style="color:#f85149;font-weight:700;font-family:'JetBrains Mono',monospace">{ni['margin_pct']:.1f}% (sell ${ni['sell_price']:.2f} / cost ${ni['cost']:.2f})</span>
         </div>"""
@@ -234,7 +234,7 @@ def catalog_page():
     # Top opportunities
     opp_rows = ""
     for o in stats.get("margin_opportunities", [])[:8]:
-        opp_rows += f"""<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)">
+        opp_rows += f"""<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--r-border)">
          <span style="font-size:14px">{o['name'][:35]}</span>
          <span class="mono" style="font-size:14px">${o['sell_price']:,.2f} @ {o['margin_pct']:.1f}%</span>
         </div>"""
@@ -243,7 +243,7 @@ def catalog_page():
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
      <h2 style="margin:0;font-size:20px;font-weight:700">📦 Product Catalog</h2>
      <div style="display:flex;gap:8px;align-items:center">
-      <span class="mono" style="font-size:14px;color:var(--tx2)">{tp} products</span>
+      <span class="mono" style="font-size:14px;color:var(--r-text-muted)">{tp} products</span>
       <button onclick="document.getElementById('import-csv').click()" class="btn btn-s" style="font-size:14px">📥 Import QB CSV</button>
       <input type="file" id="import-csv" accept=".csv" style="display:none" onchange="importCSV(this)">
       <button onclick="document.getElementById('import-qw').click()" class="btn btn-s" style="font-size:14px;background:#21262d;color:#58a6ff;border:1px solid #58a6ff44">📋 Import QuoteWerks</button>
@@ -256,25 +256,25 @@ def catalog_page():
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
      <div class="card" style="text-align:center">
-      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{tp}</div>
-      <div style="font-size:14px;color:var(--tx2)">Products</div>
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--r-accent)">{tp}</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Products</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{'#f85149' if am < 10 else '#d29922' if am < 15 else '#3fb950'}">{am}%</div>
-      <div style="font-size:14px;color:var(--tx2)">Avg Margin</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Avg Margin</div>
      </div>
      <div class="card" style="text-align:center">
       <a href="/catalog?margin=negative" style="text-decoration:none"><div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{neg + low}</div></a>
-      <div style="font-size:14px;color:var(--tx2)">Need Pricing Review</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Need Pricing Review</div>
       <div style="font-size:13px"><a href="/catalog?margin=negative" style="color:#f85149">{neg} losing money</a></div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${stats['total_sell_value']:,.0f}</div>
-      <div style="font-size:14px;color:var(--tx2)">Catalog Value</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Catalog Value</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#58a6ff">{stats.get('products_with_urls', 0)}</div>
-      <div style="font-size:14px;color:var(--tx2)">With URLs</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">With URLs</div>
       <div style="font-size:13px;color:#d29922">{stats.get('stale_price_checks', 0)} need check</div>
      </div>
     </div>
@@ -288,7 +288,7 @@ def catalog_page():
       <span><span style="color:#3fb950">●</span> {mid} mid (10-25%)</span>
       <span><span style="color:#58a6ff">●</span> {high} high (&gt;25%)</span>
      </div>
-     <div style="background:var(--sf);border-radius:8px;height:16px;overflow:hidden;display:flex">
+     <div style="background:var(--r-surface);border-radius:8px;height:16px;overflow:hidden;display:flex">
       <div style="width:{pct_neg}%;background:#f85149" title="{neg} negative margin"></div>
       <div style="width:{pct_low}%;background:#d29922" title="{low} low margin"></div>
       <div style="width:{pct_mid}%;background:#3fb950" title="{mid} mid margin"></div>
@@ -299,11 +299,11 @@ def catalog_page():
     <div class="bento bento-2" style="margin-bottom:16px">
      <div class="card" style="padding:12px">
       <a href="/catalog?margin=negative" style="text-decoration:none;font-weight:600;font-size:13px;margin-bottom:8px;color:#f85149;display:block">⚠️ Losing Money ({neg} items)</a>
-      {neg_alerts if neg_alerts else '<div style="font-size:14px;color:var(--tx2)">No negative margin items ✅</div>'}
+      {neg_alerts if neg_alerts else '<div style="font-size:14px;color:var(--r-text-muted)">No negative margin items ✅</div>'}
      </div>
      <div class="card" style="padding:12px">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#d29922">💡 Margin Opportunities</div>
-      {opp_rows if opp_rows else '<div style="font-size:14px;color:var(--tx2)">Connect SCPRS pricing to find opportunities</div>'}
+      {opp_rows if opp_rows else '<div style="font-size:14px;color:var(--r-text-muted)">Connect SCPRS pricing to find opportunities</div>'}
      </div>
     </div>
 
@@ -311,13 +311,13 @@ def catalog_page():
     <div class="card" style="padding:12px;margin-bottom:12px">
      <form method="GET" action="/catalog" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input type="text" name="q" value="{q}" placeholder="Search products, SKU, description..." 
-             style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:13px"
+             style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--r-border);border-radius:6px;background:var(--r-surface);color:var(--r-text);font-size:13px"
              id="catalog-search" autocomplete="off">
-      <select name="category" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:14px">
+      <select name="category" style="padding:6px;border:1px solid var(--r-border);border-radius:6px;background:var(--r-surface);color:var(--r-text);font-size:14px">
        <option value="">All Categories</option>
        {cat_options}
       </select>
-      <select name="margin" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:14px">
+      <select name="margin" style="padding:6px;border:1px solid var(--r-border);border-radius:6px;background:var(--r-surface);color:var(--r-text);font-size:14px">
        <option value="">All Margins</option>
        <option value="negative" {"selected" if margin_filter=="negative" else ""}>🔴 Negative (&lt;0%)</option>
        <option value="low" {"selected" if margin_filter=="low" else ""}>🟡 Low (0-10%)</option>
@@ -330,10 +330,10 @@ def catalog_page():
     </div>
 
     <!-- Predictive search dropdown -->
-    <div id="search-results-dropdown" style="display:none;position:absolute;z-index:100;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;max-height:300px;overflow-y:auto;width:400px;box-shadow:0 4px 12px rgba(0,0,0,0.3)"></div>
+    <div id="search-results-dropdown" style="display:none;position:absolute;z-index:100;background:var(--bg2);border:1px solid var(--r-border);border-radius:8px;max-height:300px;overflow-y:auto;width:400px;box-shadow:0 4px 12px rgba(0,0,0,0.3)"></div>
 
     {f'''<div class="card" style="padding:0;overflow-x:auto">
-     <div style="padding:8px 12px;font-size:14px;color:var(--tx2);border-bottom:1px solid var(--bd)">Showing {len(products)} product{"s" if len(products)!=1 else ""}{f" matching '{q}'" if q else ""}{f" in {cat_filter}" if cat_filter else ""}{f" — margin: {margin_filter}" if margin_filter else ""}</div>
+     <div style="padding:8px 12px;font-size:14px;color:var(--r-text-muted);border-bottom:1px solid var(--r-border)">Showing {len(products)} product{"s" if len(products)!=1 else ""}{f" matching '{q}'" if q else ""}{f" in {cat_filter}" if cat_filter else ""}{f" — margin: {margin_filter}" if margin_filter else ""}</div>
      <table class="home-tbl" style="min-width:700px">
       <thead><tr>
        <th style="width:150px">Name</th><th>Description</th><th style="width:80px">SKU</th>
@@ -344,7 +344,7 @@ def catalog_page():
       </tr></thead>
       <tbody>{rows}</tbody>
      </table>
-    </div>''' if products else '<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">No products found{" matching your search" if q else ". Import a QB CSV or rebuild from history on the <a href=\\"/growth-intel\\" style=\\"color:var(--ac)\\">Growth Intel</a> page"}.</div>'}
+    </div>''' if products else '<div class="card" style="padding:24px;text-align:center;color:var(--r-text-muted)">No products found{" matching your search" if q else ". Import a QB CSV or rebuild from history on the <a href=\\"/growth-intel\\" style=\\"color:var(--r-accent)\\">Growth Intel</a> page"}.</div>'}
 
     <script>
     function importCSV(input) {{
@@ -443,9 +443,9 @@ def catalog_page():
               dropdown.style.top = (rect.bottom+2)+'px';
               dropdown.style.width = Math.max(rect.width, 400)+'px';
               dropdown.innerHTML = items.map(p=>
-                `<a href="/catalog/${{p.id}}" style="display:flex;justify-content:space-between;padding:8px 12px;text-decoration:none;color:var(--tx);border-bottom:1px solid var(--bd);font-size:14px">
+                `<a href="/catalog/${{p.id}}" style="display:flex;justify-content:space-between;padding:8px 12px;text-decoration:none;color:var(--r-text);border-bottom:1px solid var(--r-border);font-size:14px">
                   <span style="font-weight:600">${{p.name.substring(0,30)}}</span>
-                  <span style="color:var(--tx2)">${{p.category}} · $${{(p.sell_price||0).toFixed(2)}} · ${{(p.margin_pct||0).toFixed(1)}}%</span>
+                  <span style="color:var(--r-text-muted)">${{p.category}} · $${{(p.sell_price||0).toFixed(2)}} · ${{(p.margin_pct||0).toFixed(1)}}%</span>
                 </a>`
               ).join('');
               dropdown.style.display='block';
@@ -514,15 +514,15 @@ def catalog_product_detail(pid):
         inst_str = h.get('institution', '') or h.get('agency', '') or ''
         pc_str = h.get('quote_number', '') or h.get('pc_id', '') or ''
         url_str = h.get('supplier_url', '') or ''
-        url_link = f'<a href="{url_str}" target="_blank" style="color:var(--ac);font-size:13px">🔗 link</a>' if url_str else ''
+        url_link = f'<a href="{url_str}" target="_blank" style="color:var(--r-accent);font-size:13px">🔗 link</a>' if url_str else ''
         ph_rows += f"""<tr>
          <td class="mono" style="font-size:14px">{h.get('recorded_at','')[:10]}</td>
          <td style="font-size:14px"><span style="padding:1px 6px;border-radius:3px;font-size:13px;background:{'#238636' if h.get('price_type')=='quoted' else '#1a3a5c' if h.get('price_type')=='cost' else '#6e40c9'}20;color:{'#3fb950' if h.get('price_type')=='quoted' else '#58a6ff' if h.get('price_type')=='cost' else '#bc8cff'}">{h.get('price_type','')}</span></td>
          <td class="mono" style="text-align:right">${h.get('price',0):,.2f}</td>
          <td class="mono" style="text-align:center">{qty_str}</td>
          <td style="font-size:14px">{inst_str}</td>
-         <td style="font-size:14px;color:var(--tx2)">{pc_str}</td>
-         <td style="font-size:14px;color:var(--tx2)">{h.get('source','')}</td>
+         <td style="font-size:14px;color:var(--r-text-muted)">{pc_str}</td>
+         <td style="font-size:14px;color:var(--r-text-muted)">{h.get('source','')}</td>
          <td>{url_link}</td>
         </tr>"""
 
@@ -531,7 +531,7 @@ def catalog_product_detail(pid):
     for s in p.get("suppliers", []):
         url = s.get('supplier_url', '') or ''
         url_display = url[:50] + '...' if len(url) > 50 else url
-        url_cell = f'<a href="{url}" target="_blank" style="color:var(--ac);word-break:break-all;font-size:14px">{url_display}</a>' if url else '<span style="color:var(--tx2)">—</span>'
+        url_cell = f'<a href="{url}" target="_blank" style="color:var(--r-accent);word-break:break-all;font-size:14px">{url_display}</a>' if url else '<span style="color:var(--r-text-muted)">—</span>'
         rel_pct = int((s.get('reliability', 0.5) or 0.5) * 100)
         rel_color = '#3fb950' if rel_pct >= 80 else '#d29922' if rel_pct >= 50 else '#f85149'
         sid = s.get('id', '')
@@ -551,33 +551,33 @@ def catalog_product_detail(pid):
     content = f"""
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
      <div>
-      <a href="/catalog" style="color:var(--tx2);text-decoration:none;font-size:14px">← Catalog</a>
+      <a href="/catalog" style="color:var(--r-text-muted);text-decoration:none;font-size:14px">← Catalog</a>
       <h2 style="margin:4px 0 0;font-size:18px;font-weight:700">{p['name']}</h2>
-      <div style="font-size:14px;color:var(--tx2);margin-top:2px">{(p.get('description','') or '')[:200]}</div>
-      {f'<div style="margin-top:6px">{sparkline_svg} <span style="font-size:12px;color:var(--tx2)">Price trend ({len(sell_prices)} data points)</span></div>' if sparkline_svg else ''}
+      <div style="font-size:14px;color:var(--r-text-muted);margin-top:2px">{(p.get('description','') or '')[:200]}</div>
+      {f'<div style="margin-top:6px">{sparkline_svg} <span style="font-size:12px;color:var(--r-text-muted)">Price trend ({len(sell_prices)} data points)</span></div>' if sparkline_svg else ''}
      </div>
      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
-      <span style="padding:4px 12px;border-radius:12px;font-size:14px;font-weight:600;background:var(--sf)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
+      <span style="padding:4px 12px;border-radius:12px;font-size:14px;font-weight:600;background:var(--r-surface)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
       {reorder_btn}
      </div>
     </div>
 
     <div class="bento bento-4" style="margin-bottom:16px">
      <div class="card" style="text-align:center">
-      <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">${p['sell_price']:,.2f}</div>
-      <div style="font-size:14px;color:var(--tx2)">Sell Price</div>
+      <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--r-accent)">${p['sell_price']:,.2f}</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Sell Price</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace">${p['cost']:,.2f}</div>
-      <div style="font-size:14px;color:var(--tx2)">Cost</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Cost</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{margin_color}">{p['margin_pct']:.1f}%</div>
-      <div style="font-size:14px;color:var(--tx2)">Margin</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Margin</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace">${p['sell_price'] - p['cost']:,.2f}</div>
-      <div style="font-size:14px;color:var(--tx2)">Margin $</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Margin $</div>
      </div>
     </div>
 
@@ -585,28 +585,28 @@ def catalog_product_detail(pid):
      <div class="card" style="padding:12px">
       <div class="card-t">Product Details</div>
       <div style="display:grid;grid-template-columns:110px 1fr;gap:4px;font-size:14px">
-       <span style="color:var(--tx2)">MFG#</span><span class="mono" style="font-weight:600">{p.get('mfg_number','—') or '—'}</span>
-       <span style="color:var(--tx2)">SKU</span><span class="mono">{p.get('sku','—')}</span>
-       <span style="color:var(--tx2)">UOM</span><span class="mono" style="font-weight:600">{p.get('uom','EA')}</span>
-       <span style="color:var(--tx2)">Category</span><span>{p.get('category','—')}</span>
-       <span style="color:var(--tx2)">Manufacturer</span><span>{p.get('manufacturer','—') or '—'}</span>
-       <span style="color:var(--tx2)">Item Type</span><span>{p.get('item_type','')}</span>
-       <span style="color:var(--tx2)">Taxable</span><span>{'Yes' if p.get('taxable') else 'No'}</span>
-       <span style="color:var(--tx2)">Times Quoted</span><span class="mono">{p.get('times_quoted',0)}</span>
-       <span style="color:var(--tx2)">Times Won</span><span class="mono">{p.get('times_won',0)}</span>
-       <span style="color:var(--tx2)">Last Sold</span><span class="mono">${p.get('last_sold_price',0) or 0:,.2f} ({(p.get('last_sold_date') or '—')[:10]})</span>
-       <span style="color:var(--tx2)">Best Cost</span><span class="mono">${p.get('best_cost',0) or 0:,.2f} <span style="font-size:13px">({p.get('best_supplier','') or '—'})</span></span>
-       <span style="color:var(--tx2)">Tags</span><span>{p.get('tags','')}</span>
+       <span style="color:var(--r-text-muted)">MFG#</span><span class="mono" style="font-weight:600">{p.get('mfg_number','—') or '—'}</span>
+       <span style="color:var(--r-text-muted)">SKU</span><span class="mono">{p.get('sku','—')}</span>
+       <span style="color:var(--r-text-muted)">UOM</span><span class="mono" style="font-weight:600">{p.get('uom','EA')}</span>
+       <span style="color:var(--r-text-muted)">Category</span><span>{p.get('category','—')}</span>
+       <span style="color:var(--r-text-muted)">Manufacturer</span><span>{p.get('manufacturer','—') or '—'}</span>
+       <span style="color:var(--r-text-muted)">Item Type</span><span>{p.get('item_type','')}</span>
+       <span style="color:var(--r-text-muted)">Taxable</span><span>{'Yes' if p.get('taxable') else 'No'}</span>
+       <span style="color:var(--r-text-muted)">Times Quoted</span><span class="mono">{p.get('times_quoted',0)}</span>
+       <span style="color:var(--r-text-muted)">Times Won</span><span class="mono">{p.get('times_won',0)}</span>
+       <span style="color:var(--r-text-muted)">Last Sold</span><span class="mono">${p.get('last_sold_price',0) or 0:,.2f} ({(p.get('last_sold_date') or '—')[:10]})</span>
+       <span style="color:var(--r-text-muted)">Best Cost</span><span class="mono">${p.get('best_cost',0) or 0:,.2f} <span style="font-size:13px">({p.get('best_supplier','') or '—'})</span></span>
+       <span style="color:var(--r-text-muted)">Tags</span><span>{p.get('tags','')}</span>
       </div>
      </div>
 
      <div class="card" style="padding:12px">
       <div class="card-t">💰 Pricing Intelligence</div>
       <div style="display:grid;grid-template-columns:120px 1fr;gap:4px;font-size:14px">
-       <span style="color:var(--tx2)">SCPRS Price</span><span class="mono">${p.get('scprs_last_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--tx2)">{p.get('scprs_agency','')}</span></span>
-       <span style="color:var(--tx2)">Competitor Low</span><span class="mono">${p.get('competitor_low_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--tx2)">{p.get('competitor_source','')}</span></span>
-       <span style="color:var(--tx2)">Web Lowest</span><span class="mono">${p.get('web_lowest_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--tx2)">{p.get('web_lowest_source','')}</span></span>
-       <span style="color:var(--tx2)">Recommended</span><span class="mono" style="color:#3fb950;font-weight:700">${p.get('recommended_price',0) or 0:,.2f}</span>
+       <span style="color:var(--r-text-muted)">SCPRS Price</span><span class="mono">${p.get('scprs_last_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--r-text-muted)">{p.get('scprs_agency','')}</span></span>
+       <span style="color:var(--r-text-muted)">Competitor Low</span><span class="mono">${p.get('competitor_low_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--r-text-muted)">{p.get('competitor_source','')}</span></span>
+       <span style="color:var(--r-text-muted)">Web Lowest</span><span class="mono">${p.get('web_lowest_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--r-text-muted)">{p.get('web_lowest_source','')}</span></span>
+       <span style="color:var(--r-text-muted)">Recommended</span><span class="mono" style="color:#3fb950;font-weight:700">${p.get('recommended_price',0) or 0:,.2f}</span>
       </div>
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
        <button onclick="runPricingAnalysis({pid})" class="btn btn-s" style="font-size:14px">🧮 Run Pricing Analysis</button>
@@ -619,7 +619,7 @@ def catalog_product_detail(pid):
     {f'<div class="card" style="margin-bottom:12px;padding:10px 16px;background:#f8514915;border:1px solid #f8514944"><span style="font-weight:700;color:#f85149">⚠️ Competitive Risk:</span> <span style="font-size:14px">A supplier has this at <b>${min(s.get("last_price",0) or 9999999 for s in p.get("suppliers",[]) if s.get("last_price")):.2f}</b> — below your sell price of <b>${p["sell_price"]:.2f}</b></span></div>' if p.get("suppliers") and p["sell_price"] > 0 and any(s.get("last_price") and s["last_price"] < p["sell_price"] for s in p.get("suppliers", [])) else ''}
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
-     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between;align-items:center">
       <span>🏪 Suppliers & Source URLs</span>
       <button onclick="checkAllSupplierPrices()" class="btn btn-s" style="font-size:12px;background:#21262d;color:#3fb950;border:1px solid #3fb95044">Check All Prices</button>
      </div>
@@ -629,7 +629,7 @@ def catalog_product_detail(pid):
     </div>''' if sup_rows else ''}
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
-     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd)">📊 Quote & Price History</div>
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--r-border)">📊 Quote & Price History</div>
      <table class="home-tbl"><thead><tr>
       <th>Date</th><th>Type</th><th style="text-align:right">Price</th><th style="text-align:center">Qty</th><th>Institution</th><th>PC#</th><th>Source</th><th>Link</th>
      </tr></thead><tbody>{ph_rows}</tbody></table>
@@ -669,7 +669,7 @@ def catalog_product_detail(pid):
           deltaEl.innerHTML = '<span class="'+cls+'" style="color:'+color+';font-weight:700;font-size:13px">'
             + sign + '$' + delta.toFixed(2) + ' (' + sign + pctC + '%)</span>';
         }} else {{
-          deltaEl.innerHTML = '<span style="color:var(--tx2);font-size:13px">No change</span>';
+          deltaEl.innerHTML = '<span style="color:var(--r-text-muted);font-size:13px">No change</span>';
         }}
       }})
       .catch(function() {{
@@ -3447,13 +3447,13 @@ def catalog_price_alerts():
             if show_action:
                 action = f'''<td><button onclick="updateCostFromAlert({a['id']},{a['web_price']:.2f})" class="btn btn-s" style="font-size:12px;padding:2px 8px">Update Cost</button></td>'''
             rows += f"""<tr>
-             <td><a href="/catalog/{a['id']}" style="color:var(--ac);font-weight:600">{a['name'][:30]}</a></td>
+             <td><a href="/catalog/{a['id']}" style="color:var(--r-accent);font-weight:600">{a['name'][:30]}</a></td>
              <td class="mono" style="text-align:right">${a.get('cost',0):,.2f}</td>
              <td class="mono" style="text-align:right">${a.get('sell_price',0):,.2f}</td>
              <td class="mono" style="text-align:right">${a['web_price']:,.2f}</td>
              <td class="mono" style="text-align:right;color:{dc};font-weight:700">{sign}${a['delta']:,.2f} ({sign}{a['delta_pct']}%)</td>
              <td style="font-size:13px">{a.get('supplier_name','')}</td>
-             <td style="font-size:13px"><a href="{a.get('supplier_url','')}" target="_blank" style="color:var(--ac)">{url_short}</a></td>
+             <td style="font-size:13px"><a href="{a.get('supplier_url','')}" target="_blank" style="color:var(--r-accent)">{url_short}</a></td>
              {action}
             </tr>"""
         return rows
@@ -3467,41 +3467,41 @@ def catalog_price_alerts():
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{len(increased)}</div>
-      <div style="font-size:14px;color:var(--tx2)">Price Increased</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Price Increased</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{len(decreased)}</div>
-      <div style="font-size:14px;color:var(--tx2)">Price Decreased</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Price Decreased</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{len(competitive_risk)}</div>
-      <div style="font-size:14px;color:var(--tx2)">Competitive Risk</div>
+      <div style="font-size:14px;color:var(--r-text-muted)">Competitive Risk</div>
       <div style="font-size:13px;color:#d29922">Web price &lt; our sell price</div>
      </div>
     </div>
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
-     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);color:#d29922">⚠️ Competitive Risk — Web Price Below Our Sell Price ({len(competitive_risk)})</div>
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--r-border);color:#d29922">⚠️ Competitive Risk — Web Price Below Our Sell Price ({len(competitive_risk)})</div>
      <table class="home-tbl"><thead><tr>
       <th>Product</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Sell</th><th style="text-align:right">Web Price</th><th style="text-align:right">Delta</th><th>Supplier</th><th>URL</th><th></th>
      </tr></thead><tbody>{_alert_rows(competitive_risk)}</tbody></table>
     </div>''' if competitive_risk else ''}
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
-     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);color:#f85149">📈 Price Increased ({len(increased)})</div>
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--r-border);color:#f85149">📈 Price Increased ({len(increased)})</div>
      <table class="home-tbl"><thead><tr>
       <th>Product</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Sell</th><th style="text-align:right">Web Price</th><th style="text-align:right">Delta</th><th>Supplier</th><th>URL</th><th></th>
      </tr></thead><tbody>{_alert_rows(increased)}</tbody></table>
     </div>''' if increased else ''}
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
-     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);color:#3fb950">📉 Price Decreased — Opportunities ({len(decreased)})</div>
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--r-border);color:#3fb950">📉 Price Decreased — Opportunities ({len(decreased)})</div>
      <table class="home-tbl"><thead><tr>
       <th>Product</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Sell</th><th style="text-align:right">Web Price</th><th style="text-align:right">Delta</th><th>Supplier</th><th>URL</th><th></th>
      </tr></thead><tbody>{_alert_rows(decreased)}</tbody></table>
     </div>''' if decreased else ''}
 
-    {'<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">No price alerts. Run "Check All Prices" from the catalog page first.</div>' if not increased and not decreased else ''}
+    {'<div class="card" style="padding:24px;text-align:center;color:var(--r-text-muted)">No price alerts. Run "Check All Prices" from the catalog page first.</div>' if not increased and not decreased else ''}
 
     <script>
     function updateCostFromAlert(pid, newCost) {{

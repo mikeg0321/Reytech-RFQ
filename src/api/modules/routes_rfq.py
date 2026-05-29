@@ -794,12 +794,12 @@ def home():
 
     pc_bulk_actions = [
         {"action": "dismiss", "label": "Dismiss Selected", "css": "btn btn-sm btn-s"},
-        {"action": "generate", "label": "Generate All", "icon": "\U0001f4c4", "css": "btn btn-sm", "style": "background:rgba(52,211,153,.15);color:var(--gn)", "handler": "bulkGenerate"},
+        {"action": "generate", "label": "Generate All", "icon": "\U0001f4c4", "css": "btn btn-sm", "style": "background:rgba(52,211,153,.15);color:var(--r-accent)", "handler": "bulkGenerate"},
     ]
     rfq_bulk_actions = [
         {"action": "dismiss", "label": "Dismiss Selected", "css": "btn btn-sm btn-s"},
         {"action": "archive", "label": "Archive", "css": "btn btn-sm btn-s"},
-        {"action": "markup", "label": "+20% Markup", "css": "btn btn-sm", "style": "background:rgba(251,191,36,.15);color:var(--yl)"},
+        {"action": "markup", "label": "+20% Markup", "css": "btn btn-sm", "style": "background:rgba(251,191,36,.15);color:var(--r-warn)"},
     ]
 
     # PR-T (2026-05-13): top-priority PCs widget. Ranks active queue
