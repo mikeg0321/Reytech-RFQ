@@ -66,6 +66,36 @@ def _table_columns(db_path, table):
     ("rfqs", RFQ_WRITE_PATH_COLUMNS),
     ("price_checks", PC_WRITE_PATH_COLUMNS),
 ])
+def test_base_schema_alone_satisfies_write_path(table, write_path_columns):
+    """#1199 substrate fix: a DB built from the base SCHEMA ALONE — with NO
+    `_migrate_columns()` pass — must already contain every write-path column.
+
+    The parametrized test below builds via the temp_data_dir fixture, which runs
+    init_db() + the migration pass, so it passes whether the columns live in the
+    base CREATE TABLE or in _migrate_columns. THIS test isolates the base schema:
+    it proves a freshly-built DB is writable by its own canonical write path
+    without depending on the ALTER-based migration completing (the latent landmine
+    behind the 2026-05-28 flaky CI failure)."""
+    import sqlite3
+    from src.core.db import SCHEMA
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(SCHEMA)
+        actual = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    finally:
+        conn.close()
+    missing = write_path_columns - actual
+    assert not missing, (
+        f"base SCHEMA for {table!r} is missing write-path columns {sorted(missing)} "
+        f"— a fresh DB built from CREATE TABLE alone would not be writable by "
+        f"data_layer's INSERT. Add them to the base CREATE TABLE in src/core/db.py."
+    )
+
+
+@pytest.mark.parametrize("table, write_path_columns", [
+    ("rfqs", RFQ_WRITE_PATH_COLUMNS),
+    ("price_checks", PC_WRITE_PATH_COLUMNS),
+])
 def test_table_has_all_write_path_columns(temp_data_dir, table, write_path_columns):
     """The freshly-built test DB's table must contain every column its
     canonical write path inserts. A missing column here is the exact
