@@ -5,8 +5,11 @@
    verbatim: total_leads, total_quotes, pending, sent, total_pending,
    total_won, total_orders, lead_to_quote, quote_to_sent, sent_to_won,
    won_to_invoiced, funnel (pre-rendered HTML), predictions_html, rev.
-   Three client-side fetches preserved verbatim: /api/pipeline/stale-quotes,
-   /api/pipeline/follow-up-queue, /api/pipeline/sales-velocity.
+   Three client-side fetches: /api/quotes/stale (the stale-quotes widget —
+   repointed 2026-05-28 from the never-registered /api/pipeline/stale-quotes
+   that 404'd since the UI/UX port; the existing /api/quotes/stale returns the
+   same shape the JS reads), /api/pipeline/follow-up-queue,
+   /api/pipeline/sales-velocity.
 
    The `funnel` and `predictions_html` partials are server-rendered by
    routes_intel.py and still use the legacy --bg/--sf2/--bd palette,
@@ -125,7 +128,7 @@
 </div>
 
 <script>
-fetch('/api/pipeline/stale-quotes').then(function(r){return r.json()}).then(function(d){
+fetch('/api/quotes/stale').then(function(r){return r.json()}).then(function(d){
  var el=document.getElementById('stale-list');
  var quotes=d.stale_quotes||d.quotes||[];
  if(!Array.isArray(quotes))quotes=[];
