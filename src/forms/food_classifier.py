@@ -253,6 +253,25 @@ def is_food_item(description: str) -> bool:
     return False
 
 
+def any_food_line_item(items) -> bool:
+    """True if any line item description classifies as a food product.
+
+    This is the AUTHORITATIVE food signal: OBS 1600 is a per-line-item
+    agricultural-food classification form, so "are food items present?" is
+    answered by the line items, not by a fuzzy read of the email body. Used
+    to reconcile the email-derived `food_items_present` flag, which an LLM can
+    set from boilerplate (e.g. a standard "expiration date / dated materials"
+    clause read as "perishable") with zero actual food on the order.
+    """
+    if not items:
+        return False
+    for it in items:
+        desc = it.get("description", "") if isinstance(it, dict) else ""
+        if is_food_item(desc):
+            return True
+    return False
+
+
 def classify_food_item(description: str) -> tuple:
     """
     Classify a food item description into a CDCR category code.
