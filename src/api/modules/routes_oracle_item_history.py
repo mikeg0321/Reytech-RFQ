@@ -61,6 +61,28 @@ def api_oracle_item_history():
         return jsonify({"ok": False,
                         "error": "agency and description required"}), 400
 
+    # `__markup_only__` is a client SENTINEL (markup-config widget) meaning "no real
+    # item description — markup-only context". There's nothing to look up, but the
+    # sentinel passed the required-param check and then drove a full quotes+KB scan
+    # that Jaccard-matched against the literal sentinel — matching nothing while
+    # churning every won/lost/sent quote, so the widget XHR hung pending (bug-sweep
+    # 2026-05-29). Short-circuit with an empty-but-valid result in the success shape.
+    if description.lower() in ("__markup_only__", "markup_only"):
+        return jsonify({
+            "ok": True,
+            "agency": agency,
+            "description": description,
+            "matches": {"quotes": [], "kb": []},
+            "stats": {
+                "matches_total": 0, "wins": 0, "losses": 0, "win_rate_pct": 0,
+                "our_winning_prices": [], "our_losing_prices": [],
+                "competitor_winning_prices": [],
+            },
+            "oracle": None,
+            "category_intel": None,
+            "note": "markup-only context — no item description to look up",
+        })
+
     try:
         limit = max(1, min(50, int(request.args.get("limit", "10"))))
     except (TypeError, ValueError):

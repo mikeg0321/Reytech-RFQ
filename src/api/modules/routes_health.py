@@ -36,6 +36,17 @@ from src.core.security import rate_limit, _log_audit_internal
 
 from datetime import datetime, timedelta
 import json
+
+
+@bp.route("/favicon.ico")
+def favicon():
+    """Return 204 for the browser's automatic /favicon.ico request.
+
+    There was no handler, so every page logged a 404 'Failed to load resource'
+    in the console (bug-sweep 2026-05-29 flagged it on /qa/workflow, but it's
+    app-wide). /favicon.ico is already auth-exempt (shared.py allowlist). 204 No
+    Content silences the noise without shipping an icon asset."""
+    return ("", 204)
 import threading
 
 # SY-3: single-flight lock around /api/admin/trim-rfq-files. VACUUM holds
