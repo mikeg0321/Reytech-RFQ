@@ -18,7 +18,7 @@
     <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Form QA Pass</div>
    </div>
    <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
-    <div style="font-size:20px;font-weight:700;color:#58a6ff;font-family:monospace">{{qa_eff.form_qa.total_runs|default(0)}}</div>
+    <div style="font-size:20px;font-weight:700;color:var(--r-accent);font-family:monospace">{{qa_eff.form_qa.total_runs|default(0)}}</div>
     <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">QA Runs</div>
    </div>
    <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
@@ -42,7 +42,7 @@
   {% endif %}
   {% if qa_eff.pc_qa.total_runs > 0 %}
   <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);display:flex;gap:16px;font-size:13px;color:var(--r-text-muted,#8b949e)">
-   <span>PC QA: <strong style="color:#58a6ff">{{qa_eff.pc_qa.total_runs}}</strong> runs</span>
+   <span>PC QA: <strong style="color:var(--r-accent)">{{qa_eff.pc_qa.total_runs}}</strong> runs</span>
    {% if qa_eff.pc_qa.avg_score is not none %}<span>Avg Score: <strong style="color:{% if qa_eff.pc_qa.avg_score >= 80 %}#3fb950{% else %}#d29922{% endif %}">{{qa_eff.pc_qa.avg_score}}</strong>/100</span>{% endif %}
   </div>
   {% endif %}
@@ -133,7 +133,7 @@
       var detail=t.trigger_type==='quote_expiring'?t.details.days_old+'d old':
                  t.trigger_type==='cost_dropped'?t.details.delta_pct+'% cheaper':
                  '+'+t.details.delta_pct+'% more expensive';
-      list.innerHTML+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--r-border,#30363d);font-size:13px"><a href="/pricecheck/'+t.pc_id+'" style="color:#58a6ff;font-weight:600">PC #'+t.pc_number+'</a><span style="color:var(--r-text-muted,#8b949e)">'+t.institution+'</span><span style="color:'+color+';font-weight:600;margin-left:auto">'+detail+'</span></div>';
+      list.innerHTML+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--r-border,#30363d);font-size:13px"><a href="/pricecheck/'+t.pc_id+'" style="color:var(--r-accent);font-weight:600">PC #'+t.pc_number+'</a><span style="color:var(--r-text-muted,#8b949e)">'+t.institution+'</span><span style="color:'+color+';font-weight:600;margin-left:auto">'+detail+'</span></div>';
     });
   }).catch(function(){});
 })();
@@ -367,7 +367,7 @@
   <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">Revenue Won</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
-  <div style="font-size:28px;font-weight:700;color:#4f8cff;font-family:'JetBrains Mono',monospace">{{ bi.bid_to_win.win_rate_pct }}%</div>
+  <div style="font-size:28px;font-weight:700;color:var(--r-accent);font-family:'JetBrains Mono',monospace">{{ bi.bid_to_win.win_rate_pct }}%</div>
   <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">Win Rate</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
@@ -541,7 +541,7 @@
     <span style="font-weight:600">{{ bi.time_to_quote.sample_size }} quotes</span>
    </div>
   </div>
-  <div style="margin-top:16px;padding:10px;background:rgba(79,140,255,.06);border-radius:6px;font-size:13px;color:var(--r-text-muted)">
+  <div style="margin-top:16px;padding:10px;background:rgba(16,185,129,.06);border-radius:6px;font-size:13px;color:var(--r-text-muted)">
    <b>Cost per Quote (est):</b> ${{ "%.2f"|format(bi.bid_to_win.cost_per_quote_est) }}<br>
    <b>Total Bids:</b> {{ bi.bid_to_win.total_bids }} ({{ bi.bid_to_win.won }}W / {{ bi.bid_to_win.lost }}L)
   </div>
@@ -1149,7 +1149,7 @@ function liLoadOverview(){
    var color=delta>0?'#f87171':'#3fb950';
    html+='<tr>';
    html+='<td style="font-size:13px;color:var(--r-text-muted)">'+(l.found_at||'').slice(0,10)+'</td>';
-   html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+liEsc(l.quote_number)+'</a></td>';
+   html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:var(--r-accent);text-decoration:none">'+liEsc(l.quote_number)+'</a></td>';
    html+='<td>'+liEsc(l.agency)+'</td>';
    html+='<td style="font-weight:500">'+liEsc(l.competitor_name)+'</td>';
    html+='<td style="text-align:right;font-family:monospace">'+liFmt2(l.our_price)+'</td>';
@@ -1235,7 +1235,7 @@ function liLoadMargin(){
   mth.forEach(function(m){
    html+='<tr>';
    html+='<td style="font-size:13px;color:var(--r-text-muted)">'+(m.found_at||'').slice(0,10)+'</td>';
-   html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(m.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+liEsc(m.quote_number)+'</a></td>';
+   html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(m.quote_number)+'" style="color:var(--r-accent);text-decoration:none">'+liEsc(m.quote_number)+'</a></td>';
    html+='<td>'+liEsc(m.competitor_name)+'</td>';
    html+='<td style="font-size:13px;color:var(--r-text-muted)">'+liEsc((m.item_summary||'').slice(0,50))+'</td>';
    html+='<td style="text-align:right;font-family:monospace">'+liFmt2(m.our_price)+'</td>';
@@ -1297,7 +1297,7 @@ window.liLoadCompetitor = function(){
     var delta=l.price_delta_pct||0;
     html+='<tr>';
     html+='<td style="font-size:13px;color:var(--r-text-muted)">'+(l.found_at||'').slice(0,10)+'</td>';
-    html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+liEsc(l.quote_number)+'</a></td>';
+    html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:var(--r-accent);text-decoration:none">'+liEsc(l.quote_number)+'</a></td>';
     html+='<td>'+liEsc(l.agency)+'</td>';
     html+='<td style="text-align:right;font-family:monospace">'+liFmt2(l.our_price)+'</td>';
     html+='<td style="text-align:right;font-family:monospace">'+liFmt2(l.competitor_price)+'</td>';

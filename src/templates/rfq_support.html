@@ -36,7 +36,7 @@
     </div>
     <div style="display:flex;gap:8px">
       {% if r.get('email_thread_id') %}
-      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--r-accent);text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
+      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:var(--r-accent);text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
       {% endif %}
       <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">📋 Full RFQ</a>
       {% if manifest %}<a href="/rfq/{{ rid }}/review-package" class="btn btn-sm" style="font-size:13px">📦 Review</a>{% endif %}
@@ -161,7 +161,7 @@
       <div class="sp-card">
         <div class="sp-card-title">⚡ Quick Actions</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(79,140,255,.15);color:var(--r-accent)">📎 Download</a>
+          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(16,185,129,.15);color:var(--r-accent)">📎 Download</a>
           <a href="/rfq/{{ rid }}" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px">📋 Open RFQ</a>
           {% if manifest.overall_status in ('approved', 'sent') %}
           <button class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(63,185,80,.15);color:#3fb950" onclick="resendPackage()">📧 Resend</button>

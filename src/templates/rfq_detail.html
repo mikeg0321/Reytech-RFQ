@@ -25,26 +25,26 @@
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
-   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#<input type="text" value="{{r.get('solicitation_number') or r.get('rfq_number') or ''}}" class="editable-field" data-field="solicitation_number" aria-label="Solicitation Number" onblur="saveField(this,'solicitation_number')" placeholder="Sol #" style="font-family:inherit;font-size:inherit;font-weight:inherit;background:transparent;border:1px solid transparent;border-radius:4px;padding:0 4px;color:inherit;width:200px" onfocus="this.style.borderColor='#58a6ff'" onblur="saveField(this,'solicitation_number');this.style.borderColor='transparent'"></div>
+   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#<input type="text" value="{{r.get('solicitation_number') or r.get('rfq_number') or ''}}" class="editable-field" data-field="solicitation_number" aria-label="Solicitation Number" onblur="saveField(this,'solicitation_number')" placeholder="Sol #" style="font-family:inherit;font-size:inherit;font-weight:inherit;background:transparent;border:1px solid transparent;border-radius:4px;padding:0 4px;color:inherit;width:200px" onfocus="this.style.borderColor='var(--r-accent)'" onblur="saveField(this,'solicitation_number');this.style.borderColor='transparent'"></div>
    <div style="color:var(--r-text-muted);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name|agency_display }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
   <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-accent);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
   {% if r.get('email_thread_id') %}
-  <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="padding:4px 10px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);border-radius:6px;color:var(--r-accent);font-size:12px;margin-left:4px;text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
+  <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="padding:4px 10px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:6px;color:var(--r-accent);font-size:12px;margin-left:4px;text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
   {% else %}
   <button onclick="locateEmail()" style="padding:4px 10px;background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);border-radius:6px;color:#d29922;font-size:12px;cursor:pointer;margin-left:4px" title="Find original buyer email in Gmail and bind to this RFQ">🔍 Locate Gmail thread</button>
   {% endif %}
   {% if r.get('output_files') or r.get('status') == 'generated' %}
-  <a href="/rfq/{{ r.id }}/review-package" class="btn btn-sm" style="font-size:12px;background:rgba(79,140,255,.1);color:var(--r-accent);border:1px solid rgba(79,140,255,.2)" title="Review and download the full RFP package">📦 Review Package</a>
+  <a href="/rfq/{{ r.id }}/review-package" class="btn btn-sm" style="font-size:12px;background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.2)" title="Review and download the full RFP package">📦 Review Package</a>
   {% endif %}
   <a href="/rfq/{{ r.id }}/support" class="btn btn-sm" style="font-size:12px;background:rgba(139,148,158,.1);color:var(--r-text-muted);border:1px solid var(--r-border);margin-left:4px" title="Support Timeline">🎧 Support</a>
  </div>
  <div class="meta-g">
-  <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" id="buyer-name-input" value="{{r.get('requestor_name','')}}" class="editable-field" aria-label="Buyer Name" onblur="saveField(this,'requestor_name')" oninput="debounceBuyerLookup(this.value,'')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:180px"></div></div>
-  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v"><input type="email" id="buyer-email-input" value="{{r.get('requestor_email','')}}" class="editable-field" aria-label="Buyer Email" onblur="saveField(this,'requestor_email')" oninput="debounceBuyerLookup('',this.value)" onfocus="this.style.borderColor='#58a6ff'" placeholder="email@example.com" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:220px"></div></div>
-  <div class="meta-i"><div class="meta-l">Due Date / Time</div><div class="meta-v" style="display:flex;gap:6px;align-items:center"><input type="date" value="{{due_date_iso|default('')}}" class="editable-field" aria-label="Due Date" onchange="saveField(this,'due_date')" onfocus="this.style.borderColor='#58a6ff'" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:140px"><input type="time" value="{{due_time_hhmm|default('')}}" class="editable-field" aria-label="Due Time" title="Exact close time from the RFQ — blank defaults to 2:00 PM PST (assumption)" onchange="saveField(this,'due_time')" onfocus="this.style.borderColor='#58a6ff'" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:110px">{% if not r.get('due_time') and r.get('due_date') %}<span title="No explicit close time on file — defaulting to 2:00 PM PST. Set the time to eliminate the assumption." style="font-size:11px;color:#f0883e;font-weight:600">⚠ ASSUMED 2 PM</span>{% endif %}</div></div>
-  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="position:relative"><input type="text" id="delivery-input" value="{{r.get('delivery_location','')}}" class="editable-field" aria-label="Delivery Location" oninput="searchLocations(this)" onblur="setTimeout(function(){document.getElementById('loc-dropdown').style.display='none'},200);saveField(document.getElementById('delivery-input'),'delivery_location');rfqTaxLookup(document.getElementById('delivery-input').value)" onfocus="this.style.borderColor='#58a6ff';if(this.value.length>=2)searchLocations(this)" placeholder="Type facility name..." autocomplete="off" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:260px"><div id="loc-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#1c2128;border:1px solid #30363d;border-radius:6px;max-height:220px;overflow-y:auto;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div></div></div>
+  <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" id="buyer-name-input" value="{{r.get('requestor_name','')}}" class="editable-field" aria-label="Buyer Name" onblur="saveField(this,'requestor_name')" oninput="debounceBuyerLookup(this.value,'')" onfocus="this.style.borderColor='var(--r-accent)'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:var(--r-accent);font-size:inherit;width:180px"></div></div>
+  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v"><input type="email" id="buyer-email-input" value="{{r.get('requestor_email','')}}" class="editable-field" aria-label="Buyer Email" onblur="saveField(this,'requestor_email')" oninput="debounceBuyerLookup('',this.value)" onfocus="this.style.borderColor='var(--r-accent)'" placeholder="email@example.com" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:var(--r-accent);font-size:inherit;width:220px"></div></div>
+  <div class="meta-i"><div class="meta-l">Due Date / Time</div><div class="meta-v" style="display:flex;gap:6px;align-items:center"><input type="date" value="{{due_date_iso|default('')}}" class="editable-field" aria-label="Due Date" onchange="saveField(this,'due_date')" onfocus="this.style.borderColor='var(--r-accent)'" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:140px"><input type="time" value="{{due_time_hhmm|default('')}}" class="editable-field" aria-label="Due Time" title="Exact close time from the RFQ — blank defaults to 2:00 PM PST (assumption)" onchange="saveField(this,'due_time')" onfocus="this.style.borderColor='var(--r-accent)'" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:110px">{% if not r.get('due_time') and r.get('due_date') %}<span title="No explicit close time on file — defaulting to 2:00 PM PST. Set the time to eliminate the assumption." style="font-size:11px;color:#f0883e;font-weight:600">⚠ ASSUMED 2 PM</span>{% endif %}</div></div>
+  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="position:relative"><input type="text" id="delivery-input" value="{{r.get('delivery_location','')}}" class="editable-field" aria-label="Delivery Location" oninput="searchLocations(this)" onblur="setTimeout(function(){document.getElementById('loc-dropdown').style.display='none'},200);saveField(document.getElementById('delivery-input'),'delivery_location');rfqTaxLookup(document.getElementById('delivery-input').value)" onfocus="this.style.borderColor='var(--r-accent)';if(this.value.length>=2)searchLocations(this)" placeholder="Type facility name..." autocomplete="off" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:260px"><div id="loc-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#1c2128;border:1px solid #30363d;border-radius:6px;max-height:220px;overflow-y:auto;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div></div></div>
  </div>
 
  {# Phase 5: classification banner — shows what the unified ingest classifier sees.
@@ -53,9 +53,9 @@
     at a glance what the app decided without clicking into anything. #}
  {% set _cls = r.get('_classification') or {} %}
  {% if _cls and _cls.get('shape') %}
- <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);font-size:13px">
+ <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.25);font-size:13px">
   <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
-   <span style="font-weight:700;color:#58a6ff">🤖 Auto-Classification</span>
+   <span style="font-weight:700;color:var(--r-accent)">🤖 Auto-Classification</span>
    <span><span style="color:#8b949e">shape:</span> <b style="color:#c9d1d9">{{ _cls.shape }}</b></span>
    <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ (_cls.agency_name or _cls.agency)|agency_display }}</b></span>
    {% if _cls.solicitation_number %}<span><span style="color:#8b949e">sol#:</span> <b style="color:#c9d1d9">{{ _cls.solicitation_number }}</b></span>{% endif %}
@@ -104,10 +104,10 @@
       703A/B/C, 704B, bid package, DSH attachments, or generic attachment.
       Calls POST /api/rfq/<rid>/contract-upload, then reloads the page. -->
  {% set _t = r.get('templates') or {} %}
- <div id="contract-builder-card" style="margin-top:14px;padding:14px 16px;border-radius:10px;background:linear-gradient(180deg,rgba(88,166,255,.06),rgba(88,166,255,.02));border:1px solid rgba(88,166,255,.35)">
+ <div id="contract-builder-card" style="margin-top:14px;padding:14px 16px;border-radius:10px;background:linear-gradient(180deg,rgba(16,185,129,.06),rgba(16,185,129,.02));border:1px solid rgba(16,185,129,.35)">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">
    <div style="display:flex;align-items:center;gap:10px">
-    <span style="font-size:15px;font-weight:700;color:#58a6ff">📎 Contract Builder</span>
+    <span style="font-size:15px;font-weight:700;color:var(--r-accent)">📎 Contract Builder</span>
     <span style="font-size:12px;color:var(--r-text-muted)">drop anything — auto-routes to slots</span>
    </div>
    {# Slot row is agency-aware. Each agency surfaces only the buyer-issued #}
@@ -137,7 +137,7 @@
    </div>
    {% endif %}
   </div>
-  <div id="cb-drop" ondragover="event.preventDefault();this.style.borderColor='#58a6ff';this.style.background='rgba(88,166,255,.08)'" ondragleave="this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent'" ondrop="event.preventDefault();this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent';_cbUpload(event.dataTransfer.files)" onclick="document.getElementById('cb-input').click()" style="cursor:pointer;padding:18px;border:2px dashed rgba(88,166,255,.4);border-radius:8px;text-align:center;color:var(--r-text-muted);font-size:13px;transition:all .15s">
+  <div id="cb-drop" ondragover="event.preventDefault();this.style.borderColor='var(--r-accent)';this.style.background='rgba(16,185,129,.08)'" ondragleave="this.style.borderColor='rgba(16,185,129,.4)';this.style.background='transparent'" ondrop="event.preventDefault();this.style.borderColor='rgba(16,185,129,.4)';this.style.background='transparent';_cbUpload(event.dataTransfer.files)" onclick="document.getElementById('cb-input').click()" style="cursor:pointer;padding:18px;border:2px dashed rgba(16,185,129,.4);border-radius:8px;text-align:center;color:var(--r-text-muted);font-size:13px;transition:all .15s">
    <div style="font-size:20px;margin-bottom:4px">⬆️</div>
    <div><strong style="color:var(--r-text)">Drop files or click to upload</strong></div>
    <div style="margin-top:4px;font-size:12px">
@@ -277,7 +277,7 @@
  {% set ns = namespace(priced=0) %}{% for i in items %}{% if i.get('price_per_unit') or i.get('supplier_cost') or i.get('amazon_price') or i.get('scprs_last_price') %}{% set ns.priced = ns.priced + 1 %}{% endif %}{% endfor %}
  {% if _total > 0 %}
  {# Source counts compress to icons; show only non-zero sources to reduce 0/1 0/1 0/1 clutter #}
- <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+ <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.15);font-size:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
   <span style="color:{% if ns.priced == _total %}#3fb950{% elif ns.priced %}#d29922{% else %}#f85149{% endif %};font-weight:700;font-size:15px">
    {% if ns.priced == _total %}✅{% elif ns.priced %}⏳{% else %}⚠️{% endif %} {{ ns.priced }}/{{ _total }} priced
   </span>
@@ -312,7 +312,7 @@
  .markup-control-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:10px;padding:8px 12px;margin-bottom:8px}
  .markup-control-bar .bar-label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--r-text-muted);font-weight:700;white-space:nowrap;margin-right:2px}
  .markup-pct-btn{background:var(--r-surface);border:1px solid var(--r-border);color:var(--r-text);border-radius:6px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s}
- .markup-pct-btn:hover{background:rgba(79,140,255,.15);border-color:var(--r-accent);color:var(--r-accent)}
+ .markup-pct-btn:hover{background:rgba(16,185,129,.15);border-color:var(--r-accent);color:var(--r-accent)}
  .markup-divider{width:1px;height:24px;background:var(--r-border);flex-shrink:0;margin:0 4px}
  .rfq-action-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px}
  .rfq-action-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent;font-weight:600;transition:all .15s;font-size:12px;text-align:center;background:var(--r-surface-2);border-color:var(--r-border);color:var(--r-text-muted);min-height:58px}
@@ -322,11 +322,11 @@
  .rfq-action-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
  /* Row highlighting — same as PC page */
  table tr[data-row]:hover{background:#1a233280}
- table tr[data-row]:focus-within{background:var(--row-hl,#1a2332);box-shadow:inset 3px 0 0 #58a6ff}
+ table tr[data-row]:focus-within{background:var(--row-hl,#1a2332);box-shadow:inset 3px 0 0 var(--r-accent)}
  table tr[data-row]:focus-within td{border-top-color:var(--row-hl-border,#2d4a6f);border-bottom-color:var(--row-hl-border,#2d4a6f)}
  /* Highlight filled cost + price fields */
  input[name^="cost_"]:not([value=""]):not([value="0.00"]):not(:placeholder-shown){background:#0d2818;border-color:#238636;color:#3fb950}
- input[name^="price_"]:not([value=""]):not([value="0.00"]):not(:placeholder-shown){background:#0d1a2e;border-color:#1f6feb;color:#58a6ff;font-weight:700}
+ input[name^="price_"]:not([value=""]):not([value="0.00"]):not(:placeholder-shown){background:#0d1a2e;border-color:var(--r-accent);color:var(--r-accent);font-weight:700}
  .ab-scprs{background:rgba(79,140,255,.1);border-color:rgba(79,140,255,.3);color:#58a6ff}
  .ab-amazon{background:rgba(255,153,0,.1);border-color:rgba(255,153,0,.3);color:#ff9900}
  .ab-auto{background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.3);color:#a78bfa}
@@ -347,9 +347,9 @@
   <div class="margin-kpi"><span class="kpi-label">Profit</span><span class="kpi-val" id="ms-margin-dollars">—</span></div>
   <div class="margin-kpi"><span class="kpi-label">Margin</span><span class="kpi-val" id="ms-margin-pct">—</span></div>
   <div class="margin-kpi" id="ms-landed-kpi" style="display:none;border-left:1px solid rgba(210,153,34,.3)"><span class="kpi-label" style="color:#d29922">True Margin</span><span class="kpi-val" id="ms-true-margin" style="color:#d29922">—</span></div>
-  <div class="margin-kpi" style="flex:0 0 auto;min-width:200px"><span class="kpi-label">Tax</span><span class="kpi-val" style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.01" style="width:54px;background:transparent;border:1px solid var(--r-border);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()" title="Tax rate %. Accepts blended rates for multi-destination RFQs (e.g. 8.34%).">%<button onclick="lookupTaxRate(event)" class="markup-pct-btn" style="padding:3px 8px;font-size:12px" title="Auto-lookup from CDTFA" aria-label="Verify tax rate">🔍</button><span id="tax-validation" style="font-size:10px">{# Bug-5b 2026-05-02: green ✅ requires validated AND rate>0. Mike hit a CalVet record stuck on validated=True with rate=0 (stale CDTFA cache returning 0% for FRESNO) — KPI showed $0 tax behind a green check, $5k+ silent revenue miss. #}{# 2026-05-27: Coleman sol# 10842771 reframed — tax now computes unconditionally (subtotal × rate) in the legacy quote path. The "bundled" pill is now purely a SHIPPING signal ("freight included in unit price"); tax math is unaffected. The 704B form-fill is the one place that suppresses the tax line per the buyer's own form rule. #}{% if r.get('shipping_option') == 'included' and r.get('tax_rate') and (r.get('tax_rate')|float) > 0 %}<span style="color:#58a6ff" title="Ship=Included → freight is in the unit price. Tax STILL computes on subtotal × rate and renders on the formal Reytech quote PDF; only the 704B suppresses the tax line per CCHCS form rule.">ℹ️ ship bundled</span>{% elif r.get('tax_validated') and (r.get('tax_rate')|float) > 0 %}{% if r.get('tax_source') in ('default','fallback_table','fallback') %}<span style="color:#d29922" title="{{r.get('tax_source','')}}·{{r.get('tax_jurisdiction','')}}">⚠️ {{r.get('tax_jurisdiction','')}}</span>{% else %}<span style="color:#3fb950" title="{{r.get('tax_source','CDTFA')}}·{{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>{% endif %}{% elif r.get('tax_rate') and (r.get('tax_rate')|float) > 0 %}<span style="color:#d29922">⚠️</span>{% else %}<span style="color:#f85149" title="No tax rate — click 🔍 to look up">❌</span>{% endif %}</span></span></div>
+  <div class="margin-kpi" style="flex:0 0 auto;min-width:200px"><span class="kpi-label">Tax</span><span class="kpi-val" style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.01" style="width:54px;background:transparent;border:1px solid var(--r-border);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()" title="Tax rate %. Accepts blended rates for multi-destination RFQs (e.g. 8.34%).">%<button onclick="lookupTaxRate(event)" class="markup-pct-btn" style="padding:3px 8px;font-size:12px" title="Auto-lookup from CDTFA" aria-label="Verify tax rate">🔍</button><span id="tax-validation" style="font-size:10px">{# Bug-5b 2026-05-02: green ✅ requires validated AND rate>0. Mike hit a CalVet record stuck on validated=True with rate=0 (stale CDTFA cache returning 0% for FRESNO) — KPI showed $0 tax behind a green check, $5k+ silent revenue miss. #}{# 2026-05-27: Coleman sol# 10842771 reframed — tax now computes unconditionally (subtotal × rate) in the legacy quote path. The "bundled" pill is now purely a SHIPPING signal ("freight included in unit price"); tax math is unaffected. The 704B form-fill is the one place that suppresses the tax line per the buyer's own form rule. #}{% if r.get('shipping_option') == 'included' and r.get('tax_rate') and (r.get('tax_rate')|float) > 0 %}<span style="color:var(--r-accent)" title="Ship=Included → freight is in the unit price. Tax STILL computes on subtotal × rate and renders on the formal Reytech quote PDF; only the 704B suppresses the tax line per CCHCS form rule.">ℹ️ ship bundled</span>{% elif r.get('tax_validated') and (r.get('tax_rate')|float) > 0 %}{% if r.get('tax_source') in ('default','fallback_table','fallback') %}<span style="color:#d29922" title="{{r.get('tax_source','')}}·{{r.get('tax_jurisdiction','')}}">⚠️ {{r.get('tax_jurisdiction','')}}</span>{% else %}<span style="color:#3fb950" title="{{r.get('tax_source','CDTFA')}}·{{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>{% endif %}{% elif r.get('tax_rate') and (r.get('tax_rate')|float) > 0 %}<span style="color:#d29922">⚠️</span>{% else %}<span style="color:#f85149" title="No tax rate — click 🔍 to look up">❌</span>{% endif %}</span></span></div>
   <div class="margin-kpi" style="flex:0 0 auto;min-width:130px"><span class="kpi-label">Ship</span><span class="kpi-val" style="display:flex;align-items:center;gap:4px;font-size:13px"><select id="shipping-option" onchange="recalc();triggerAutosave()" style="background:transparent;border:1px solid var(--r-border);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px"><option value="included"{% if r.get('shipping_option')=='included' %} selected{% endif %}>Included</option><option value="fob_dest"{% if r.get('shipping_option')=='fob_dest' %} selected{% endif %}>FOB Dest</option><option value="custom"{% if r.get('shipping_option')=='custom' %} selected{% endif %}>Custom</option></select><input type="number" id="shipping-amount" value="{{r.get('shipping_amount',0)}}" min="0" step="0.01" style="width:52px;background:transparent;border:1px solid var(--r-border);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px;text-align:center;display:{% if r.get('shipping_option')=='custom' %}inline{% else %}none{% endif %}" onchange="recalc();triggerAutosave()"></span></div>
-  <div class="margin-kpi" style="flex:0 0 auto;padding:8px 20px;background:rgba(79,140,255,.06);border-left:1px solid rgba(79,140,255,.2)"><span class="kpi-label">Total</span><span class="kpi-val" id="ms-grand-total" style="color:var(--r-accent);font-size:17px">—</span></div>
+  <div class="margin-kpi" style="flex:0 0 auto;padding:8px 20px;background:rgba(16,185,129,.06);border-left:1px solid rgba(16,185,129,.2)"><span class="kpi-label">Total</span><span class="kpi-val" id="ms-grand-total" style="color:var(--r-accent);font-size:17px">—</span></div>
   <div class="margin-kpi" style="flex:0 0 auto;min-width:80px;border-left:1px solid var(--r-border)"><span class="kpi-label">Priced</span><span class="kpi-val" id="ms-items-priced" style="font-size:13px">—</span></div>
   <div id="ms-discount-profit" style="font-size:13px;padding:4px 12px;border-left:1px solid var(--r-border)"></div>
   <span id="ms-tax" style="display:none"></span><span id="ms-shipping" style="display:none"></span>
@@ -368,7 +368,7 @@
   <div style="display:flex;align-items:center;gap:3px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;padding:3px 8px">
    <span style="color:#8b949e;font-size:13px">$</span>
    <input type="number" id="custom-markup-flat" step="0.01" min="0" placeholder="Flat $" style="width:60px;background:transparent;border:none;color:#e6edf3;font-size:14px;font-weight:600;text-align:center;outline:none">
-   <button class="markup-pct-btn" onclick="applyFlatMarkup()" style="color:#58a6ff;padding:4px 10px" aria-label="Apply flat $">+$</button>
+   <button class="markup-pct-btn" onclick="applyFlatMarkup()" style="color:var(--r-accent);padding:4px 10px" aria-label="Apply flat $">+$</button>
   </div>
   <div class="markup-divider"></div>
   <span class="bar-label">SCPRS Undercut</span>
@@ -424,15 +424,15 @@
     {% endif %}
   </div>
   <button onclick="relinkPc()" id="relink-pc-btn" title="Re-run PC matching and re-port pricing from the matched Price Check"
-          style="margin-left:auto;font-size:12px;padding:3px 10px;background:var(--r-surface,#161b22);border:1px solid var(--r-border,#30363d);border-radius:5px;color:#58a6ff;cursor:pointer">↻ Relink</button>
-  <a href="/pricecheck/{{r.linked_pc_id}}" style="margin-left:10px;color:#58a6ff;font-size:13px;font-weight:600">View PC →</a>
+          style="margin-left:auto;font-size:12px;padding:3px 10px;background:var(--r-surface,#161b22);border:1px solid var(--r-border,#30363d);border-radius:5px;color:var(--r-accent);cursor:pointer">↻ Relink</button>
+  <a href="/pricecheck/{{r.linked_pc_id}}" style="margin-left:10px;color:var(--r-accent);font-size:13px;font-weight:600">View PC →</a>
  </div>
  {% else %}
  <div style="background:rgba(139,148,158,.06);border:1px solid rgba(139,148,158,.2);border-radius:8px;padding:8px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px;color:#8b949e">
   <span style="font-size:16px">🔗</span>
   <span>No Price Check linked.</span>
   <button onclick="relinkPc()" id="relink-pc-btn" title="Search for a matching Price Check and port its pricing"
-          style="margin-left:auto;font-size:12px;padding:3px 10px;background:var(--r-surface,#161b22);border:1px solid var(--r-border,#30363d);border-radius:5px;color:#58a6ff;cursor:pointer">🔗 Find &amp; link PC</button>
+          style="margin-left:auto;font-size:12px;padding:3px 10px;background:var(--r-surface,#161b22);border:1px solid var(--r-border,#30363d);border-radius:5px;color:var(--r-accent);cursor:pointer">🔗 Find &amp; link PC</button>
  </div>
  {% endif %}
 
@@ -440,13 +440,13 @@
  {# post-link hook populated one or more line items; links back to the PC. #}
  {% if r.get('pricing_copied_from_pc') %}
  <div data-testid="rfq-pricing-copied-banner"
-      style="background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.28);border-radius:8px;padding:8px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px;color:#58a6ff">
+      style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.28);border-radius:8px;padding:8px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--r-accent)">
   <span style="font-size:16px">💰</span>
   <div style="flex:1">
    <b>Pricing copied from PC #{{ r.get('linked_pc_number') or r.pricing_copied_from_pc[:12] }}</b>
    — edit line items below to override.
   </div>
-  <a href="/pricecheck/{{ r.pricing_copied_from_pc }}" style="color:#58a6ff;font-weight:600">View PC →</a>
+  <a href="/pricecheck/{{ r.pricing_copied_from_pc }}" style="color:var(--r-accent);font-weight:600">View PC →</a>
  </div>
  {% endif %}
 
@@ -494,10 +494,10 @@
     the server's matcher returns empty suggestions for RFQs with no prior
     PC anyway, so the banner self-hides naturally. #}
  {% if not r.get('linked_pc_id') %}
- <div id="pc-link-panel" data-testid="cchcs-pc-link-panel" style="display:none;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);border-radius:8px;padding:12px 16px;margin-bottom:10px">
+ <div id="pc-link-panel" data-testid="cchcs-pc-link-panel" style="display:none;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.25);border-radius:8px;padding:12px 16px;margin-bottom:10px">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
    <span style="font-size:18px">🧭</span>
-   <b style="color:#58a6ff">Possible Price Check match</b>
+   <b style="color:var(--r-accent)">Possible Price Check match</b>
    <span style="color:#8b949e;font-size:12px">Preview below — Apply ports prices verbatim onto matching lines.</span>
   </div>
   <div id="pc-candidates"></div>
@@ -687,11 +687,11 @@
    <td><input type="number" name="qty_{{loop.index0}}" value="{{ (i.qty or 1)|float|int }}" min="1" max="999999" step="1" class="num-in pricing-num" style="width:72px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="if(this.value!==''){this.value=Math.max(1,Math.min(999999,Math.round(parseFloat(this.value)||1)))};recalc()" onblur="if(!this.value)this.value=1" onwheel="this.blur()" aria-label="Quantity (whole numbers only)">{% if i.get('qty_changed') and i.get('pc_original_qty') %}<div data-testid="line-qty-changed-badge" title="Qty drifted from Price Check ({{ i.pc_original_qty }} → {{ i.qty }}). Price may need re-review." style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(210,153,34,.18);color:#d29922;border-radius:3px;font-weight:600;text-align:center">Δ PC {{ i.pc_original_qty }}</div>{% elif i.get('repriced_reason') == 'qty_change' %}<div data-testid="line-repriced-badge" title="Auto-repriced because qty drifted from Price Check" style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(63,185,80,.15);color:#3fb950;border-radius:3px;font-weight:600;text-align:center">✓ reprice</div>{% endif %}</td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6" aria-label="Unit of measure"></td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
-   <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
+   <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.25);color:var(--r-accent);font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:var(--r-accent);color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
-     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="flex:1;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)" onpaste="setTimeout(()=>handleRfqLinkInput({{loop.index0}},this),50)">{% if i.get('photo_url') %}<input type="hidden" name="photo_url_{{loop.index0}}" value="{{i.photo_url}}">{% endif %}
-     <a href="{{i.get('item_link','')}}" target="_blank" id="rfq_linkopen_{{loop.index0}}" style="display:{% if i.get('item_link') %}flex{% else %}none{% endif %};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link" aria-label="Open supplier link in new tab">↗</a>
+     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="flex:1;font-size:13px;padding:6px 8px;color:var(--r-accent)" oninput="handleRfqLinkInput({{loop.index0}}, this)" onpaste="setTimeout(()=>handleRfqLinkInput({{loop.index0}},this),50)">{% if i.get('photo_url') %}<input type="hidden" name="photo_url_{{loop.index0}}" value="{{i.photo_url}}">{% endif %}
+     <a href="{{i.get('item_link','')}}" target="_blank" id="rfq_linkopen_{{loop.index0}}" style="display:{% if i.get('item_link') %}flex{% else %}none{% endif %};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:var(--r-accent);font-size:14px;text-decoration:none;flex-shrink:0" title="Open link" aria-label="Open supplier link in new tab">↗</a>
     </div>
     <div id="rfq_link_meta_{{loop.index0}}" style="font-size:14px;margin-top:2px;min-height:14px">
      {% if i.get('item_supplier') %}<span style="color:#8b949e">{{i.item_supplier}}</span>{% endif %}
@@ -700,7 +700,7 @@
    <td>
     <input type="text" inputmode="decimal" name="cost_{{loop.index0}}" value="{{ '%.2f'|format(i.supplier_cost|default(0)|float) if i.supplier_cost|default(0) not in (None, '', 0, 0.0) else '' }}" placeholder="0.00" class="num-in pricing-num" style="min-width:110px;field-sizing:content;font-size:17px;font-weight:700;padding:8px 10px" oninput="sanitizePrice(this);recalcFromCost({{loop.index0}})" onblur="fmtCurrency(this);recalcFromCost({{loop.index0}})" aria-label="Supplier cost">
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
-     {% if i.scprs_last_price %}{% if i.get('scprs_po') %}<a href="/api/v1/harvest/po-screenshot/{{i.scprs_po}}" target="_blank" style="text-decoration:none">{% endif %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:#58a6ff;cursor:{% if i.get('scprs_po') %}pointer{% else %}help{% endif %}" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %} · PO Total (not per-unit){% endif %}{% if i.get('scprs_po') %} · PO {{i.scprs_po}} — click to view{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %}<span style="font-size:9px;opacity:.7"> (PO total)</span>{% endif %}</span>{% if i.get('scprs_po') %}</a>{% endif %}{% endif %}
+     {% if i.scprs_last_price %}{% if i.get('scprs_po') %}<a href="/api/v1/harvest/po-screenshot/{{i.scprs_po}}" target="_blank" style="text-decoration:none">{% endif %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(16,185,129,.15);color:var(--r-accent);cursor:{% if i.get('scprs_po') %}pointer{% else %}help{% endif %}" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %} · PO Total (not per-unit){% endif %}{% if i.get('scprs_po') %} · PO {{i.scprs_po}} — click to view{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %}<span style="font-size:9px;opacity:.7"> (PO total)</span>{% endif %}</span>{% if i.get('scprs_po') %}</a>{% endif %}{% endif %}
      {% if i.get('amazon_price') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(251,146,60,.15);color:#fb923c;cursor:help" title="Amazon price">AMZ ${{'{:.2f}'.format(i.amazon_price)}}</span>{% endif %}
      {% if i.get('catalog_match') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(167,139,250,.15);color:#a78bfa;cursor:help" title="Catalog match">📦 Catalog</span>{% endif %}
      {% if i.get('cost_source') %}
@@ -721,7 +721,7 @@
    <td class="mono" style="font-size:14px;color:#8b949e;text-align:right;padding-right:8px" id="extcost_{{loop.index0}}">—</td>
    <td id="intel_{{loop.index0}}" style="font-size:14px;text-align:center;cursor:pointer" title="Click to open price history popup" onclick="showIntel({{loop.index0}})">
     {% if i.get('price_intel') and i.price_intel.get('history_count', 0) > 0 %}
-     <span style="color:#58a6ff" title="{{i.price_intel.history_count}} prior price{{'s' if i.price_intel.history_count != 1 else ''}} — click for details">📊{{i.price_intel.history_count}}</span>
+     <span style="color:var(--r-accent)" title="{{i.price_intel.history_count}} prior price{{'s' if i.price_intel.history_count != 1 else ''}} — click for details">📊{{i.price_intel.history_count}}</span>
     {% elif i.get('catalog_match') %}
      <span style="color:#3fb950" title="Catalog match only — no prior-price history">📦</span>
     {% else %}
@@ -730,8 +730,8 @@
    </td>
    <td>
     <div style="display:flex;align-items:center;gap:2px">
-     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{ (i.get('markup_pct') or 0)|float|int if i.get('markup_pct') not in (None, '') else '' }}" placeholder="%" class="num-in pricing-num" style="width:55px;font-size:15px;font-weight:700;padding:6px 8px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="if(this.value!==''){this.value=Math.max(0,Math.min(200,Math.round(parseFloat(this.value)||0)))};recalcFromMarkup({{loop.index0}},true)" onblur="if(this.value==='')this.value=0;recalcFromMarkup({{loop.index0}},true)" onwheel="this.blur()" aria-label="Markup percent (whole number 0-200)">
-     <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
+     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{ (i.get('markup_pct') or 0)|float|int if i.get('markup_pct') not in (None, '') else '' }}" placeholder="%" class="num-in pricing-num" style="width:55px;font-size:15px;font-weight:700;padding:6px 8px;text-align:center;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2)" oninput="if(this.value!==''){this.value=Math.max(0,Math.min(200,Math.round(parseFloat(this.value)||0)))};recalcFromMarkup({{loop.index0}},true)" onblur="if(this.value==='')this.value=0;recalcFromMarkup({{loop.index0}},true)" onwheel="this.blur()" aria-label="Markup percent (whole number 0-200)">
+     <span style="color:var(--r-accent);font-size:14px;font-weight:600">%</span>
     </div>
    </td>
    <td><input type="text" inputmode="decimal" name="price_{{loop.index0}}" value="{{ '%.2f'|format(i.price_per_unit|default(0)|float) if i.price_per_unit|default(0) not in (None, '', 0, 0.0) else '' }}" placeholder="0.00" class="num-in pricing-num" style="min-width:110px;field-sizing:content;font-size:17px;font-weight:700;padding:8px 10px" oninput="sanitizePrice(this);recalcFromBid({{loop.index0}})" onblur="fmtCurrency(this);recalcFromBid({{loop.index0}})" aria-label="Bid price per unit">
@@ -756,7 +756,7 @@
    <td style="position:relative">
     <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:17px;padding:4px 8px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})" aria-label="Item options">⋯</button>
     <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-     <button type="button" onclick="lookupSingleItem({{loop.index0}})" style="display:block;width:100%;text-align:left;background:none;border:none;color:#58a6ff;padding:6px 14px;font-size:13px;cursor:pointer;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Price Lookup</button>
+     <button type="button" onclick="lookupSingleItem({{loop.index0}})" style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--r-accent);padding:6px 14px;font-size:13px;cursor:pointer;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Price Lookup</button>
      <hr style="border:none;border-top:1px solid #21262d;margin:4px 0">
      <button type="button" onclick="moveItemRow(this,'up')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬆ Move Up</button>
      <button type="button" onclick="moveItemRow(this,'down')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬇ Move Down</button>
@@ -848,7 +848,7 @@
   <button type="button" onclick="resetItems()" class="btn btn-sm" style="background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.3);font-size:13px;padding:6px 14px;font-weight:600;border-radius:6px" title="Clear all line item prices and markups">🔄 Reset All Items</button>
   <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);font-size:13px;padding:6px 14px;font-weight:600;border-radius:6px;cursor:pointer" onclick="cleanJunkItems()" title="Remove empty and junk line items">🧹 Clean Junk Items</button>
   {% if r.get('pricing_snapshot') %}
-  <button type="button" onclick="revertPricing()" class="btn btn-sm" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:13px;padding:6px 14px;font-weight:600;border-radius:6px" title="Revert all prices to {{ r.pricing_snapshot.quote_number }} · ${{ '{:,.2f}'.format(r.pricing_snapshot.get('total',0)) }} · {{ r.pricing_snapshot.get('snapshot_at','')[:10] }}">↩ Revert to {{ r.pricing_snapshot.quote_number }}</button>
+  <button type="button" onclick="revertPricing()" class="btn btn-sm" style="background:rgba(16,185,129,.12);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:13px;padding:6px 14px;font-weight:600;border-radius:6px" title="Revert all prices to {{ r.pricing_snapshot.quote_number }} · ${{ '{:,.2f}'.format(r.pricing_snapshot.get('total',0)) }} · {{ r.pricing_snapshot.get('snapshot_at','')[:10] }}">↩ Revert to {{ r.pricing_snapshot.quote_number }}</button>
   <span style="font-size:12px;color:#6e7681;margin-left:2px">Last quoted: <strong style="color:#8b949e">{{ r.pricing_snapshot.get('quote_number','') }}</strong> · ${{ '{:,.2f}'.format(r.pricing_snapshot.get('total', 0)) }} · {{ r.pricing_snapshot.get('snapshot_at','')[:10] }}</span>
   {% endif %}
  </div>
@@ -944,7 +944,7 @@
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" data-qa-gated="1" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);font-size:14px;padding:12px 20px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote" title="Opens generated PDF if available, otherwise shows HTML preview">👁 Preview</button>
   <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" data-qa-gated="1" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package" title="Runs bid-package fill engine + generates Quote PDF. Fill All Forms is included automatically — no separate step needed.">📦 Generate Package</button>
-  <button type="button" class="btn" data-qa-gated="1" data-testid="rfq-send-quote" style="background:rgba(79,140,255,.15);color:var(--r-accent);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
+  <button type="button" class="btn" data-qa-gated="1" data-testid="rfq-send-quote" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
   {% if r.status in ('generated', 'ready', 'ready_to_send') %}
   <button type="button" onclick="openMarkSentModal()" class="btn" data-testid="rfq-mark-sent-primary" style="font-size:15px;padding:12px 24px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)" aria-label="Mark as sent manually — use when you emailed this outside the app" title="Mark this RFQ as sent manually (e.g. when you emailed the package outside the app)">📨 Mark Sent Manually</button>
   {% endif %}
@@ -972,7 +972,7 @@
     {% if _phase_generated or r.get('manual_704b') %}
     <button type="button" role="menuitem" class="btn" data-testid="rfq-replace-704b" style="display:block;width:100%;text-align:left;background:transparent;color:#f85149;border:none;font-size:13px;padding:10px 12px;font-weight:500;border-radius:6px" onclick="document.getElementById('manual704bInput').click()" title="Use this when the auto-filled 704B looks wrong — fill it in Acrobat, upload, your version replaces the app's.">🆘 Replace auto-filled 704B</button>
     {% endif %}
-    <button type="button" role="menuitem" id="rfq-refresh-prices-btn" class="btn" data-testid="rfq-refresh-prices" style="display:block;width:100%;text-align:left;background:transparent;color:#58a6ff;border:none;font-size:13px;padding:10px 12px;font-weight:500;border-radius:6px" onclick="refreshCatalogPrices(this)" title="Pull fresh web MSRP for items that lack cost. Runs in background; reload in ~1 min to see updates.">🔄 Re-scan catalog prices</button>
+    <button type="button" role="menuitem" id="rfq-refresh-prices-btn" class="btn" data-testid="rfq-refresh-prices" style="display:block;width:100%;text-align:left;background:transparent;color:var(--r-accent);border:none;font-size:13px;padding:10px 12px;font-weight:500;border-radius:6px" onclick="refreshCatalogPrices(this)" title="Pull fresh web MSRP for items that lack cost. Runs in background; reload in ~1 min to see updates.">🔄 Re-scan catalog prices</button>
    </div>
   </div>
   <input type="file" id="manual704bInput" accept=".pdf" style="display:none" onchange="_uploadManual704b(this)">
@@ -1034,7 +1034,7 @@
    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <button type="button" onclick="_stickyClick('rfq-save-pricing')" data-testid="sticky-finalize" data-qa-gated="1" class="btn btn-p" style="font-size:13px;padding:8px 16px;font-weight:700" aria-label="Finalize pricing (sticky)">✅ Finalize</button>
     <button type="button" onclick="_stickyClick('rfq-generate-package')" data-testid="sticky-generate" data-qa-gated="1" class="btn btn-g" style="font-size:13px;padding:8px 16px;font-weight:700" aria-label="Generate RFP package (sticky)" title="Cmd/Ctrl+Enter from any price cell also fires this">📦 Generate</button>
-    <button type="button" onclick="_stickyClick('rfq-send-quote')" data-testid="sticky-send" data-qa-gated="1" class="btn" style="background:rgba(79,140,255,.15);color:var(--r-accent);border:1px solid rgba(79,140,255,.3);font-size:13px;padding:8px 16px;font-weight:600" aria-label="Send quote (sticky)">📧 Send</button>
+    <button type="button" onclick="_stickyClick('rfq-send-quote')" data-testid="sticky-send" data-qa-gated="1" class="btn" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:13px;padding:8px 16px;font-weight:600" aria-label="Send quote (sticky)">📧 Send</button>
    </div>
   </div>
  </div>
@@ -1292,7 +1292,7 @@
  {% if r.get('manual_704b') %}
  <div style="margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <span>🆘 <strong>Manual 704B uploaded</strong> — auto-fill is bypassed. Uploaded {{ r.manual_704b.uploaded_at[:19] }} ({{ r.manual_704b.original_filename }}, {{ r.manual_704b.pages }} pages).</span>
-  <a href="#" onclick="event.preventDefault();_clearManual704b()" style="color:#58a6ff;text-decoration:underline">Resume auto-fill</a>
+  <a href="#" onclick="event.preventDefault();_clearManual704b()" style="color:var(--r-accent);text-decoration:underline">Resume auto-fill</a>
  </div>
  {% endif %}
 
@@ -1302,11 +1302,11 @@
   <div style="display:flex;align-items:center;gap:8px;margin-right:4px">
    <span style="width:8px;height:8px;border-radius:50%;background:#3fb950;display:inline-block;box-shadow:0 0 6px rgba(63,185,80,.6)"></span>
    <span style="font-size:14px;color:#3fb950;font-weight:700;font-family:'JetBrains Mono',monospace">{{ r.reytech_quote_number }}</span>
-   {% if r.get('quote_revision') %}<span style="background:rgba(88,166,255,.2);color:#58a6ff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700">Rev {{ r.quote_revision }}</span>{% endif %}
+   {% if r.get('quote_revision') %}<span style="background:rgba(16,185,129,.2);color:var(--r-accent);border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700">Rev {{ r.quote_revision }}</span>{% endif %}
    {% if r.get('quote_revised_at') %}<span style="font-size:12px;color:#8b949e">{{ r.quote_revised_at[:10] }}</span>{% endif %}
   </div>
   <div style="width:1px;height:24px;background:rgba(63,185,80,.2)"></div>
-  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing" aria-label="Revise quote PDF">✏️ Revise Quote</button>
+  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing" aria-label="Revise quote PDF">✏️ Revise Quote</button>
   <button type="button" id="download-quote-btn" onclick="downloadCurrentQuote()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Download current quote PDF" aria-label="Download quote PDF">⬇ Download Quote{% if r.get('quote_revision') %} (Rev {{ r.quote_revision }}){% endif %}</button>
   {# PR-D4 (2026-05-03) — editable working copy. Mike's 10-min escape valve: #}
   {# operator downloads, edits buyer/ship-to in any PDF viewer, uploads back. #}
@@ -1326,7 +1326,7 @@
          style="display:none" onchange="handleUploadEdited(this.files[0])">
   <span id="upload-edited-status" data-testid="upload-edited-status"
         style="display:none;font-size:13px;color:var(--r-text-muted);margin-left:8px"></span>
-  {% if r.get('quote_revision') %}<a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;font-size:13px;margin-left:auto">📋 History</a>{% endif %}
+  {% if r.get('quote_revision') %}<a href="#" onclick="loadRevisionHistory(event)" style="color:var(--r-accent);font-size:13px;margin-left:auto">📋 History</a>{% endif %}
  </div>
  {% if r.get('quote_revision') %}
  <div id="revision-history-panel" style="display:none;margin-top:6px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;padding:10px;font-size:13px">Loading...</div>
@@ -1351,14 +1351,14 @@
   <div id="bulkHintUrl" style="font-size:13px;color:#8b949e;margin-bottom:8px">Paste one URL per line. Line 1 → Item 1, Line 2 → Item 2, etc. URLs are scraped for pricing.</div>
   <div id="bulkHintData" style="display:none;font-size:13px;color:#8b949e;margin-bottom:8px">
    Paste tab-separated columns from a spreadsheet. Line 1 → Item 1, etc.<br>
-   <span style="color:#58a6ff;font-size:12px">Columns: Description &nbsp;|&nbsp; MFG# &nbsp;|&nbsp; URL &nbsp;|&nbsp; Cost &nbsp;|&nbsp; Markup%</span><br>
+   <span style="color:var(--r-accent);font-size:12px">Columns: Description &nbsp;|&nbsp; MFG# &nbsp;|&nbsp; URL &nbsp;|&nbsp; Cost &nbsp;|&nbsp; Markup%</span><br>
    <span style="font-size:11px;color:#6e7681">Skip columns with empty values. Partial rows are fine — only non-empty fields are applied.</span>
   </div>
   <div id="bulkHintScreenshot" style="display:none;font-size:13px;color:#8b949e;margin-bottom:8px">
    Upload a screenshot containing supplier URLs and product descriptions. URLs will be extracted, scraped for MFG#/ASIN/pricing, and previewed before adding.
   </div>
   <textarea id="bulkUrlsInput" style="width:100%;min-height:120px;max-height:40vh;flex:1 1 180px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:'JetBrains Mono',monospace;font-size:13px;padding:10px;resize:vertical" placeholder="https://www.amazon.com/dp/B00IGU9BRY&#10;https://www.amazon.com/dp/B078PJCVSQ&#10;..."></textarea>
-  <div id="bulkScreenshotZone" style="display:none;width:100%;min-height:140px;background:#0d1117;border:2px dashed #30363d;border-radius:8px;color:#8b949e;font-size:14px;cursor:pointer;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:20px" onclick="document.getElementById('screenshotUpload').click()" ondragover="event.preventDefault();this.style.borderColor='#58a6ff'" ondragleave="this.style.borderColor='#30363d'" ondrop="event.preventDefault();this.style.borderColor='#30363d';var f=event.dataTransfer.files[0];if(f){document.getElementById('screenshotUpload').files=event.dataTransfer.files;_onScreenshotSelected(f)}">
+  <div id="bulkScreenshotZone" style="display:none;width:100%;min-height:140px;background:#0d1117;border:2px dashed #30363d;border-radius:8px;color:#8b949e;font-size:14px;cursor:pointer;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:20px" onclick="document.getElementById('screenshotUpload').click()" ondragover="event.preventDefault();this.style.borderColor='var(--r-accent)'" ondragleave="this.style.borderColor='#30363d'" ondrop="event.preventDefault();this.style.borderColor='#30363d';var f=event.dataTransfer.files[0];if(f){document.getElementById('screenshotUpload').files=event.dataTransfer.files;_onScreenshotSelected(f)}">
    <div style="font-size:28px">&#128247;</div>
    <div>Drop a screenshot or click to upload</div>
    <div style="font-size:11px;color:#6e7681">PNG, JPG, GIF, WebP, BMP</div>
@@ -1367,7 +1367,7 @@
   </div>
   <div id="bulkDetect" style="display:none;font-size:11px;color:#d29922;margin-top:4px"></div>
   <div id="bulkPreview" style="display:none;margin-top:8px;max-height:20vh;overflow:auto;border:1px solid #30363d;border-radius:6px"></div>
-  <div id="bulkProgress" style="display:none;margin-top:8px;height:4px;background:#30363d;border-radius:2px;overflow:hidden"><div style="width:100%;height:100%;background:#58a6ff;animation:bulkPulse 1.5s infinite"></div></div>
+  <div id="bulkProgress" style="display:none;margin-top:8px;height:4px;background:#30363d;border-radius:2px;overflow:hidden"><div style="width:100%;height:100%;background:var(--r-accent);animation:bulkPulse 1.5s infinite"></div></div>
   <style>@keyframes bulkPulse{0%,100%{opacity:0.4}50%{opacity:1}}</style>
   <div id="bulkResults" style="max-height:30vh;overflow-y:auto"></div>
   <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-shrink:0">
@@ -1408,7 +1408,7 @@
    📎 {{ att_name }}
   </div>
   {% endfor %}
-  <div style="padding:6px 12px;border-radius:6px;font-size:14px;border:1px solid rgba(79,140,255,.3);background:rgba(79,140,255,.06);color:var(--r-accent)">
+  <div style="padding:6px 12px;border-radius:6px;font-size:14px;border:1px solid rgba(16,185,129,.3);background:rgba(16,185,129,.06);color:var(--r-accent)">
    📄 Reytech Quote {{ '✅' if r.get('reytech_quote_number') else '(pending)' }}
   </div>
  </div>
@@ -1460,7 +1460,7 @@
  <div data-testid="rfq-qb-export-block" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--r-border)">
   <div style="font-size:14px;font-weight:700;color:var(--r-text);margin-bottom:8px">📊 QB Export</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-   <a href="/api/rfq/{{ rid }}/export-invoice" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);color:var(--r-accent);flex:1;text-align:center;padding:8px">📄 Invoice (Excel)</a>
+   <a href="/api/rfq/{{ rid }}/export-invoice" class="btn btn-sm" style="font-size:13px;background:rgba(16,185,129,.1);color:var(--r-accent);flex:1;text-align:center;padding:8px">📄 Invoice (Excel)</a>
    <a href="/api/rfq/{{ rid }}/export-supplier-po" class="btn btn-sm" style="font-size:13px;background:rgba(63,185,80,.1);color:#3fb950;flex:1;text-align:center;padding:8px">📦 Supplier PO (Excel)</a>
    <button onclick="exportBookkeeper()" class="btn btn-sm" style="font-size:13px;background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.3);flex:1;text-align:center;padding:8px">📊 QBO CSV Export</button>
   </div>
@@ -1507,7 +1507,7 @@
    </div>
    <button onclick="extractReplyDiff({{ loop.index0 }})"
            data-testid="extract-diff-{{ loop.index0 }}"
-           class="btn btn-sm" style="background:#1f6feb;color:#fff;font-size:13px;padding:5px 12px;border:none;border-radius:4px;cursor:pointer">
+           class="btn btn-sm" style="background:var(--r-accent);color:#fff;font-size:13px;padding:5px 12px;border:none;border-radius:4px;cursor:pointer">
     🔎 Extract changes
    </button>
   </div>
@@ -1787,7 +1787,7 @@
  <!-- Action buttons based on current status -->
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   {% if r.status in ('new', 'ready') %}
-   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px" aria-label="Mark as generated">📦 Mark Generated</button>
+   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);border-radius:6px" aria-label="Mark as generated">📦 Mark Generated</button>
   {% endif %}
   {# Bug-2 (2026-05-02): Mark Sent button now lives in the Status card too,
      not just the primary action bar. Always available unless RFQ is already
@@ -2130,7 +2130,7 @@ function searchLocations(el){
     html+='<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #21262d;font-size:13px" onmousedown="selectLocation(&#39;'+_n+'&#39;,&#39;'+_a+'&#39;,&#39;'+_ag+'&#39;)" onmouseover="this.style.background=&#39;#30363d&#39;" onmouseout="this.style.background=&#39;transparent&#39;">';
     html+='<div style="font-weight:600;color:#e6edf3">'+_n+'</div>';
     if(loc.address)html+='<div style="color:#8b949e;font-size:12px">'+_a+'</div>';
-    if(loc.agency)html+='<div style="color:#58a6ff;font-size:11px">'+_ag+'</div>';
+    if(loc.agency)html+='<div style="color:var(--r-accent);font-size:11px">'+_ag+'</div>';
     html+='</div>';
    });
    dd.innerHTML=html;dd.style.display='block';
@@ -2167,7 +2167,7 @@ function saveField(el,field){
    if(d.link_result&&d.link_result.linked){
     // Don't auto-reload — it kills unsaved data. Show banner instead.
     var _lb=document.createElement('div');_lb.style.cssText='background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);border-radius:6px;padding:6px 12px;font-size:13px;color:#3fb950;margin:8px 0';
-    _lb.innerHTML='🔗 Linked to PC #'+d.link_result.pc_number+' — <a href="#" onclick="location.reload()" style="color:#58a6ff">reload to sync pricing</a>';
+    _lb.innerHTML='🔗 Linked to PC #'+d.link_result.pc_number+' — <a href="#" onclick="location.reload()" style="color:var(--r-accent)">reload to sync pricing</a>';
     var _tgt=document.getElementById('margin-summary')||document.querySelector('.card');
     if(_tgt&&_tgt.parentNode)_tgt.parentNode.insertBefore(_lb,_tgt);
    }
@@ -2216,7 +2216,7 @@ function debounceBuyerLookup(name,email){
    if(existing) existing.remove();
    var badge=document.createElement('span');
    badge.id='buyer-suggest';
-   badge.style.cssText='background:rgba(88,166,255,.1);border:1px solid rgba(88,166,255,.3);border-radius:4px;padding:2px 8px;font-size:12px;color:#58a6ff;margin-left:6px;cursor:pointer;display:inline-block;margin-top:4px';
+   badge.style.cssText='background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:4px;padding:2px 8px;font-size:12px;color:var(--r-accent);margin-left:6px;cursor:pointer;display:inline-block;margin-top:4px';
    badge.innerHTML='Suggested: '+d.ship_to.substring(0,40)+(d.ship_to.length>40?'...':'')+' <span style="margin-left:4px;opacity:.6" title="Dismiss">\u2715</span>';
    badge.onclick=function(){
     delEl.value=d.ship_to;
@@ -2530,9 +2530,9 @@ function _showScreenshotPreview(d){
   var desc=item.description||'(no description)';
   if(desc.length>60)desc=desc.substring(0,57)+'...';
   html+='<td style="padding:4px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(item.description||'').replace(/"/g,'&quot;')+'">'+desc;
-  if(item.asin)html+=' <span style="background:#1f6feb;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px">ASIN</span>';
+  if(item.asin)html+=' <span style="background:var(--r-accent);color:#fff;font-size:9px;padding:1px 4px;border-radius:3px">ASIN</span>';
   html+='</td>';
-  html+='<td style="padding:4px;color:#58a6ff;font-size:11px">'+(item.mfg_number||item.part_number||'—')+'</td>';
+  html+='<td style="padding:4px;color:var(--r-accent);font-size:11px">'+(item.mfg_number||item.part_number||'—')+'</td>';
   html+='<td style="padding:4px;font-size:11px">'+(item.supplier||'—')+'</td>';
   html+='<td style="padding:4px;text-align:right;color:#3fb950">'+(item.price?'$'+Number(item.price).toFixed(2):'—')+'</td>';
   var statusHtml='';
@@ -3372,7 +3372,7 @@ function handleSQUpload(input){
    h+='<div style="background:rgba(63,185,80,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(63,185,80,.3)">';
    h+='<b style="color:#3fb950">'+d.items_matched+'/'+d.items_parsed+'</b> matched</div>';
    if(d.desc_upgraded)h+='<div style="background:rgba(251,146,60,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(251,146,60,.3)"><b style="color:#fb923c">'+d.desc_upgraded+'</b> descriptions upgraded</div>';
-   h+='<div style="background:rgba(88,166,255,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(88,166,255,.3)">Catalog: <b style="color:#58a6ff">+'+d.catalog_added+'</b> new, <b style="color:#58a6ff">~'+d.catalog_updated+'</b> updated</div>';
+   h+='<div style="background:rgba(16,185,129,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(16,185,129,.3)">Catalog: <b style="color:var(--r-accent)">+'+d.catalog_added+'</b> new, <b style="color:var(--r-accent)">~'+d.catalog_updated+'</b> updated</div>';
    h+='</div>';
    // Warnings
    if(d.warnings && (d.warnings.qty_mismatches||d.warnings.uom_mismatches)){
@@ -3477,7 +3477,7 @@ function importFromPC(btn){
   h+='<b style="color:#e6edf3;font-size:15px">📥 Import from Price Check</b>';
   h+='<button onclick="document.getElementById(\'pc-import-modal\').remove()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;line-height:1">✕</button></div>';
   h+='<div style="padding:10px 18px;border-bottom:1px solid #21262d;flex-shrink:0"><input id="pc-search-inp" type="text" placeholder="Search by PC #, institution, requestor..." oninput="filterPCList(this.value)" style="width:100%;padding:7px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:13px"></div>';
-  h+='<div style="padding:8px 18px;background:rgba(88,166,255,.05);border-bottom:1px solid #21262d;font-size:12px;color:#8b949e;flex-shrink:0">Can\'t find it? <button onclick="pcUploadFallback()" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;margin-left:4px">📎 Upload & Parse PC PDF</button></div>';
+  h+='<div style="padding:8px 18px;background:rgba(16,185,129,.05);border-bottom:1px solid #21262d;font-size:12px;color:#8b949e;flex-shrink:0">Can\'t find it? <button onclick="pcUploadFallback()" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;margin-left:4px">📎 Upload & Parse PC PDF</button></div>';
   h+='<div id="pc-list-container" style="overflow-y:auto;flex:1">';
   if(!d.pcs||!d.pcs.length){h+='<div style="padding:20px;color:#8b949e;text-align:center">No Price Checks found</div>';}
   else{d.pcs.forEach(function(pc){
@@ -4686,7 +4686,7 @@ function loadIntel(){
    }else if(info.freshness&&info.freshness.stale){
     el.innerHTML='<span style="color:#d29922" title="Price data '+info.freshness.days_old+'d old">⏰</span>';
    }else if(info.history&&info.history.count>0){
-    el.innerHTML='<span style="color:#58a6ff" title="'+info.history.count+' records, avg $'+info.history.avg+'">📊'+info.history.count+'</span>';
+    el.innerHTML='<span style="color:var(--r-accent)" title="'+info.history.count+' records, avg $'+info.history.avg+'">📊'+info.history.count+'</span>';
    }else if(info.catalog){
     el.innerHTML='<span style="color:#3fb950" title="In catalog: '+info.catalog.sku+'">📦</span>';
    }
@@ -4739,7 +4739,7 @@ function showIntel(idx){
   html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Avg</div><div style="font-size:15px;font-weight:700;color:#f0f6fc">$'+h.avg.toFixed(2)+'</div></div>';
   html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Min</div><div style="font-size:15px;font-weight:700;color:#3fb950">$'+h.min.toFixed(2)+'</div></div>';
   html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Max</div><div style="font-size:15px;font-weight:700;color:#f85149">$'+h.max.toFixed(2)+'</div></div>';
-  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Records</div><div style="font-size:15px;font-weight:700;color:#58a6ff">'+h.count+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Records</div><div style="font-size:15px;font-weight:700;color:var(--r-accent)">'+h.count+'</div></div>';
   html+='</div>';
   if(h.entries&&h.entries.length){
    html+='<div style="font-size:14px;font-weight:600;color:#8b949e;margin-bottom:4px">Recent Prices</div>';
@@ -4748,7 +4748,7 @@ function showIntel(idx){
    h.entries.forEach(function(e){
     html+='<tr style="border-top:1px solid #21262d">';
     html+='<td style="padding:3px 6px;font-weight:700;color:#f0f6fc">$'+e.price.toFixed(2)+'</td>';
-    html+='<td style="color:#58a6ff">'+e.source+'</td>';
+    html+='<td style="color:var(--r-accent)">'+e.source+'</td>';
     html+='<td style="color:#8b949e">'+e.date+'</td>';
     html+='<td style="color:#8b949e">'+(e.quote||e.agency||'—')+'</td>';
     html+='</tr>';
@@ -4797,11 +4797,11 @@ function showIntel(idx){
  // Recommendations
  if(info.recommendation){
   var r=info.recommendation;
-  html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.15);border-radius:6px;font-size:14px">';
-  html+='<div style="font-weight:600;color:#58a6ff;margin-bottom:6px">💡 Pricing Tiers <span style="color:#8b949e;font-weight:400">('+r.reason+')</span></div>';
+  html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:6px;font-size:14px">';
+  html+='<div style="font-weight:600;color:var(--r-accent);margin-bottom:6px">💡 Pricing Tiers <span style="color:#8b949e;font-weight:400">('+r.reason+')</span></div>';
   html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
   html+='<div style="text-align:center;padding:4px;background:#21262d;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive+';recalc();triggerAutosave()"><div style="font-size:13px;color:#f85149">Aggressive</div><div style="font-weight:700;color:#f0f6fc">$'+r.aggressive.toFixed(2)+'</div></div>';
-  html+='<div style="text-align:center;padding:4px;background:#1f6feb22;border:1px solid #1f6feb;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.recommended+';recalc();triggerAutosave()"><div style="font-size:13px;color:#58a6ff">Recommended</div><div style="font-weight:700;color:#f0f6fc">$'+r.recommended.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:4px;background:rgba(16,185,129,.13);border:1px solid var(--r-accent);border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.recommended+';recalc();triggerAutosave()"><div style="font-size:13px;color:var(--r-accent)">Recommended</div><div style="font-weight:700;color:#f0f6fc">$'+r.recommended.toFixed(2)+'</div></div>';
   html+='<div style="text-align:center;padding:4px;background:#21262d;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe+';recalc();triggerAutosave()"><div style="font-size:13px;color:#3fb950">Safe</div><div style="font-weight:700;color:#f0f6fc">$'+r.safe.toFixed(2)+'</div></div>';
   html+='</div></div>';
  }
@@ -4844,7 +4844,7 @@ function reviseQuote(){
    toast.style.cssText='position:fixed;bottom:20px;right:20px;background:#0d1f0d;border:1px solid #3fb950;border-radius:8px;padding:12px 18px;z-index:9999;color:#3fb950;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:360px';
    toast.innerHTML='✅ '+d.quote_number+' Rev '+d.revision+' generated<br>'
     +'<span style="font-weight:400;font-size:13px">$'+d.total.toLocaleString('en-US',{minimumFractionDigits:2})
-    +' &middot; <a href="'+d.download+'" target="_blank" style="color:#58a6ff">⬇ Download PDF</a>'
+    +' &middot; <a href="'+d.download+'" target="_blank" style="color:var(--r-accent)">⬇ Download PDF</a>'
     +' &middot; <span style="color:#8b949e;cursor:pointer" onclick="this.closest(\'div\').remove()">✕</span></span>';
    document.body.appendChild(toast);
    setTimeout(function(){if(toast.parentNode)toast.remove();},12000);
@@ -5030,7 +5030,7 @@ setTimeout(function(){
   if(d.auto_linked){
    var nb=document.createElement('div');nb.id='linked-pc-bar';
    nb.style.cssText='background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);border-radius:6px;padding:6px 12px;font-size:13px;color:#3fb950;margin-bottom:8px';
-   nb.innerHTML='🔗 Auto-linked to PC #'+d.pcs[0].pc_number+' <a href="#" onclick="location.reload()" style="color:#58a6ff;margin-left:8px">Reload to sync →</a>';
+   nb.innerHTML='🔗 Auto-linked to PC #'+d.pcs[0].pc_number+' <a href="#" onclick="location.reload()" style="color:var(--r-accent);margin-left:8px">Reload to sync →</a>';
    var tgt=document.querySelector('.action-bar')||document.querySelector('.bg');
    if(tgt&&tgt.parentNode)tgt.parentNode.insertBefore(nb,tgt);
   }
@@ -5221,7 +5221,7 @@ function submitMarkSent(ev) {
             + '</span>'
           : '';
         var attached = it.buyer_template_filename
-          ? '<span style="color:#58a6ff;font-size:11px;margin-left:6px">📎 ' + esc(it.buyer_template_filename) + '</span>'
+          ? '<span style="color:var(--r-accent);font-size:11px;margin-left:6px">📎 ' + esc(it.buyer_template_filename) + '</span>'
           : '';
         var candBadge = '';
         if (it.candidate_id && it.candidate_id > 0) {
@@ -5252,7 +5252,7 @@ function submitMarkSent(ev) {
  function levelStyle(lvl){
   if(lvl==='red')    return {bg:'rgba(248,81,73,.12)', br:'rgba(248,81,73,.4)', fg:'#f85149', icon:'⛔'};
   if(lvl==='orange') return {bg:'rgba(210,153,34,.12)',br:'rgba(210,153,34,.4)',fg:'#d29922', icon:'⚠️'};
-  return {bg:'rgba(88,166,255,.10)',br:'rgba(88,166,255,.3)', fg:'#58a6ff', icon:'ℹ️'};
+  return {bg:'rgba(16,185,129,.10)',br:'rgba(16,185,129,.3)', fg:'var(--r-accent)', icon:'ℹ️'};
  }
  function esc(s){return String(s||'').replace(/[<>&"']/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c];});}
  fetch('/api/rfq/'+RID+'/win-warnings',{credentials:'same-origin'})

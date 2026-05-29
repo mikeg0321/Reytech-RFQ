@@ -34,7 +34,7 @@
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
        <div style="background:var(--r-surface-2);padding:8px;border-radius:8px;text-align:center">
         <div style="font-size:16px;color:var(--r-text-muted)">Sourced</div>
-        <div style="font-size:18px;font-weight:700;color:#58a6ff">{{ sourced_count }}/{{ total_count }}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--r-accent)">{{ sourced_count }}/{{ total_count }}</div>
        </div>
        <div style="background:var(--r-surface-2);padding:8px;border-radius:8px;text-align:center">
         <div style="font-size:16px;color:var(--r-text-muted)">Shipped</div>
@@ -122,7 +122,7 @@
         </td>
         <td style="font-size:14px">
          {% if supplier_name and sup_url %}
-          <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(79,140,255,.12);border:1px solid rgba(79,140,255,.25);border-radius:14px;color:var(--r-accent);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" title="View supplier record">{{ supplier_name }}</a>
+          <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.25);border-radius:14px;color:var(--r-accent);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" title="View supplier record">{{ supplier_name }}</a>
           <a href="{{ sup_url }}" target="_blank" style="color:var(--r-text-muted);font-size:15px" title="Product page">🔗</a>
          {% elif supplier_name %}
           <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);border-radius:14px;color:#3fb950;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap">{{ supplier_name }}</a>
@@ -190,7 +190,7 @@
       <button onclick="lookupSuppliers('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="lookup-btn" aria-label="Lookup Suppliers">🔍 Lookup Suppliers</button>
       <span style="border-left:1px solid var(--r-border);height:24px;margin:0 4px"></span>
       <button onclick="openOrderPOBuilder()" class="btn btn-s" style="font-size:16px;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.25)" aria-label="Create Supplier Purchase Orders in QuickBooks">💰 Create Supplier PO</button>
-      <button onclick="createQBInvoice(this)" class="btn btn-s" style="font-size:16px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25)" aria-label="Create Customer Invoice in QuickBooks">📄 QB Invoice</button>
+      <button onclick="createQBInvoice(this)" class="btn btn-s" style="font-size:16px;background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.25)" aria-label="Create Customer Invoice in QuickBooks">📄 QB Invoice</button>
      </div>
 
     {# ── Invoice Status Tracker ── #}
@@ -243,7 +243,7 @@
      <button onclick="selectByStatus('all')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Select All">Select All</button>
      <button onclick="selectByStatus('none')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Clear">Clear</button>
      <button onclick="sendDeliveryUpdate('{{ oid }}')" class="btn btn-g" style="font-size:16px;margin-left:auto" aria-label="Send Delivery Update">📧 Send Delivery Update</button>
-     <button onclick="createQBInvoiceSelected()" class="btn btn-s" style="font-size:16px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25)" aria-label="QB Invoice Selected Items">📄 QB Invoice Selected</button>
+     <button onclick="createQBInvoiceSelected()" class="btn btn-s" style="font-size:16px;background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.25)" aria-label="QB Invoice Selected Items">📄 QB Invoice Selected</button>
     </div>
 
     {# ── V2: Tabbed Sections (Margins / Shipping / Timeline / Emails) ── #}
@@ -881,7 +881,7 @@
 
       items.forEach(function(it, i){
        var cost = it.unit_cost || it.cost || 0;
-       var desc = (it.part_number ? '<b style="color:#58a6ff;font-family:monospace">'+it.part_number+'</b> ' : '') + (it.description||'').substring(0,60);
+       var desc = (it.part_number ? '<b style="color:var(--r-accent);font-family:monospace">'+it.part_number+'</b> ' : '') + (it.description||'').substring(0,60);
        html += '<tr style="border-bottom:1px solid #21262d">';
        html += '<td style="padding:8px 4px;text-align:center"><input type="checkbox" checked class="po-item-chk" data-idx="'+i+'" style="width:16px;height:16px"></td>';
        html += '<td style="padding:8px">'+desc+'</td>';

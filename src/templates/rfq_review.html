@@ -24,8 +24,8 @@
 .rv-preview{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 100px)}
 .rv-audit{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 100px)}
 .rv-form-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;margin-bottom:5px;border:1px solid transparent;font-size:15px}
-.rv-form-item:hover{background:rgba(79,140,255,.06)}
-.rv-form-item.active{background:rgba(79,140,255,.1);border-color:rgba(79,140,255,.3)}
+.rv-form-item:hover{background:rgba(16,185,129,.06)}
+.rv-form-item.active{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.3)}
 .rv-form-item .rv-icon{font-size:20px;flex-shrink:0}
 .rv-form-item .rv-name{flex:1;color:var(--r-text)}
 .rv-form-item .rv-badge{font-size:13px;padding:3px 8px;border-radius:4px;font-weight:600}
@@ -49,12 +49,12 @@
 .rv-3col.hide-right{grid-template-columns:220px 1fr 0px}
 .rv-3col.hide-right .rv-audit{display:none}
 .rv-expand-btn{background:rgba(139,148,158,.1);border:1px solid var(--r-border);color:var(--r-text-muted);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
-.rv-expand-btn:hover{background:rgba(79,140,255,.1);color:var(--r-accent)}
-.rv-expand-btn.active{background:rgba(79,140,255,.15);color:var(--r-accent);border-color:rgba(79,140,255,.3)}
+.rv-expand-btn:hover{background:rgba(16,185,129,.1);color:var(--r-accent)}
+.rv-expand-btn.active{background:rgba(16,185,129,.15);color:var(--r-accent);border-color:rgba(16,185,129,.3)}
 .rv-floating-bar{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--r-surface);border-top:2px solid var(--r-border);padding:10px 20px;z-index:100;box-shadow:0 -4px 20px rgba(0,0,0,.3);align-items:center;gap:10px}
 .rv-float-form{padding:6px 12px;border-radius:6px;border:1px solid var(--r-border);cursor:pointer;font-size:13px;white-space:nowrap;color:var(--r-text);flex-shrink:0}
-.rv-float-form:hover{background:rgba(79,140,255,.1)}
-.rv-float-form.active{background:rgba(79,140,255,.15);border-color:rgba(79,140,255,.3)}
+.rv-float-form:hover{background:rgba(16,185,129,.1)}
+.rv-float-form.active{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.3)}
 .rv-float-form.v-approved{border-color:rgba(63,185,80,.3);color:#3fb950}
 .rv-float-form.v-rejected{border-color:rgba(248,81,73,.3);color:#f85149}
 /* Alignment rollup banner — collapsed when aligned to give the viewer the
@@ -83,7 +83,7 @@
 .rv-draft{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:14px 16px;margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .rv-draft.ready{border-color:rgba(63,185,80,.3)}
 .rv-draft.blocked{border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.04)}
-.rv-draft.draft-exists{border-color:rgba(79,140,255,.3);background:rgba(79,140,255,.04)}
+.rv-draft.draft-exists{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.04)}
 .rv-draft-icon{font-size:26px;line-height:1;flex-shrink:0}
 .rv-draft-body{flex:1;min-width:240px}
 .rv-draft-headline{font-size:16px;font-weight:700;color:var(--r-text);margin-bottom:2px}
@@ -94,11 +94,11 @@
 .rv-draft-btn.primary:hover{background:#2ea043}
 .rv-draft-btn.primary:disabled{background:#5a5a5a;border-color:#5a5a5a;cursor:not-allowed;opacity:.6}
 .rv-draft-btn.secondary{background:transparent;color:var(--r-text)}
-.rv-draft-btn.secondary:hover{background:rgba(79,140,255,.08)}
+.rv-draft-btn.secondary:hover{background:rgba(16,185,129,.08)}
 .rv-draft-issues{margin:8px 0 0 0;padding:0 0 0 18px;color:#f85149;font-size:13px;line-height:1.5}
 .rv-draft-issues li{margin:2px 0}
 .rv-draft-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid var(--r-border);background:var(--r-bg);margin-right:4px}
-.rv-draft-pill.thread{color:#58a6ff;border-color:rgba(79,140,255,.3)}
+.rv-draft-pill.thread{color:var(--r-accent);border-color:rgba(16,185,129,.3)}
 .rv-draft-pill.no-thread{color:#d29922;border-color:rgba(210,153,34,.3)}
 .rv-items-title{font-size:14px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;margin-bottom:10px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
 .rv-items-banner{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:10px 12px;font-size:14px;color:#d29922;margin-bottom:10px;line-height:1.5}
@@ -149,7 +149,7 @@
     <div style="display:flex;gap:8px;align-items:center">
       <span id="rv-status-badge" style="font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600;background:rgba(139,148,158,.15);color:#8b949e">{{ manifest.overall_status|upper }}</span>
       {% if r.get('email_thread_id') %}
-      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--r-accent);text-decoration:none" title="Open the original buyer email thread in Gmail — replies will land on this thread">📬 Gmail thread</a>
+      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:var(--r-accent);text-decoration:none" title="Open the original buyer email thread in Gmail — replies will land on this thread">📬 Gmail thread</a>
       {% endif %}
       <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">← Back to RFQ</a>
     </div>
@@ -415,7 +415,7 @@
          form in a new tab as a permalink. #}
       <div style="margin-top:10px;display:flex;gap:6px">
         {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}
-        <a href="/api/download/{{ sol }}/{{ review.form_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--r-accent);padding:8px">📄 Open Quote</a>
+        <a href="/api/download/{{ sol }}/{{ review.form_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(16,185,129,.1);color:var(--r-accent);padding:8px">📄 Open Quote</a>
         {% endif %}{% endfor %}
         {% if manifest.package_filename %}
         <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(63,185,80,.1);color:#3fb950;padding:8px">📋 Open Package</a>
@@ -450,7 +450,7 @@
       </iframe>
       <div id="rv-preview-fallback-bar" style="display:none;padding:8px 16px;background:rgba(210,153,34,.08);border-top:1px solid rgba(210,153,34,.2);font-size:13px;color:#d29922;text-align:center">
         PDF preview blocked by browser —
-        <a id="rv-preview-fallback" href="#" target="_blank" style="color:#58a6ff;font-weight:600">Open in new tab</a>
+        <a id="rv-preview-fallback" href="#" target="_blank" style="color:var(--r-accent);font-weight:600">Open in new tab</a>
       </div>
     </div>
 

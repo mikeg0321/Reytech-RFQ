@@ -147,13 +147,13 @@ setTimeout(function(){
 <!-- ═══ Parse Error Banner (P0.3) ═══ -->
 <div id="parse-error-banner" style="display:none;padding:12px 18px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);border-radius:8px;margin-bottom:12px;color:#f85149;font-size:14px">
   <span style="font-size:18px">⚠️</span> <b id="parse-error-count">0</b> price check(s) failed to parse in the last 48 hours.
-  <a href="/pricechecks?status=parse_error" style="color:#58a6ff;margin-left:8px">Review →</a>
+  <a href="/pricechecks?status=parse_error" style="color:var(--r-accent);margin-left:8px">Review →</a>
 </div>
 
 <!-- ═══ Deploy Health Banner (auto-hides if all pass) ═══ -->
 <div id="health-banner" style="display:none;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.35);border-radius:8px;padding:10px 16px;margin-bottom:10px;font-size:14px;color:#f85149">
  <b>⚠️ Deploy Issue:</b> <span id="health-msg"></span>
- <a href="/api/health/startup" style="color:#58a6ff;margin-left:8px">View details</a>
+ <a href="/api/health/startup" style="color:var(--r-accent);margin-left:8px">View details</a>
 </div>
 {# 2026-05-06: removed the Triage Widget script alongside its DOM
    markup above. Was fetching /api/triage on a 60s interval and
@@ -572,8 +572,8 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   <div style="margin-top:2px;color:var(--mu);font-size:12px">{{ cap_state.get('message', '') }}</div>
  </div>
  <a href="/admin/qa/heartbeat" style="font-size:11px;color:var(--r-accent);text-decoration:none;
-                                       background:rgba(79,140,255,.12);padding:4px 10px;
-                                       border-radius:6px;border:1px solid rgba(79,140,255,.3)">
+                                       background:rgba(16,185,129,.12);padding:4px 10px;
+                                       border-radius:6px;border:1px solid rgba(16,185,129,.3)">
   Diagnose →
  </a>
 </div>
@@ -591,7 +591,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  <div style="overflow-x:auto">
  <table style="width:100%;border-collapse:collapse;font-size:13px">
   <thead>
-   <tr style="background:rgba(79,140,255,.06);border-bottom:1px solid var(--r-border)">
+   <tr style="background:rgba(16,185,129,.06);border-bottom:1px solid var(--r-border)">
     <th style="text-align:left;padding:6px 10px;font-weight:600">PC</th>
     <th style="text-align:left;padding:6px 10px;font-weight:600">Agency</th>
     <th style="text-align:right;padding:6px 10px;font-weight:600">Value</th>
@@ -658,7 +658,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   display:block;width:100%;text-align:left;padding:8px 14px;font-size:13px;
   background:none;border:none;color:var(--r-text);cursor:pointer;white-space:nowrap;
 }
-#global-dismiss-popup button:hover { background:rgba(79,140,255,.15); }
+#global-dismiss-popup button:hover { background:rgba(16,185,129,.15); }
 /* Bug 4 (2026-05-02): right-click context menu for queue rows.
    Mike's image #5 — operator emails outside the app, then needs to
    reach Mark Sent without clicking into each RFQ. Same popup styling
@@ -676,7 +676,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   text-decoration:none;
 }
 #global-queue-ctx-menu button:hover,
-#global-queue-ctx-menu a:hover { background:rgba(79,140,255,.15); }
+#global-queue-ctx-menu a:hover { background:rgba(16,185,129,.15); }
 #global-queue-ctx-menu button[disabled] {
   color:var(--r-text-muted);opacity:.5;cursor:not-allowed;
 }
@@ -1258,7 +1258,7 @@ function _renderRevenue(d){
     <option value="errors">⚠️ Errors only</option>
     <option value="notifications">🔔 Notifications</option>
    </select>
-   <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--r-accent);border-radius:6px;cursor:pointer" aria-label="Refresh activity feed">🔄</button>
+   <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:var(--r-accent);border-radius:6px;cursor:pointer" aria-label="Refresh activity feed">🔄</button>
   </div>
  </div>
  <div id="activity-feed" style="max-height:340px;overflow-y:auto">
@@ -1479,7 +1479,7 @@ setTimeout(function(){
    html+='<span style="color:var(--r-text-muted)">'+s.institution+'</span>';
    html+='<span style="font-weight:700;color:'+c+';font-family:\x27JetBrains Mono\x27,monospace">'+s.days_since+'d</span>';
    if(s.email){
-    html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(79,140,255,.1);color:var(--r-accent);border:1px solid rgba(79,140,255,.3)" onclick="event.stopPropagation();sendQuickFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
+    html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.3)" onclick="event.stopPropagation();sendQuickFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
    }
    html+='</div>';
   });
@@ -1515,7 +1515,7 @@ function openQP(entityType,eid,evt){
    html+='<div style="font-weight:600;font-size:14px;margin-bottom:4px">'+item.description+'</div>';
    html+='<div style="display:flex;gap:12px;font-size:14px;color:var(--r-text-muted);margin-bottom:6px">';
    html+='<span>Qty: <b>'+item.qty+'</b></span>';
-   if(item.scprs)html+='<span>SCPRS: <b style="color:#58a6ff">$'+item.scprs.toFixed(2)+'</b></span>';
+   if(item.scprs)html+='<span>SCPRS: <b style="color:var(--r-accent)">$'+item.scprs.toFixed(2)+'</b></span>';
    if(item.amazon)html+='<span>Amazon: <b style="color:#f0883e">$'+item.amazon.toFixed(2)+'</b></span>';
    if(item.cost)html+='<span>Cost: <b>$'+item.cost.toFixed(2)+'</b></span>';
    html+='</div>';
@@ -1805,7 +1805,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
   <!-- Tab switcher -->
   <div style="display:flex;border-bottom:1px solid #30363d">
-   <button id="mpc-tab-combined" onclick="switchMpcTab('combined')" style="flex:1;padding:10px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid #58a6ff;color:#58a6ff;cursor:pointer">Combined PDF</button>
+   <button id="mpc-tab-combined" onclick="switchMpcTab('combined')" style="flex:1;padding:10px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid var(--r-accent);color:var(--r-accent);cursor:pointer">Combined PDF</button>
    <button id="mpc-tab-multi" onclick="switchMpcTab('multi')" style="flex:1;padding:10px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid transparent;color:#8b949e;cursor:pointer">Multiple Files</button>
   </div>
   <div style="flex:1;overflow-y:auto;padding:22px">
@@ -1872,11 +1872,11 @@ function switchMpcTab(tab){
  stepPreview.style.display='none';stepResults.style.display='none';
  if(tab==='multi'){
   combined.style.borderBottomColor='transparent';combined.style.color='#8b949e';
-  multi.style.borderBottomColor='#58a6ff';multi.style.color='#58a6ff';
+  multi.style.borderBottomColor='var(--r-accent)';multi.style.color='var(--r-accent)';
   stepUpload.style.display='none';stepMulti.style.display='block';
  } else {
   multi.style.borderBottomColor='transparent';multi.style.color='#8b949e';
-  combined.style.borderBottomColor='#58a6ff';combined.style.color='#58a6ff';
+  combined.style.borderBottomColor='var(--r-accent)';combined.style.color='var(--r-accent)';
   stepUpload.style.display='block';stepMulti.style.display='none';
  }
 }
@@ -1971,9 +1971,9 @@ function confirmMpcCreate(){
   if(pc.pc_number)h+=pc.pc_number+' · ';
   if(pc.requestor)h+=pc.requestor+' · ';
   h+=pc.items+' items · pages '+pc.pages+'</div></div>';
-  h+='<span style="font-size:13px;color:#58a6ff">Open →</span></a>';
+  h+='<span style="font-size:13px;color:var(--r-accent)">Open →</span></a>';
  });
- h+='</div><div style="margin-top:14px;text-align:center"><button onclick="closeMultiPcUpload();location.reload()" style="background:rgba(79,140,255,.15);border:1px solid rgba(79,140,255,.3);color:#58a6ff;border-radius:8px;padding:8px 20px;font-size:14px;font-weight:600;cursor:pointer">↩ Dashboard</button></div>';
+ h+='</div><div style="margin-top:14px;text-align:center"><button onclick="closeMultiPcUpload();location.reload()" style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:var(--r-accent);border-radius:8px;padding:8px 20px;font-size:14px;font-weight:600;cursor:pointer">↩ Dashboard</button></div>';
  document.getElementById('mpc-results-html').innerHTML=h;
 }
 </script>
@@ -1992,7 +1992,7 @@ function confirmMpcCreate(){
   for(var i=0;i<btns.length;i++){
    var b=btns[i];
    if(parseInt(b.getAttribute('data-days'))===days){
-    b.style.borderColor='var(--r-accent)';b.style.background='rgba(79,140,255,.15)';b.style.color='var(--r-accent)';
+    b.style.borderColor='var(--r-accent)';b.style.background='rgba(16,185,129,.15)';b.style.color='var(--r-accent)';
    }else{
     b.style.borderColor='var(--r-border)';b.style.background='var(--r-surface)';b.style.color='var(--r-text-muted)';
    }

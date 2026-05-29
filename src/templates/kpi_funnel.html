@@ -9,7 +9,7 @@
       <h2 style="margin:0;font-size:22px;color:var(--r-text)">KPI — Pipeline Funnel</h2>
       <p style="color:var(--r-text-muted);font-size:13px;margin:4px 0 0">
         Snapshot at {{ scanned_at|default('—') }} ·
-        <a href="/kpi/orphans" style="color:#58a6ff;text-decoration:none">Orphan triage →</a> ·
+        <a href="/kpi/orphans" style="color:var(--r-accent);text-decoration:none">Orphan triage →</a> ·
         <a href="/api/kpi/funnel" style="color:#8b949e;text-decoration:none;font-size:12px">JSON</a>
       </p>
     </div>
@@ -57,7 +57,7 @@
     <div style="font-size:14px;font-weight:600;color:var(--r-text);margin-bottom:14px">Live queue depth</div>
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
       <div style="background:var(--r-bg);border:1px solid var(--r-border);border-radius:8px;padding:12px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ pipe.get('rfqs_new', 0) }}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--r-accent)">{{ pipe.get('rfqs_new', 0) }}</div>
         <div style="font-size:11px;color:var(--r-text-muted);margin-top:4px">RFQs new</div>
       </div>
       <div style="background:var(--r-bg);border:1px solid var(--r-border);border-radius:8px;padding:12px;text-align:center">
@@ -65,7 +65,7 @@
         <div style="font-size:11px;color:var(--r-text-muted);margin-top:4px">RFQs sent</div>
       </div>
       <div style="background:var(--r-bg);border:1px solid var(--r-border);border-radius:8px;padding:12px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ pipe.get('pcs_new', 0) }}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--r-accent)">{{ pipe.get('pcs_new', 0) }}</div>
         <div style="font-size:11px;color:var(--r-text-muted);margin-top:4px">PCs new</div>
       </div>
       <div style="background:var(--r-bg);border:1px solid var(--r-border);border-radius:8px;padding:12px;text-align:center">

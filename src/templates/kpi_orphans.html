@@ -9,7 +9,7 @@
       <h2 style="margin:0;font-size:22px;color:var(--r-text)">KPI — Orphan-Order Triage</h2>
       <p style="color:var(--r-text-muted);font-size:13px;margin:4px 0 0">
         Cross-references SCPRS + Gmail outbox/inbox + orders/quotes. ·
-        <a href="/kpi/funnel" style="color:#58a6ff;text-decoration:none">← Funnel</a> ·
+        <a href="/kpi/funnel" style="color:var(--r-accent);text-decoration:none">← Funnel</a> ·
         <a href="/api/kpi/orphans" style="color:#8b949e;text-decoration:none;font-size:12px">JSON</a>
       </p>
     </div>
@@ -85,9 +85,9 @@
           <td style="padding:6px;color:var(--r-text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.agency|default('—') }}</td>
           <td style="padding:6px;text-align:right;color:var(--r-text-muted);font-family:monospace;font-size:11px">{{ (r.start_date or '')[:10] }}</td>
           <td style="padding:6px;text-align:right;color:var(--r-text);font-weight:600">${{ '{:,.0f}'.format(r.grand_total or 0) }}</td>
-          <td style="padding:6px;color:#58a6ff;font-family:monospace;font-size:11px">
+          <td style="padding:6px;color:var(--r-accent);font-family:monospace;font-size:11px">
             {% for qn in r.matched_quote_numbers %}
-              <a href="/quote/{{ qn }}" style="color:#58a6ff;text-decoration:none">{{ qn }}</a>{% if not loop.last %}, {% endif %}
+              <a href="/quote/{{ qn }}" style="color:var(--r-accent);text-decoration:none">{{ qn }}</a>{% if not loop.last %}, {% endif %}
             {% endfor %}
             {% if not r.matched_quote_numbers %}—{% endif %}
           </td>

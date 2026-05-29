@@ -67,7 +67,7 @@
 .intel-table{width:100%;border-collapse:collapse;font-size:14px}
 .intel-table th{text-align:left;padding:10px 12px;border-bottom:2px solid var(--r-border);color:var(--r-text-muted);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
 .intel-table td{padding:10px 12px;border-bottom:1px solid var(--r-border);color:var(--r-text)}
-.intel-table tr:hover{background:rgba(79,140,255,.04)}
+.intel-table tr:hover{background:rgba(16,185,129,.04)}
 .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
 .badge-dvbe{background:rgba(63,185,80,.15);color:#3fb950}
 .badge-displace{background:rgba(248,113,113,.15);color:#f87171}
@@ -271,7 +271,7 @@ function loadHealth(){
    const icon={ok:'✅',warning:'⚠️',critical:'🔴',error:'❌',info:'ℹ️'}[c.status]||'?';
    html+='<div style="padding:10px 0;border-bottom:1px solid var(--r-border)">'
     +'<div style="font-size:14px"><span>'+icon+'</span> <b>'+escHtml(c.check)+'</b>: '+escHtml(c.message)+'</div>';
-   if(c.action) html+='<div style="font-size:13px;color:#58a6ff;margin-top:4px">→ '+escHtml(c.action)+'</div>';
+   if(c.action) html+='<div style="font-size:13px;color:var(--r-accent);margin-top:4px">→ '+escHtml(c.action)+'</div>';
    html+='</div>';
   });
   el.innerHTML=html;

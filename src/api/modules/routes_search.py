@@ -103,12 +103,12 @@ def search_page():
         filter_html = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center">'
         filter_html += '<span style="font-size:13px;color:var(--r-text-muted)">Filter:</span>'
         all_active = not type_filter
-        filter_html += f'<a href="/search?q={display_q}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"var(--r-accent)" if all_active else "var(--r-border)"};background:{"rgba(79,140,255,.15)" if all_active else "var(--r-surface-2)"};color:{"var(--r-accent)" if all_active else "var(--r-text-muted)"};text-decoration:none;font-weight:{"600" if all_active else "400"}">All ({len(results)})</a>'
+        filter_html += f'<a href="/search?q={display_q}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"var(--r-accent)" if all_active else "var(--r-border)"};background:{"rgba(16,185,129,.15)" if all_active else "var(--r-surface-2)"};color:{"var(--r-accent)" if all_active else "var(--r-text-muted)"};text-decoration:none;font-weight:{"600" if all_active else "400"}">All ({len(results)})</a>'
         for t, count in sorted(type_counts.items()):
             tc, tbg = TYPE_COLORS.get(t, ("#8b949e", "rgba(139,148,158,.1)"))
             active = type_filter == t
             label = TYPE_LABELS.get(t, t.title())
-            filter_html += f'<a href="/search?q={display_q}&type={t}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"rgba(79,140,255,.4)" if active else "var(--r-border)"};background:{"rgba(79,140,255,.15)" if active else "var(--r-surface-2)"};color:{"var(--r-accent)" if active else tc};text-decoration:none;font-weight:{"600" if active else "400"}">{label} ({count})</a>'
+            filter_html += f'<a href="/search?q={display_q}&type={t}" style="font-size:13px;padding:4px 12px;border-radius:16px;border:1px solid {"rgba(16,185,129,.4)" if active else "var(--r-border)"};background:{"rgba(16,185,129,.15)" if active else "var(--r-surface-2)"};color:{"var(--r-accent)" if active else tc};text-decoration:none;font-weight:{"600" if active else "400"}">{label} ({count})</a>'
         filter_html += '</div>'
 
     # Empty state
@@ -136,7 +136,7 @@ def search_page():
     quick_chips_html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"><span style="font-size:14px;color:var(--r-text-muted);padding:6px 0;align-self:center">Quick:</span>'
     for chip_key, (chip_label, _, chip_bg, chip_border, chip_color) in STATUS_CHIPS.items():
         active = status_filter == chip_key
-        quick_chips_html += f'<a href="/search?q={chip_key}" style="font-size:14px;padding:6px 14px;border-radius:8px;background:{"rgba(79,140,255,.2)" if active else chip_bg};border:1px solid {chip_border};color:{chip_color};text-decoration:none;font-weight:{"700" if active else "400"}">{chip_label}</a>'
+        quick_chips_html += f'<a href="/search?q={chip_key}" style="font-size:14px;padding:6px 14px;border-radius:8px;background:{"rgba(16,185,129,.2)" if active else chip_bg};border:1px solid {chip_border};color:{chip_color};text-decoration:none;font-weight:{"700" if active else "400"}">{chip_label}</a>'
     for agency in ["CDCR", "CCHCS", "CalVet", "DSH"]:
         quick_chips_html += f'<a href="/search?q={agency}" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--r-surface-2);border:1px solid var(--r-border);color:var(--r-text);text-decoration:none">{agency}</a>'
     quick_chips_html += '</div>'

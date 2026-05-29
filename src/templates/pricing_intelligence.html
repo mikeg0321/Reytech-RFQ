@@ -141,7 +141,7 @@ fetch('/api/pricing-intelligence/data',{credentials:'same-origin'})
   if(acc.total) {
    var fColor = acc.followed_win_rate > acc.override_win_rate ? '#3fb950' : '#f85149';
    var oColor = acc.override_win_rate > acc.followed_win_rate ? '#3fb950' : '#f85149';
-   ak.innerHTML = kpiCard('Follow Rate', (acc.follow_rate||0)+'%', '#58a6ff', 'Items priced within 5% of oracle')
+   ak.innerHTML = kpiCard('Follow Rate', (acc.follow_rate||0)+'%', 'var(--r-accent)', 'Items priced within 5% of oracle')
     + kpiCard('Followed Win Rate', (acc.followed_win_rate||0)+'%', fColor, 'Won when following oracle')
     + kpiCard('Override Win Rate', (acc.override_win_rate||0)+'%', oColor, 'Won when overriding oracle')
     + kpiCard('Missed Wins', acc.missed_wins||0, '#f85149', 'Oracle was right, you went higher');

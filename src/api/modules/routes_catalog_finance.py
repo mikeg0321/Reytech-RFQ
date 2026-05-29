@@ -246,7 +246,7 @@ def catalog_page():
       <span class="mono" style="font-size:14px;color:var(--r-text-muted)">{tp} products</span>
       <button onclick="document.getElementById('import-csv').click()" class="btn btn-s" style="font-size:14px">📥 Import QB CSV</button>
       <input type="file" id="import-csv" accept=".csv" style="display:none" onchange="importCSV(this)">
-      <button onclick="document.getElementById('import-qw').click()" class="btn btn-s" style="font-size:14px;background:#21262d;color:#58a6ff;border:1px solid #58a6ff44">📋 Import QuoteWerks</button>
+      <button onclick="document.getElementById('import-qw').click()" class="btn btn-s" style="font-size:14px;background:#21262d;color:var(--r-accent);border:1px solid rgba(16,185,129,.27)">📋 Import QuoteWerks</button>
       <input type="file" id="import-qw" accept=".csv,.tsv,.txt" style="display:none" onchange="importQW(this)">
       <button onclick="runCatalogFixes(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#d2a8ff;border:1px solid #d2a8ff44">🔧 Run Fixes</button>
       <button onclick="bulkCheckPrices(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#3fb950;border:1px solid #3fb95044">🔄 Check All Prices</button>
@@ -273,7 +273,7 @@ def catalog_page():
       <div style="font-size:14px;color:var(--r-text-muted)">Catalog Value</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#58a6ff">{stats.get('products_with_urls', 0)}</div>
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--r-accent)">{stats.get('products_with_urls', 0)}</div>
       <div style="font-size:14px;color:var(--r-text-muted)">With URLs</div>
       <div style="font-size:13px;color:#d29922">{stats.get('stale_price_checks', 0)} need check</div>
      </div>
@@ -611,7 +611,7 @@ def catalog_product_detail(pid):
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
        <button onclick="runPricingAnalysis({pid})" class="btn btn-s" style="font-size:14px">🧮 Run Pricing Analysis</button>
        <button onclick="updatePrice({pid})" class="btn btn-s" style="font-size:14px">✏️ Update Pricing</button>
-       {'<button onclick="enrichFromUrl()" class="btn btn-s" style="font-size:14px;background:#21262d;color:#58a6ff;border:1px solid #58a6ff44">🔍 Enrich from URL</button>' if primary_url else ''}
+       {'<button onclick="enrichFromUrl()" class="btn btn-s" style="font-size:14px;background:#21262d;color:var(--r-accent);border:1px solid rgba(16,185,129,.27)">🔍 Enrich from URL</button>' if primary_url else ''}
       </div>
      </div>
     </div>

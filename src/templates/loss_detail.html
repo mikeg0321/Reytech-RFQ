@@ -26,7 +26,7 @@
  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:16px;margin-bottom:24px">
   <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:20px">
    <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;margin-bottom:8px">Our Quote</div>
-   <div style="font-size:28px;font-weight:700;color:#58a6ff">${{ "%.2f"|format(loss.our_price|default(0)|float) }}</div>
+   <div style="font-size:28px;font-weight:700;color:var(--r-accent)">${{ "%.2f"|format(loss.our_price|default(0)|float) }}</div>
    <div style="font-size:14px;color:var(--r-text-muted);margin-top:4px">{{ quote.agency|default(loss.agency|default(''))|agency_display }} &middot; {{ quote.institution|default(loss.institution|default('')) }}</div>
    <div style="font-size:13px;color:var(--r-text-muted)">Sent: {{ (quote.sent_at|default(''))[:10] }}</div>
   </div>
@@ -97,7 +97,7 @@
    {% set inf = item.inference|default({}) %}
    <tr style="border-bottom:1px solid var(--r-border)">
     <td style="padding:10px 8px;color:var(--r-text);max-width:250px">{{ (item.our_description|default(item.description|default(item.winner_description|default(''))))[:60] }}</td>
-    <td style="padding:10px 8px;text-align:right;color:#58a6ff;font-weight:600">${{ "%.2f"|format(our_p) }}</td>
+    <td style="padding:10px 8px;text-align:right;color:var(--r-accent);font-weight:600">${{ "%.2f"|format(our_p) }}</td>
     <td style="padding:10px 8px;text-align:right;color:#f85149;font-weight:600">${{ "%.2f"|format(their_p) }}</td>
     <td style="padding:10px 8px;text-align:right;color:{{ '#f85149' if delta > 0 else '#3fb950' }};font-weight:600">{{ "%+.2f"|format(delta) }}</td>
     <td style="padding:10px 8px;text-align:right;color:var(--r-text)">{{ "$%.2f"|format(cost) if cost else '&mdash;' }}</td>

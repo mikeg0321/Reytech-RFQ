@@ -11,7 +11,7 @@
  ] %}
  {% for key, url, label in tabs %}
  {% if key == active %}
- <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">{{ label }}</a>
+ <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:600;color:var(--r-accent);border-bottom:2px solid var(--r-accent);text-decoration:none;margin-bottom:-2px">{{ label }}</a>
  {% else %}
  <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--r-text-muted);text-decoration:none">{{ label }}</a>
  {% endif %}

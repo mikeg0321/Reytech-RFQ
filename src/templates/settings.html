@@ -426,7 +426,7 @@
     var mk=function(v,l,c){return '<div class="r-kpi"><div class="r-kpi-value" style="color:'+(c||'var(--r-accent)')+'">'+v+'</div><div class="r-kpi-label" style="margin-top:4px">'+l+'</div></div>';};
     var cards=[];
     cards.push(mk(d.route_count||d.routes||'?','Routes','var(--r-accent)'));
-    cards.push(mk(d.template_count||d.templates||'?','Templates','#58a6ff'));
+    cards.push(mk(d.template_count||d.templates||'?','Templates','var(--r-accent)'));
     cards.push(mk(d.python_files||d.modules||'?','Python Files','#a78bfa'));
     var db=d.db_size_mb||d.db_size||'?';
     cards.push(mk(typeof db==='number'?db.toFixed(1)+'MB':db,'Database','var(--r-warn)'));

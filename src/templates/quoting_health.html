@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Quoting Health — Reytech{% endblock %}
 {% block content %}
-{% macro stat(value, label, color='#58a6ff', suffix='') -%}
+{% macro stat(value, label, color='var(--r-accent)', suffix='') -%}
   <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:22px;font-weight:700;color:{{ color }};font-family:monospace">{{ value }}{{ suffix }}</div>
     <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">{{ label }}</div>
@@ -14,7 +14,7 @@
     {% for d in [1, 7, 30, 90] %}
       <a href="/health/quoting?days={{d}}"
          style="padding:6px 14px;border-radius:6px;font-size:13px;
-                background:{% if days == d %}#1f6feb{% else %}var(--r-surface-2,#161b22){% endif %};
+                background:{% if days == d %}var(--r-accent){% else %}var(--r-surface-2,#161b22){% endif %};
                 color:{% if days == d %}#fff{% else %}var(--r-text-muted,#8b949e){% endif %};
                 text-decoration:none;border:1px solid var(--r-border,#30363d)">
         {{ d }}d
@@ -46,7 +46,7 @@
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">Classifier activity — last {{ days }}d</div>
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px">
-    {{ stat(classifier_window.invocations, 'Invocations', '#58a6ff') }}
+    {{ stat(classifier_window.invocations, 'Invocations', 'var(--r-accent)') }}
     {{ stat(classifier_1d.invocations, 'Invocations (24h)', '#79c0ff') }}
     {{ stat(classifier_window.crashes, 'Crashes ' ~ days ~ 'd',
             '#3fb950' if classifier_window.crashes == 0 else '#f85149') }}
@@ -96,7 +96,7 @@
         <div style="font-size:12px;color:var(--r-text-muted,#8b949e);margin-bottom:6px">Shapes</div>
         {% for shape, n in confidence.top_shapes %}
           <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--r-border,#30363d)">
-            <span>{{ shape }}</span><strong style="color:#58a6ff">{{ n }}</strong>
+            <span>{{ shape }}</span><strong style="color:var(--r-accent)">{{ n }}</strong>
           </div>
         {% else %}
           <div style="color:var(--r-text-muted,#8b949e);font-size:13px">--</div>
@@ -106,7 +106,7 @@
         <div style="font-size:12px;color:var(--r-text-muted,#8b949e);margin-bottom:6px">Agencies</div>
         {% for agency, n in confidence.top_agencies %}
           <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--r-border,#30363d)">
-            <span>{{ agency|agency_display }}</span><strong style="color:#58a6ff">{{ n }}</strong>
+            <span>{{ agency|agency_display }}</span><strong style="color:var(--r-accent)">{{ n }}</strong>
           </div>
         {% else %}
           <div style="color:var(--r-text-muted,#8b949e);font-size:13px">--</div>
@@ -120,7 +120,7 @@
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">Ingest → Quote funnel</div>
   <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px">
-    {{ stat(funnel_window.ingested, 'Ingested ' ~ days ~ 'd', '#58a6ff') }}
+    {{ stat(funnel_window.ingested, 'Ingested ' ~ days ~ 'd', 'var(--r-accent)') }}
     {{ stat(funnel_window.pcs, 'PCs created', '#79c0ff') }}
     {{ stat(funnel_window.quotes, 'Quotes drafted', '#a5d6ff') }}
     {{ stat(funnel_window.quotes_sent, 'Quotes sent', '#d2a8ff') }}
@@ -138,7 +138,7 @@
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">Margin — last {{ days }}d (costed quotes)</div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
-    {{ stat(margin.costed, 'Costed quotes', '#58a6ff') }}
+    {{ stat(margin.costed, 'Costed quotes', 'var(--r-accent)') }}
     {{ stat(margin.avg_margin, 'Avg margin', '#3fb950' if margin.avg_margin >= 30 else '#d29922', '%') }}
     {{ stat('$' ~ '{:,.0f}'.format(margin.avg_total), 'Avg quote total', '#79c0ff') }}
     {{ stat('$' ~ '{:,.0f}'.format(margin.gross_profit), 'Gross profit', '#3fb950') }}
@@ -158,7 +158,7 @@
 <div class="card" style="margin-bottom:14px;border-left:4px solid {{ _oc_border }}">
   <div class="card-t">Oracle feedback loop</div>
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px">
-    {{ stat(_oc.rows, 'Category × agency rows', '#58a6ff') }}
+    {{ stat(_oc.rows, 'Category × agency rows', 'var(--r-accent)') }}
     {{ stat(_oc.wins, 'Wins recorded',
             '#3fb950' if _oc.wins > 0 else '#8b949e') }}
     {{ stat(_oc.losses_price, 'Losses (price)',
@@ -273,9 +273,9 @@
     {{ stat('paused' if _ep.paused else 'live', 'Mode',
             '#d29922' if _ep.paused else '#3fb950') }}
     {{ stat(_ep.emails_found_24h|default(0),
-            'RFQs in last 24h', '#58a6ff') }}
+            'RFQs in last 24h', 'var(--r-accent)') }}
     {{ stat(_ep.emails_found_7d|default(0),
-            'RFQs in last 7d', '#58a6ff') }}
+            'RFQs in last 7d', 'var(--r-accent)') }}
   </div>
   <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:13px;color:var(--r-text-muted,#8b949e)">
     {% if _ep.status == 'error' %}
@@ -287,7 +287,7 @@
     {% elif _ep.status == 'stale' %}
       <strong style="color:#f85149">⚠ No successful poll in over 15 minutes.</strong>
       Expected cadence is roughly once a minute. Check
-      <a href="/api/poll-now" style="color:#58a6ff">/api/poll-now</a> + Gmail credentials.
+      <a href="/api/poll-now" style="color:var(--r-accent)">/api/poll-now</a> + Gmail credentials.
     {% elif _ep.status == 'warn' %}
       <strong style="color:#d29922">⚠ Last poll {{ _ep.lag_human }}.</strong>
       Slower than the ~60s cadence — usually transient.
@@ -297,7 +297,7 @@
     {% else %}
       Last successful check {{ _ep.lag_human }}; thread alive and
       unpaused. JSON mirror at
-      <a href="/api/poll-now" style="color:#58a6ff">/api/poll-now</a>.
+      <a href="/api/poll-now" style="color:var(--r-accent)">/api/poll-now</a>.
     {% endif %}
   </div>
 </div>
@@ -327,7 +327,7 @@
             '#f85149' if (_gs.failed_24h|default(0)) > 0 else '#8b949e') }}
     {{ stat(_gs.pending_drafts|default(0), 'Pending drafts',
             '#d29922' if (_gs.pending_drafts|default(0)) > 5
-             else '#58a6ff' if (_gs.pending_drafts|default(0)) > 0
+             else 'var(--r-accent)' if (_gs.pending_drafts|default(0)) > 0
              else '#8b949e') }}
   </div>
   <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:13px;color:var(--r-text-muted,#8b949e)">
@@ -336,11 +336,11 @@
       {% if _gs.last_error %}
         <code style="font-size:12px">{{ _gs.last_error }}</code>
       {% endif %}
-      Check <a href="/outbox" style="color:#58a6ff">/outbox</a> + Gmail OAuth scopes.
+      Check <a href="/outbox" style="color:var(--r-accent)">/outbox</a> + Gmail OAuth scopes.
     {% elif _gs.status == 'stale' %}
       <strong style="color:#f85149">⚠ No successful send in over 7 days.</strong>
       Reytech baseline cadence is multi-quote/day; either OAuth/quota broke
-      or operator hasn't been sending. Check <a href="/outbox" style="color:#58a6ff">/outbox</a>.
+      or operator hasn't been sending. Check <a href="/outbox" style="color:var(--r-accent)">/outbox</a>.
     {% elif _gs.status == 'warn' %}
       <strong style="color:#d29922">⚠ Last send {{ _gs.lag_human }}.</strong>
       Quiet but not broken — sends do work, just no recent activity.
@@ -348,7 +348,7 @@
       No <code>email_outbox</code> rows yet. Either fresh boot or no sends ever happened.
     {% else %}
       Last successful send {{ _gs.lag_human }}; {{ _gs.sent_24h }} delivered in last 24h.
-      JSON mirror at <a href="/api/health/quoting" style="color:#58a6ff">/api/health/quoting</a>.
+      JSON mirror at <a href="/api/health/quoting" style="color:var(--r-accent)">/api/health/quoting</a>.
     {% endif %}
   </div>
 </div>
@@ -425,7 +425,7 @@
         {% for q in _od.orphan_quotes %}
           <tr style="border-bottom:1px solid #21262d">
             <td style="padding:4px 8px;font-family:monospace">
-              <a href="/quote/{{ q.quote_number }}" style="color:#58a6ff">{{ q.quote_number }}</a>
+              <a href="/quote/{{ q.quote_number }}" style="color:var(--r-accent)">{{ q.quote_number }}</a>
             </td>
             <td style="padding:4px 8px">{{ q.agency|agency_display }}</td>
             <td style="padding:4px 8px;text-align:right">${{ '%.2f'|format(q.total) }}</td>
@@ -456,7 +456,7 @@
             <td style="padding:4px 8px;font-family:monospace">{{ d.po_number }}</td>
             <td style="padding:4px 8px;text-align:right;color:#f85149">{{ d.count }}</td>
             <td style="padding:4px 8px;font-family:monospace;font-size:10px;color:#8b949e">
-              {% for qn in d.quote_numbers %}<a href="/quote/{{ qn }}" style="color:#58a6ff">{{ qn }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+              {% for qn in d.quote_numbers %}<a href="/quote/{{ qn }}" style="color:var(--r-accent)">{{ qn }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
             </td>
           </tr>
         {% endfor %}
@@ -487,7 +487,7 @@
           <tr style="border-bottom:1px solid #21262d">
             <td style="padding:4px 8px;font-family:monospace;font-size:10px;color:#8b949e">{{ r.order_id }}</td>
             <td style="padding:4px 8px;font-family:monospace">
-              <a href="/quote/{{ r.quote_number }}" style="color:#58a6ff">{{ r.quote_number }}</a>
+              <a href="/quote/{{ r.quote_number }}" style="color:var(--r-accent)">{{ r.quote_number }}</a>
             </td>
             <td style="padding:4px 8px;font-family:monospace">{{ r.po_number or '—' }}</td>
             <td style="padding:4px 8px;color:#d29922">{{ r.quote_status or '—' }}</td>
@@ -565,7 +565,7 @@
         {% for d in _du.samples %}
           <tr style="border-bottom:1px solid #21262d">
             <td style="padding:4px 8px;font-family:monospace">{{ d.po_number }}</td>
-            <td style="padding:4px 8px;font-family:monospace"><a href="/quote/{{ d.quote_number }}" style="color:#58a6ff">{{ d.quote_number }}</a></td>
+            <td style="padding:4px 8px;font-family:monospace"><a href="/quote/{{ d.quote_number }}" style="color:var(--r-accent)">{{ d.quote_number }}</a></td>
             <td style="padding:4px 8px;text-align:right;color:#f85149">{{ d.count }}</td>
             <td style="padding:4px 8px;font-family:monospace;font-size:10px;color:#8b949e">
               {{ d.order_ids|join(', ') }}
@@ -600,15 +600,15 @@
   <div style="padding:10px 12px">
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
       <div style="text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _pp.by_prefix.get('CalVet', 0) }}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--r-accent)">{{ _pp.by_prefix.get('CalVet', 0) }}</div>
         <div style="font-size:11px;color:#8b949e" title="po_number starts 8955-00000">CalVet (8955-)</div>
       </div>
       <div style="text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _pp.by_prefix.get('CCHCS', 0) }}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--r-accent)">{{ _pp.by_prefix.get('CCHCS', 0) }}</div>
         <div style="font-size:11px;color:#8b949e" title="po_number starts 4500">CCHCS (4500)</div>
       </div>
       <div style="text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _pp.by_prefix.get('DSH', 0) }}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--r-accent)">{{ _pp.by_prefix.get('DSH', 0) }}</div>
         <div style="font-size:11px;color:#8b949e" title="po_number starts 4440-">DSH (4440-)</div>
       </div>
       <div style="text-align:center">
@@ -649,7 +649,7 @@
         {% for u in _pp.unidentified_samples %}
           <tr style="border-bottom:1px solid #21262d">
             <td style="padding:4px 8px;font-family:monospace">{{ u.po_number }}</td>
-            <td style="padding:4px 8px;font-family:monospace"><a href="/quote/{{ u.quote_number }}" style="color:#58a6ff">{{ u.quote_number }}</a></td>
+            <td style="padding:4px 8px;font-family:monospace"><a href="/quote/{{ u.quote_number }}" style="color:var(--r-accent)">{{ u.quote_number }}</a></td>
             <td style="padding:4px 8px">{{ u.agency }}</td>
             <td style="padding:4px 8px;text-align:right">${{ '%.2f'|format(u.total) }}</td>
           </tr>
@@ -704,7 +704,7 @@
     </div>
     {% if _sc.samples.format_drift or _sc.samples.scprs_only or _sc.samples.orders_only %}
     <details style="margin-top:10px">
-      <summary style="cursor:pointer;font-size:12px;color:#58a6ff">show drift detail</summary>
+      <summary style="cursor:pointer;font-size:12px;color:var(--r-accent)">show drift detail</summary>
       <div style="margin-top:8px;font-size:12px">
         {% if _sc.samples.format_drift %}
           <div style="margin-top:8px;color:#d29922;font-weight:600">FORMAT DRIFT (write canonical back to orders)</div>
@@ -773,7 +773,7 @@
         <div style="font-size:11px;color:#8b949e" title="one buyer PO covers exactly one quote">SINGLE-QUOTE</div>
       </div>
       <div style="text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _po.multi_quote_pos }}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--r-accent)">{{ _po.multi_quote_pos }}</div>
         <div style="font-size:11px;color:#8b949e" title="one buyer PO covers 2+ quotes — legitimate 1:N">MULTI-QUOTE</div>
       </div>
       <div style="text-align:center">
@@ -783,7 +783,7 @@
     </div>
     <div style="margin-top:10px;padding:6px 10px;font-size:12px;color:#8b949e;border-top:1px solid #21262d">
       {% if _po.multi_quote_pos > 0 %}
-        <strong style="color:#58a6ff">{{ _po.multi_quote_pos }} multi-quote POs are legitimate.</strong>
+        <strong style="color:var(--r-accent)">{{ _po.multi_quote_pos }} multi-quote POs are legitimate.</strong>
         These are NOT operator typos — one buyer PO covers multiple awarded quotes. The orders drift card's "DUP POs" counter conflates these; refining it is a follow-up scope item.
       {% else %}
         No multi-quote POs yet. Orders drift "DUP POs" still counts raw duplicates including operator typos; this card will reframe them as 1:N relationships once they exist.
@@ -809,7 +809,7 @@
         {% for p in _po.biggest_pos %}
           <tr style="border-bottom:1px solid #21262d">
             <td style="padding:4px 8px;font-family:monospace">{{ p.po_number }}</td>
-            <td style="padding:4px 8px;text-align:right;color:#58a6ff">{{ p.quote_count }}</td>
+            <td style="padding:4px 8px;text-align:right;color:var(--r-accent)">{{ p.quote_count }}</td>
             <td style="padding:4px 8px;text-align:right">${{ '%.2f'|format(p.total_amount) }}</td>
             <td style="padding:4px 8px">{{ p.agency }}</td>
           </tr>
@@ -939,7 +939,7 @@
     </tbody>
   </table>
   <div style="margin-top:8px;padding:6px 10px;font-size:11px;color:#8b949e">
-    Full status payloads at <a href="/api/health/quoting" style="color:#58a6ff">/api/health/quoting</a> →
+    Full status payloads at <a href="/api/health/quoting" style="color:var(--r-accent)">/api/health/quoting</a> →
     <code>agents_runtime.agents[].payload</code>.
   </div>
   {% endif %}
@@ -1099,7 +1099,7 @@
     <tbody>
     {% for r in _bx.rows %}
       <tr style="border-bottom:1px solid #21262d">
-        <td style="padding:5px 8px"><a href="{% if r.id.startswith('pc_') %}/pricecheck/{{ r.id }}{% else %}/rfq/{{ r.id }}{% endif %}" style="color:#58a6ff;text-decoration:none"><code style="font-size:11px">{{ r.id }}</code></a></td>
+        <td style="padding:5px 8px"><a href="{% if r.id.startswith('pc_') %}/pricecheck/{{ r.id }}{% else %}/rfq/{{ r.id }}{% endif %}" style="color:var(--r-accent);text-decoration:none"><code style="font-size:11px">{{ r.id }}</code></a></td>
         <td style="padding:5px 8px">
           {% if r.status == 'parsed' %}<span style="color:#3fb950">{{ r.status }}</span>
           {% elif r.status == 'needs_review' %}<span style="color:#f0883e">{{ r.status }}</span>
@@ -1175,7 +1175,7 @@
 
     {% if _pdb.samples %}
     <details style="margin-top:8px">
-      <summary style="cursor:pointer;font-size:12px;color:#58a6ff">Oldest {{ _pdb.samples|length }} samples</summary>
+      <summary style="cursor:pointer;font-size:12px;color:var(--r-accent)">Oldest {{ _pdb.samples|length }} samples</summary>
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
         <thead>
           <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
@@ -1202,7 +1202,7 @@
     {% endif %}
 
     <div style="margin-top:8px;font-size:12px;color:#8b949e">
-      Act on rows from <a href="/outbox" style="color:#58a6ff">/outbox</a>.
+      Act on rows from <a href="/outbox" style="color:var(--r-accent)">/outbox</a>.
       &gt;30d rows almost certainly want purging; &lt;7d rows are working pile.
     </div>
   </div>
@@ -1250,8 +1250,8 @@
               {% if q.missing_source %}
                 <span style="color:#d29922;font-size:12px">⚠ source PC/RFQ not found</span>
               {% else %}
-                {% if q.chips.operator > 0 %}<span style="display:inline-block;padding:2px 8px;margin-right:4px;border-radius:10px;background:#1f6feb22;color:#3fb950;font-size:12px;font-weight:600">{{ q.chips.operator }} operator</span>{% endif %}
-                {% if q.chips.catalog > 0 %}<span style="display:inline-block;padding:2px 8px;margin-right:4px;border-radius:10px;background:#1f6feb22;color:#58a6ff;font-size:12px;font-weight:600">{{ q.chips.catalog }} catalog</span>{% endif %}
+                {% if q.chips.operator > 0 %}<span style="display:inline-block;padding:2px 8px;margin-right:4px;border-radius:10px;background:rgba(16,185,129,.13);color:#3fb950;font-size:12px;font-weight:600">{{ q.chips.operator }} operator</span>{% endif %}
+                {% if q.chips.catalog > 0 %}<span style="display:inline-block;padding:2px 8px;margin-right:4px;border-radius:10px;background:rgba(16,185,129,.13);color:var(--r-accent);font-size:12px;font-weight:600">{{ q.chips.catalog }} catalog</span>{% endif %}
                 {% if q.chips.amazon > 0 %}<span style="display:inline-block;padding:2px 8px;margin-right:4px;border-radius:10px;background:#d2992222;color:#d29922;font-size:12px;font-weight:600">{{ q.chips.amazon }} amazon</span>{% endif %}
                 {% if q.chips.scprs > 0 %}<span style="display:inline-block;padding:2px 8px;margin-right:4px;border-radius:10px;background:#a371f722;color:#a371f7;font-size:12px;font-weight:600">{{ q.chips.scprs }} scprs</span>{% endif %}
                 {% if q.chips.needs_lookup > 0 %}<span style="display:inline-block;padding:2px 8px;margin-right:4px;border-radius:10px;background:#f8514922;color:#f85149;font-size:12px;font-weight:600">{{ q.chips.needs_lookup }} needs_lookup</span>{% endif %}
@@ -1286,12 +1286,12 @@
             '#3fb950' if (_pl.links_24h|default(0)) > 0 else '#8b949e') }}
     {{ stat(_pl.unlinks_24h|default(0), 'Unlinks (24h)',
             '#8b949e' if (_pl.unlinks_24h|default(0)) == 0 else '#d29922') }}
-    {{ stat(_pl.reprices_24h|default(0), 'Repriced lines (24h)', '#58a6ff') }}
+    {{ stat(_pl.reprices_24h|default(0), 'Repriced lines (24h)', 'var(--r-accent)') }}
     {{ stat(_pl.skipped_no_price_24h|default(0), 'Skipped — no oracle price (24h)',
             '#3fb950' if (_pl.skipped_no_price_24h|default(0)) == 0 else '#d29922') }}
     {{ stat(_pl.cchcs_linked_total|default(0) ~ '/' ~
             ((_pl.cchcs_linked_total|default(0)) + (_pl.cchcs_unlinked_total|default(0))),
-            'CCHCS RFQs linked', '#58a6ff') }}
+            'CCHCS RFQs linked', 'var(--r-accent)') }}
     {{ stat(_pl.unresolved_qty_drift|default(0), 'Unresolved qty drift',
             '#3fb950' if (_pl.unresolved_qty_drift|default(0)) == 0 else '#f85149') }}
   </div>
@@ -1319,7 +1319,7 @@
       No PC→RFQ links recorded yet. Operators confirm links from the
       CCHCS PC panel on the RFQ detail page; each confirm writes a
       <code>pc_rfq_linked</code> event. JSON mirror at
-      <a href="/api/health/pc-rfq-link" style="color:#58a6ff">/api/health/pc-rfq-link</a>.
+      <a href="/api/health/pc-rfq-link" style="color:var(--r-accent)">/api/health/pc-rfq-link</a>.
     </div>
   {% endif %}
 </div>
@@ -1388,6 +1388,6 @@
 
 <div style="font-size:12px;color:var(--r-text-muted,#8b949e);margin-top:20px">
   All data is read-only. JSON mirror at
-  <a href="/api/health/quoting?days={{days}}" style="color:#58a6ff">/api/health/quoting?days={{days}}</a>
+  <a href="/api/health/quoting?days={{days}}" style="color:var(--r-accent)">/api/health/quoting?days={{days}}</a>
 </div>
 {% endblock %}

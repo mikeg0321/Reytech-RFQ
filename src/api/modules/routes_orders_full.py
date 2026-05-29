@@ -3207,7 +3207,7 @@ def supplier_record_page(name):
         f'<h2 style="margin:0;font-size:22px;font-weight:700">🏪 {supplier_name}</h2></div>'
         f'<div class="bento bento-3" style="margin-bottom:14px">'
         f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--r-text-muted);text-transform:uppercase">Orders</div><div style="font-size:28px;font-weight:700;color:var(--r-accent)">{len(order_ids)}</div></div>'
-        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--r-text-muted);text-transform:uppercase">Line Items</div><div style="font-size:28px;font-weight:700;color:#58a6ff">{len(supplier_items)}</div></div>'
+        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--r-text-muted);text-transform:uppercase">Line Items</div><div style="font-size:28px;font-weight:700;color:var(--r-accent)">{len(supplier_items)}</div></div>'
         f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--r-text-muted);text-transform:uppercase">Total Spend</div><div style="font-size:28px;font-weight:700;color:#3fb950">${total_spend:,.2f}</div></div>'
         f'</div>'
         f'<div class="card"><div class="card-t" style="font-size:16px">All Items from {supplier_name}</div>'
