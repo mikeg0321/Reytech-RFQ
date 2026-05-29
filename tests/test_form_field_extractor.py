@@ -135,6 +135,16 @@ def test_name_matches_due_date_aliases():
         assert _name_matches(n, _DUE_DATE_ALIASES), f"failed: {raw!r}"
 
 
+def test_name_matches_release_date_aliases():
+    from src.agents.form_field_extractor import _normalize_name, _name_matches, _RELEASE_DATE_ALIASES
+    for raw in [
+        "Release Date", "ReleaseDate", "Release_Date",
+        "Issue Date", "IssueDate", "Posted Date",
+    ]:
+        n = _normalize_name(raw)
+        assert _name_matches(n, _RELEASE_DATE_ALIASES), f"failed: {raw!r}"
+
+
 def test_form_field_values_merge_keeps_existing():
     """Merge fills empty slots but doesn't overwrite non-empty ones —
     cover-sheet attachment processes FIRST, so its values stay."""
@@ -211,6 +221,26 @@ def test_e2e_extract_due_date_from_acroform():
     assert ff is not None, "extractor returned None on synthetic PDF"
     assert ff.solicitation_number == "10847262"
     assert ff.due_date == "2026-05-15"
+
+
+def test_e2e_extract_release_date_from_acroform():
+    """Buyer types the Release/Issue Date into the 703B AcroForm header.
+    The extractor must read it into ff.release_date — this is the source
+    ingest_pipeline._create_record threads onto the record so the 703B
+    'Release Date' fills (the AcroForm half of the sol-10847187 gap;
+    email-text half landed in #1210)."""
+    pytest.importorskip("pypdf")
+    pdf_bytes = _make_pdf_with_form_fields({
+        "Solicitation Number": "10847187",
+        "Release Date": "05/27/2026",
+        "Due Date": "05/29/2026",
+    })
+    from src.agents.form_field_extractor import extract_from_pdf_bytes
+    ff = extract_from_pdf_bytes(pdf_bytes, source_label="703b.pdf")
+    assert ff is not None
+    assert ff.release_date == "2026-05-27"
+    assert ff.due_date == "2026-05-29"
+    assert ff.release_date != ff.due_date  # never stolen from the due date
 
 
 def test_e2e_strips_preq_prefix_from_form_field():
