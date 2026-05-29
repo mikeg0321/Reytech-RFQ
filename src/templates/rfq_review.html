@@ -3,8 +3,8 @@
 {% block content %}
 <style>
 .rv-wrap{max-width:none;margin:0;padding:0 8px}
-.rv-header{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);margin-bottom:8px}
-.rv-header h2{margin:0;font-size:18px;color:var(--tx)}
+.rv-header{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--r-border);margin-bottom:8px}
+.rv-header h2{margin:0;font-size:18px;color:var(--r-text)}
 .rv-3col{display:grid;grid-template-columns:180px 1fr 360px;gap:8px;min-height:calc(100vh - 100px)}
 /* PR-AV-AC10: when toggleView('collapse-left') hides .rv-checklist
    via display:none, CSS Grid drops it from auto-placement entirely
@@ -20,39 +20,39 @@
 .rv-3col > .rv-checklist{grid-column:1/2}
 .rv-3col > .rv-preview{grid-column:2/3}
 .rv-3col > .rv-audit{grid-column:3/4}
-.rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:8px;overflow-y:auto;max-height:calc(100vh - 100px)}
-.rv-preview{background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 100px)}
-.rv-audit{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 100px)}
+.rv-checklist{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:8px;overflow-y:auto;max-height:calc(100vh - 100px)}
+.rv-preview{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 100px)}
+.rv-audit{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 100px)}
 .rv-form-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;margin-bottom:5px;border:1px solid transparent;font-size:15px}
 .rv-form-item:hover{background:rgba(79,140,255,.06)}
 .rv-form-item.active{background:rgba(79,140,255,.1);border-color:rgba(79,140,255,.3)}
 .rv-form-item .rv-icon{font-size:20px;flex-shrink:0}
-.rv-form-item .rv-name{flex:1;color:var(--tx)}
+.rv-form-item .rv-name{flex:1;color:var(--r-text)}
 .rv-form-item .rv-badge{font-size:13px;padding:3px 8px;border-radius:4px;font-weight:600}
 .rv-badge-pending{background:rgba(139,148,158,.15);color:#8b949e}
 .rv-badge-approved{background:rgba(63,185,80,.15);color:#3fb950}
 .rv-badge-rejected{background:rgba(248,81,73,.15);color:#f85149}
 .rv-badge-missing{background:rgba(248,81,73,.2);color:#f85149;font-style:italic}
-.rv-progress{text-align:center;padding:14px 0;border-top:1px solid var(--bd);margin-top:10px;font-size:15px;color:var(--tx2)}
+.rv-progress{text-align:center;padding:14px 0;border-top:1px solid var(--r-border);margin-top:10px;font-size:15px;color:var(--r-text-muted)}
 .rv-preview iframe{flex:1;border:none;background:#fff}
-.rv-preview-empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--tx2);font-size:14px}
-.rv-section{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd)}
+.rv-preview-empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--r-text-muted);font-size:14px}
+.rv-section{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--r-border)}
 .rv-section:last-child{border-bottom:none}
-.rv-section-title{font-size:14px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:10px;font-weight:700}
+.rv-section-title{font-size:14px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;margin-bottom:10px;font-weight:700}
 .rv-warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#d29922;margin-bottom:8px}
 .rv-error{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#f85149;margin-bottom:8px}
-.rv-audit-item{font-size:15px;padding:7px 0;color:var(--tx2);display:flex;gap:8px;line-height:1.5}
+.rv-audit-item{font-size:15px;padding:7px 0;color:var(--r-text-muted);display:flex;gap:8px;line-height:1.5}
 @media(max-width:1100px){.rv-3col{grid-template-columns:220px 1fr;}.rv-audit{display:none}}
 @media(max-width:768px){.rv-3col{grid-template-columns:1fr;}.rv-checklist{max-height:200px}}
 .rv-3col.expand-preview{grid-template-columns:0px 1fr 0px}
 .rv-3col.expand-preview .rv-checklist,.rv-3col.expand-preview .rv-audit{display:none}
 .rv-3col.hide-right{grid-template-columns:220px 1fr 0px}
 .rv-3col.hide-right .rv-audit{display:none}
-.rv-expand-btn{background:rgba(139,148,158,.1);border:1px solid var(--bd);color:var(--tx2);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
-.rv-expand-btn:hover{background:rgba(79,140,255,.1);color:var(--ac)}
-.rv-expand-btn.active{background:rgba(79,140,255,.15);color:var(--ac);border-color:rgba(79,140,255,.3)}
-.rv-floating-bar{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--bd);padding:10px 20px;z-index:100;box-shadow:0 -4px 20px rgba(0,0,0,.3);align-items:center;gap:10px}
-.rv-float-form{padding:6px 12px;border-radius:6px;border:1px solid var(--bd);cursor:pointer;font-size:13px;white-space:nowrap;color:var(--tx);flex-shrink:0}
+.rv-expand-btn{background:rgba(139,148,158,.1);border:1px solid var(--r-border);color:var(--r-text-muted);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
+.rv-expand-btn:hover{background:rgba(79,140,255,.1);color:var(--r-accent)}
+.rv-expand-btn.active{background:rgba(79,140,255,.15);color:var(--r-accent);border-color:rgba(79,140,255,.3)}
+.rv-floating-bar{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--r-surface);border-top:2px solid var(--r-border);padding:10px 20px;z-index:100;box-shadow:0 -4px 20px rgba(0,0,0,.3);align-items:center;gap:10px}
+.rv-float-form{padding:6px 12px;border-radius:6px;border:1px solid var(--r-border);cursor:pointer;font-size:13px;white-space:nowrap;color:var(--r-text);flex-shrink:0}
 .rv-float-form:hover{background:rgba(79,140,255,.1)}
 .rv-float-form.active{background:rgba(79,140,255,.15);border-color:rgba(79,140,255,.3)}
 .rv-float-form.v-approved{border-color:rgba(63,185,80,.3);color:#3fb950}
@@ -67,47 +67,47 @@
 .rv-rollup-headline{font-size:18px;font-weight:700;margin-bottom:2px;letter-spacing:-.01em}
 .rv-rollup.aligned .rv-rollup-headline{color:#3fb950}
 .rv-rollup.blocked .rv-rollup-headline{color:#f85149}
-.rv-rollup-sub{font-size:13px;color:var(--tx2);margin-bottom:0;line-height:1.4}
+.rv-rollup-sub{font-size:13px;color:var(--r-text-muted);margin-bottom:0;line-height:1.4}
 .rv-rollup-issues{margin:6px 0 0 0;padding:0 0 0 20px;font-size:14px;color:#f85149;line-height:1.5}
 .rv-rollup-issues li{margin:2px 0}
 .rv-rollup-checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:0;font-size:12px;flex-shrink:0;align-self:center}
-.rv-rollup-check{padding:5px 10px;border-radius:14px;border:1px solid var(--bd);background:var(--bg);white-space:nowrap;font-weight:500}
+.rv-rollup-check{padding:5px 10px;border-radius:14px;border:1px solid var(--r-border);background:var(--r-bg);white-space:nowrap;font-weight:500}
 .rv-rollup-check.ok{color:#3fb950;border-color:rgba(63,185,80,.3);background:rgba(63,185,80,.06)}
 .rv-rollup-check.fail{color:#f85149;border-color:rgba(248,81,73,.3);background:rgba(248,81,73,.06)}
 .rv-rollup-check.warn{color:#d29922;border-color:rgba(210,153,34,.3);background:rgba(210,153,34,.06)}
-.rv-rollup-check.unknown{color:var(--tx2)}
+.rv-rollup-check.unknown{color:var(--r-text-muted)}
 /* Items alignment table */
-.rv-items-section{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin-bottom:18px}
+.rv-items-section{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:14px 16px;margin-bottom:18px}
 /* PR-B3: Send / Draft pane — single source of truth for the Send action.
    Replaces the inline composer that lived on /rfq/<id>. */
-.rv-draft{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.rv-draft{background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;padding:14px 16px;margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .rv-draft.ready{border-color:rgba(63,185,80,.3)}
 .rv-draft.blocked{border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.04)}
 .rv-draft.draft-exists{border-color:rgba(79,140,255,.3);background:rgba(79,140,255,.04)}
 .rv-draft-icon{font-size:26px;line-height:1;flex-shrink:0}
 .rv-draft-body{flex:1;min-width:240px}
-.rv-draft-headline{font-size:16px;font-weight:700;color:var(--tx);margin-bottom:2px}
-.rv-draft-sub{font-size:13px;color:var(--tx2);line-height:1.4}
+.rv-draft-headline{font-size:16px;font-weight:700;color:var(--r-text);margin-bottom:2px}
+.rv-draft-sub{font-size:13px;color:var(--r-text-muted);line-height:1.4}
 .rv-draft-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0}
-.rv-draft-btn{padding:8px 16px;border-radius:6px;border:1px solid var(--bd);font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.rv-draft-btn{padding:8px 16px;border-radius:6px;border:1px solid var(--r-border);font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 .rv-draft-btn.primary{background:#238636;color:#fff;border-color:#238636}
 .rv-draft-btn.primary:hover{background:#2ea043}
 .rv-draft-btn.primary:disabled{background:#5a5a5a;border-color:#5a5a5a;cursor:not-allowed;opacity:.6}
-.rv-draft-btn.secondary{background:transparent;color:var(--tx)}
+.rv-draft-btn.secondary{background:transparent;color:var(--r-text)}
 .rv-draft-btn.secondary:hover{background:rgba(79,140,255,.08)}
 .rv-draft-issues{margin:8px 0 0 0;padding:0 0 0 18px;color:#f85149;font-size:13px;line-height:1.5}
 .rv-draft-issues li{margin:2px 0}
-.rv-draft-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid var(--bd);background:var(--bg);margin-right:4px}
+.rv-draft-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid var(--r-border);background:var(--r-bg);margin-right:4px}
 .rv-draft-pill.thread{color:#58a6ff;border-color:rgba(79,140,255,.3)}
 .rv-draft-pill.no-thread{color:#d29922;border-color:rgba(210,153,34,.3)}
-.rv-items-title{font-size:14px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:10px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.rv-items-title{font-size:14px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;margin-bottom:10px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
 .rv-items-banner{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:10px 12px;font-size:14px;color:#d29922;margin-bottom:10px;line-height:1.5}
 .rv-items-table{width:100%;border-collapse:collapse;font-size:15px}
-.rv-items-table th{text-align:left;font-size:12px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--bd);font-weight:600}
-.rv-items-table td{padding:10px;border-bottom:1px solid rgba(139,148,158,.1);vertical-align:top;color:var(--tx);line-height:1.5}
-.rv-items-table .rv-sub{font-size:13px;color:var(--tx2)}
+.rv-items-table th{text-align:left;font-size:12px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--r-border);font-weight:600}
+.rv-items-table td{padding:10px;border-bottom:1px solid rgba(139,148,158,.1);vertical-align:top;color:var(--r-text);line-height:1.5}
+.rv-items-table .rv-sub{font-size:13px;color:var(--r-text-muted)}
 .rv-items-table .rv-match-icon{font-size:18px}
-.rv-items-empty{padding:18px;text-align:center;color:var(--tx2);font-size:15px}
+.rv-items-empty{padding:18px;text-align:center;color:var(--r-text-muted);font-size:15px}
 /* Forms checklist — bigger text + filenames legible */
 .rv-checklist .rv-form-item{font-size:15px}
 .rv-checklist .rv-form-item .rv-name{font-size:15px}
@@ -118,8 +118,8 @@
    hover-tooltip (existing `title` attr) shows full filename without
    the awkward wrap. Mike 5/15: "make sure text is appropriate,
    some text was wide before". */
-.rv-checklist .rv-fname{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--tx2);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.rv-checklist .rv-size{color:var(--tx2);white-space:nowrap;font-size:12px}
+.rv-checklist .rv-fname{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--r-text-muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.rv-checklist .rv-size{color:var(--r-text-muted);white-space:nowrap;font-size:12px}
 .rv-checklist .rv-qa-pill{display:inline-block;padding:2px 7px;border-radius:9px;font-size:11px;font-weight:600}
 .rv-checklist .rv-qa-pass{background:rgba(63,185,80,.15);color:#3fb950}
 .rv-checklist .rv-qa-fail{background:rgba(248,81,73,.15);color:#f85149}
@@ -141,7 +141,7 @@
   <div class="rv-header">
     <div>
       <h2>📋 Package Review — RFQ #{{ sol }}</h2>
-      <div style="font-size:13px;color:var(--tx2);margin-top:2px">
+      <div style="font-size:13px;color:var(--r-text-muted);margin-top:2px">
         {{ (manifest.agency_name|agency_display) or 'Unknown Agency' }} — {{ r.get('requestor_name', '?') }}
         {% if r.get('due_date') %} — Due {{ r.due_date }}{% endif %}
       </div>
@@ -149,7 +149,7 @@
     <div style="display:flex;gap:8px;align-items:center">
       <span id="rv-status-badge" style="font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600;background:rgba(139,148,158,.15);color:#8b949e">{{ manifest.overall_status|upper }}</span>
       {% if r.get('email_thread_id') %}
-      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);text-decoration:none" title="Open the original buyer email thread in Gmail — replies will land on this thread">📬 Gmail thread</a>
+      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--r-accent);text-decoration:none" title="Open the original buyer email thread in Gmail — replies will land on this thread">📬 Gmail thread</a>
       {% endif %}
       <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">← Back to RFQ</a>
     </div>
@@ -202,7 +202,7 @@
   <details class="rv-items-section" data-testid="rv-items-alignment" {% if not _rollup.get('aligned') %}open{% endif %}>
     <summary class="rv-items-title" style="cursor:pointer;list-style:revert">
       <span>📦 Item Alignment — Buyer-Asked vs Your {{ _primary_label }}</span>
-      <span style="color:var(--tx2);font-size:13px;text-transform:none;letter-spacing:0">{{ _items.get('rows', [])|length }} item(s) in your quote{% if _rollup.get('aligned') %} · click to inspect{% endif %}</span>
+      <span style="color:var(--r-text-muted);font-size:13px;text-transform:none;letter-spacing:0">{{ _items.get('rows', [])|length }} item(s) in your quote{% if _rollup.get('aligned') %} · click to inspect{% endif %}</span>
     </summary>
     {% if not _items.get('has_source') and _items.get('rows') %}
     <div class="rv-items-banner">
@@ -228,7 +228,7 @@
               {{ row.their_desc[:90] }}{% if row.their_desc|length > 90 %}…{% endif %}<br>
               <span class="rv-sub">qty {{ row.their_qty }}{% if row.their_mfg %} · MFG# {{ row.their_mfg }}{% endif %}</span>
             {% else %}
-              <span style="color:var(--tx2);font-style:italic">— no source captured —</span>
+              <span style="color:var(--r-text-muted);font-style:italic">— no source captured —</span>
             {% endif %}
           </td>
           <td>
@@ -356,7 +356,7 @@
   <div class="rv-3col">
     <!-- LEFT: Form Checklist (filenames + sizes + QA) -->
     <div class="rv-checklist">
-      <div style="font-size:13px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:8px;padding:0 4px;font-weight:700">Deliverables — On Disk</div>
+      <div style="font-size:13px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;margin-bottom:8px;padding:0 4px;font-weight:700">Deliverables — On Disk</div>
 
       <div id="rv-form-list">
         {% set _flist = (alignment|default({})).get('forms_checklist', []) %}
@@ -382,7 +382,7 @@
             {% else %}<span class="rv-qa-pill rv-qa-unknown">QA ?</span>{% endif %}
             {% if f.filename %}<button class="rv-edit-btn" onclick="event.stopPropagation();openEditModal('{{ f.form_id }}')" title="Edit & Refill">&#9998;</button>{% endif %}
           </div>
-          <div style="display:flex;gap:6px;margin-top:4px;font-size:11px;color:var(--tx2)">
+          <div style="display:flex;gap:6px;margin-top:4px;font-size:11px;color:var(--r-text-muted)">
             {% if f.missing %}
               <span style="color:#f85149">{% if f.filename %}File missing on disk{% else %}Not generated{% endif %}</span>
             {% else %}
@@ -393,29 +393,29 @@
         </div>
         {% endfor %}
         {% else %}
-        <div style="padding:12px;text-align:center;color:var(--tx2);font-size:12px">No forms in manifest yet. Generate the package first.</div>
+        <div style="padding:12px;text-align:center;color:var(--r-text-muted);font-size:12px">No forms in manifest yet. Generate the package first.</div>
         {% endif %}
       </div>
 
       <div class="rv-progress">
         <div id="rv-progress-text">0/{{ manifest.reviews|length }} reviewed</div>
-        <div style="background:var(--bd);border-radius:4px;height:6px;margin-top:6px;overflow:hidden">
+        <div style="background:var(--r-border);border-radius:4px;height:6px;margin-top:6px;overflow:hidden">
           <div id="rv-progress-bar" style="background:#3fb950;height:100%;width:0%;transition:width .3s;border-radius:4px"></div>
         </div>
       </div>
 
       <div style="margin-top:12px">
-        <button id="rv-finalize-btn" class="btn" style="width:100%;background:rgba(139,148,158,.2);color:var(--tx);font-size:16px;padding:12px;border-radius:6px;font-weight:600" onclick="finalizePackage()" disabled>
+        <button id="rv-finalize-btn" class="btn" style="width:100%;background:rgba(139,148,158,.2);color:var(--r-text);font-size:16px;padding:12px;border-radius:6px;font-weight:600" onclick="finalizePackage()" disabled>
           🔒 Finalize Package
         </button>
-        <div id="rv-finalize-hint" style="text-align:center;font-size:11px;color:var(--tx2);margin-top:4px">Review all forms to enable</div>
+        <div id="rv-finalize-hint" style="text-align:center;font-size:11px;color:var(--r-text-muted);margin-top:4px">Review all forms to enable</div>
       </div>
       {# Bulk-download removed 2026-05-01 — Drive-folder integration replaces it
          (PR-B). Per-form click loads the iframe preview; ↗️ Open opens any single
          form in a new tab as a permalink. #}
       <div style="margin-top:10px;display:flex;gap:6px">
         {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}
-        <a href="/api/download/{{ sol }}/{{ review.form_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac);padding:8px">📄 Open Quote</a>
+        <a href="/api/download/{{ sol }}/{{ review.form_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--r-accent);padding:8px">📄 Open Quote</a>
         {% endif %}{% endfor %}
         {% if manifest.package_filename %}
         <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(63,185,80,.1);color:#3fb950;padding:8px">📋 Open Package</a>
@@ -425,12 +425,12 @@
 
     <!-- CENTER: PDF Preview -->
     <div class="rv-preview">
-      <div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-        <span id="rv-preview-title" style="font-size:14px;font-weight:600;color:var(--tx);flex:1;min-width:200px">Select a form to preview</span>
+      <div style="padding:8px 12px;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="rv-preview-title" style="font-size:14px;font-weight:600;color:var(--r-text);flex:1;min-width:200px">Select a form to preview</span>
         <!-- Always-visible Approve/Reject — no longer requires Audit or Full mode (P0 2026-05-04) -->
         <button id="rv-toolbar-approve" class="rv-expand-btn" style="background:rgba(63,185,80,.15);color:#3fb950;border-color:rgba(63,185,80,.3);font-weight:600" onclick="reviewCurrent('approved')" title="Approve the currently-previewed document">✅ Approve</button>
         <button id="rv-toolbar-reject" class="rv-expand-btn" style="background:rgba(248,81,73,.15);color:#f85149;border-color:rgba(248,81,73,.3);font-weight:600" onclick="reviewCurrent('rejected')" title="Reject the currently-previewed document">❌ Reject</button>
-        <span style="width:1px;height:24px;background:var(--bd);margin:0 4px"></span>
+        <span style="width:1px;height:24px;background:var(--r-border);margin:0 4px"></span>
         <button class="rv-expand-btn active" onclick="toggleView('')" title="Wide preview (default)">📄 Wide</button>
         <button class="rv-expand-btn" onclick="toggleView('collapse-left')" title="Hide form list, max viewer width">⤢ Max</button>
         <button class="rv-expand-btn" onclick="toggleView('show-audit')" title="Show review/audit panel">🛈 Audit</button>
@@ -472,7 +472,7 @@
           <div class="rv-audit-item"><span>📋</span> Version: {{ manifest.version }}</div>
           <div class="rv-audit-item"><span>⏰</span> Generated: {{ manifest.created_at[:16] if manifest.created_at else '?' }}</div>
           {% if prev_manifest is defined and prev_manifest %}
-          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--r-border)">
             <div class="rv-section-title">Changes from v{{ prev_manifest.version }}</div>
             {% if manifest.quote_total != prev_manifest.quote_total %}
             <div class="rv-audit-item" style="color:{% if manifest.quote_total > prev_manifest.quote_total %}#3fb950{% else %}#f85149{% endif %}">
@@ -490,13 +490,13 @@
             {% endif %}
           </div>
           {% elif manifest.version == 1 %}
-          <div style="margin-top:8px;font-size:12px;color:var(--tx2)">First generation</div>
+          <div style="margin-top:8px;font-size:12px;color:var(--r-text-muted)">First generation</div>
           {% endif %}
         </div>
 
         <div class="rv-section" id="rv-form-audit">
           <div class="rv-section-title">Form Audit</div>
-          <div style="color:var(--tx2);font-size:13px">Select a form to see details</div>
+          <div style="color:var(--r-text-muted);font-size:13px">Select a form to see details</div>
         </div>
 
         <div class="rv-section">
@@ -506,21 +506,21 @@
             <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('rejected')">❌ Reject</button>
           </div>
           <button class="btn btn-sm" style="background:rgba(139,148,158,.1);color:#8b949e;border:1px solid rgba(139,148,158,.2);font-size:12px;padding:6px;width:100%;margin-top:4px" onclick="removeCurrentForm()">🗑️ Remove from Package</button>
-          <textarea id="rv-review-notes" placeholder="Notes (why rejected, or approval override reason)..." style="width:100%;margin-top:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
-          <div style="font-size:11px;color:var(--tx2);margin-top:4px">You can re-review any form by clicking it and choosing a new verdict.</div>
+          <textarea id="rv-review-notes" placeholder="Notes (why rejected, or approval override reason)..." style="width:100%;margin-top:6px;background:var(--r-bg);color:var(--r-text);border:1px solid var(--r-border);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
+          <div style="font-size:11px;color:var(--r-text-muted);margin-top:4px">You can re-review any form by clicking it and choosing a new verdict.</div>
         </div>
       </div>
 
       <!-- INLINE EDIT VIEW (shown when editing, replaces audit) -->
       <div id="rv-edit-view" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--bd)">
-          <div style="font-size:14px;font-weight:600;color:var(--tx)" id="rv-edit-title">Edit Form</div>
-          <button onclick="closeEditPanel()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--tx2)" title="Back to audit">&larr; Back</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--r-border)">
+          <div style="font-size:14px;font-weight:600;color:var(--r-text)" id="rv-edit-title">Edit Form</div>
+          <button onclick="closeEditPanel()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--r-text-muted)" title="Back to audit">&larr; Back</button>
         </div>
 
         <!-- RFQ Header Fields (always shown when editing) -->
-        <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--bd)">
-          <div style="font-size:11px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:6px;font-weight:700">RFQ Header</div>
+        <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--r-border)">
+          <div style="font-size:11px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;margin-bottom:6px;font-weight:700">RFQ Header</div>
           <div class="rv-inline-field">
             <label>Solicitation #</label>
             <input type="text" id="rv-edit-sol" value="{{ (r.solicitation_number|default(r.rfq_number|default('')))|e }}">
@@ -538,9 +538,9 @@
         <!-- Line Item Fields (dynamic, filled by openEditPanel) -->
         <div id="rv-edit-body" style="max-height:calc(100vh - 520px);overflow-y:auto"></div>
 
-        <div style="display:flex;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">
-          <button onclick="closeEditPanel()" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);flex:1">Cancel</button>
-          <button id="rv-edit-save" onclick="submitRefill()" class="btn btn-sm" style="background:var(--ac);color:#fff;font-weight:600;flex:1">Save & Refill</button>
+        <div style="display:flex;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--r-border)">
+          <button onclick="closeEditPanel()" class="btn btn-sm" style="background:var(--r-surface);color:var(--r-text);border:1px solid var(--r-border);flex:1">Cancel</button>
+          <button id="rv-edit-save" onclick="submitRefill()" class="btn btn-sm" style="background:var(--r-accent);color:#fff;font-weight:600;flex:1">Save & Refill</button>
         </div>
       </div>
     </div>
@@ -561,10 +561,10 @@
       {% endfor %}
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-      <span id="rv-float-label" style="font-size:14px;color:var(--tx);font-weight:600">—</span>
+      <span id="rv-float-label" style="font-size:14px;color:var(--r-text);font-weight:600">—</span>
       <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 16px" onclick="reviewCurrent('approved')">✅ Approve</button>
       <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);font-size:14px;padding:8px 16px" onclick="reviewCurrent('rejected')">❌ Reject</button>
-      <button class="btn btn-sm" style="background:var(--gn);color:#fff;font-size:14px;padding:8px 16px" onclick="finalizePackage()" id="rv-float-finalize" disabled>🔒 Finalize</button>
+      <button class="btn btn-sm" style="background:var(--r-accent);color:#fff;font-size:14px;padding:8px 16px" onclick="finalizePackage()" id="rv-float-finalize" disabled>🔒 Finalize</button>
       <button class="rv-expand-btn" onclick="toggleView('')" style="padding:8px 12px">✕ Exit</button>
     </div>
   </div>
@@ -600,7 +600,7 @@ function selectForm(el,formId,filename){
  {% for review in manifest.reviews %}{% if review.notes %}_reviewNotes[{{ review.form_id|tojson }}]={{ review.notes|tojson }};{% endif %}{% endfor %}
  var _notesEl=document.getElementById('rv-review-notes');
  if(_notesEl&&_reviewNotes[formId]){_notesEl.value=_reviewNotes[formId];_notesEl.style.borderColor='#f85149';}
- else if(_notesEl){_notesEl.value='';_notesEl.style.borderColor='var(--bd)';}
+ else if(_notesEl){_notesEl.value='';_notesEl.style.borderColor='var(--r-border)';}
 }
 
 function updateAuditPanel(formId){
@@ -781,9 +781,9 @@ function updateProgress(){
  try{var _audits={{ manifest.field_audit|tojson if manifest.field_audit else '{}' }};if(typeof _audits==='string')_audits=JSON.parse(_audits);_qaBlocked=(_audits._qa_passed===false);}catch(e){}
  if(_qaBlocked){btn.disabled=true;btn.style.background='#f85149';btn.style.color='#fff';btn.textContent='❌ QA Failed — Cannot Finalize';hint.innerHTML='<div style="font-size:12px;color:#f85149;margin-top:4px">Fix QA errors above, then <a href="/rfq/'+RID+'" style="color:#f85149">regenerate the package</a>.</div>';}
  else if(reviewed>=total&&total>0){
-  if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.innerHTML='<div style="font-size:12px;margin-top:4px"><b>Options:</b></div><div style="font-size:12px;color:var(--tx2);margin-top:2px">1. Click the rejected form → change to ✅ Approve (with override note)</div><div style="font-size:12px;color:var(--tx2);margin-top:2px">2. <a href="/rfq/'+RID+'" style="color:#d29922">Return to RFQ</a> → fix data → Generate again</div>';}
-  else{btn.disabled=false;btn.style.background='var(--gn)';btn.style.color='#fff';btn.textContent='✅ Finalize Package ('+approved+' forms)';hint.textContent='Ready to finalize';hint.style.color='#3fb950';}
- } else {btn.disabled=true;btn.style.background='rgba(139,148,158,.2)';btn.textContent='🔒 Finalize Package';hint.textContent=(total-reviewed)+' form(s) still need review';hint.style.color='var(--tx2)';}
+  if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.innerHTML='<div style="font-size:12px;margin-top:4px"><b>Options:</b></div><div style="font-size:12px;color:var(--r-text-muted);margin-top:2px">1. Click the rejected form → change to ✅ Approve (with override note)</div><div style="font-size:12px;color:var(--r-text-muted);margin-top:2px">2. <a href="/rfq/'+RID+'" style="color:#d29922">Return to RFQ</a> → fix data → Generate again</div>';}
+  else{btn.disabled=false;btn.style.background='var(--r-accent)';btn.style.color='#fff';btn.textContent='✅ Finalize Package ('+approved+' forms)';hint.textContent='Ready to finalize';hint.style.color='#3fb950';}
+ } else {btn.disabled=true;btn.style.background='rgba(139,148,158,.2)';btn.textContent='🔒 Finalize Package';hint.textContent=(total-reviewed)+' form(s) still need review';hint.style.color='var(--r-text-muted)';}
  // Sync floating finalize button
  var floatFin=document.getElementById('rv-float-finalize');
  if(floatFin){
@@ -807,9 +807,9 @@ function finalizePackage(){
   var _pkgFn = {{ (manifest.package_filename or '')|tojson }} || 'RFQ_Package_'+SOL+'_ReytechInc.pdf';
   var _dl = '<a href="/rfq/'+RID+'#emailForm" class="btn" style="display:block;width:100%;background:#238636;color:#fff;font-size:16px;padding:14px;border-radius:8px;font-weight:700;text-align:center;text-decoration:none;margin-top:12px">✅ Package Approved — Send to Buyer →</a>';
   _dl += '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">';
-  if (_quoteFn) _dl += '<a href="/api/download/'+SOL+'/'+_quoteFn+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';
+  if (_quoteFn) _dl += '<a href="/api/download/'+SOL+'/'+_quoteFn+'" target="_blank" class="btn btn-sm" style="background:var(--r-accent);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';
   _dl += '<a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Package</a>';
-  _dl += '<a href="/api/rfq/' + RID + '/download-complete-package" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center;font-weight:600">⬇ Complete RFQ</a>';
+  _dl += '<a href="/api/rfq/' + RID + '/download-complete-package" class="btn btn-sm" style="background:var(--r-accent);color:#fff;font-size:13px;flex:1;text-align:center;font-weight:600">⬇ Complete RFQ</a>';
   _dl += '</div>';
   document.getElementById('rv-finalize-hint').innerHTML = _dl;
  }).catch(function(e){alert('Finalize error: '+e.message);});
@@ -851,7 +851,7 @@ function openEditPanel(formId) {
  var body = document.getElementById('rv-edit-body');
  var html = '';
  if (['quote','703b','703c','704b'].indexOf(formId) >= 0) {
-   html += '<div style="font-size:11px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:6px;font-weight:700">Line Items</div>';
+   html += '<div style="font-size:11px;text-transform:uppercase;color:var(--r-text-muted);letter-spacing:.5px;margin-bottom:6px;font-weight:700">Line Items</div>';
    html += '<table class="rv-edit-table"><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Price</th><th>Cost</th></tr></thead><tbody>';
    for (var i = 0; i < _lineItems.length; i++) {
      var it = _lineItems[i];
@@ -861,7 +861,7 @@ function openEditPanel(formId) {
      var cost = it.supplier_cost || it.vendor_cost || '';
      var descDisabled = formId === '704b' ? 'disabled' : '';
      var qtyDisabled = formId === '704b' ? 'disabled' : '';
-     html += '<tr><td style="font-size:11px;color:var(--tx2)">'+(i+1)+'</td>';
+     html += '<tr><td style="font-size:11px;color:var(--r-text-muted)">'+(i+1)+'</td>';
      html += '<td><input type="text" data-idx="'+i+'" data-field="description" value="'+desc.replace(/"/g,'&quot;')+'" '+descDisabled+' style="width:100%"></td>';
      html += '<td><input type="number" data-idx="'+i+'" data-field="qty" value="'+qty+'" '+qtyDisabled+' style="width:50px"></td>';
      html += '<td><input type="number" step="0.01" data-idx="'+i+'" data-field="price_per_unit" value="'+price+'" style="width:70px"></td>';
@@ -870,7 +870,7 @@ function openEditPanel(formId) {
    }
    html += '</tbody></table>';
  } else {
-   html += '<p style="color:var(--tx2);font-size:12px;margin:0">Company fields are auto-filled from config. Edit header fields above, or edit line items on the Quote form.</p>';
+   html += '<p style="color:var(--r-text-muted);font-size:12px;margin:0">Company fields are auto-filled from config. Edit header fields above, or edit line items on the Quote form.</p>';
  }
  body.innerHTML = html;
 
@@ -1012,17 +1012,17 @@ function recreateDraft(){
 </script>
 
 <style>
-.rv-edit-btn{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;margin-left:auto;opacity:.5;color:var(--tx2)}
-.rv-edit-btn:hover{opacity:1;color:var(--ac)}
+.rv-edit-btn{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;margin-left:auto;opacity:.5;color:var(--r-text-muted)}
+.rv-edit-btn:hover{opacity:1;color:var(--r-accent)}
 .rv-form-item{display:flex;align-items:center;gap:6px}
 .rv-edit-table{width:100%;border-collapse:collapse;font-size:12px}
-.rv-edit-table th{text-align:left;padding:3px 4px;border-bottom:2px solid var(--bd);font-size:10px;text-transform:uppercase;color:var(--tx2)}
-.rv-edit-table td{padding:3px 4px;border-bottom:1px solid var(--bd)}
-.rv-edit-table input{padding:3px 4px;border:1px solid var(--bd);border-radius:4px;background:var(--sf);color:var(--tx);font-size:12px;box-sizing:border-box}
+.rv-edit-table th{text-align:left;padding:3px 4px;border-bottom:2px solid var(--r-border);font-size:10px;text-transform:uppercase;color:var(--r-text-muted)}
+.rv-edit-table td{padding:3px 4px;border-bottom:1px solid var(--r-border)}
+.rv-edit-table input{padding:3px 4px;border:1px solid var(--r-border);border-radius:4px;background:var(--r-surface);color:var(--r-text);font-size:12px;box-sizing:border-box}
 .rv-edit-table input:disabled{opacity:.5;cursor:not-allowed}
 .rv-inline-field{display:block;margin-bottom:8px}
-.rv-inline-field label{display:block;font-size:11px;text-transform:uppercase;color:var(--tx2);margin-bottom:3px;letter-spacing:.3px}
-.rv-inline-field input,.rv-inline-field textarea{width:100%;padding:5px 8px;border:1px solid var(--bd);border-radius:4px;background:var(--sf);color:var(--tx);font-size:13px;box-sizing:border-box}
+.rv-inline-field label{display:block;font-size:11px;text-transform:uppercase;color:var(--r-text-muted);margin-bottom:3px;letter-spacing:.3px}
+.rv-inline-field input,.rv-inline-field textarea{width:100%;padding:5px 8px;border:1px solid var(--r-border);border-radius:4px;background:var(--r-surface);color:var(--r-text);font-size:13px;box-sizing:border-box}
 .rv-inline-field textarea{resize:vertical;min-height:50px;font-family:inherit}
 </style>
 {% endblock %}

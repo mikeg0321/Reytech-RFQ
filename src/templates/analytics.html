@@ -13,35 +13,35 @@
  <div class="card" style="margin-bottom:0">
   <div class="card-t">QA Effectiveness ({{qa_eff.period_days}}d)</div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
-   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
-    <div style="font-size:20px;font-weight:700;color:{% if qa_eff.form_qa.pass_rate is not none and qa_eff.form_qa.pass_rate >= 80 %}#3fb950{% elif qa_eff.form_qa.pass_rate is not none %}#d29922{% else %}var(--tx2,#8b949e){% endif %};font-family:monospace">{{qa_eff.form_qa.pass_rate|default('--')}}{% if qa_eff.form_qa.pass_rate is not none %}%{% endif %}</div>
-    <div style="font-size:12px;color:var(--tx2,#8b949e)">Form QA Pass</div>
+   <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
+    <div style="font-size:20px;font-weight:700;color:{% if qa_eff.form_qa.pass_rate is not none and qa_eff.form_qa.pass_rate >= 80 %}#3fb950{% elif qa_eff.form_qa.pass_rate is not none %}#d29922{% else %}var(--r-text-muted,#8b949e){% endif %};font-family:monospace">{{qa_eff.form_qa.pass_rate|default('--')}}{% if qa_eff.form_qa.pass_rate is not none %}%{% endif %}</div>
+    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Form QA Pass</div>
    </div>
-   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+   <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:20px;font-weight:700;color:#58a6ff;font-family:monospace">{{qa_eff.form_qa.total_runs|default(0)}}</div>
-    <div style="font-size:12px;color:var(--tx2,#8b949e)">QA Runs</div>
+    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">QA Runs</div>
    </div>
-   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+   <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:20px;font-weight:700;color:#f85149;font-family:monospace">{{qa_eff.form_qa.total_critical_issues|default(0)}}</div>
-    <div style="font-size:12px;color:var(--tx2,#8b949e)">Critical Issues</div>
+    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Critical Issues</div>
    </div>
-   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+   <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:20px;font-weight:700;color:#d29922;font-family:monospace">{{qa_eff.regeneration.avg_generations|default(0)}}x</div>
-    <div style="font-size:12px;color:var(--tx2,#8b949e)">Avg Generations</div>
+    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Avg Generations</div>
    </div>
   </div>
   {% if qa_eff.form_qa.top_categories %}
-  <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd,#30363d)">
-   <div style="font-size:13px;color:var(--tx2,#8b949e);margin-bottom:6px">Top Issue Categories</div>
+  <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--r-border,#30363d)">
+   <div style="font-size:13px;color:var(--r-text-muted,#8b949e);margin-bottom:6px">Top Issue Categories</div>
    <div style="display:flex;flex-wrap:wrap;gap:6px">
     {% for cat, cnt in qa_eff.form_qa.top_categories %}
-    <span style="padding:3px 10px;border-radius:12px;background:var(--sf2,#161b22);font-size:13px"><span style="font-weight:700;color:#f0883e">{{cnt}}</span> <span style="color:var(--tx2,#8b949e)">{{cat|replace('_',' ')|title}}</span></span>
+    <span style="padding:3px 10px;border-radius:12px;background:var(--r-surface-2,#161b22);font-size:13px"><span style="font-weight:700;color:#f0883e">{{cnt}}</span> <span style="color:var(--r-text-muted,#8b949e)">{{cat|replace('_',' ')|title}}</span></span>
     {% endfor %}
    </div>
   </div>
   {% endif %}
   {% if qa_eff.pc_qa.total_runs > 0 %}
-  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);display:flex;gap:16px;font-size:13px;color:var(--tx2,#8b949e)">
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);display:flex;gap:16px;font-size:13px;color:var(--r-text-muted,#8b949e)">
    <span>PC QA: <strong style="color:#58a6ff">{{qa_eff.pc_qa.total_runs}}</strong> runs</span>
    {% if qa_eff.pc_qa.avg_score is not none %}<span>Avg Score: <strong style="color:{% if qa_eff.pc_qa.avg_score >= 80 %}#3fb950{% else %}#d29922{% endif %}">{{qa_eff.pc_qa.avg_score}}</strong>/100</span>{% endif %}
   </div>
@@ -52,20 +52,20 @@
   {% set corr = qa_eff.outcome_correlation %}
   {% if corr.sample_size > 0 %}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-   <div style="text-align:center;padding:14px;background:var(--sf2,#161b22);border-radius:8px">
+   <div style="text-align:center;padding:14px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:24px;font-weight:700;color:#3fb950;font-family:monospace">{{corr.clean_win_rate|default('--')}}{% if corr.clean_win_rate is not none %}%{% endif %}</div>
-    <div style="font-size:13px;color:var(--tx2,#8b949e)">QA-Clean Win Rate</div>
+    <div style="font-size:13px;color:var(--r-text-muted,#8b949e)">QA-Clean Win Rate</div>
     <div style="font-size:12px;color:var(--tx3,#484f58)">{{corr.clean_won + corr.clean_lost}} quotes</div>
    </div>
-   <div style="text-align:center;padding:14px;background:var(--sf2,#161b22);border-radius:8px">
+   <div style="text-align:center;padding:14px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:24px;font-weight:700;color:{% if corr.dirty_win_rate is not none and corr.clean_win_rate is not none and corr.dirty_win_rate < corr.clean_win_rate %}#f85149{% else %}#d29922{% endif %};font-family:monospace">{{corr.dirty_win_rate|default('--')}}{% if corr.dirty_win_rate is not none %}%{% endif %}</div>
-    <div style="font-size:13px;color:var(--tx2,#8b949e)">QA-Dirty Win Rate</div>
+    <div style="font-size:13px;color:var(--r-text-muted,#8b949e)">QA-Dirty Win Rate</div>
     <div style="font-size:12px;color:var(--tx3,#484f58)">{{corr.dirty_won + corr.dirty_lost}} quotes</div>
    </div>
   </div>
-  <div style="margin-top:10px;text-align:center;font-size:13px;color:var(--tx2,#8b949e)">{{corr.sample_size}} quotes with outcomes · {{qa_eff.regeneration.multi_gen_pct|default(0)}}% required regeneration</div>
+  <div style="margin-top:10px;text-align:center;font-size:13px;color:var(--r-text-muted,#8b949e)">{{corr.sample_size}} quotes with outcomes · {{qa_eff.regeneration.multi_gen_pct|default(0)}}% required regeneration</div>
   {% else %}
-  <div style="color:var(--tx2,#8b949e);font-size:14px;padding:30px;text-align:center">No outcome data yet. Mark quotes as won/lost to see QA correlation.</div>
+  <div style="color:var(--r-text-muted,#8b949e);font-size:14px;padding:30px;text-align:center">No outcome data yet. Mark quotes as won/lost to see QA correlation.</div>
   {% endif %}
   {# V5: Actionable QA recommendation based on pass rate #}
   {% if qa_eff.form_qa.pass_rate is not none %}
@@ -87,10 +87,10 @@
  <div class="card-t">Document Pipeline Health (90d)</div>
  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px">
   {% for strat, info in strategy_stats|default({})|dictsort %}
-  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
    <div style="font-size:18px;font-weight:700;color:{% if info.avg_score|default(0) >= 90 %}#3fb950{% elif info.avg_score|default(0) >= 70 %}#d29922{% else %}#f85149{% endif %};font-family:monospace">{{info.avg_score|default(0)|round(0)|int}}%</div>
-   <div style="font-size:13px;font-weight:600;color:var(--tx)">{{strat}}</div>
-   <div style="font-size:12px;color:var(--tx2,#8b949e)">{{info.total|default(0)}} runs</div>
+   <div style="font-size:13px;font-weight:600;color:var(--r-text)">{{strat}}</div>
+   <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">{{info.total|default(0)}} runs</div>
   </div>
   {% endfor %}
  </div>
@@ -125,7 +125,7 @@
     types.forEach(function(t){
       var c=d.by_type[t.key]||0;
       if(c===0)return;
-      sum.innerHTML+='<div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px"><div style="font-size:20px;font-weight:700;color:'+t.color+';font-family:monospace">'+c+'</div><div style="font-size:12px;color:var(--tx2,#8b949e)">'+t.icon+' '+t.label+'</div></div>';
+      sum.innerHTML+='<div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px"><div style="font-size:20px;font-weight:700;color:'+t.color+';font-family:monospace">'+c+'</div><div style="font-size:12px;color:var(--r-text-muted,#8b949e)">'+t.icon+' '+t.label+'</div></div>';
     });
     var list=document.getElementById('rqt-list');
     d.triggers.slice(0,10).forEach(function(t){
@@ -133,7 +133,7 @@
       var detail=t.trigger_type==='quote_expiring'?t.details.days_old+'d old':
                  t.trigger_type==='cost_dropped'?t.details.delta_pct+'% cheaper':
                  '+'+t.details.delta_pct+'% more expensive';
-      list.innerHTML+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--bd,#30363d);font-size:13px"><a href="/pricecheck/'+t.pc_id+'" style="color:#58a6ff;font-weight:600">PC #'+t.pc_number+'</a><span style="color:var(--tx2,#8b949e)">'+t.institution+'</span><span style="color:'+color+';font-weight:600;margin-left:auto">'+detail+'</span></div>';
+      list.innerHTML+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--r-border,#30363d);font-size:13px"><a href="/pricecheck/'+t.pc_id+'" style="color:#58a6ff;font-weight:600">PC #'+t.pc_number+'</a><span style="color:var(--r-text-muted,#8b949e)">'+t.institution+'</span><span style="color:'+color+';font-weight:600;margin-left:auto">'+detail+'</span></div>';
     });
   }).catch(function(){});
 })();
@@ -157,7 +157,7 @@
   <div style="flex:1;text-align:center">
    <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}}">{{count}}</div>
    <div style="background:{{color}};height:{{[pct * 1.5, 4]|max}}px;border-radius:4px;margin:6px 2px;transition:height .3s"></div>
-   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">{{label}}</div>
+   <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px">{{label}}</div>
    {% if funnel.imported > 0 and label != 'Imported' %}
    <div style="font-size:13px;color:{{color}};font-weight:600">{{(count / funnel.imported * 100)|round(1)}}%</div>
    {% endif %}
@@ -169,30 +169,30 @@
 <!-- KPI Row -->
 <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:22px;font-weight:700;color:var(--gn);font-family:'JetBrains Mono',monospace">
+  <div style="font-size:22px;font-weight:700;color:var(--r-accent);font-family:'JetBrains Mono',monospace">
    {% if funnel.won + funnel.lost > 0 %}{{((funnel.won / (funnel.won + funnel.lost)) * 100)|round(1)}}%{% else %}—{% endif %}
   </div>
-  <div style="font-size:13px;color:var(--tx2)">Win Rate</div>
+  <div style="font-size:13px;color:var(--r-text-muted)">Win Rate</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:22px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">{{avg_quote_time}}h</div>
-  <div style="font-size:13px;color:var(--tx2)">Avg Time to Quote</div>
+  <div style="font-size:22px;font-weight:700;color:var(--r-accent);font-family:'JetBrains Mono',monospace">{{avg_quote_time}}h</div>
+  <div style="font-size:13px;color:var(--r-text-muted)">Avg Time to Quote</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:22px;font-weight:700;color:var(--yl);font-family:'JetBrains Mono',monospace">{{funnel.priced}}</div>
-  <div style="font-size:13px;color:var(--tx2)">Pending Pricing</div>
+  <div style="font-size:22px;font-weight:700;color:var(--r-warn);font-family:'JetBrains Mono',monospace">{{funnel.priced}}</div>
+  <div style="font-size:13px;color:var(--r-text-muted)">Pending Pricing</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:22px;font-weight:700;color:var(--or);font-family:'JetBrains Mono',monospace">{{funnel.sent}}</div>
-  <div style="font-size:13px;color:var(--tx2)">Awaiting Decision</div>
+  <div style="font-size:22px;font-weight:700;color:var(--r-warn);font-family:'JetBrains Mono',monospace">{{funnel.sent}}</div>
+  <div style="font-size:13px;color:var(--r-text-muted)">Awaiting Decision</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:22px;font-weight:700;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{growth_kpis.total_prospects or 0}}</div>
-  <div style="font-size:13px;color:var(--tx2)">Growth Prospects</div>
+  <div style="font-size:13px;color:var(--r-text-muted)">Growth Prospects</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:22px;font-weight:700;color:#3fb950;font-family:'JetBrains Mono',monospace">{{growth_kpis.response_rate or 0}}%</div>
-  <div style="font-size:13px;color:var(--tx2)">Outreach Response</div>
+  <div style="font-size:13px;color:var(--r-text-muted)">Outreach Response</div>
  </div>
 </div>
 
@@ -201,33 +201,33 @@
    in hours). This row measures keyboard time: open detail page → click Mark
    Sent. The plan's success gate is 1-item median time-to-send <90s. #}
 <div class="card" style="margin-bottom:16px;padding:14px">
- <div class="card-t" style="margin-bottom:10px">⚡ Operator KPI — Time to Send <span style="color:var(--tx2);font-weight:400;font-size:12px">(last 7 days)</span></div>
+ <div class="card-t" style="margin-bottom:10px">⚡ Operator KPI — Time to Send <span style="color:var(--r-text-muted);font-weight:400;font-size:12px">(last 7 days)</span></div>
  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
   <div style="text-align:center">
-   <div style="font-size:22px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ kpi_7d.count|default(0) }}</div>
-   <div style="font-size:12px;color:var(--tx2)">Quotes Sent</div>
+   <div style="font-size:22px;font-weight:700;color:var(--r-accent);font-family:'JetBrains Mono',monospace">{{ kpi_7d.count|default(0) }}</div>
+   <div style="font-size:12px;color:var(--r-text-muted)">Quotes Sent</div>
   </div>
   <div style="text-align:center">
-   <div style="font-size:22px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">
+   <div style="font-size:22px;font-weight:700;color:var(--r-accent);font-family:'JetBrains Mono',monospace">
     {% if kpi_7d.median_seconds is not none %}{{ kpi_7d.median_seconds }}s{% else %}—{% endif %}
    </div>
-   <div style="font-size:12px;color:var(--tx2)">Median Time-to-Send</div>
+   <div style="font-size:12px;color:var(--r-text-muted)">Median Time-to-Send</div>
   </div>
   <div style="text-align:center">
-   <div style="font-size:22px;font-weight:700;color:{% if (kpi_7d.under_90_pct or 0) >= 80 %}var(--gn){% elif (kpi_7d.under_90_pct or 0) >= 50 %}var(--yl){% else %}var(--rd){% endif %};font-family:'JetBrains Mono',monospace">
+   <div style="font-size:22px;font-weight:700;color:{% if (kpi_7d.under_90_pct or 0) >= 80 %}var(--r-accent){% elif (kpi_7d.under_90_pct or 0) >= 50 %}var(--r-warn){% else %}var(--r-bad){% endif %};font-family:'JetBrains Mono',monospace">
     {% if kpi_7d.under_90_pct is not none %}{{ kpi_7d.under_90_pct }}%{% else %}—{% endif %}
    </div>
-   <div style="font-size:12px;color:var(--tx2)">Under 90s</div>
+   <div style="font-size:12px;color:var(--r-text-muted)">Under 90s</div>
   </div>
   <div style="text-align:center">
-   <div style="font-size:22px;font-weight:700;color:{% if kpi_7d_1item.median_seconds is not none and kpi_7d_1item.median_seconds <= 90 %}var(--gn){% else %}var(--or){% endif %};font-family:'JetBrains Mono',monospace">
+   <div style="font-size:22px;font-weight:700;color:{% if kpi_7d_1item.median_seconds is not none and kpi_7d_1item.median_seconds <= 90 %}var(--r-accent){% else %}var(--r-warn){% endif %};font-family:'JetBrains Mono',monospace">
     {% if kpi_7d_1item.median_seconds is not none %}{{ kpi_7d_1item.median_seconds }}s{% else %}—{% endif %}
    </div>
-   <div style="font-size:12px;color:var(--tx2)">1-Item Median (target ≤90s)</div>
+   <div style="font-size:12px;color:var(--r-text-muted)">1-Item Median (target ≤90s)</div>
   </div>
  </div>
  {% if kpi_7d.count == 0 %}
- <div style="margin-top:8px;font-size:12px;color:var(--tx2);text-align:center">
+ <div style="margin-top:8px;font-size:12px;color:var(--r-text-muted);text-align:center">
   No sends logged this week — telemetry begins on next Mark Sent click.
  </div>
  {% endif %}
@@ -251,13 +251,13 @@
    <div style="flex:1;text-align:center">
     <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}}">{{count}}</div>
     <div style="background:{{color}};height:{{[pct * 1.2, 4]|max}}px;border-radius:4px;margin:6px 2px"></div>
-    <div style="font-size:13px;color:var(--tx2)">{{label}}</div>
+    <div style="font-size:13px;color:var(--r-text-muted)">{{label}}</div>
    </div>
    {% endfor %}
   </div>
   {% if growth_kpis.pipeline_value %}
-  <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);text-align:center">
-   <span style="font-size:14px;color:var(--tx2)">Pipeline Value:</span>
+  <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--r-border);text-align:center">
+   <span style="font-size:14px;color:var(--r-text-muted)">Pipeline Value:</span>
    <span style="font-size:18px;font-weight:700;color:#3fb950;font-family:'JetBrains Mono',monospace;margin-left:6px">${{"${:,.0f}".format(growth_kpis.pipeline_value)}}</span>
   </div>
   {% endif %}
@@ -279,7 +279,7 @@
    </tbody>
   </table>
   {% else %}
-  <div style="color:var(--tx2);font-size:14px;padding:20px;text-align:center">No agency data yet — run outreach from <a href="/growth-intel" style="color:var(--ac)">Growth Engine</a></div>
+  <div style="color:var(--r-text-muted);font-size:14px;padding:20px;text-align:center">No agency data yet — run outreach from <a href="/growth-intel" style="color:var(--r-accent)">Growth Engine</a></div>
   {% endif %}
  </div>
 </div>
@@ -317,9 +317,9 @@
   {% set wr = (s.won / (s.won + s.lost) * 100) if (s.won + s.lost) > 0 else 0 %}
   <tr>
    <td style="font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis">{{inst}}</td>
-   <td style="color:var(--gn);font-weight:700">{{s.won}}</td>
-   <td style="color:var(--rd);font-weight:700">{{s.lost}}</td>
-   <td><span style="color:{% if wr > 60 %}var(--gn){% elif wr > 30 %}var(--yl){% else %}var(--rd){% endif %};font-weight:700">{{wr|round(1)}}%</span></td>
+   <td style="color:var(--r-accent);font-weight:700">{{s.won}}</td>
+   <td style="color:var(--r-bad);font-weight:700">{{s.lost}}</td>
+   <td><span style="color:{% if wr > 60 %}var(--r-accent){% elif wr > 30 %}var(--r-warn){% else %}var(--r-bad){% endif %};font-weight:700">{{wr|round(1)}}%</span></td>
    <td style="font-family:'JetBrains Mono',monospace;font-weight:600">${{"${:,.0f}".format(s.revenue)}}</td>
   </tr>
   {% endfor %}
@@ -335,9 +335,9 @@
   {% set max_rev = monthly_revenue.values()|max if monthly_revenue.values()|list else 1 %}
   {% for month, rev in monthly_revenue.items() %}
   <div style="flex:1;text-align:center;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
-   <div style="font-size:13px;font-weight:600;color:var(--gn)">${{"${:,.0f}".format(rev)}}</div>
-   <div style="background:var(--gn);height:{{(rev / max_rev * 100) if max_rev > 0 else 4}}px;min-height:4px;border-radius:3px;margin:4px 1px"></div>
-   <div style="font-size:13px;color:var(--tx2)">{{month[5:]}}</div>
+   <div style="font-size:13px;font-weight:600;color:var(--r-accent)">${{"${:,.0f}".format(rev)}}</div>
+   <div style="background:var(--r-accent);height:{{(rev / max_rev * 100) if max_rev > 0 else 4}}px;min-height:4px;border-radius:3px;margin:4px 1px"></div>
+   <div style="font-size:13px;color:var(--r-text-muted)">{{month[5:]}}</div>
   </div>
   {% endfor %}
  </div>
@@ -349,9 +349,9 @@
  <div class="card-t">Status Breakdown</div>
  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
   {% for status, count in statuses|dictsort(by='value', reverse=true) %}
-  <div style="padding:6px 12px;border-radius:6px;background:var(--sf2);font-size:14px">
+  <div style="padding:6px 12px;border-radius:6px;background:var(--r-surface-2);font-size:14px">
    <span style="font-weight:700">{{count}}</span>
-   <span style="color:var(--tx2);margin-left:4px">{{status|replace('_',' ')|title}}</span>
+   <span style="color:var(--r-text-muted);margin-left:4px">{{status|replace('_',' ')|title}}</span>
   </div>
   {% endfor %}
  </div>
@@ -364,23 +364,23 @@
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">
  <div class="card" style="text-align:center;padding:16px">
   <div style="font-size:28px;font-weight:700;color:#3fb950;font-family:'JetBrains Mono',monospace">${{ "%.0f"|format(bi.bid_to_win.revenue_won) }}</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Revenue Won</div>
+  <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">Revenue Won</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
   <div style="font-size:28px;font-weight:700;color:#4f8cff;font-family:'JetBrains Mono',monospace">{{ bi.bid_to_win.win_rate_pct }}%</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Win Rate</div>
+  <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">Win Rate</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
   <div style="font-size:28px;font-weight:700;color:#fbbf24;font-family:'JetBrains Mono',monospace">${{ "%.0f"|format(bi.bid_to_win.pipeline_value) }}</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Pipeline</div>
+  <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">Pipeline</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
   <div style="font-size:28px;font-weight:700;color:#f0883e;font-family:'JetBrains Mono',monospace">{{ bi.time_to_quote.avg_days }}d</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Avg Time-to-Quote</div>
+  <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">Avg Time-to-Quote</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
-  <div style="font-size:28px;font-weight:700;color:var(--tx);font-family:'JetBrains Mono',monospace">${{ "%.0f"|format(bi.bid_to_win.avg_deal_size) }}</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Avg Deal Size</div>
+  <div style="font-size:28px;font-weight:700;color:var(--r-text);font-family:'JetBrains Mono',monospace">${{ "%.0f"|format(bi.bid_to_win.avg_deal_size) }}</div>
+  <div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">Avg Deal Size</div>
  </div>
 </div>
 
@@ -395,8 +395,8 @@
    <div style="font-size:11px;color:#3fb950;font-weight:600">${{ "%.0f"|format(m.won_revenue) }}</div>
    {% endif %}
    <div style="background:{% if m.won_revenue > 0 %}#3fb950{% else %}rgba(139,148,158,.2){% endif %};width:80%;height:{{ [(m.won_revenue / (max_rev if max_rev > 0 else 1) * 100), 4]|max }}px;border-radius:3px;margin:4px 0;min-height:4px"></div>
-   <div style="font-size:11px;color:var(--tx2)">{{ m.month[5:] }}</div>
-   <div style="font-size:10px;color:var(--tx2)">{{ m.wins }}W/{{ m.losses }}L</div>
+   <div style="font-size:11px;color:var(--r-text-muted)">{{ m.month[5:] }}</div>
+   <div style="font-size:10px;color:var(--r-text-muted)">{{ m.wins }}W/{{ m.losses }}L</div>
   </div>
   {% endfor %}
  </div>
@@ -409,11 +409,11 @@
   <div class="card-t">Customer LTV by Agency</div>
   <table style="width:100%;font-size:14px;margin-top:10px;border-collapse:collapse">
    <thead>
-    <tr style="border-bottom:1px solid var(--bd);text-align:left">
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600">Agency</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Revenue</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Quotes</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Win%</th>
+    <tr style="border-bottom:1px solid var(--r-border);text-align:left">
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600">Agency</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Revenue</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Quotes</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Win%</th>
     </tr>
    </thead>
    <tbody>
@@ -421,14 +421,14 @@
     <tr style="border-bottom:1px solid rgba(139,148,158,.1)">
      <td style="padding:6px 8px;font-weight:500">{{ (c.agency|agency_display)[:25] }}</td>
      <td style="padding:6px 8px;text-align:right;color:#3fb950;font-family:'JetBrains Mono',monospace">${{ "%.0f"|format(c.total_revenue) }}</td>
-     <td style="padding:6px 8px;text-align:right;color:var(--tx2)">{{ c.total_quotes }}</td>
+     <td style="padding:6px 8px;text-align:right;color:var(--r-text-muted)">{{ c.total_quotes }}</td>
      <td style="padding:6px 8px;text-align:right">
       <span style="color:{% if c.win_rate_pct >= 50 %}#3fb950{% elif c.win_rate_pct >= 25 %}#fbbf24{% else %}#f85149{% endif %}">{{ c.win_rate_pct }}%</span>
      </td>
     </tr>
     {% endfor %}
     {% if not bi.customer_ltv %}
-    <tr><td colspan="4" style="padding:20px;text-align:center;color:var(--tx2)">No quote data yet</td></tr>
+    <tr><td colspan="4" style="padding:20px;text-align:center;color:var(--r-text-muted)">No quote data yet</td></tr>
     {% endif %}
    </tbody>
   </table>
@@ -439,24 +439,24 @@
   <div class="card-t">Competitor Profiles (SCPRS)</div>
   <table style="width:100%;font-size:14px;margin-top:10px;border-collapse:collapse">
    <thead>
-    <tr style="border-bottom:1px solid var(--bd);text-align:left">
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600">Vendor</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">POs</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Value</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Agencies</th>
+    <tr style="border-bottom:1px solid var(--r-border);text-align:left">
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600">Vendor</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">POs</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Value</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Agencies</th>
     </tr>
    </thead>
    <tbody>
     {% for c in bi.competitors[:10] %}
     <tr style="border-bottom:1px solid rgba(139,148,158,.1)">
      <td style="padding:6px 8px;font-weight:500">{{ c.vendor[:25] }}</td>
-     <td style="padding:6px 8px;text-align:right;color:var(--tx2)">{{ c.po_count }}</td>
+     <td style="padding:6px 8px;text-align:right;color:var(--r-text-muted)">{{ c.po_count }}</td>
      <td style="padding:6px 8px;text-align:right;color:#f0883e;font-family:'JetBrains Mono',monospace">${{ "%.0f"|format(c.total_value) }}</td>
-     <td style="padding:6px 8px;text-align:right;color:var(--tx2)">{{ c.agencies_served }}</td>
+     <td style="padding:6px 8px;text-align:right;color:var(--r-text-muted)">{{ c.agencies_served }}</td>
     </tr>
     {% endfor %}
     {% if not bi.competitors %}
-    <tr><td colspan="4" style="padding:20px;text-align:center;color:var(--tx2)">No SCPRS data yet — run a pull first</td></tr>
+    <tr><td colspan="4" style="padding:20px;text-align:center;color:var(--r-text-muted)">No SCPRS data yet — run a pull first</td></tr>
     {% endif %}
    </tbody>
   </table>
@@ -469,12 +469,12 @@
  <div class="card-t">Head-to-Head: Who Beats Us?</div>
  <table style="width:100%;font-size:14px;margin-top:10px;border-collapse:collapse">
   <thead>
-   <tr style="border-bottom:1px solid var(--bd);text-align:left">
-    <th style="padding:6px 8px;color:var(--tx2);font-weight:600">Competitor</th>
-    <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Times Beat Us</th>
-    <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Their Avg Price</th>
-    <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Our Avg Price</th>
-    <th style="padding:6px 8px;color:var(--tx2);font-weight:600">Agencies</th>
+   <tr style="border-bottom:1px solid var(--r-border);text-align:left">
+    <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600">Competitor</th>
+    <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Times Beat Us</th>
+    <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Their Avg Price</th>
+    <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Our Avg Price</th>
+    <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600">Agencies</th>
    </tr>
   </thead>
   <tbody>
@@ -484,7 +484,7 @@
     <td style="padding:6px 8px;text-align:right;color:#f85149;font-weight:700">{{ h.times_beat_us }}</td>
     <td style="padding:6px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#3fb950">${{ "%.2f"|format(h.their_avg_price) }}</td>
     <td style="padding:6px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#f85149">${{ "%.2f"|format(h.our_avg_price) }}</td>
-    <td style="padding:6px 8px;color:var(--tx2);font-size:13px">{{ h.departments }}</td>
+    <td style="padding:6px 8px;color:var(--r-text-muted);font-size:13px">{{ h.departments }}</td>
    </tr>
    {% endfor %}
   </tbody>
@@ -498,11 +498,11 @@
   <div class="card-t">Top Products (by Win Frequency)</div>
   <table style="width:100%;font-size:14px;margin-top:10px;border-collapse:collapse">
    <thead>
-    <tr style="border-bottom:1px solid var(--bd);text-align:left">
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600">Product</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Wins</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Avg Price</th>
-     <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Total Qty</th>
+    <tr style="border-bottom:1px solid var(--r-border);text-align:left">
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600">Product</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Wins</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Avg Price</th>
+     <th style="padding:6px 8px;color:var(--r-text-muted);font-weight:600;text-align:right">Total Qty</th>
     </tr>
    </thead>
    <tbody>
@@ -511,11 +511,11 @@
      <td style="padding:6px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.description }}</td>
      <td style="padding:6px 8px;text-align:right;color:#3fb950;font-weight:600">{{ p.times_won }}</td>
      <td style="padding:6px 8px;text-align:right;font-family:'JetBrains Mono',monospace">${{ "%.2f"|format(p.avg_price) }}</td>
-     <td style="padding:6px 8px;text-align:right;color:var(--tx2)">{{ p.total_qty }}</td>
+     <td style="padding:6px 8px;text-align:right;color:var(--r-text-muted)">{{ p.total_qty }}</td>
     </tr>
     {% endfor %}
     {% if not bi.top_products %}
-    <tr><td colspan="4" style="padding:20px;text-align:center;color:var(--tx2)">No product data yet</td></tr>
+    <tr><td colspan="4" style="padding:20px;text-align:center;color:var(--r-text-muted)">No product data yet</td></tr>
     {% endif %}
    </tbody>
   </table>
@@ -525,23 +525,23 @@
   <div class="card-t">Quote SLA</div>
   <div style="margin-top:12px">
    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(139,148,158,.1)">
-    <span style="color:var(--tx2)">Avg Time-to-Quote</span>
+    <span style="color:var(--r-text-muted)">Avg Time-to-Quote</span>
     <span style="font-weight:600;color:{% if bi.time_to_quote.avg_days <= 1 %}#3fb950{% elif bi.time_to_quote.avg_days <= 3 %}#fbbf24{% else %}#f85149{% endif %}">{{ bi.time_to_quote.avg_days }} days</span>
    </div>
    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(139,148,158,.1)">
-    <span style="color:var(--tx2)">Fastest Quote</span>
+    <span style="color:var(--r-text-muted)">Fastest Quote</span>
     <span style="font-weight:600;color:#3fb950">{{ bi.time_to_quote.min_days }} days</span>
    </div>
    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(139,148,158,.1)">
-    <span style="color:var(--tx2)">Slowest Quote</span>
+    <span style="color:var(--r-text-muted)">Slowest Quote</span>
     <span style="font-weight:600;color:#f85149">{{ bi.time_to_quote.max_days }} days</span>
    </div>
    <div style="display:flex;justify-content:space-between;padding:8px 0">
-    <span style="color:var(--tx2)">Sample Size</span>
+    <span style="color:var(--r-text-muted)">Sample Size</span>
     <span style="font-weight:600">{{ bi.time_to_quote.sample_size }} quotes</span>
    </div>
   </div>
-  <div style="margin-top:16px;padding:10px;background:rgba(79,140,255,.06);border-radius:6px;font-size:13px;color:var(--tx2)">
+  <div style="margin-top:16px;padding:10px;background:rgba(79,140,255,.06);border-radius:6px;font-size:13px;color:var(--r-text-muted)">
    <b>Cost per Quote (est):</b> ${{ "%.2f"|format(bi.bid_to_win.cost_per_quote_est) }}<br>
    <b>Total Bids:</b> {{ bi.bid_to_win.total_bids }} ({{ bi.bid_to_win.won }}W / {{ bi.bid_to_win.lost }}L)
   </div>
@@ -564,12 +564,12 @@
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
  <div>
   <h2 style="margin:0;font-size:22px;font-weight:700">🏭 Supplier Performance</h2>
-  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Compare suppliers by price, reliability, speed, and catalog coverage</div>
+  <div style="font-size:14px;color:var(--r-text-muted);margin-top:4px">Compare suppliers by price, reliability, speed, and catalog coverage</div>
  </div>
  <div style="display:flex;gap:8px">
   <a href="/catalog-legacy" class="btn btn-s" style="font-size:13px">← Catalog</a>
   <a href="/catalog" class="btn btn-s" style="font-size:13px">📦 Catalog</a>
-  <input id="search-input" type="text" placeholder="Filter suppliers..." oninput="filterTable()" style="padding:8px 14px;border-radius:8px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;width:180px">
+  <input id="search-input" type="text" placeholder="Filter suppliers..." oninput="filterTable()" style="padding:8px 14px;border-radius:8px;background:var(--r-surface-2);color:var(--r-text);border:1px solid var(--r-border);font-size:14px;width:180px">
  </div>
 </div>
 
@@ -577,25 +577,25 @@
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace" id="kpi-total">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Suppliers</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Suppliers</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:28px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace" id="kpi-active">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Active (orders)</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Active (orders)</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:28px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace" id="kpi-avg">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Avg Score</div>
+  <div style="font-size:28px;font-weight:800;color:var(--r-accent);font-family:'JetBrains Mono',monospace" id="kpi-avg">—</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Avg Score</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:28px;font-weight:800;color:var(--yl);font-family:'JetBrains Mono',monospace" id="kpi-catalog">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">In Catalog</div>
+  <div style="font-size:28px;font-weight:800;color:var(--r-warn);font-family:'JetBrains Mono',monospace" id="kpi-catalog">—</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">In Catalog</div>
  </div>
 </div>
 
 <!-- Supplier Table -->
 <div class="card" style="padding:20px;overflow-x:auto">
- <div id="supplier-table"><div style="color:var(--tx2);padding:30px;text-align:center">Loading supplier data...</div></div>
+ <div id="supplier-table"><div style="color:var(--r-text-muted);padding:30px;text-align:center">Loading supplier data...</div></div>
 </div>
 
 <script>
@@ -605,16 +605,16 @@ function fmt(n){return n?'$'+n.toLocaleString('en',{minimumFractionDigits:0,maxi
 
 function scoreColor(score){
  if(score>=70)return '#3fb950';
- if(score>=50)return 'var(--yl)';
+ if(score>=50)return 'var(--r-warn)';
  return '#f85149';
 }
 function scoreBar(score,label){
- return '<div title="'+label+': '+score+'" style="display:inline-block;width:40px;height:10px;background:var(--sf2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-right:2px"><div style="width:'+Math.min(score,100)+'%;height:100%;background:'+scoreColor(score)+';border-radius:4px"></div></div>';
+ return '<div title="'+label+': '+score+'" style="display:inline-block;width:40px;height:10px;background:var(--r-surface-2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-right:2px"><div style="width:'+Math.min(score,100)+'%;height:100%;background:'+scoreColor(score)+';border-radius:4px"></div></div>';
 }
 
 function renderTable(data){
  if(!data||!data.length){
-  _$('supplier-table').innerHTML='<div style="color:var(--tx2);padding:30px;text-align:center">No supplier data available</div>';
+  _$('supplier-table').innerHTML='<div style="color:var(--r-text-muted);padding:30px;text-align:center">No supplier data available</div>';
   return;
  }
  var h='<table class="home-tbl" style="font-size:14px;min-width:900px"><thead><tr>';
@@ -627,17 +627,17 @@ function renderTable(data){
   h+='<tr style="cursor:pointer" onclick="location.href=\'/supplier/'+encodeURIComponent(s.name)+'\'">';
   h+='<td><span style="font-weight:700;font-size:15px">'+s.name+'</span>';
   if(s.categories&&s.categories.length){
-   h+='<div style="font-size:12px;color:var(--tx2);margin-top:2px">'+s.categories.join(', ')+'</div>';
+   h+='<div style="font-size:12px;color:var(--r-text-muted);margin-top:2px">'+s.categories.join(', ')+'</div>';
   }
   h+='</td>';
   h+='<td style="text-align:center"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:700;color:'+scoreColor(s.composite_score)+';font-size:16px">'+s.composite_score+'</span></td>';
-  h+='<td style="text-align:center">'+scoreBar(s.price_score,'Price')+' <span style="font-size:12px;color:var(--tx2)">'+s.price_score+'</span></td>';
-  h+='<td style="text-align:center">'+scoreBar(s.reliability_score,'Reliability')+' <span style="font-size:12px;color:var(--tx2)">'+s.reliability_score+'</span></td>';
-  h+='<td style="text-align:center">'+scoreBar(s.speed_score,'Speed')+' <span style="font-size:12px;color:var(--tx2)">'+s.speed_score+'</span></td>';
+  h+='<td style="text-align:center">'+scoreBar(s.price_score,'Price')+' <span style="font-size:12px;color:var(--r-text-muted)">'+s.price_score+'</span></td>';
+  h+='<td style="text-align:center">'+scoreBar(s.reliability_score,'Reliability')+' <span style="font-size:12px;color:var(--r-text-muted)">'+s.reliability_score+'</span></td>';
+  h+='<td style="text-align:center">'+scoreBar(s.speed_score,'Speed')+' <span style="font-size:12px;color:var(--r-text-muted)">'+s.speed_score+'</span></td>';
   h+='<td style="text-align:center;font-family:\'JetBrains Mono\',monospace">'+(s.catalog_products||0)+'</td>';
   h+='<td style="text-align:center;font-family:\'JetBrains Mono\',monospace">'+(s.line_items||0)+'</td>';
   h+='<td style="text-align:right;font-family:\'JetBrains Mono\',monospace">'+fmt(s.total_revenue)+'</td>';
-  var mc=s.margin>0?'#3fb950':s.margin<0?'#f85149':'var(--tx2)';
+  var mc=s.margin>0?'#3fb950':s.margin<0?'#f85149':'var(--r-text-muted)';
   h+='<td style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:'+mc+'">'+fmt(s.margin)+'</td>';
   h+='</tr>';
  });
@@ -669,29 +669,29 @@ fetch('/api/suppliers/performance',{credentials:'same-origin'})
 {# ═══ PRICING TAB ═══ #}
 
 <h2 style="margin-bottom:4px">💰 Pricing Intelligence</h2>
-<p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Historical winning prices captured from orders — use for smarter quoting</p>
+<p style="font-size:13px;color:var(--r-text-muted);margin-bottom:16px">Historical winning prices captured from orders — use for smarter quoting</p>
 
 {# Stats cards #}
 <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
   {% set cards = [
-    (data.total_records|default(0), 'WINNING PRICES', 'var(--ac)'),
-    (data.unique_items|default(0), 'UNIQUE ITEMS', 'var(--gn)'),
-    (data.unique_agencies|default(0), 'AGENCIES', 'var(--yl)'),
+    (data.total_records|default(0), 'WINNING PRICES', 'var(--r-accent)'),
+    (data.unique_items|default(0), 'UNIQUE ITEMS', 'var(--r-accent)'),
+    (data.unique_agencies|default(0), 'AGENCIES', 'var(--r-warn)'),
   ] %}
   {% for val, label, color in cards %}
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
     <div style="font-size:28px;font-weight:800;color:{{ color }}">{{ val }}</div>
-    <div style="font-size:13px;color:var(--tx2)">{{ label }}</div></div>
+    <div style="font-size:13px;color:var(--r-text-muted)">{{ label }}</div></div>
   {% endfor %}
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(data.total_revenue|default(0)) }}</div>
-    <div style="font-size:13px;color:var(--tx2)">WIN REVENUE</div></div>
+    <div style="font-size:28px;font-weight:800;color:var(--r-accent)">${{ "{:,.0f}".format(data.total_revenue|default(0)) }}</div>
+    <div style="font-size:13px;color:var(--r-text-muted)">WIN REVENUE</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ "%.1f"|format(data.avg_margin|default(0)) }}%</div>
-    <div style="font-size:13px;color:var(--tx2)">AVG MARGIN</div></div>
+    <div style="font-size:28px;font-weight:800;color:var(--r-accent)">{{ "%.1f"|format(data.avg_margin|default(0)) }}%</div>
+    <div style="font-size:13px;color:var(--r-text-muted)">AVG MARGIN</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ data.recent_wins_30d|default(0) }}</div>
-    <div style="font-size:13px;color:var(--tx2)">LAST 30 DAYS</div></div>
+    <div style="font-size:28px;font-weight:800;color:var(--r-accent)">{{ data.recent_wins_30d|default(0) }}</div>
+    <div style="font-size:13px;color:var(--r-text-muted)">LAST 30 DAYS</div></div>
 </div>
 
 {# Margin distribution bar #}
@@ -705,7 +705,7 @@ fetch('/api/suppliers/performance',{credentials:'same-origin'})
     <div style="background:#27ae60;width:{{ "%.1f"|format(md.mid|default(0)/md_total*100) }}%;display:flex;align-items:center;justify-content:center;color:#fff" title="10-25% margin">{{ md.mid|default(0) }}</div>
     <div style="background:#2980b9;width:{{ "%.1f"|format(md.high|default(0)/md_total*100) }}%;display:flex;align-items:center;justify-content:center;color:#fff" title="25%+ margin">{{ md.high|default(0) }}</div>
   </div>
-  <div style="display:flex;gap:16px;margin-top:6px;font-size:13px;color:var(--tx2)">
+  <div style="display:flex;gap:16px;margin-top:6px;font-size:13px;color:var(--r-text-muted)">
     <span>🔴 Negative: {{ md.negative|default(0) }}</span>
     <span>🟡 Low (0-10%): {{ md.low|default(0) }}</span>
     <span>🟢 Mid (10-25%): {{ md.mid|default(0) }}</span>
@@ -717,9 +717,9 @@ fetch('/api/suppliers/performance',{credentials:'same-origin'})
 <div class="card" style="margin-bottom:16px">
   <h3 style="margin-bottom:8px;font-size:14px">🔍 Price Lookup</h3>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <input id="pl-desc" placeholder="Description or part number" style="flex:1;min-width:200px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
-    <input id="pl-agency" placeholder="Agency (optional)" style="width:160px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
-    <button onclick="priceLookup()" style="padding:8px 16px;background:var(--ac);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600" aria-label="Lookup">Lookup</button>
+    <input id="pl-desc" placeholder="Description or part number" style="flex:1;min-width:200px;padding:8px;border-radius:6px;border:1px solid var(--r-border);background:var(--r-surface-2);color:var(--r-text)">
+    <input id="pl-agency" placeholder="Agency (optional)" style="width:160px;padding:8px;border-radius:6px;border:1px solid var(--r-border);background:var(--r-surface-2);color:var(--r-text)">
+    <button onclick="priceLookup()" style="padding:8px 16px;background:var(--r-accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600" aria-label="Lookup">Lookup</button>
   </div>
   <div id="pl-result" style="margin-top:12px"></div>
 </div>
@@ -742,7 +742,7 @@ fetch('/api/suppliers/performance',{credentials:'same-origin'})
      </tr>
      {% endfor %}
    {% else %}
-     <tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:16px">Pricing data builds as quotes are won and orders created</td></tr>
+     <tr><td colspan="6" style="text-align:center;color:var(--r-text-muted);padding:16px">Pricing data builds as quotes are won and orders created</td></tr>
    {% endif %}
    </tbody>
   </table>
@@ -764,7 +764,7 @@ fetch('/api/suppliers/performance',{credentials:'same-origin'})
      </tr>
      {% endfor %}
    {% else %}
-     <tr><td colspan="4" style="text-align:center;color:var(--tx2);padding:16px">Agency data populates from won orders</td></tr>
+     <tr><td colspan="4" style="text-align:center;color:var(--r-text-muted);padding:16px">Agency data populates from won orders</td></tr>
    {% endif %}
    </tbody>
   </table>
@@ -779,12 +779,12 @@ function priceLookup(){
   if(agency) url+='&agency='+encodeURIComponent(agency);
   fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
     var el=document.getElementById('pl-result');
-    if(!d.ok||d.count===0){el.innerHTML='<div style="color:var(--tx2);padding:8px">No pricing history found for this item</div>';return}
+    if(!d.ok||d.count===0){el.innerHTML='<div style="color:var(--r-text-muted);padding:8px">No pricing history found for this item</div>';return}
     var h='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">';
-    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--tx2)">RECOMMENDED</div><div style="font-size:20px;font-weight:800;color:var(--gn)">$'+d.recommended_price.toFixed(2)+'</div></div>';
-    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--tx2)">AVG WIN</div><div style="font-size:20px;font-weight:700">$'+d.avg_price.toFixed(2)+'</div></div>';
-    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--tx2)">RANGE</div><div style="font-size:14px;font-weight:600">$'+d.min_price.toFixed(2)+' – $'+d.max_price.toFixed(2)+'</div></div>';
-    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--tx2)">WINS</div><div style="font-size:20px;font-weight:700">'+d.count+'</div></div>';
+    h+='<div style="background:var(--r-surface-2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--r-text-muted)">RECOMMENDED</div><div style="font-size:20px;font-weight:800;color:var(--r-accent)">$'+d.recommended_price.toFixed(2)+'</div></div>';
+    h+='<div style="background:var(--r-surface-2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--r-text-muted)">AVG WIN</div><div style="font-size:20px;font-weight:700">$'+d.avg_price.toFixed(2)+'</div></div>';
+    h+='<div style="background:var(--r-surface-2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--r-text-muted)">RANGE</div><div style="font-size:14px;font-weight:600">$'+d.min_price.toFixed(2)+' – $'+d.max_price.toFixed(2)+'</div></div>';
+    h+='<div style="background:var(--r-surface-2);border-radius:6px;padding:8px 14px"><div style="font-size:13px;color:var(--r-text-muted)">WINS</div><div style="font-size:20px;font-weight:700">'+d.count+'</div></div>';
     h+='</div>';
     if(d.history&&d.history.length){
       h+='<table class="home-tbl" style="font-size:14px"><thead><tr><th>Date</th><th>Price</th><th>Cost</th><th>Margin</th><th>Agency</th><th>Quote</th></tr></thead><tbody>';
@@ -803,34 +803,34 @@ function priceLookup(){
 
 <div style="margin-bottom:16px">
  <h2 style="margin:0;font-size:22px;font-weight:700">📊 Win/Loss Analysis</h2>
- <div style="font-size:14px;color:var(--tx2);margin-top:4px">Understand patterns in won and lost quotes to improve pricing and targeting</div>
+ <div style="font-size:14px;color:var(--r-text-muted);margin-top:4px">Understand patterns in won and lost quotes to improve pricing and targeting</div>
 </div>
 
 <!-- KPI Cards -->
 <div id="kpi-row" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace" id="wl-kpi-total">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Quotes</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Quotes</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:28px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace" id="wl-kpi-won">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Won</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Won</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:28px;font-weight:800;color:#f85149;font-family:'JetBrains Mono',monospace" id="wl-kpi-lost">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Lost</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Lost</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:28px;font-weight:800;color:var(--yl);font-family:'JetBrains Mono',monospace" id="wl-kpi-pending">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Pending</div>
+  <div style="font-size:28px;font-weight:800;color:var(--r-warn);font-family:'JetBrains Mono',monospace" id="wl-kpi-pending">—</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Pending</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
-  <div style="font-size:28px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace" id="wl-kpi-rate">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Win Rate</div>
+  <div style="font-size:28px;font-weight:800;color:var(--r-accent);font-family:'JetBrains Mono',monospace" id="wl-kpi-rate">—</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Win Rate</div>
  </div>
  <div class="card" style="text-align:center;padding:14px">
   <div style="font-size:28px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace" id="wl-kpi-revenue">—</div>
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Won Revenue</div>
+  <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Won Revenue</div>
  </div>
 </div>
 
@@ -899,7 +899,7 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
   fhtml+='<div style="flex:1;text-align:center">';
   fhtml+='<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;font-weight:700;margin-bottom:4px">'+f.count+'</div>';
   fhtml+='<div style="background:'+fcolors[i]+';height:'+pct+'px;border-radius:6px 6px 0 0;min-height:10px;transition:height .5s"></div>';
-  fhtml+='<div style="font-size:13px;color:var(--tx2);margin-top:6px;padding:0 4px">'+f.stage+'</div>';
+  fhtml+='<div style="font-size:13px;color:var(--r-text-muted);margin-top:6px;padding:0 4px">'+f.stage+'</div>';
   fhtml+='</div>';
  });
  _wl$('wl-funnel-chart').innerHTML=fhtml;
@@ -911,9 +911,9 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
   ahtml+='<tr><td style="font-weight:600">'+a.agency+'</td>';
   ahtml+='<td style="text-align:center;color:#3fb950;font-weight:700">'+a.won+'</td>';
   ahtml+='<td style="text-align:center;color:#f85149">'+a.lost+'</td>';
-  ahtml+='<td style="text-align:center;color:var(--tx2)">'+a.pending+'</td>';
+  ahtml+='<td style="text-align:center;color:var(--r-text-muted)">'+a.pending+'</td>';
   ahtml+='<td style="text-align:right;font-family:\'JetBrains Mono\',monospace">'+wlFmt(a.won_value)+'</td>';
-  ahtml+='<td style="text-align:center"><div style="display:inline-block;width:60px;background:var(--sf2);border-radius:4px;height:14px;overflow:hidden;vertical-align:middle"><div style="width:'+barW+'%;height:100%;background:'+(a.win_rate>=50?'#3fb950':'#f85149')+';border-radius:4px"></div></div> <span style="font-size:13px;font-weight:600;color:'+(a.win_rate>=50?'#3fb950':'#f85149')+'">'+a.win_rate+'%</span></td>';
+  ahtml+='<td style="text-align:center"><div style="display:inline-block;width:60px;background:var(--r-surface-2);border-radius:4px;height:14px;overflow:hidden;vertical-align:middle"><div style="width:'+barW+'%;height:100%;background:'+(a.win_rate>=50?'#3fb950':'#f85149')+';border-radius:4px"></div></div> <span style="font-size:13px;font-weight:600;color:'+(a.win_rate>=50?'#3fb950':'#f85149')+'">'+a.win_rate+'%</span></td>';
   ahtml+='</tr>';
  });
  ahtml+='</tbody></table>';
@@ -932,14 +932,14 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 
  // Recent wins
  var whtml='';
- if(!d.recent_won||!d.recent_won.length){whtml='<div style="color:var(--tx2);font-size:14px;text-align:center;padding:20px">No wins yet</div>';}
+ if(!d.recent_won||!d.recent_won.length){whtml='<div style="color:var(--r-text-muted);font-size:14px;text-align:center;padding:20px">No wins yet</div>';}
  else{
   (d.recent_won||[]).forEach(function(w){
-   whtml+='<div style="padding:10px 0;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">';
-   whtml+='<div><a href="/quote/'+w.quote_number+'" style="font-weight:700;color:var(--ac);text-decoration:none;font-size:15px">'+w.quote_number+'</a>';
-   whtml+='<div style="font-size:13px;color:var(--tx2)">'+w.agency+(w.institution?' · '+w.institution:'')+'</div></div>';
+   whtml+='<div style="padding:10px 0;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between;align-items:center">';
+   whtml+='<div><a href="/quote/'+w.quote_number+'" style="font-weight:700;color:var(--r-accent);text-decoration:none;font-size:15px">'+w.quote_number+'</a>';
+   whtml+='<div style="font-size:13px;color:var(--r-text-muted)">'+w.agency+(w.institution?' · '+w.institution:'')+'</div></div>';
    whtml+='<div style="text-align:right"><div style="font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#3fb950;font-size:16px">'+wlFmt(w.total)+'</div>';
-   if(w.po_number){whtml+='<div style="font-size:12px;color:var(--tx2)">PO: '+w.po_number+'</div>';}
+   if(w.po_number){whtml+='<div style="font-size:12px;color:var(--r-text-muted)">PO: '+w.po_number+'</div>';}
    whtml+='</div></div>';
   });
  }
@@ -947,12 +947,12 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 
  // Recent losses
  var lhtml='';
- if(!d.recent_lost||!d.recent_lost.length){lhtml='<div style="color:var(--tx2);font-size:14px;text-align:center;padding:20px">No losses recorded</div>';}
+ if(!d.recent_lost||!d.recent_lost.length){lhtml='<div style="color:var(--r-text-muted);font-size:14px;text-align:center;padding:20px">No losses recorded</div>';}
  else{
   (d.recent_lost||[]).forEach(function(l){
-   lhtml+='<div style="padding:10px 0;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">';
-   lhtml+='<div><a href="/quote/'+l.quote_number+'" style="font-weight:700;color:var(--ac);text-decoration:none;font-size:15px">'+l.quote_number+'</a>';
-   lhtml+='<div style="font-size:13px;color:var(--tx2)">'+l.agency+(l.institution?' · '+l.institution:'')+'</div>';
+   lhtml+='<div style="padding:10px 0;border-bottom:1px solid var(--r-border);display:flex;justify-content:space-between;align-items:center">';
+   lhtml+='<div><a href="/quote/'+l.quote_number+'" style="font-weight:700;color:var(--r-accent);text-decoration:none;font-size:15px">'+l.quote_number+'</a>';
+   lhtml+='<div style="font-size:13px;color:var(--r-text-muted)">'+l.agency+(l.institution?' · '+l.institution:'')+'</div>';
    if(l.close_reason){lhtml+='<div style="font-size:12px;color:#f85149;margin-top:2px">Reason: '+l.close_reason+'</div>';}
    lhtml+='</div>';
    lhtml+='<div style="font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#f85149;font-size:16px">'+wlFmt(l.total)+'</div>';
@@ -965,16 +965,16 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
  var p=d.pc_stats||{};
  var phtml='';
  var pItems=[
-  {label:'Total PCs',value:p.total||0,color:'var(--tx)'},
-  {label:'Quoted',value:p.quoted||0,color:'var(--ac)'},
-  {label:'Sent',value:p.sent||0,color:'var(--yl)'},
+  {label:'Total PCs',value:p.total||0,color:'var(--r-text)'},
+  {label:'Quoted',value:p.quoted||0,color:'var(--r-accent)'},
+  {label:'Sent',value:p.sent||0,color:'var(--r-warn)'},
   {label:'No Response',value:p.no_response||0,color:'#f85149'},
   {label:'Quote Rate',value:(p.conversion_rate||0)+'%',color:'#3fb950'},
  ];
  pItems.forEach(function(pi){
-  phtml+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:10px">';
+  phtml+='<div style="text-align:center;padding:12px;background:var(--r-surface);border-radius:10px">';
   phtml+='<div style="font-size:24px;font-weight:800;color:'+pi.color+';font-family:\'JetBrains Mono\',monospace">'+pi.value+'</div>';
-  phtml+='<div style="font-size:13px;color:var(--tx2);margin-top:4px">'+pi.label+'</div></div>';
+  phtml+='<div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">'+pi.label+'</div></div>';
  });
  _wl$('wl-pc-stats').innerHTML=phtml;
 });
@@ -987,7 +987,7 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 <div style="max-width:1400px;margin:0 auto">
 
 <div style="display:flex;justify-content:flex-end;margin-top:-12px;margin-bottom:8px">
- <select id="daysFilter" onchange="loadAll()" style="padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+ <select id="daysFilter" onchange="loadAll()" style="padding:6px 10px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:var(--r-text);font-size:13px">
   <option value="30">30 days</option>
   <option value="90" selected>90 days</option>
   <option value="180">180 days</option>
@@ -996,31 +996,31 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 
 <!-- Header -->
 <div style="margin-bottom:20px">
- <h2 style="margin:0;color:var(--tx)">Loss Intelligence</h2>
- <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Why we lose, what it costs, and how to win next time</p>
+ <h2 style="margin:0;color:var(--r-text)">Loss Intelligence</h2>
+ <p style="margin:4px 0 0;color:var(--r-text-muted);font-size:14px">Why we lose, what it costs, and how to win next time</p>
 </div>
 
 <!-- KPI Cards -->
 <div id="kpiCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#f87171" id="li-kpi-losses">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Losses</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#fbbf24" id="li-kpi-mth">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Margin Too High</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:var(--ac)" id="li-kpi-delta">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Avg Price Gap</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#d2a8ff" id="li-kpi-competitors">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Competitors</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#fb923c" id="li-kpi-patterns">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Unreviewed</div></div>
- <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#f87171" id="li-kpi-relationship">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Relationship Losses</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#f87171" id="li-kpi-losses">--</div><div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Losses</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#fbbf24" id="li-kpi-mth">--</div><div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Margin Too High</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:var(--r-accent)" id="li-kpi-delta">--</div><div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Avg Price Gap</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#d2a8ff" id="li-kpi-competitors">--</div><div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Competitors</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#fb923c" id="li-kpi-patterns">--</div><div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Unreviewed</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#f87171" id="li-kpi-relationship">--</div><div style="font-size:12px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Relationship Losses</div></div>
 </div>
 
 <!-- Tabs -->
-<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--bd)">
+<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--r-border)">
  <button class="li-tab-btn active" onclick="liShowTab('overview',this)">Overview</button>
  <button class="li-tab-btn" onclick="liShowTab('margin',this)">Margin Analysis</button>
  <button class="li-tab-btn" onclick="liShowTab('competitor',this)">Competitor Dive</button>
  <button class="li-tab-btn" onclick="liShowTab('patterns',this)">Patterns & Alerts</button>
 </div>
 <style>
-.li-tab-btn{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:14px;cursor:pointer;font-weight:600}
-.li-tab-btn:hover{color:var(--tx)}
-.li-tab-btn.active{color:var(--ac);border-bottom-color:var(--ac)}
+.li-tab-btn{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--r-text-muted);font-size:14px;cursor:pointer;font-weight:600}
+.li-tab-btn:hover{color:var(--r-text)}
+.li-tab-btn.active{color:var(--r-accent);border-bottom-color:var(--r-accent)}
 .li-tab-panel{display:none}
 .li-tab-panel.active{display:block}
 .li-sev-critical{background:rgba(248,113,113,.15);color:#f87171;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600}
@@ -1036,20 +1036,20 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 <!-- TAB 1: OVERVIEW -->
 <div id="li-tab-overview" class="li-tab-panel active">
  <div class="card" style="margin-bottom:16px;padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Loss Classification Breakdown</div>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Loss Classification Breakdown</div>
   <div id="li-classBreakdown" style="display:flex;gap:16px;flex-wrap:wrap">Loading...</div>
  </div>
  <div class="card" style="margin-bottom:16px;padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Win Rate Trends</div>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Win Rate Trends</div>
   <div id="li-winRateTrends" style="display:flex;gap:16px;flex-wrap:wrap">Loading...</div>
   <div id="li-winRateAlerts" style="margin-top:12px"></div>
  </div>
  <div class="card" style="margin-bottom:16px;padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Win Rate by Agency</div>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Win Rate by Agency</div>
   <div id="li-agencyWinRate" style="overflow-x:auto">Loading...</div>
  </div>
  <div class="card" style="padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Recent Losses</div>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Recent Losses</div>
   <div id="li-recentLosses" style="overflow-x:auto">Loading...</div>
  </div>
 </div>
@@ -1057,12 +1057,12 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 <!-- TAB 2: MARGIN ANALYSIS -->
 <div id="li-tab-margin" class="li-tab-panel">
  <div class="card" style="margin-bottom:16px;padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Margin Too High Losses</div>
-  <p style="color:var(--tx2);font-size:13px;margin:0 0 12px">Items where you had a lower cost than the competitor but bid too high</p>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Margin Too High Losses</div>
+  <p style="color:var(--r-text-muted);font-size:13px;margin:0 0 12px">Items where you had a lower cost than the competitor but bid too high</p>
   <div id="li-mthLosses">Loading...</div>
  </div>
  <div class="card" style="padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Category Loss Trends</div>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Category Loss Trends</div>
   <div id="li-categoryTrends">Loading...</div>
  </div>
 </div>
@@ -1071,7 +1071,7 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 <div id="li-tab-competitor" class="li-tab-panel">
  <div class="card" style="margin-bottom:16px;padding:16px">
   <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px">
-   <select id="li-competitorSelect" onchange="liLoadCompetitor()" style="flex:1;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
+   <select id="li-competitorSelect" onchange="liLoadCompetitor()" style="flex:1;padding:10px 14px;background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;color:var(--r-text);font-size:15px">
     <option value="">Select a competitor...</option>
    </select>
   </div>
@@ -1082,11 +1082,11 @@ fetch('/api/analytics/win-loss',{credentials:'same-origin'})
 <!-- TAB 4: PATTERNS & ALERTS -->
 <div id="li-tab-patterns" class="li-tab-panel">
  <div class="card" style="margin-bottom:16px;padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Unreviewed Patterns</div>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Unreviewed Patterns</div>
   <div id="li-unackedPatterns">Loading...</div>
  </div>
  <div class="card" style="padding:16px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Detected Trends</div>
+  <div style="font-size:14px;font-weight:600;color:var(--r-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Detected Trends</div>
   <div id="li-detectedPatterns">Loading...</div>
  </div>
 </div>
@@ -1134,21 +1134,21 @@ function liLoadOverview(){
   cb.forEach(function(c){
    var w=Math.max(c.count/total*100,8);
    html+='<div style="flex:1;min-width:140px;text-align:center">';
-   html+='<div style="font-size:22px;font-weight:700;color:var(--tx)">'+c.count+'</div>';
-   html+='<div style="background:var(--sf2);border-radius:6px;height:8px;margin:6px 0"><div style="background:var(--ac);height:100%;border-radius:6px;width:'+w+'%"></div></div>';
+   html+='<div style="font-size:22px;font-weight:700;color:var(--r-text)">'+c.count+'</div>';
+   html+='<div style="background:var(--r-surface-2);border-radius:6px;height:8px;margin:6px 0"><div style="background:var(--r-accent);height:100%;border-radius:6px;width:'+w+'%"></div></div>';
    html+=liClassLabel(c.loss_reason_class);
-   html+='<div style="font-size:12px;color:var(--tx2);margin-top:4px">avg '+liPct(c.avg_delta_pct)+' gap</div>';
+   html+='<div style="font-size:12px;color:var(--r-text-muted);margin-top:4px">avg '+liPct(c.avg_delta_pct)+' gap</div>';
    html+='</div>';
   });
-  document.getElementById('li-classBreakdown').innerHTML=html||'<span style="color:var(--tx2)">No loss data yet</span>';
+  document.getElementById('li-classBreakdown').innerHTML=html||'<span style="color:var(--r-text-muted)">No loss data yet</span>';
   var losses=d.recent_losses||[];
-  if(!losses.length){document.getElementById('li-recentLosses').innerHTML='<span style="color:var(--tx2)">No losses recorded</span>';return}
+  if(!losses.length){document.getElementById('li-recentLosses').innerHTML='<span style="color:var(--r-text-muted)">No losses recorded</span>';return}
   html='<table class="it" style="width:100%"><thead><tr><th>Date</th><th>Quote</th><th>Agency</th><th>Competitor</th><th style="text-align:right">Our Price</th><th style="text-align:right">Their Price</th><th style="text-align:right">Delta</th><th>Class</th></tr></thead><tbody>';
   losses.forEach(function(l){
    var delta=l.price_delta_pct||0;
    var color=delta>0?'#f87171':'#3fb950';
    html+='<tr>';
-   html+='<td style="font-size:13px;color:var(--tx2)">'+(l.found_at||'').slice(0,10)+'</td>';
+   html+='<td style="font-size:13px;color:var(--r-text-muted)">'+(l.found_at||'').slice(0,10)+'</td>';
    html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+liEsc(l.quote_number)+'</a></td>';
    html+='<td>'+liEsc(l.agency)+'</td>';
    html+='<td style="font-weight:500">'+liEsc(l.competitor_name)+'</td>';
@@ -1185,15 +1185,15 @@ function liLoadWinRate(){
     var color=p.win_rate>=50?'#3fb950':p.win_rate>=30?'#fbbf24':'#f87171';
     html+='<div style="flex:1;min-width:100px;text-align:center">';
     html+='<div style="font-size:20px;font-weight:700;color:'+color+'">'+p.win_rate+'%</div>';
-    html+='<div style="background:var(--sf2);border-radius:6px;height:40px;position:relative;margin:6px 0">';
+    html+='<div style="background:var(--r-surface-2);border-radius:6px;height:40px;position:relative;margin:6px 0">';
     html+='<div style="position:absolute;bottom:0;left:0;right:0;background:'+color+';height:'+Math.max(p.win_rate,5)+'%;border-radius:6px;opacity:.7"></div>';
     html+='</div>';
-    html+='<div style="font-size:11px;color:var(--tx2)">'+liEsc(p.period)+'</div>';
-    html+='<div style="font-size:11px;color:var(--tx2)">'+p.won+'W / '+p.lost+'L</div>';
+    html+='<div style="font-size:11px;color:var(--r-text-muted)">'+liEsc(p.period)+'</div>';
+    html+='<div style="font-size:11px;color:var(--r-text-muted)">'+p.won+'W / '+p.lost+'L</div>';
     html+='</div>';
    });
   }else{
-   html='<span style="color:var(--tx2)">Not enough data for trends</span>';
+   html='<span style="color:var(--r-text-muted)">Not enough data for trends</span>';
   }
   document.getElementById('li-winRateTrends').innerHTML=html;
   var alerts=d.alerts||[];
@@ -1205,10 +1205,10 @@ function liLoadWinRate(){
   });
   document.getElementById('li-winRateAlerts').innerHTML=ahtml;
   var agencies=d.by_agency||[];
-  if(!agencies.length){document.getElementById('li-agencyWinRate').innerHTML='<span style="color:var(--tx2)">No agency data</span>';return}
+  if(!agencies.length){document.getElementById('li-agencyWinRate').innerHTML='<span style="color:var(--r-text-muted)">No agency data</span>';return}
   var thtml='<table class="it" style="width:100%"><thead><tr><th>Agency</th><th style="text-align:right">Won</th><th style="text-align:right">Lost</th><th style="text-align:right">Win Rate</th><th style="text-align:right">Won Value</th><th>Trend</th></tr></thead><tbody>';
   agencies.forEach(function(a){
-   var tc=a.trend==='improving'?'#3fb950':a.trend==='declining'?'#f87171':'var(--tx2)';
+   var tc=a.trend==='improving'?'#3fb950':a.trend==='declining'?'#f87171':'var(--r-text-muted)';
    var arrow=a.trend==='improving'?'↑':a.trend==='declining'?'↓':'→';
    thtml+='<tr>';
    thtml+='<td style="font-weight:600">'+liEsc(a.agency)+'</td>';
@@ -1230,14 +1230,14 @@ function liLoadMargin(){
  .then(function(d){
   if(!d.ok)return;
   var mth=d.margin_too_high_losses||[];
-  if(!mth.length){document.getElementById('li-mthLosses').innerHTML='<span style="color:var(--tx2)">No margin-too-high losses found. Good pricing!</span>';return}
+  if(!mth.length){document.getElementById('li-mthLosses').innerHTML='<span style="color:var(--r-text-muted)">No margin-too-high losses found. Good pricing!</span>';return}
   var html='<table class="it" style="width:100%"><thead><tr><th>Date</th><th>Quote</th><th>Competitor</th><th>Items</th><th style="text-align:right">Our Price</th><th style="text-align:right">Their Price</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Margin</th></tr></thead><tbody>';
   mth.forEach(function(m){
    html+='<tr>';
-   html+='<td style="font-size:13px;color:var(--tx2)">'+(m.found_at||'').slice(0,10)+'</td>';
+   html+='<td style="font-size:13px;color:var(--r-text-muted)">'+(m.found_at||'').slice(0,10)+'</td>';
    html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(m.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+liEsc(m.quote_number)+'</a></td>';
    html+='<td>'+liEsc(m.competitor_name)+'</td>';
-   html+='<td style="font-size:13px;color:var(--tx2)">'+liEsc((m.item_summary||'').slice(0,50))+'</td>';
+   html+='<td style="font-size:13px;color:var(--r-text-muted)">'+liEsc((m.item_summary||'').slice(0,50))+'</td>';
    html+='<td style="text-align:right;font-family:monospace">'+liFmt2(m.our_price)+'</td>';
    html+='<td style="text-align:right;font-family:monospace;color:#3fb950">'+liFmt2(m.competitor_price)+'</td>';
    html+='<td style="text-align:right;font-family:monospace">'+liFmt2(m.our_cost)+'</td>';
@@ -1253,7 +1253,7 @@ function liLoadMargin(){
   if(!d.ok)return;
   var cats=d.category_trends||{};
   var keys=Object.keys(cats);
-  if(!keys.length){document.getElementById('li-categoryTrends').innerHTML='<span style="color:var(--tx2)">No category data yet</span>';return}
+  if(!keys.length){document.getElementById('li-categoryTrends').innerHTML='<span style="color:var(--r-text-muted)">No category data yet</span>';return}
   var html='<table class="it" style="width:100%"><thead><tr><th>Category</th><th style="text-align:right">Losses</th><th style="text-align:right">Avg Delta</th><th>Top Competitor</th><th style="text-align:right">Margin Issues</th><th>Recommendation</th></tr></thead><tbody>';
   keys.sort(function(a,b){return cats[b].losses-cats[a].losses}).forEach(function(k){
    var c=cats[k];
@@ -1263,7 +1263,7 @@ function liLoadMargin(){
    html+='<td style="text-align:right;color:'+(c.avg_delta_pct>0?'#f87171':'#3fb950')+'">'+liPct(c.avg_delta_pct)+'</td>';
    html+='<td>'+liEsc(c.top_competitor)+'</td>';
    html+='<td style="text-align:right;color:#fbbf24">'+(c.margin_too_high_count||0)+'</td>';
-   html+='<td style="font-size:12px;color:var(--tx2)">'+liEsc((c.recommendation||'').slice(0,80))+'</td>';
+   html+='<td style="font-size:12px;color:var(--r-text-muted)">'+liEsc((c.recommendation||'').slice(0,80))+'</td>';
    html+='</tr>';
   });
   html+='</tbody></table>';
@@ -1282,12 +1282,12 @@ window.liLoadCompetitor = function(){
   var t=d.trends||{};
   var html='';
   html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">';
-  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:22px;font-weight:700;color:var(--tx)">'+(t.total_encounters||0)+'</div><div style="font-size:12px;color:var(--tx2)">Encounters</div></div>';
-  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:22px;font-weight:700;color:#f87171">'+liPct(t.avg_delta_pct)+'</div><div style="font-size:12px;color:var(--tx2)">Avg Delta</div></div>';
-  var trendColor=t.trend==='getting_more_aggressive'?'#f87171':t.trend==='getting_less_aggressive'?'#3fb950':'var(--tx2)';
+  html+='<div style="text-align:center;padding:12px;background:var(--r-surface);border-radius:8px"><div style="font-size:22px;font-weight:700;color:var(--r-text)">'+(t.total_encounters||0)+'</div><div style="font-size:12px;color:var(--r-text-muted)">Encounters</div></div>';
+  html+='<div style="text-align:center;padding:12px;background:var(--r-surface);border-radius:8px"><div style="font-size:22px;font-weight:700;color:#f87171">'+liPct(t.avg_delta_pct)+'</div><div style="font-size:12px;color:var(--r-text-muted)">Avg Delta</div></div>';
+  var trendColor=t.trend==='getting_more_aggressive'?'#f87171':t.trend==='getting_less_aggressive'?'#3fb950':'var(--r-text-muted)';
   var trendLabel=(t.trend||'stable').replace(/_/g,' ');
-  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:16px;font-weight:700;color:'+trendColor+'">'+liEsc(trendLabel)+'</div><div style="font-size:12px;color:var(--tx2)">Trend</div></div>';
-  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:14px;font-weight:600;color:var(--tx)">'+(t.agencies||[]).join(', ')+'</div><div style="font-size:12px;color:var(--tx2)">Agencies</div></div>';
+  html+='<div style="text-align:center;padding:12px;background:var(--r-surface);border-radius:8px"><div style="font-size:16px;font-weight:700;color:'+trendColor+'">'+liEsc(trendLabel)+'</div><div style="font-size:12px;color:var(--r-text-muted)">Trend</div></div>';
+  html+='<div style="text-align:center;padding:12px;background:var(--r-surface);border-radius:8px"><div style="font-size:14px;font-weight:600;color:var(--r-text)">'+(t.agencies||[]).join(', ')+'</div><div style="font-size:12px;color:var(--r-text-muted)">Agencies</div></div>';
   html+='</div>';
   var losses=d.recent_losses||[];
   if(losses.length){
@@ -1296,7 +1296,7 @@ window.liLoadCompetitor = function(){
    losses.forEach(function(l){
     var delta=l.price_delta_pct||0;
     html+='<tr>';
-    html+='<td style="font-size:13px;color:var(--tx2)">'+(l.found_at||'').slice(0,10)+'</td>';
+    html+='<td style="font-size:13px;color:var(--r-text-muted)">'+(l.found_at||'').slice(0,10)+'</td>';
     html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+liEsc(l.quote_number)+'</a></td>';
     html+='<td>'+liEsc(l.agency)+'</td>';
     html+='<td style="text-align:right;font-family:monospace">'+liFmt2(l.our_price)+'</td>';
@@ -1323,28 +1323,28 @@ function liLoadPatterns(){
   }else{
    var html='';
    unacked.forEach(function(p){
-    html+='<div style="padding:12px;margin-bottom:8px;background:var(--sf);border-radius:8px;border-left:3px solid '+(p.severity==='critical'?'#f87171':p.severity==='warning'?'#fbbf24':'#4f8cff')+'">';
+    html+='<div style="padding:12px;margin-bottom:8px;background:var(--r-surface);border-radius:8px;border-left:3px solid '+(p.severity==='critical'?'#f87171':p.severity==='warning'?'#fbbf24':'#4f8cff')+'">';
     html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
     html+='<span class="li-sev-'+liEsc(p.severity)+'">'+liEsc(p.severity)+'</span>';
     html+='<button onclick="liAckPattern('+p.id+')" style="padding:4px 12px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:6px;cursor:pointer;font-size:12px">Acknowledge</button>';
     html+='</div>';
-    html+='<div style="font-size:14px;color:var(--tx);margin-bottom:4px">'+liEsc(p.description)+'</div>';
-    if(p.recommendation)html+='<div style="font-size:13px;color:var(--ac)">'+liEsc(p.recommendation)+'</div>';
-    html+='<div style="font-size:11px;color:var(--tx2);margin-top:4px">'+(p.detected_at||'').slice(0,16)+'</div>';
+    html+='<div style="font-size:14px;color:var(--r-text);margin-bottom:4px">'+liEsc(p.description)+'</div>';
+    if(p.recommendation)html+='<div style="font-size:13px;color:var(--r-accent)">'+liEsc(p.recommendation)+'</div>';
+    html+='<div style="font-size:11px;color:var(--r-text-muted);margin-top:4px">'+(p.detected_at||'').slice(0,16)+'</div>';
     html+='</div>';
    });
    document.getElementById('li-unackedPatterns').innerHTML=html;
   }
   var patterns=d.patterns||[];
   if(!patterns.length){
-   document.getElementById('li-detectedPatterns').innerHTML='<span style="color:var(--tx2)">No patterns detected in this time range</span>';
+   document.getElementById('li-detectedPatterns').innerHTML='<span style="color:var(--r-text-muted)">No patterns detected in this time range</span>';
   }else{
    var html='';
    patterns.forEach(function(p){
-    html+='<div style="padding:10px;margin-bottom:6px;background:var(--sf);border-radius:6px">';
+    html+='<div style="padding:10px;margin-bottom:6px;background:var(--r-surface);border-radius:6px">';
     html+='<span class="li-sev-'+(p.severity||'info')+'">'+liEsc(p.severity||'info')+'</span> ';
-    html+='<span style="font-size:14px;color:var(--tx)">'+liEsc(p.description)+'</span>';
-    if(p.recommendation)html+='<div style="font-size:13px;color:var(--tx2);margin-top:4px">'+liEsc(p.recommendation)+'</div>';
+    html+='<span style="font-size:14px;color:var(--r-text)">'+liEsc(p.description)+'</span>';
+    if(p.recommendation)html+='<div style="font-size:13px;color:var(--r-text-muted);margin-top:4px">'+liEsc(p.recommendation)+'</div>';
     html+='</div>';
    });
    document.getElementById('li-detectedPatterns').innerHTML=html;

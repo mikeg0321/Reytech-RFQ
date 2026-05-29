@@ -6,7 +6,7 @@
      <a href="/orders" class="btn btn-s" style="font-size:15px">← Orders</a>
      {% if qn %}<a href="/quote/{{ qn }}" class="btn btn-s" style="font-size:15px">📋 Quote {{ qn }}</a>{% endif %}
      <button onclick="cloneOrder('{{ oid }}')" class="btn btn-s" style="font-size:16px" title="Create new order with same items">🔄 Reorder</button>
-     <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:16px;margin-left:auto;color:var(--rd)" aria-label="Delete">🗑️ Delete</button>
+     <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:16px;margin-left:auto;color:var(--r-bad)" aria-label="Delete">🗑️ Delete</button>
     </div>
 
     <div class="bento bento-2" style="margin-bottom:14px">
@@ -14,34 +14,34 @@
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
        <div>
         <div style="font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700">{{ oid }}</div>
-        <div style="color:var(--tx2);font-size:16px;margin-top:4px">{{ order.get('agency','')|agency_display }}{{ ' · ' if order.get('agency') else '' }}Created {{ order.get('created_at','')[:10] }}</div>
+        <div style="color:var(--r-text-muted);font-size:16px;margin-top:4px">{{ order.get('agency','')|agency_display }}{{ ' · ' if order.get('agency') else '' }}Created {{ order.get('created_at','')[:10] }}</div>
        </div>
-       <span style="padding:4px 12px;border-radius:12px;font-size:16px;font-weight:600;background:var(--sf2)">{{ status_cfg.get(st, st) }}</span>
+       <span style="padding:4px 12px;border-radius:12px;font-size:16px;font-weight:600;background:var(--r-surface-2)">{{ status_cfg.get(st, st) }}</span>
       </div>
       <div class="meta-g" style="margin:0">
        <div class="meta-i"><div class="meta-l">Institution</div><div class="meta-v">{{ institution }}</div></div>
-       <div class="meta-i"><div class="meta-l">PO Number</div><div class="meta-v" style="color:var(--gn);font-weight:600">{{ order.get('po_number','—') }}</div></div>
+       <div class="meta-i"><div class="meta-l">PO Number</div><div class="meta-v" style="color:var(--r-accent);font-weight:600">{{ order.get('po_number','—') }}</div></div>
        <div class="meta-i"><div class="meta-l">Quote</div><div class="meta-v">{{ qn or '—' }}</div></div>
        <div class="meta-i"><div class="meta-l">Items</div><div class="meta-v">{{ items|length }}</div></div>
       </div>
      </div>
      <div class="card" style="margin:0">
       <div style="text-align:center;padding:12px 0">
-       <div style="font-size:16px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Order Total</div>
-       <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:700;color:var(--gn);margin:8px 0">${{ "{:,.2f}".format(order.get('total',0)) }}</div>
-       {% if order.get('tax') %}<div style="font-size:15px;color:var(--tx2)">Subtotal: ${{ "{:,.2f}".format(order.get("subtotal",0)) }} · Tax: ${{ "{:,.2f}".format(order.get("tax",0)) }}</div>{% endif %}
+       <div style="font-size:16px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px">Order Total</div>
+       <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:700;color:var(--r-accent);margin:8px 0">${{ "{:,.2f}".format(order.get('total',0)) }}</div>
+       {% if order.get('tax') %}<div style="font-size:15px;color:var(--r-text-muted)">Subtotal: ${{ "{:,.2f}".format(order.get("subtotal",0)) }} · Tax: ${{ "{:,.2f}".format(order.get("tax",0)) }}</div>{% endif %}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
-       <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
-        <div style="font-size:16px;color:var(--tx2)">Sourced</div>
+       <div style="background:var(--r-surface-2);padding:8px;border-radius:8px;text-align:center">
+        <div style="font-size:16px;color:var(--r-text-muted)">Sourced</div>
         <div style="font-size:18px;font-weight:700;color:#58a6ff">{{ sourced_count }}/{{ total_count }}</div>
        </div>
-       <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
-        <div style="font-size:16px;color:var(--tx2)">Shipped</div>
+       <div style="background:var(--r-surface-2);padding:8px;border-radius:8px;text-align:center">
+        <div style="font-size:16px;color:var(--r-text-muted)">Shipped</div>
         <div style="font-size:18px;font-weight:700;color:#bc8cff">{{ shipped_count }}/{{ total_count }}</div>
        </div>
-       <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
-        <div style="font-size:16px;color:var(--tx2)">Delivered</div>
+       <div style="background:var(--r-surface-2);padding:8px;border-radius:8px;text-align:center">
+        <div style="font-size:16px;color:var(--r-text-muted)">Delivered</div>
         <div style="font-size:18px;font-weight:700;color:#3fb950">{{ delivered_count }}/{{ total_count }}</div>
        </div>
       </div>
@@ -54,18 +54,18 @@
 
     {# ── Upload PO section (V2: native Jinja2) ── #}
     {% if not items %}
-    <div class="card" style="margin-bottom:14px;border:2px dashed var(--ac);text-align:center;padding:32px">
+    <div class="card" style="margin-bottom:14px;border:2px dashed var(--r-accent);text-align:center;padding:32px">
      <div style="font-size:18px;font-weight:700;margin-bottom:8px">📄 Upload PO PDF to populate line items</div>
-     <div style="color:var(--tx2);font-size:15px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
+     <div style="color:var(--r-text-muted);font-size:15px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
      <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{{ oid }}',this)">
      <button onclick="document.getElementById('po-pdf').click()" class="btn btn-g" style="font-size:14px;padding:10px 24px">📄 Upload PO PDF</button>
-     <div id="upload-status" style="margin-top:12px;font-size:14px;color:var(--tx2)"></div>
+     <div id="upload-status" style="margin-top:12px;font-size:14px;color:var(--r-text-muted)"></div>
     </div>
     {% else %}
     <div style="margin-bottom:8px;display:flex;justify-content:flex-end">
      <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{{ oid }}',this)">
      <button onclick="document.getElementById('po-pdf').click()" class="btn btn-s" style="font-size:14px">📄 Re-import from PO PDF</button>
-     <div id="upload-status" style="margin-left:8px;font-size:14px;color:var(--tx2);line-height:28px"></div>
+     <div id="upload-status" style="margin-left:8px;font-size:14px;color:var(--r-text-muted);line-height:28px"></div>
     </div>
     {% endif %}
 
@@ -115,31 +115,31 @@
        {% set unit_cost = it.get('unit_cost', it.get('cost', 0)) or 0 %}
        <tr data-lid="{{ lid }}">
         <td style="text-align:center"><input type="checkbox" class="line-check" value="{{ lid }}" data-status="{{ ss }}" data-desc="{{ desc[:40] }}" data-tracking="{{ tracking }}"></td>
-        <td style="color:var(--tx2);font-size:14px">{{ lid }}</td>
+        <td style="color:var(--r-text-muted);font-size:14px">{{ lid }}</td>
         <td style="max-width:350px;word-wrap:break-word;white-space:normal;font-size:16px;font-weight:500">{{ desc }}</td>
         <td class="mono" style="font-size:14px">
-         {% if is_asin %}<a href="https://www.amazon.com/dp/{{ asin or pn }}" target="_blank" style="color:var(--ac);text-decoration:none" title="View on Amazon">{{ pn }}</a>{% else %}{{ pn or '—' }}{% endif %}
+         {% if is_asin %}<a href="https://www.amazon.com/dp/{{ asin or pn }}" target="_blank" style="color:var(--r-accent);text-decoration:none" title="View on Amazon">{{ pn }}</a>{% else %}{{ pn or '—' }}{% endif %}
         </td>
         <td style="font-size:14px">
          {% if supplier_name and sup_url %}
-          <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(79,140,255,.12);border:1px solid rgba(79,140,255,.25);border-radius:14px;color:var(--ac);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" title="View supplier record">{{ supplier_name }}</a>
-          <a href="{{ sup_url }}" target="_blank" style="color:var(--tx2);font-size:15px" title="Product page">🔗</a>
+          <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(79,140,255,.12);border:1px solid rgba(79,140,255,.25);border-radius:14px;color:var(--r-accent);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" title="View supplier record">{{ supplier_name }}</a>
+          <a href="{{ sup_url }}" target="_blank" style="color:var(--r-text-muted);font-size:15px" title="Product page">🔗</a>
          {% elif supplier_name %}
           <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);border-radius:14px;color:#3fb950;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap">{{ supplier_name }}</a>
          {% elif sup_url %}
           <a href="{{ sup_url }}" target="_blank" style="display:inline-block;padding:3px 10px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:14px;color:#fbbf24;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap">🛒 Buy</a>
          {% else %}
-          <span style="color:var(--tx2)">—</span>
+          <span style="color:var(--r-text-muted)">—</span>
          {% endif %}
-         <button onclick="editSupplier('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--tx2);padding:0" title="Edit supplier">✏️</button>
+         <button onclick="editSupplier('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--r-text-muted);padding:0" title="Edit supplier">✏️</button>
         </td>
         <td class="mono" style="text-align:center;font-size:16px;font-weight:600">{{ it.get('qty',0) }}</td>
         <td class="mono" style="text-align:right;font-size:16px;font-weight:600">${{ "{:,.2f}".format(it.get('unit_price',0)) }}</td>
         <td class="mono" style="text-align:right;font-size:14px">
-         {% if unit_cost %}<span style="color:var(--tx2)">${{ "{:,.2f}".format(unit_cost) }}</span>{% else %}<button onclick="editCostLine('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2);padding:0" title="Add cost">+$</button>{% endif %}
+         {% if unit_cost %}<span style="color:var(--r-text-muted)">${{ "{:,.2f}".format(unit_cost) }}</span>{% else %}<button onclick="editCostLine('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--r-text-muted);padding:0" title="Add cost">+$</button>{% endif %}
         </td>
         <td style="text-align:center">
-         <select onchange="updateLine('{{ oid }}','{{ lid }}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:{{ s_cfg[1] }};font-size:14px;padding:5px 6px;font-weight:600">
+         <select onchange="updateLine('{{ oid }}','{{ lid }}','sourcing_status',this.value)" style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;color:{{ s_cfg[1] }};font-size:14px;padding:5px 6px;font-weight:600">
           <option value="pending" {{ 'selected' if ss=='pending' }}>⏳ Pending</option>
           <option value="ordered" {{ 'selected' if ss=='ordered' }}>🛒 Ordered</option>
           <option value="shipped" {{ 'selected' if ss=='shipped' }}>🚚 Shipped</option>
@@ -150,25 +150,25 @@
          <span style="font-weight:600">{{ carrier }}</span>
          {% if tracking %}
           {% if 'amazon' in carrier_low or tracking[:3] == 'TBA' %}
-           <a href="https://www.amazon.com/gp/your-account/order-history?search={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+           <a href="https://www.amazon.com/gp/your-account/order-history?search={{ tracking }}" target="_blank" style="color:var(--r-accent);font-size:14px">{{ tracking[:20] }}</a>
           {% elif 'ups' in carrier_low or tracking[:2] == '1Z' %}
-           <a href="https://www.ups.com/track?tracknum={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+           <a href="https://www.ups.com/track?tracknum={{ tracking }}" target="_blank" style="color:var(--r-accent);font-size:14px">{{ tracking[:20] }}</a>
           {% elif 'fedex' in carrier_low %}
-           <a href="https://www.fedex.com/fedextrack/?trknbr={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+           <a href="https://www.fedex.com/fedextrack/?trknbr={{ tracking }}" target="_blank" style="color:var(--r-accent);font-size:14px">{{ tracking[:20] }}</a>
           {% elif 'usps' in carrier_low %}
-           <a href="https://tools.usps.com/go/TrackConfirmAction?tLabels={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+           <a href="https://tools.usps.com/go/TrackConfirmAction?tLabels={{ tracking }}" target="_blank" style="color:var(--r-accent);font-size:14px">{{ tracking[:20] }}</a>
           {% else %}
-           <a href="https://track.aftership.com/{{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+           <a href="https://track.aftership.com/{{ tracking }}" target="_blank" style="color:var(--r-accent);font-size:14px">{{ tracking[:20] }}</a>
           {% endif %}
          {% else %}
-          <button onclick="addTracking('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2)">+ tracking</button>
+          <button onclick="addTracking('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--r-text-muted)">+ tracking</button>
          {% endif %}
         </td>
         <td style="text-align:center;font-size:15px">
          {% if ss == 'delivered' %}<span style="color:#3fb950;font-weight:600">✅</span>
          {% elif ss == 'shipped' %}<span style="color:#bc8cff">in transit</span>
-         {% elif ss == 'ordered' %}<span style="color:var(--tx2)">awaiting</span>
-         {% else %}<span style="color:var(--tx2)">—</span>{% endif %}
+         {% elif ss == 'ordered' %}<span style="color:var(--r-text-muted)">awaiting</span>
+         {% else %}<span style="color:var(--r-text-muted)">—</span>{% endif %}
         </td>
         <td style="text-align:center;font-size:15px;color:{{ is_inv[1] }}" title="{{ it.get('invoice_status','pending') }}">{{ is_inv[0] }}</td>
        </tr>
@@ -188,7 +188,7 @@
       <button onclick="markAllDelivered('{{ oid }}')" class="btn btn-s" style="font-size:16px" aria-label="Mark All Delivered">✅ Mark All Delivered</button>
       <button onclick="addLineItem('{{ oid }}')" class="btn btn-s" style="font-size:16px" aria-label="Add Line Item">➕ Add Line Item</button>
       <button onclick="lookupSuppliers('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="lookup-btn" aria-label="Lookup Suppliers">🔍 Lookup Suppliers</button>
-      <span style="border-left:1px solid var(--bd);height:24px;margin:0 4px"></span>
+      <span style="border-left:1px solid var(--r-border);height:24px;margin:0 4px"></span>
       <button onclick="openOrderPOBuilder()" class="btn btn-s" style="font-size:16px;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.25)" aria-label="Create Supplier Purchase Orders in QuickBooks">💰 Create Supplier PO</button>
       <button onclick="createQBInvoice(this)" class="btn btn-s" style="font-size:16px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25)" aria-label="Create Customer Invoice in QuickBooks">📄 QB Invoice</button>
      </div>
@@ -200,8 +200,8 @@
       <div style="display:flex;align-items:center;gap:8px">
        <span style="font-size:16px">📄</span>
        <b style="font-size:15px">Invoice #{{ order.get('qb_invoice_number','') }}</b>
-       <span style="color:var(--tx2);font-size:14px">${{ "%.2f"|format(order.get('qb_invoice_total',0)) }}</span>
-       {% if order.get('qb_invoice_due') %}<span style="color:var(--tx2);font-size:14px">· Due: {{ order.get('qb_invoice_due','') }}</span>{% endif %}
+       <span style="color:var(--r-text-muted);font-size:14px">${{ "%.2f"|format(order.get('qb_invoice_total',0)) }}</span>
+       {% if order.get('qb_invoice_due') %}<span style="color:var(--r-text-muted);font-size:14px">· Due: {{ order.get('qb_invoice_due','') }}</span>{% endif %}
       </div>
       <div style="display:flex;gap:6px;align-items:center">
        {% set inv_st = order.get('invoice_status','created') %}
@@ -213,7 +213,7 @@
        <button onclick="sendInvoiceToCustomer(this)" class="btn btn-g" style="font-size:14px;padding:6px 16px" aria-label="Send enhanced invoice to customer">📧 Send to Customer</button>
        {% elif inv_st == 'sent' %}
        <span style="padding:4px 10px;border-radius:12px;font-size:13px;font-weight:600;background:rgba(63,185,80,.15);color:#3fb950">📧 Sent</span>
-       <span style="font-size:13px;color:var(--tx2)">to {{ order.get('invoice_sent_to','') }} · {{ order.get('invoice_sent_at','')[:10] }}</span>
+       <span style="font-size:13px;color:var(--r-text-muted)">to {{ order.get('invoice_sent_to','') }} · {{ order.get('invoice_sent_at','')[:10] }}</span>
        {% endif %}
        {% if order.get('invoice_pdf_enhanced') or order.get('invoice_pdf') %}
        <a href="/api/order/{{ oid }}/download-invoice" class="btn btn-s" style="font-size:13px;padding:4px 10px" aria-label="Download invoice PDF">📥 PDF</a>
@@ -237,7 +237,7 @@
     </div>
 
     <!-- Bulk Selection Bar (appears when checkboxes selected) -->
-    <div id="bulk-bar" style="display:none;margin-top:10px;padding:10px 16px;background:var(--sf2);border:1px solid var(--ac);border-radius:8px;align-items:center;gap:12px;flex-wrap:wrap">
+    <div id="bulk-bar" style="display:none;margin-top:10px;padding:10px 16px;background:var(--r-surface-2);border:1px solid var(--r-accent);border-radius:8px;align-items:center;gap:12px;flex-wrap:wrap">
      <span style="font-size:16px;font-weight:600"><span id="sel-count">0</span> items selected</span>
      <button onclick="selectByStatus('shipped')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Select All Shipped">Select All Shipped</button>
      <button onclick="selectByStatus('all')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Select All">Select All</button>
@@ -248,12 +248,12 @@
 
     {# ── V2: Tabbed Sections (Margins / Shipping / Timeline / Emails) ── #}
     <div class="card" style="margin-top:14px;padding:0">
-     <div style="display:flex;border-bottom:1px solid var(--bd);overflow-x:auto">
-      <button class="tab-btn active" onclick="switchTab(this,'tab-margins')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid var(--ac);color:var(--ac);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📊 Margins</button>
-      <button class="tab-btn" onclick="switchTab(this,'tab-shipping')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">🚚 Shipping</button>
-      <button class="tab-btn" onclick="switchTab(this,'tab-timeline')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📋 Timeline</button>
-      <button class="tab-btn" onclick="switchTab(this,'tab-emails')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📧 Emails</button>
-      <button class="tab-btn" onclick="switchTab(this,'tab-payments')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">💳 Payments</button>
+     <div style="display:flex;border-bottom:1px solid var(--r-border);overflow-x:auto">
+      <button class="tab-btn active" onclick="switchTab(this,'tab-margins')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid var(--r-accent);color:var(--r-accent);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📊 Margins</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-shipping')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--r-text-muted);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">🚚 Shipping</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-timeline')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--r-text-muted);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📋 Timeline</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-emails')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--r-text-muted);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📧 Emails</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-payments')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--r-text-muted);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">💳 Payments</button>
      </div>
 
      {# ── Margins Tab ── #}
@@ -261,19 +261,19 @@
       <div id="margins-summary" style="margin-bottom:14px">
        <div class="bento bento-4" style="margin-bottom:0">
         <div class="card" style="text-align:center;margin:0;padding:14px" id="margin-revenue">
-         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Revenue</div>
+         <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">Revenue</div>
          <div style="font-size:24px;font-weight:700;margin-top:4px;color:#3fb950" id="mg-revenue">—</div>
         </div>
         <div class="card" style="text-align:center;margin:0;padding:14px">
-         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Cost</div>
+         <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">Cost</div>
          <div style="font-size:24px;font-weight:700;margin-top:4px;color:#f85149" id="mg-cost">—</div>
         </div>
         <div class="card" style="text-align:center;margin:0;padding:14px">
-         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Profit</div>
+         <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">Profit</div>
          <div style="font-size:24px;font-weight:700;margin-top:4px" id="mg-profit">—</div>
         </div>
         <div class="card" style="text-align:center;margin:0;padding:14px">
-         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Margin %</div>
+         <div style="font-size:13px;color:var(--r-text-muted);text-transform:uppercase">Margin %</div>
          <div style="font-size:24px;font-weight:700;margin-top:4px" id="mg-pct">—</div>
         </div>
        </div>
@@ -292,20 +292,20 @@
         <tbody id="margins-body"></tbody>
        </table>
       </div>
-      <div style="margin-top:10px;font-size:14px;color:var(--tx2)" id="margins-note">Loading margin data...</div>
+      <div style="margin-top:10px;font-size:14px;color:var(--r-text-muted)" id="margins-note">Loading margin data...</div>
      </div>
 
      {# ── Shipping Tab ── #}
      <div id="tab-shipping" class="tab-content" style="padding:16px;display:none">
       <div id="shipping-body">
-       <div style="font-size:15px;color:var(--tx2)">Loading shipping details...</div>
+       <div style="font-size:15px;color:var(--r-text-muted)">Loading shipping details...</div>
       </div>
      </div>
 
      {# ── Timeline Tab ── #}
      <div id="tab-timeline" class="tab-content" style="padding:16px;display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-       <span style="font-size:16px;color:var(--tx2)" id="timeline-count">loading...</span>
+       <span style="font-size:16px;color:var(--r-text-muted)" id="timeline-count">loading...</span>
       </div>
       <div id="timeline-body" style="max-height:400px;overflow-y:auto"></div>
      </div>
@@ -313,14 +313,14 @@
      {# ── Emails Tab ── #}
      <div id="tab-emails" class="tab-content" style="padding:16px;display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-       <span style="font-size:16px;color:var(--tx2)" id="emails-count">loading...</span>
+       <span style="font-size:16px;color:var(--r-text-muted)" id="emails-count">loading...</span>
       </div>
       <div id="emails-body" style="max-height:300px;overflow-y:auto"></div>
      </div>
 
      {# ── Payments Tab ── #}
      <div id="tab-payments" class="tab-content" style="padding:16px;display:none">
-      <div style="font-size:15px;color:var(--tx2)" id="payments-body">
+      <div style="font-size:15px;color:var(--r-text-muted)" id="payments-body">
        {% if order.get('qb_invoice_id') %}
        <div class="meta-g">
         <div class="meta-i"><div class="meta-l">QB Invoice</div><div class="meta-v">#{{ order.get('qb_invoice_number','') }}</div></div>
@@ -329,7 +329,7 @@
         {% if order.get('qb_invoice_due') %}<div class="meta-i"><div class="meta-l">Due</div><div class="meta-v">{{ order.get('qb_invoice_due','') }}</div></div>{% endif %}
        </div>
        {% else %}
-       <div style="text-align:center;padding:24px;color:var(--tx2)">No invoice created yet. Create one from Quick Actions above.</div>
+       <div style="text-align:center;padding:24px;color:var(--r-text-muted)">No invoice created yet. Create one from Quick Actions above.</div>
        {% endif %}
       </div>
      </div>
@@ -342,17 +342,17 @@
      <div style="display:flex;gap:8px;align-items:center">
       <input type="file" id="proof-file" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="uploadProof('{{ oid }}',this)">
       <button onclick="document.getElementById('proof-file').click()" class="btn btn-s" style="font-size:16px" aria-label="Upload Proof">📤 Upload Proof</button>
-      <span id="proof-status" style="font-size:16px;color:var(--tx2)"></span>
+      <span id="proof-status" style="font-size:16px;color:var(--r-text-muted)"></span>
      </div>
     </div>
     {# Draft Invoice section #}
     {% set draft_inv = order.get("draft_invoice", {}) %}
     {% if draft_inv %}
-    <div class="card" style="margin-top:14px;border:2px solid var(--gn)">
-     <div class="card-t" style="color:var(--gn)">📄 Draft Invoice — {{ draft_inv.get('invoice_number','') }}</div>
-     <div style="margin-bottom:12px;font-size:16px;color:var(--tx2)">
+    <div class="card" style="margin-top:14px;border:2px solid var(--r-accent)">
+     <div class="card-t" style="color:var(--r-accent)">📄 Draft Invoice — {{ draft_inv.get('invoice_number','') }}</div>
+     <div style="margin-bottom:12px;font-size:16px;color:var(--r-text-muted)">
       Auto-generated {{ draft_inv.get('created_at','')[:10] }} when all items marked delivered.
-      {% if draft_inv.get('qb_invoice_id') %}<span style="color:var(--ac)">QB Synced: {{ draft_inv.get("qb_synced_at","")[:10] }}</span>{% else %}Review line items, then finalize → push to QuickBooks.{% endif %}
+      {% if draft_inv.get('qb_invoice_id') %}<span style="color:var(--r-accent)">QB Synced: {{ draft_inv.get("qb_synced_at","")[:10] }}</span>{% else %}Review line items, then finalize → push to QuickBooks.{% endif %}
      </div>
      <div class="meta-g" style="margin-bottom:12px">
       <div class="meta-i"><div class="meta-l">Bill To</div><div class="meta-v">{{ draft_inv.get('bill_to_name','') }}</div></div>
@@ -380,7 +380,7 @@
        {% endfor %}
       </tbody>
       <tfoot>
-       <tr style="border-top:2px solid var(--bd)">
+       <tr style="border-top:2px solid var(--r-border)">
         <td colspan="4" style="text-align:right;font-weight:600">Subtotal:</td>
         <td class="mono" style="text-align:right">${{ "{:,.2f}".format(draft_inv.get('subtotal',0)) }}</td>
        </tr>
@@ -388,16 +388,16 @@
         <td class="mono" style="text-align:right">${{ "{:,.2f}".format(draft_inv.get('tax',0)) }}</td>
        </tr>
        <tr><td colspan="4" style="text-align:right;font-weight:700;font-size:16px">Grand Total:</td>
-        <td class="mono" style="text-align:right;font-weight:700;font-size:16px;color:var(--gn)">${{ "{:,.2f}".format(draft_inv.get('total',0)) }}</td>
+        <td class="mono" style="text-align:right;font-weight:700;font-size:16px;color:var(--r-accent)">${{ "{:,.2f}".format(draft_inv.get('total',0)) }}</td>
        </tr>
       </tfoot>
      </table>
      </div>
      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;align-items:center">
       <button onclick="genInvoicePdf('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="inv-pdf-btn" aria-label="Generate PDF">📄 Generate PDF</button>
-      {% if draft_inv.get('pdf_path') %}<a href="/api/order/{{ oid }}/invoice-pdf/download" class="btn btn-s" style="font-size:16px;color:var(--gn)" download>⬇️ Download PDF</a>{% endif %}
+      {% if draft_inv.get('pdf_path') %}<a href="/api/order/{{ oid }}/invoice-pdf/download" class="btn btn-s" style="font-size:16px;color:var(--r-accent)" download>⬇️ Download PDF</a>{% endif %}
       <button onclick="invoiceOrder('{{ oid }}','full')" class="btn btn-g" style="font-size:15px" aria-label="Finalize Invoice">💰 Finalize Invoice</button>
-      {% if draft_inv.get('qb_invoice_id') %}<span style="font-size:16px;color:var(--tx2);line-height:30px">QB #{{ draft_inv.get("qb_invoice_id") }}</span>{% else %}<span style="font-size:16px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>{% endif %}
+      {% if draft_inv.get('qb_invoice_id') %}<span style="font-size:16px;color:var(--r-text-muted);line-height:30px">QB #{{ draft_inv.get("qb_invoice_id") }}</span>{% else %}<span style="font-size:16px;color:var(--r-text-muted);line-height:30px">QuickBooks API: not yet connected</span>{% endif %}
      </div>
     </div>
     {% endif %}
@@ -407,14 +407,14 @@
     function switchTab(btn, tabId) {
       document.querySelectorAll('.tab-btn').forEach(function(b) {
         b.style.borderBottomColor = 'transparent';
-        b.style.color = 'var(--tx2)';
+        b.style.color = 'var(--r-text-muted)';
         b.classList.remove('active');
       });
       document.querySelectorAll('.tab-content').forEach(function(t) {
         t.style.display = 'none';
       });
-      btn.style.borderBottomColor = 'var(--ac)';
-      btn.style.color = 'var(--ac)';
+      btn.style.borderBottomColor = 'var(--r-accent)';
+      btn.style.color = 'var(--r-accent)';
       btn.classList.add('active');
       var el = document.getElementById(tabId);
       if (el) el.style.display = 'block';
@@ -440,10 +440,10 @@
             html += '<td style="max-width:250px;word-wrap:break-word;white-space:normal">' + (l.description||'').substring(0,60) + '</td>';
             html += '<td style="text-align:center" class="mono">' + (l.qty||0) + '</td>';
             html += '<td style="text-align:right" class="mono">$' + (l.sell_price||l.unit_price||0).toFixed(2) + '</td>';
-            html += '<td style="text-align:right" class="mono">' + (l.has_cost ? '$' + (l.cost_price||l.unit_cost||0).toFixed(2) : '<span style="color:var(--tx2)">—</span>') + '</td>';
+            html += '<td style="text-align:right" class="mono">' + (l.has_cost ? '$' + (l.cost_price||l.unit_cost||0).toFixed(2) : '<span style="color:var(--r-text-muted)">—</span>') + '</td>';
             html += '<td style="text-align:right;font-weight:600" class="mono">$' + (l.margin||0).toFixed(2) + '</td>';
             html += '<td style="text-align:center;font-weight:600;color:' + mc + '">' + (l.has_cost ? l.margin_pct.toFixed(1) + '%' : '—') + '</td>';
-            html += '<td style="font-size:14px;color:var(--tx2)">' + (l.supplier||'—') + '</td>';
+            html += '<td style="font-size:14px;color:var(--r-text-muted)">' + (l.supplier||'—') + '</td>';
             html += '<td><button onclick="editCost(\'' + (l.description||'').substring(0,30).replace(/'/g,'') + '\')" class="btn btn-s" style="font-size:13px;padding:2px 8px">✏️</button></td>';
             html += '</tr>';
           });
@@ -500,12 +500,12 @@
         html += '<td style="font-size:14px">' + (tracking ? tracking.querySelector('span')?.textContent || '—' : '—') + '</td>';
         html += '<td style="font-size:14px">' + (tracking ? tracking.innerHTML : '—') + '</td>';
         html += '<td style="text-align:center;font-size:14px">—</td>';
-        html += '<td style="text-align:center;font-size:14px">' + (statusVal === 'delivered' ? '<span style="color:#3fb950;font-weight:600">✅ Delivered</span>' : statusVal === 'shipped' ? '<span style="color:#bc8cff">In Transit</span>' : '<span style="color:var(--tx2)">—</span>') + '</td>';
+        html += '<td style="text-align:center;font-size:14px">' + (statusVal === 'delivered' ? '<span style="color:#3fb950;font-weight:600">✅ Delivered</span>' : statusVal === 'shipped' ? '<span style="color:#bc8cff">In Transit</span>' : '<span style="color:var(--r-text-muted)">—</span>') + '</td>';
         html += '</tr>';
       });
       html += '</tbody></table>';
       var el = document.getElementById('shipping-body');
-      if (el) el.innerHTML = hasRows ? html : '<div style="text-align:center;padding:24px;color:var(--tx2)">No shipping data yet. Add tracking numbers from the line items table above.</div>';
+      if (el) el.innerHTML = hasRows ? html : '<div style="text-align:center;padding:24px;color:var(--r-text-muted)">No shipping data yet. Add tracking numbers from the line items table above.</div>';
     }
 
     // Order items data for JS functions
@@ -763,13 +763,13 @@
     function loadProofs() {
       fetch('/api/order/{{ (oid)|tojson }}/attachments').then(r=>r.json()).then(d=>{
         var el = document.getElementById('proofs-list');
-        if (!d.attachments || !d.attachments.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:16px;padding:4px 0">No attachments yet</div>'; return; }
+        if (!d.attachments || !d.attachments.length) { el.innerHTML = '<div style="color:var(--r-text-muted);font-size:16px;padding:4px 0">No attachments yet</div>'; return; }
         var html = '';
         d.attachments.forEach(function(a) {
           html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:16px">'
             + '<span>📎</span><span style="font-weight:500">' + a.file_name + '</span>'
-            + '<span style="color:var(--tx2);font-size:15px">' + (a.file_type||'') + (a.line_id ? ' · Line ' + a.line_id : '') + '</span>'
-            + '<span style="color:var(--tx2);font-size:15px;margin-left:auto">' + (a.created_at||'').substring(0,16) + '</span></div>';
+            + '<span style="color:var(--r-text-muted);font-size:15px">' + (a.file_type||'') + (a.line_id ? ' · Line ' + a.line_id : '') + '</span>'
+            + '<span style="color:var(--r-text-muted);font-size:15px;margin-left:auto">' + (a.created_at||'').substring(0,16) + '</span></div>';
         });
         el.innerHTML = html;
       });
@@ -820,21 +820,21 @@
     fetch('/api/order/{{ (oid)|tojson }}/timeline').then(r=>r.json()).then(d=>{
       document.getElementById('timeline-count').textContent = d.count + ' events';
       var el = document.getElementById('timeline-body');
-      if (!d.events || !d.events.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:16px;padding:8px">No activity recorded yet</div>'; return; }
+      if (!d.events || !d.events.length) { el.innerHTML = '<div style="color:var(--r-text-muted);font-size:16px;padding:8px">No activity recorded yet</div>'; return; }
       var icons = {status_change:'🔄',line_sourcing_status_changed:'📦',line_tracking_number_changed:'🚚',cost_updated:'💰',proof_uploaded:'📸',order_created:'🆕',order_cloned:'🔄',email:'📧'};
       var html = '';
       d.events.forEach(function(e) {
         var icon = icons[e.action] || icons[e.type] || '📝';
         var ts = e.ts ? new Date(e.ts).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
         var detail = '';
-        if (e.old && e['new']) detail = '<span style="color:var(--tx2)">' + e.old + '</span> → <span style="font-weight:600">' + e['new'] + '</span>';
+        if (e.old && e['new']) detail = '<span style="color:var(--r-text-muted)">' + e.old + '</span> → <span style="font-weight:600">' + e['new'] + '</span>';
         else if (e['new']) detail = e['new'];
         else if (e.details) detail = e.details;
-        html += '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--sf);font-size:16px">'
-          + '<span style="white-space:nowrap;color:var(--tx2);min-width:90px">' + ts + '</span>'
+        html += '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--r-surface);font-size:16px">'
+          + '<span style="white-space:nowrap;color:var(--r-text-muted);min-width:90px">' + ts + '</span>'
           + '<span>' + icon + '</span>'
           + '<span style="flex:1">' + (e.action||'').replace(/_/g,' ') + (detail ? ' — ' + detail : '') + '</span>'
-          + '<span style="color:var(--tx2);font-size:15px">' + (e.actor||'') + '</span></div>';
+          + '<span style="color:var(--r-text-muted);font-size:15px">' + (e.actor||'') + '</span></div>';
       });
       el.innerHTML = html;
     }).catch(function(){document.getElementById('timeline-count').textContent='error';});
@@ -843,13 +843,13 @@
     fetch('/api/order/{{ (oid)|tojson }}/emails').then(r=>r.json()).then(d=>{
       document.getElementById('emails-count').textContent = d.count + ' emails';
       var el = document.getElementById('emails-body');
-      if (!d.emails || !d.emails.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:16px;padding:8px">No related emails found</div>'; return; }
+      if (!d.emails || !d.emails.length) { el.innerHTML = '<div style="color:var(--r-text-muted);font-size:16px;padding:8px">No related emails found</div>'; return; }
       var html = '';
       d.emails.forEach(function(e) {
         var ts = e.received_at ? new Date(e.received_at).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
-        html += '<div style="padding:8px 0;border-bottom:1px solid var(--sf);font-size:16px">'
-          + '<div style="display:flex;justify-content:space-between"><span style="font-weight:600">' + (e.subject||'(no subject)') + '</span><span style="color:var(--tx2);font-size:15px">' + ts + '</span></div>'
-          + '<div style="color:var(--tx2);font-size:16px;margin-top:2px">' + (e.sender||'') + (e.classification ? ' · ' + e.classification : '') + '</div>'
+        html += '<div style="padding:8px 0;border-bottom:1px solid var(--r-surface);font-size:16px">'
+          + '<div style="display:flex;justify-content:space-between"><span style="font-weight:600">' + (e.subject||'(no subject)') + '</span><span style="color:var(--r-text-muted);font-size:15px">' + ts + '</span></div>'
+          + '<div style="color:var(--r-text-muted);font-size:16px;margin-top:2px">' + (e.sender||'') + (e.classification ? ' · ' + e.classification : '') + '</div>'
           + '</div>';
       });
       el.innerHTML = html;
