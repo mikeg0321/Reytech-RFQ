@@ -329,6 +329,15 @@ def _build_fields_from_annots(reader) -> dict:
     return out
 
 
+# Leading agency-label tokens that prefix a solicitation number in buyer
+# email bodies but are NOT part of the canonical number. Stripped before
+# compare so a deliberate prefix-strip at ingest doesn't read as a mismatch.
+_SOL_PREFIX_RE = re.compile(
+    r"^(?:PREQ|PR|RFQ|RFP|IFB|SOLICITATION|SOL|BID|PO)[\s\-:#]+",
+    re.IGNORECASE,
+)
+
+
 def _normalize_solicitation(value: str) -> str:
     """Normalize a solicitation number for comparison.
 
@@ -341,18 +350,25 @@ def _normalize_solicitation(value: str) -> str:
     as a critical mismatch (rfq_9e63456e, 5/15: "Email says
     solicitation PREQ 10847262 but RFQ is set to 10847262").
 
-    Normalization rules (intentionally narrow — only patterns we've
-    actually seen in production):
-      - Strip leading "PREQ " or "PREQ-" (case-insensitive)
-      - Strip surrounding whitespace + control chars
-      - Preserve the rest as-is (don't downcase — sol# is opaque)
+    Normalization rules — close the prefix CLASS, not one label at a time:
+      - Strip ANY leading agency label token (PREQ / PR / RFQ / RFP / IFB /
+        SOL / SOLICITATION / BID / PO) plus its separator (space/-/:/#).
+      - Strip surrounding whitespace + control chars.
+      - Preserve the rest as-is (don't downcase — sol# is opaque).
+
+    History: 2026-05-15 (PR-AV-AC3) added a PREQ-only strip after
+    rfq_9e63456e false-flagged "PREQ 10847262" vs "10847262". It recurred
+    2026-05-29 on Coleman 10847187 — the buyer used "PR 10847187", which
+    the PREQ-only check didn't cover, so the gate hard-blocked finalize on
+    "Email says solicitation PR 10847187 but RFQ is set to 10847187" (same
+    number). A narrow allowlist recurs with every new label; strip the
+    whole class instead.
     """
     if not value:
         return ""
-    s = value.strip()
-    # Match `PREQ ` or `PREQ-` (case-insensitive) at the start
-    if len(s) >= 5 and s[:4].upper() == "PREQ" and s[4] in (" ", "-"):
-        s = s[5:].strip()
+    s = str(value).strip()
+    # Strip a single leading label token + separator (case-insensitive).
+    s = _SOL_PREFIX_RE.sub("", s).strip()
     return s
 
 
@@ -759,10 +775,25 @@ def verify_package_completeness(
 
     # Check missing required forms
     for req in required_forms:
-        if req not in generated_ids:
-            result["missing"].append(req)
-            result["issues"].append(f"Required form not generated: {req}")
-            result["passed"] = False
+        if req in generated_ids:
+            continue
+        # Bid-package-internal forms (seller's permit, DVBE 843, CalRecycle
+        # 74, Darfur, bidder decl, …) are SATISFIED when a bid package is
+        # present — they live INSIDE it, never standalone (CLAUDE.md
+        # "Form Filling Guard Rails"). The package-gen path already
+        # registers them covered-by-bidpkg on _gen_forms
+        # (routes_rfq_gen.py), but this gate independently re-derives
+        # generated_ids from the raw file list and never learned it —
+        # divergent-helper drift. Coleman 10847187: contract extraction
+        # unioned `sellers_permit` into required_forms, and this gate then
+        # false-flagged "Required form not generated: sellers_permit",
+        # hard-blocking finalize.
+        if has_bid_package and req in BID_PACKAGE_INTERNAL_FORMS:
+            result["generated"].append({"form_id": req, "via": "bidpkg"})
+            continue
+        result["missing"].append(req)
+        result["issues"].append(f"Required form not generated: {req}")
+        result["passed"] = False
 
     # Check for standalone forms that should be inside bid package
     if has_bid_package:
@@ -871,13 +902,22 @@ def validate_against_requirements(
         if found:
             result["confirmed"].append(form_id)
         else:
-            # Missing a form the buyer explicitly asked for is CRITICAL
-            # in strict mode — they told us what they need.
+            # The buyer's email *mentioned* this form, but the requirements
+            # extractor reads the full body + attachments — including dense
+            # T&C boilerplate (e.g. the CDCR Special Terms in a bid package)
+            # that references STD forms the bidder never submits. Treating
+            # that as a CRITICAL hard-block produces false finalize-locks
+            # (Coleman 10847187: STD817 lifted from boilerplate, no renderer
+            # exists). The authoritative completeness blocker is
+            # `verify_package_completeness` against the AGENCY required set;
+            # this validator stays ADVISORY so a boilerplate mention is
+            # surfaced (LAW 6 — still visible) but never silently blocks.
             _add_gap(
                 "missing_form",
                 form_id,
-                f"Email requires {form_id.upper()} but none generated",
-                "critical" if strict else "warning",
+                f"Email mentions {form_id.upper()} but none generated — "
+                f"verify it isn't boilerplate / bid-package-internal",
+                "warning",
             )
 
     # ── Food items → OBS-1600 heuristic ─────────────────────────────
@@ -900,19 +940,27 @@ def validate_against_requirements(
             f"Email due date is {req_due} but RFQ due date not set",
             "warning",
         )
-    # If both are set, also verify we're still BEFORE the deadline
+    # If both are set, also verify we're still BEFORE the deadline.
+    # Compare on DATE granularity, not datetime: `_parse_requirement_date`
+    # yields midnight for a date-only due, so a `< datetime.now()` test
+    # marked a bid due TODAY as "already passed" all day — and as a
+    # CRITICAL hard-block, locking the operator out on the exact day they
+    # must submit (Coleman 10847187, due 2026-05-29, blocked 2026-05-29).
+    # A deadline is a warning to confirm, never a silent finalize-block.
     if req_due:
         parsed_due = _parse_requirement_date(req_due)
         if parsed_due:
-            if parsed_due < datetime.now():
+            _due_date = parsed_due.date()
+            _today = datetime.now().date()
+            if _due_date < _today:
                 _add_gap(
                     "deadline_passed",
                     "",
-                    f"Email due date {req_due} has already passed — "
-                    f"do not submit without buyer confirmation",
-                    "critical",
+                    f"Email due date {req_due} has passed — "
+                    f"confirm with buyer before submitting",
+                    "warning",
                 )
-            elif (parsed_due - datetime.now()).days == 0:
+            elif _due_date == _today:
                 _add_gap(
                     "deadline_today",
                     "",

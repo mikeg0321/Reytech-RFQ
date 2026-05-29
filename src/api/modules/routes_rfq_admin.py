@@ -3237,12 +3237,13 @@ def api_rfq_review_form(rid, manifest_id):
     notes = data.get("notes", "")
     if not form_id:
         return jsonify({"ok": False, "error": "form_id required"})
-    ok = review_form(manifest_id, form_id, verdict, reviewed_by="user", notes=notes)
+    ok, err = review_form(manifest_id, form_id, verdict, reviewed_by="user", notes=notes)
     if ok:
         log_lifecycle_event("rfq", rid, "form_reviewed",
             f"Form {form_id}: {verdict}" + (f" — {notes}" if notes else ""),
             actor="user", detail={"form_id": form_id, "verdict": verdict, "manifest_id": manifest_id})
-    return jsonify({"ok": ok})
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": err or "review not recorded"})
 
 
 @bp.route("/api/rfq/<rid>/manifest/<int:manifest_id>/approve", methods=["POST"])
