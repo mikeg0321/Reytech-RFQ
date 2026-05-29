@@ -301,8 +301,19 @@ def check_alignment(rfq: Dict, generated_files: List[Tuple[str, str, str]]) -> D
                 ),
             })
 
+    # Parse each unique file ONCE. The route lists the same physical file
+    # under multiple form-ids (the CCHCS bid package is registered as `bidpkg`
+    # AND as its bidpkg-covered aliases calrecycle74 / sellers_permit / dvbe843
+    # — all pointing at <sol>_BidPackage_Reytech.pdf), so without this the
+    # 15-page bid package was pdfplumber-parsed up to 4×. extract_pdf_totals
+    # ignores form_id, so caching by file_path is result-identical.
+    _totals_by_path: Dict[str, Optional[Dict]] = {}
     for form_id, file_path, label in (generated_files or []):
-        extracted = extract_pdf_totals(file_path, form_id=form_id)
+        if file_path in _totals_by_path:
+            extracted = _totals_by_path[file_path]
+        else:
+            extracted = extract_pdf_totals(file_path, form_id=form_id)
+            _totals_by_path[file_path] = extracted
         if extracted is None:
             by_form[form_id] = {"extracted": None, "skipped": True}
             continue
