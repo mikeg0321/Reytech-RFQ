@@ -1676,6 +1676,9 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_qa_cycle
             ON qa_heartbeat(cycle_id);
     """),
+
+    # Programmatic — see _run_migration_52 (idempotent ALTER, mirrors 23).
+    (52, "scprs_po_master_add_agency_code", "SELECT 1;"),
 ]
 
 
@@ -1809,6 +1812,52 @@ def _run_migration_23(conn):
         )
 
     log.info("Migration 23: is_test column ensured on scprs_po_master + scprs_po_lines")
+
+
+def _run_migration_52(conn):
+    """
+    Add agency_code column to scprs_po_master.
+
+    `agency_code TEXT` is in the _ensure_schema() CREATE TABLE statement
+    (src/agents/scprs_universal_pull.py), but that uses CREATE TABLE IF NOT
+    EXISTS — so any prod DB whose scprs_po_master was created BEFORE
+    agency_code was added to that CREATE never got the column. Then
+    get_universal_intelligence()'s by_agency query selects p.agency_code and
+    raises `OperationalError: no such column: p.agency_code`, which the
+    /intel/scprs handler catches and surfaces as the red banner — zeroing
+    every KPI even though the DB has records.
+
+    Same idempotent shape as migration 23 (is_test): ADD COLUMN failures
+    (column already exists on a fresh DB created from the current CREATE) are
+    swallowed, and a missing table no-ops. Backfills agency_code from
+    dept_code where blank, mirroring the writer's `agency_code or dept_code`
+    fallback (scprs_universal_pull.py).
+    """
+    def _add_col(table, col, coltype):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        except Exception as _e:
+            log.debug("suppressed (column likely exists): %s", _e)
+
+    has_master = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scprs_po_master'"
+    ).fetchone()
+    if not has_master:
+        log.info("Migration 52: scprs_po_master not present yet — skipping (fresh install)")
+        return
+
+    _add_col("scprs_po_master", "agency_code", "TEXT")
+    # Backfill from dept_code where blank — the writer stores
+    # `agency_code or dept_code`, so dept_code is the right source.
+    try:
+        conn.execute(
+            "UPDATE scprs_po_master SET agency_code = dept_code "
+            "WHERE (agency_code IS NULL OR agency_code = '') AND dept_code IS NOT NULL"
+        )
+    except Exception as _e:
+        log.debug("Migration 52 backfill skipped: %s", _e)
+
+    log.info("Migration 52: agency_code column ensured on scprs_po_master")
 
 
 def _run_migration_22(conn):
@@ -2078,6 +2127,18 @@ def run_migrations():
                     log.info("Migration 28 applied: registration_gap_agent_tables (programmatic)")
                 except Exception as e:
                     log.error("Migration 28 partial: %s (non-fatal)", e)
+
+            if current < 52:
+                try:
+                    _run_migration_52(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        (52, "scprs_po_master_add_agency_code", datetime.now().isoformat())
+                    )
+                    applied += 1
+                    log.info("Migration 52 applied: scprs_po_master_add_agency_code (programmatic)")
+                except Exception as e:
+                    log.error("Migration 52 partial: %s (non-fatal)", e)
 
             if applied:
                 log.info("Applied %d migration(s). Schema at version %d",
