@@ -241,3 +241,35 @@ class TestSolicitationExtraction:
     def test_empty_returns_fallback(self):
         result = extract_solicitation_number("", "")
         assert isinstance(result, str)  # may return "unknown" or ""
+
+
+# ── Sender Blocklist ──────────────────────────────────────────────────────────
+# The poller matches each BLOCKED_SENDERS pattern as a SUBSTRING of the
+# lowercased From address (email_poller.py:2029). These tests pin that a
+# Reytech internal vendor is blocked while real CA agency buyers are not.
+
+class TestSenderBlocklist:
+
+    @staticmethod
+    def _is_blocked(sender_email_raw):
+        from src.agents.email_poller import BLOCKED_SENDERS
+        s = sender_email_raw.lower()
+        return any(_bl in s for _bl in BLOCKED_SENDERS)
+
+    def test_streamline_bookkeeper_blocked(self):
+        # 2026-05-29: this AP/invoice reply was mis-ingested as a 13-item
+        # CCHCS RFQ. Streamline OC is Reytech's outsourced bookkeeper.
+        assert self._is_blocked("shaina@streamlineoc.com") is True
+
+    def test_streamline_whole_domain_blocked(self):
+        assert self._is_blocked("anyone@streamlineoc.com") is True
+
+    def test_real_agency_buyers_not_blocked(self):
+        # Guard against an over-broad pattern silently dropping real RFQs.
+        for buyer in (
+            "janie.duffey@cdcr.ca.gov",
+            "ayisha.coleman@cdcr.ca.gov",
+            "mohammad.chechi@cdcr.ca.gov",
+            "jiebao.cai@calvet.ca.gov",
+        ):
+            assert self._is_blocked(buyer) is False, buyer
