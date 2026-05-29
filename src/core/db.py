@@ -426,6 +426,30 @@ CREATE TABLE IF NOT EXISTS rfqs (
     source          TEXT,           -- email|manual
     email_uid       TEXT,
     notes           TEXT,
+    -- #1199 schema↔write-path parity (Architect-approved): these columns are
+    -- written by data_layer._save_single_rfq's INSERT. They were historically
+    -- bolted on at runtime by _migrate_columns() (ALTER), so a freshly-built DB
+    -- was only writable AFTER that migration pass completed — a latent landmine
+    -- (the 2026-05-28 flaky-CI failure). Declaring them here makes a fresh DB
+    -- writable by its own write path. _migrate_columns keeps them (idempotent —
+    -- it skips "duplicate column") to heal pre-existing prod DBs. Types/defaults
+    -- mirror _migrate_columns verbatim so a fresh DB == a migrated DB.
+    solicitation_number      TEXT DEFAULT '',
+    due_date                 TEXT DEFAULT '',
+    email_subject            TEXT DEFAULT '',
+    body_text                TEXT DEFAULT '',
+    form_type                TEXT DEFAULT '',
+    reytech_quote_number     TEXT DEFAULT '',
+    shipping_option          TEXT DEFAULT '',
+    shipping_amount          REAL DEFAULT 0,
+    delivery_location        TEXT DEFAULT '',
+    email_thread_id          TEXT DEFAULT '',
+    email_message_id         TEXT DEFAULT '',
+    original_sender          TEXT DEFAULT '',
+    gmail_draft_id           TEXT DEFAULT '',
+    gmail_message_ids        TEXT DEFAULT '[]',
+    gmail_thread_duplicate_of TEXT DEFAULT '',
+    requirements_json        TEXT DEFAULT '{}',
     updated_at      TEXT,
     data_json       TEXT
 );
@@ -470,6 +494,18 @@ CREATE TABLE IF NOT EXISTS price_checks (
     due_date        TEXT,
     pc_data         TEXT DEFAULT '{}',
     ship_to         TEXT DEFAULT '',
+    -- #1199 schema↔write-path parity (Architect-approved): written by
+    -- data_layer._save_single_pc's INSERT, previously only added via
+    -- _migrate_columns(). Same rationale as the rfqs block above; types mirror
+    -- _migrate_columns so a fresh DB == a migrated DB.
+    email_thread_id          TEXT DEFAULT '',
+    email_message_id         TEXT DEFAULT '',
+    original_sender          TEXT DEFAULT '',
+    gmail_draft_id           TEXT DEFAULT '',
+    gmail_message_ids        TEXT DEFAULT '[]',
+    gmail_thread_duplicate_of TEXT DEFAULT '',
+    requirements_json        TEXT DEFAULT '{}',
+    bundle_id                TEXT DEFAULT '',
     data_json       TEXT
 );
 
