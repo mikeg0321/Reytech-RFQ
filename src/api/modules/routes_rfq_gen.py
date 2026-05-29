@@ -2498,12 +2498,19 @@ def generate_rfq_package(rid):
                 errors.append("704B: no template uploaded — upload 704B PDF on this RFQ page")
         
         _843_in_bidpkg = False  # Track if 843 was already handled inside bid package
+        # Canonical dedup (Mike/Architect 2026-05-29, §0 LAW 1): forms that live
+        # INSIDE the CDCR bid package must NEVER also be emitted standalone (the
+        # 10842771 package shipped CalRecycle ×2 + seller's permit ×2). Only DVBE
+        # 843 had a guard; this flag generalizes it. CLAUDE.md guard rail names the
+        # set: "DVBE 843, seller's permit, CalRecycle are INSIDE the bid package."
+        _bidpkg_included = False
         if _include("bidpkg"):
             if "bidpkg" in tmpl and os.path.exists(tmpl["bidpkg"]):
                 try:
                     _bidpkg_path = f"{out_dir}/{sol}_BidPackage_Reytech.pdf"
                     fill_bid_package(tmpl["bidpkg"], r, CONFIG, _bidpkg_path)
                     output_files.append(f"{sol}_BidPackage_Reytech.pdf")
+                    _bidpkg_included = True
                     t.step("Bid Package filled")
                     # Replace 843 pages in bid package with master template version
                     try:
@@ -2556,8 +2563,8 @@ def generate_rfq_package(rid):
             except Exception as e:
                 errors.append(f"STD 204: {e}")
         
-        # Seller's Permit
-        if _include("sellers_permit"):
+        # Seller's Permit — skip standalone when it's already inside the bid package
+        if _include("sellers_permit") and not _bidpkg_included:
             try:
                 sellers_permit = os.path.join(DATA_DIR, "templates", "sellers_permit_reytech.pdf")
                 if os.path.exists(sellers_permit):
@@ -2567,6 +2574,8 @@ def generate_rfq_package(rid):
                     t.step("Seller's Permit included")
             except Exception as e:
                 t.warn("Seller's Permit copy failed", error=str(e))
+        elif _include("sellers_permit") and _bidpkg_included:
+            t.step("Seller's Permit skipped — already inside bid package")
         
         # DVBE 843 — skip standalone if already inside bid package
         if _include("dvbe843") and not _843_in_bidpkg:
@@ -2649,9 +2658,13 @@ def generate_rfq_package(rid):
                 errors.append(f"Darfur Act: {e}")
                 t.warn("Darfur Act failed", error=str(e))
         
-        # CalRecycle 74
-        log.info("FORM CHECK calrecycle74: _include=%s", _include("calrecycle74"))
-        if _include("calrecycle74"):
+        # CalRecycle 74 — skip standalone when it's already inside the bid package
+        # (PR #1184 added multi-page CalRecycle INTO the bid package; the standalone
+        # generator below is the now-redundant pre-#1184 path that double-included it).
+        log.info("FORM CHECK calrecycle74: _include=%s bidpkg=%s", _include("calrecycle74"), _bidpkg_included)
+        if _include("calrecycle74") and _bidpkg_included:
+            t.step("CalRecycle 74 skipped — already inside bid package")
+        elif _include("calrecycle74"):
             try:
                 from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
                 cr_tmpl = os.path.join(DATA_DIR, "templates", "calrecycle_74_blank.pdf")
@@ -3376,6 +3389,35 @@ def generate_rfq_package(rid):
     _missing_required = _completeness["missing_required"]
     _failed_required = _completeness["failed_required"]
     _package_incomplete_reasons = list(_completeness["reasons"])
+
+    # ── Canonical package-integrity gate (Mike/Architect 2026-05-29, §0 LAW 1) ──
+    # The 10842771 package shipped with CalRecycle ×2 + seller's permit ×2 and a
+    # blank 703A bidder block because NOTHING inspected the ASSEMBLED package.
+    # This judges the finished merged PDF — the same check guards every form type
+    # and (via package_integrity) PC packages too. Duplicate forms BLOCK (the
+    # standalone-dedup fix above makes generation clean, so a dup here is a real
+    # regression worth refusing). Missing bidder info WARNS for now — surfaced
+    # loudly so it can't ship silently — until the 703A bidder-fill is verified by
+    # a prod regen, then promote to a blocker.
+    try:
+        from src.forms.package_integrity import check_package as _check_pkg
+        _merged_pkg = os.path.join(out_dir, package_filename)
+        if os.path.exists(_merged_pkg):
+            _integrity = _check_pkg(_merged_pkg, company_name=CONFIG.get("company", {}).get("name", ""))
+            for _d in _integrity["duplicate_forms"]:
+                _package_complete = False
+                _package_incomplete_reasons.append(
+                    f"Duplicate form in package: pages {_d['pages']} are the same "
+                    f"form ({_d['snippet']!r}) — a form is included both standalone "
+                    f"and inside the bid package; emit it once.")
+            if not _integrity["bidder_info_present"]:
+                t.warn("Package integrity: bidder info (company name) not found — "
+                       "verify the 703A/703B BIDDER INFORMATION block filled")
+                errors.append("WARNING: bidder info not found in package — verify 703A/703B bidder block filled")
+            if _integrity["ok"]:
+                t.step("Package integrity OK — no duplicate forms")
+    except Exception as _ie:
+        log.warning("package integrity check suppressed: %s", _ie)
 
     # Merge pre-fill capacity blockers into the completeness gate. A
     # capacity overflow means line items were silently dropped from a
