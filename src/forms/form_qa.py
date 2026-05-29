@@ -41,6 +41,7 @@ FORM_FIELD_REGISTRY = {
             "{p}Due Date": "rfq.due_date",
             "{p}BidExpirationDate": "computed",
         },
+        "warn_if_empty_fields": ["{p}Release Date"],
         "checkbox_fields": {
             "{p}Check Box2": "/Yes",
             "{p}Check Box4": "/Yes",
@@ -66,6 +67,7 @@ FORM_FIELD_REGISTRY = {
             "{p}Due Date": "rfq.due_date",
             "{p}BidExpirationDate": "computed",
         },
+        "warn_if_empty_fields": ["{p}Release Date"],
         "checkbox_fields": {
             "{p}Check Box2": "/Yes",
             "{p}Check Box4": "/Yes",
@@ -497,6 +499,21 @@ def verify_filled_form(pdf_path: str, form_id: str, rfq_data: dict, config: dict
             detail["status"] = "PASS"
 
         result["field_details"].append(detail)
+
+    # Non-blocking "should be filled" warnings. Unlike required_fields (which
+    # set passed=False), these only WARN so the operator sees the gap at review
+    # without blocking generation when the buyer genuinely omitted the value.
+    # Added 2026-05-29: 703B "Release Date" shipped blank (sol 10847187) and
+    # nothing flagged it. Promote to required once release_date auto-fill from
+    # the email contract is wired (see memory
+    # project-704b-prefilled-pricing-and-release-date-gaps).
+    for field_template in registry.get("warn_if_empty_fields", []):
+        field_name = field_template.replace("{p}", prefix)
+        actual_field = fields.get(field_name)
+        if actual_field is None:
+            continue  # field absent from this template variant — not applicable
+        if not str(actual_field.get("/V", "")).strip():
+            result["warnings"].append(f"Empty (review before send): {field_name}")
 
     # Check checkbox fields
     for field_template, expected_val in registry.get("checkbox_fields", {}).items():

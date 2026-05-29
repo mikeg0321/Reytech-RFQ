@@ -731,6 +731,47 @@ def _aggregate_items_for_prefilled_rows(
         else:
             unmatched.append(raw_item)
 
+    # ── Fallback for buyer rows with a BLANK ITEM NUMBER ──────────────────
+    # Many buyers prefill description + QTY but leave ITEM NUMBER empty, so
+    # PN-matching above keys nothing and every item lands in `unmatched` →
+    # overflow → the visible prefilled row renders blank PRICE PER UNIT /
+    # SUBTOTAL (incident sol 10847187, 2026-05-29). Place leftover items into
+    # prefilled rows the buyer left un-numbered, by description similarity
+    # then document position. Coleman 10842771 (every buyer row HAS an ITEM
+    # NUMBER) never produces `unmatched`, so this block stays inert there and
+    # the per-facility-splat guarantee is preserved.
+    if unmatched:
+        from difflib import SequenceMatcher
+        open_rows = [
+            ln for ln, suf in prefilled_rows.items()
+            if ln not in by_line_num
+            and not (profile.field_values.get(f"ITEM NUMBER{suf}", "") or "").strip()
+        ]
+        open_rows.sort()
+        leftover: list[dict] = []
+        for raw_item in unmatched:
+            if not open_rows:
+                leftover.append(raw_item)
+                continue
+            our_desc = (LineItem.from_dict(raw_item).description or "").lower().strip()
+            best_ln, best_sim = None, 0.0
+            for ln in open_rows:
+                suf = prefilled_rows[ln]
+                bdesc = (
+                    profile.field_values.get(
+                        f"ITEM DESCRIPTION PRODUCT SPECIFICATION{suf}", ""
+                    ) or ""
+                ).lower().strip()
+                if our_desc and bdesc:
+                    sim = SequenceMatcher(None, our_desc[:80], bdesc[:80]).ratio()
+                    if sim > best_sim and sim >= 0.5:
+                        best_sim, best_ln = sim, ln
+            if best_ln is None:
+                best_ln = open_rows[0]  # positional fallback (document order)
+            by_line_num.setdefault(best_ln, []).append(raw_item)
+            open_rows.remove(best_ln)
+        unmatched = leftover
+
     # Emit one aggregated item per matched buyer row. Qty = sum of per-
     # facility qtys; unit_price = unit_price from the first entry (all
     # entries for the same SKU should carry the same per-unit price).
@@ -979,6 +1020,22 @@ def build_704_item_fields(
                         values[sub_field] = f"MFG#: {mfg}\n{li.description}" if mfg else li.description
                 else:
                     values[sub_field] = "" if convention == "704b" else " "
+
+        # Buyer-prefilled rows often leave ITEM NUMBER blank — the
+        # writes_item_numbers block above is skipped for the prefilled
+        # strategies. Fill the cell with our MFG#/SKU so the ITEM NUMBER
+        # column isn't empty (sol 10847187), but only when the buyer's cell
+        # is empty — never clobber a buyer-supplied number.
+        if (
+            convention == "704b"
+            and strategy in (FillStrategy.RFQ_PREFILLED, FillStrategy.PC_ORIGINAL)
+            and li.part_number
+        ):
+            _inum_field = _fname("item_number")
+            if _inum_field and not (
+                profile.field_values.get(_inum_field, "") or ""
+            ).strip():
+                values[_inum_field] = li.part_number
 
     # Derive subtotal from the canonical helper AT THE END instead of
     # trusting the per-row accumulator. This eliminates the accumulator-

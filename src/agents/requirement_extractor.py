@@ -60,6 +60,7 @@ class RFQRequirements:
     """
     forms_required: list = field(default_factory=list)
     due_date: str = ""              # ISO format "2026-04-15"
+    release_date: str = ""          # ISO "2026-04-15" — buyer's RFQ release/issue date
     due_time: str = ""              # "5:00 PM" or "COB"
     special_instructions: list = field(default_factory=list)
     delivery_location: str = ""
@@ -160,6 +161,7 @@ Extract these fields from the email. Return ONLY valid JSON, no other text.
 {
   "forms_required": ["std204", "dvbe843", ...],
   "due_date": "YYYY-MM-DD or empty",
+  "release_date": "YYYY-MM-DD or empty (the RFQ's Release/Issue Date header)",
   "due_time": "time string or empty",
   "special_instructions": ["instruction 1", ...],
   "delivery_location": "address or empty",
@@ -266,6 +268,7 @@ def _extract_with_claude(text: str, attachments: list) -> Optional[RFQRequiremen
         result = RFQRequirements(
             forms_required=parsed.get("forms_required", []),
             due_date=parsed.get("due_date", ""),
+            release_date=parsed.get("release_date", ""),
             due_time=parsed.get("due_time", ""),
             special_instructions=parsed.get("special_instructions", []),
             delivery_location=parsed.get("delivery_location", ""),
@@ -327,6 +330,7 @@ def _extract_with_regex(text: str, attachments: list) -> RFQRequirements:
     """Extract requirements using pattern matching (offline fallback)."""
     forms = _detect_forms(text)
     due_date = _extract_due_date(text)
+    release_date = _extract_release_date(text)
     due_time = _extract_due_time(text)
     sol_num = _extract_solicitation_number(text)
     phone = _extract_phone(text)
@@ -338,6 +342,7 @@ def _extract_with_regex(text: str, attachments: list) -> RFQRequirements:
     return RFQRequirements(
         forms_required=forms,
         due_date=due_date,
+        release_date=release_date,
         due_time=due_time,
         special_instructions=instructions,
         solicitation_number=sol_num,
@@ -484,6 +489,39 @@ def _extract_due_date(text: str) -> str:
             if iso:
                 return iso
 
+    return ""
+
+
+# Release/Issue Date header labels. Added 2026-05-29 — the 703B "Release Date"
+# field shipped blank because no extractor captured it (sol 10847187): the
+# header carried it but neither Vision nor this extractor read it. Labeled-only
+# (never verb-prefixed) since a release date is always a labeled header field —
+# this avoids stealing the due date.
+_RELEASE_DATE_LABELED = [
+    (re.compile(r"Release\s*Date\s*:?\s*"
+                r"([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})", re.I), "numeric"),
+    (re.compile(r"Release\s*Date\s*:?\s*"
+                r"([A-Za-z]{3,9}\.?\s+[0-9]{1,2},?\s+[0-9]{4})", re.I), "long"),
+    (re.compile(r"Issued?\s*Date\s*:?\s*"
+                r"([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})", re.I), "numeric"),
+]
+
+
+def _extract_release_date(text: str) -> str:
+    """Extract the RFQ's release/issue date. Returns YYYY-MM-DD or "".
+
+    Labeled-only (no verb-prefixed fallback) so it never grabs the due date.
+    Reuses the same numeric/long date parsers as `_extract_due_date`.
+    """
+    if not text:
+        return ""
+    for pat, kind in _RELEASE_DATE_LABELED:
+        m = pat.search(text)
+        if m:
+            iso = (_parse_numeric_date(m.group(1)) if kind == "numeric"
+                   else _parse_long_date(m.group(1)))
+            if iso:
+                return iso
     return ""
 
 
