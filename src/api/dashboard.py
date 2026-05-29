@@ -3267,6 +3267,12 @@ def process_rfq_email(rfq_email):
                               f"due={_req.due_date}, conf={_req.confidence:.2f}")
                 if rfq_data.get("due_date") in ("TBD", "", None) and _req.due_date:
                     rfq_data["due_date"] = _req.due_date
+                # Thread the buyer's Release/Issue Date onto the record so the
+                # 703B/703C "Release Date" field fills (legacy filler reads
+                # rfq_data["release_date"]; spine contract reads it via
+                # _opt_dt). #1207 captured it at ingest but never threaded it.
+                if _req.release_date and not rfq_data.get("release_date"):
+                    rfq_data["release_date"] = _req.release_date
             # Auto-download linked templates from trusted domains
             if _req and _req.template_urls:
                 try:
