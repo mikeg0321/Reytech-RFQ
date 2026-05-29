@@ -141,6 +141,16 @@ def build_vendor_intel(conn, dry_run=False):
         log.info("[DRY RUN] Would insert %d vendor_intel rows", len(rows))
         return len(rows)
 
+    # Full rebuild from scprs_po_* — clear first. `vendor_intel.id` is
+    # AUTOINCREMENT with NO unique business key, so the INSERT OR REPLACE
+    # below has nothing to conflict on and APPENDS the whole aggregate set
+    # every run. The scheduler fires this ~every 30 min → unbounded growth
+    # (2026-05-29: vendor_intel had 516K rows from a ~2,788-record source;
+    # buyer_intel/won_quotes_kb hit 2.7M+ each, bloating reytech.db to
+    # 2.4GB → lock-contention crashes). DELETE-before-rebuild makes the
+    # build idempotent AND self-heals existing bloat on the next run, with
+    # no schema change. (scprs_awards doesn't need this — it sets id=po_number.)
+    conn.execute("DELETE FROM vendor_intel WHERE tenant_id = 'reytech'")
     count = 0
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:
@@ -181,6 +191,11 @@ def build_buyer_intel(conn, dry_run=False):
         log.info("[DRY RUN] Would insert %d buyer_intel rows", len(rows))
         return len(rows)
 
+    # Full rebuild — clear first. Same no-unique-key bug as vendor_intel:
+    # buyer_intel.id is AUTOINCREMENT so INSERT OR REPLACE never dedups and
+    # the ~30-min scheduler appended forever (2026-05-29: 2.76M rows from a
+    # few-thousand-buyer source). DELETE-before-rebuild = idempotent + self-heals.
+    conn.execute("DELETE FROM buyer_intel WHERE tenant_id = 'reytech'")
     count = 0
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:
@@ -302,6 +317,12 @@ def build_won_quotes_kb(conn, dry_run=False):
         log.info("[DRY RUN] Would insert %d won_quotes_kb rows", len(rows))
         return len(rows)
 
+    # Full rebuild — clear first. won_quotes_kb.id is AUTOINCREMENT and the
+    # INSERT OR IGNORE below never specifies id, so the computed `row_id`
+    # hash is dead code and nothing is ever ignored — the ~30-min scheduler
+    # appended forever (2026-05-29: 2.8M rows). DELETE-before-rebuild =
+    # idempotent + self-heals existing bloat, no schema change.
+    conn.execute("DELETE FROM won_quotes_kb WHERE tenant_id = 'reytech'")
     count = 0
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:

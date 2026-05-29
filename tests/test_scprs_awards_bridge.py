@@ -128,6 +128,45 @@ def test_rebuild_is_idempotent(temp_data_dir, monkeypatch):
     assert n1 >= 1
 
 
+def test_intel_tables_idempotent_no_unbounded_growth(temp_data_dir, monkeypatch):
+    """REGRESSION (2026-05-29): vendor_intel / buyer_intel / won_quotes_kb
+    have an AUTOINCREMENT id and NO unique business key, so their
+    INSERT OR REPLACE/IGNORE never conflicted — every ~30-min scheduler run
+    APPENDED the whole aggregate set, bloating reytech.db to 2.4GB (2.76M
+    buyer_intel + 2.8M won_quotes_kb rows from a ~2,788-record source) and
+    triggering lock-contention crashes. The old idempotency test only
+    checked scprs_awards (which was fine — it sets id=po_number), so the
+    bloat sailed through. Pin all three: two rebuilds on unchanged input
+    must NOT grow the row counts.
+    """
+    db_path = os.path.join(temp_data_dir, "reytech.db")
+    _seed_po(db_path, "PO-BLOAT-1", "VendorX", "cchcs", "05/01/2026", 500.00)
+    _seed_po(db_path, "PO-BLOAT-2", "VendorY", "cdcr", "05/02/2026", 750.00)
+
+    _patch_harvest_script(db_path, monkeypatch)
+    from src.agents.scprs_intelligence_engine import rebuild_intelligence_tables
+
+    def _counts():
+        conn = sqlite3.connect(db_path)
+        try:
+            return {
+                t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                for t in ("vendor_intel", "buyer_intel", "won_quotes_kb")
+            }
+        finally:
+            conn.close()
+
+    rebuild_intelligence_tables()
+    first = _counts()
+    rebuild_intelligence_tables()
+    rebuild_intelligence_tables()
+    third = _counts()
+
+    assert first == third, f"intel tables grew across rebuilds: {first} -> {third}"
+    # Sanity: the rebuild actually populated them (not idempotent-because-empty).
+    assert all(v >= 1 for v in first.values()), first
+
+
 def test_rebuild_picks_up_new_pos_added_between_runs(temp_data_dir, monkeypatch):
     """First run normalizes existing POs. Add more. Second run picks up
     only the deltas (idempotent on the originals + 1 new row)."""
