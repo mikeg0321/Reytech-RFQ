@@ -2812,8 +2812,13 @@ def generate_rfq_package(rid):
                 except Exception as _e:
                     log.debug('suppressed in _include: %s', _e)
 
-        # Seller's Permit (static copy if not already added)
-        if _include("sellers_permit"):
+        # Seller's Permit (static copy if not already added) — SECOND emitter.
+        # Must honor the same bid-package dedup as the primary path above
+        # (L2567); without this guard, suppressing the primary copy left the file
+        # absent so this block's "not in output_files" check passed and re-added
+        # the standalone — the seller's permit p15≡p21 duplicate the 10842771
+        # regen exposed. Skip when the bid package already carries it.
+        if _include("sellers_permit") and not _bidpkg_included:
             _sp_path = os.path.join(DATA_DIR, "templates", "sellers_permit_reytech.pdf")
             if os.path.exists(_sp_path) and f"{sol}_SellersPermit_Reytech.pdf" not in output_files:
                 import shutil as _sh_sp
@@ -3169,6 +3174,18 @@ def generate_rfq_package(rid):
             if _fid == "704b" and "704b" in tmpl:
                 _entry["template_path"] = tmpl["704b"]
             _gen_forms.append(_entry)
+
+        # Forms we deliberately did NOT emit standalone because the bid package
+        # already contains them (CalRecycle / seller's permit / DVBE 843) are still
+        # SATISFIED — they're in the package, just not as separate files. Register
+        # them as covered-by-bidpkg so the completeness gate doesn't false-report
+        # them "missing" (the regression the 10842771 regen surfaced).
+        if _bidpkg_included:
+            _bidpkg_covered = {"calrecycle74", "sellers_permit", "dvbe843"}
+            _gen_ids_so_far = {f["form_id"] for f in _gen_forms}
+            for _cov in (_bidpkg_covered & set(_req_forms)) - _gen_ids_so_far:
+                _gen_forms.append({"form_id": _cov, "filename": f"{sol}_BidPackage_Reytech.pdf",
+                                   "via": "bidpkg"})
 
         _gen_ids = {f["form_id"] for f in _gen_forms}
         _missing = [f for f in _req_forms if f not in _gen_ids]
