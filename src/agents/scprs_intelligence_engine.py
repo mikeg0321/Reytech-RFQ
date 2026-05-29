@@ -1085,9 +1085,15 @@ def rebuild_intelligence_tables(notify_fn=None) -> Dict[str, int]:
 
     Returns a dict of {table_name: row_count_after}.
 
-    PR-O (2026-05-13): the canonical post-pull step. Idempotent — every
-    build_* uses INSERT OR IGNORE/REPLACE keyed on PO number, so re-running
-    after no new pulls is a no-op. Safe to call from:
+    PR-O (2026-05-13): the canonical post-pull step. Idempotent — each
+    build_* is a full rebuild that DELETEs its table before re-aggregating
+    from scprs_po_master/lines, so re-running yields the same row set (not a
+    growing one). NOTE: the original claim here ("INSERT OR IGNORE/REPLACE
+    keyed on PO number → no-op") was FALSE for vendor_intel/buyer_intel/
+    won_quotes_kb — those tables have an AUTOINCREMENT id and no unique
+    business key, so OR REPLACE/IGNORE never conflicted and every ~30-min
+    run appended the whole set, bloating reytech.db to 2.4GB by 2026-05-29.
+    Fixed by DELETE-before-rebuild in run_scprs_harvest.build_*. Safe to call from:
       - the SCPRS scheduler (every 30 min after pull cycle)
       - admin endpoints `/api/v1/harvest/rebuild-intel` + `/reprocess`
       - the boot-time one-shot in `_scprs_autostart` (catches up after
