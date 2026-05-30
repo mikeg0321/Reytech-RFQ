@@ -180,7 +180,10 @@ def api_won_quotes_dump():
         return jsonify({"error": "Won Quotes DB not available"}), 503
     from src.knowledge.won_quotes_db import load_won_quotes
     quotes = load_won_quotes()
-    return jsonify({"total": len(quotes), "first_10": quotes[:10]})
+    # `tokens` is a set in-memory (the matcher does set intersection on it);
+    # listify only here, at the JSON boundary, so the dump serializes.
+    sample = [{**q, "tokens": sorted(q.get("tokens") or [])} for q in quotes[:10]]
+    return jsonify({"total": len(quotes), "first_10": sample})
 
 
 @bp.route("/api/admin/won-quotes/diagnostic")
