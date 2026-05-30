@@ -625,6 +625,38 @@ Then exercise the interactive flows:
 that genuinely don't change user-visible behavior. Include the reason
 in the commit message.
 
+### Everything Operator-Visible Gets a Real Chrome Visual Check (2026-05-29)
+
+**Mike's rule: "everything needs chrome visual checks."** A change that
+touches any operator surface is not verified by pytest, an API/curl response,
+or a Jinja render-test alone — load the actual page in Chrome-MCP, confirm the
+change renders in every state Mike will see, and screenshot it. Do NOT reach
+for `CHROME_VERIFIED_SKIP` when a Chrome path exists; the skip hatch is for
+genuinely non-visual pushes only.
+
+**When Chrome-MCP can't attach** (`"The browser is already running for
+...chrome-devtools-mcp/chrome-profile"`), don't give up and skip — check who
+owns the session and how stale it is, and **if idle > 5 minutes, take it over
+via bash:**
+
+1. **Owner:** `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'"`,
+   filter `CommandLine` for `chrome-devtools-mcp`.
+2. **Staleness:** mtime of the most-recent file under
+   `~/.cache/chrome-devtools-mcp/chrome-profile` (and/or `SingletonLock`).
+   Age > 5 min ⇒ stale.
+3. **Stale ⇒** `Stop-Process` the locking chrome.exe (remove `SingletonLock`
+   if present), then retry `new_page`. **Active (< 5 min) ⇒ Mike is likely
+   using it — do not kill; wait or ask.**
+
+**Credential-free path (never leak prod secrets to Chrome):** prod is HTTP
+Basic-Auth and the MCP profile isn't authed; embedding real `REYTECH_USER/PASS`
+in a navigation URL is (correctly) blocked. Verify against the LOCAL dev
+server instead — `unset PORT; SECRET_KEY=dev-only DASH_USER=reytech
+DASH_PASS=changeme python app.py` (dev creds `reytech:changeme` are public
+defaults — safe in `http://reytech:changeme@localhost:5000/`). **Gotcha:
+setting `PORT` trips shared.py's production guard ("DASH_PASS must be set in
+production") — `make run` omits PORT on purpose; app.py defaults to 5000.**
+
 ### Related memories
 - `feedback_workflow_ui_chrome_verify` — the original principle
 - `feedback_visual_verify_always` — PDFs must be verified in real Chrome too
