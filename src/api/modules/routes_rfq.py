@@ -79,8 +79,16 @@ def _check_guardrails(items):
 
         # SCPRS comparison
         if scprs > 0 and bid > 0:
+            from src.core.pricing_math import unit_mismatch_vs_scprs as _umvs
             diff_pct = (bid - scprs) / scprs * 100
-            if diff_pct > MARGIN_RULES["max_over_scprs_pct"]:
+            # ISSUE-32: cost >3x SCPRS => pack-vs-each unit mismatch, not
+            # overpricing. Relabel instead of a false "above SCPRS — may lose".
+            if _umvs(_eff_cost, scprs):
+                warnings.append({
+                    "idx": i, "desc": desc, "level": "info",
+                    "msg": f"Cost ${_eff_cost:.2f} is {_eff_cost/scprs:.0f}x SCPRS — likely pack-vs-each unit mismatch, verify"
+                })
+            elif diff_pct > MARGIN_RULES["max_over_scprs_pct"]:
                 warnings.append({
                     "idx": i, "desc": desc, "level": "warn",
                     "msg": f"Bid is {diff_pct:.0f}% above SCPRS — may lose"

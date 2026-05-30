@@ -821,3 +821,20 @@ def revert_uniform_suspicious_pricing(
         except (KeyError, IndexError, TypeError):
             pass
     return result
+
+
+def unit_mismatch_vs_scprs(cost, scprs, factor: float = 3.0) -> bool:
+    """True when our COST already exceeds `factor`x the SCPRS line price.
+
+    SCPRS lines are per-EACH; our quote is often a PACK/CASE. When cost >>
+    the SCPRS unit price the two are different units of measure, so a raw
+    price/SCPRS ratio ("N% above SCPRS") is a false "overpriced" signal --
+    we cannot be above market on an item that costs us multiples of that
+    market price. Mirrors the 3x cost-sanity guard-rail (CLAUDE.md).
+    """
+    try:
+        cost = float(cost or 0)
+        scprs = float(scprs or 0)
+    except (TypeError, ValueError):
+        return False
+    return cost > 0 and scprs > 0 and cost > factor * scprs
