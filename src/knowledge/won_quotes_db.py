@@ -902,8 +902,20 @@ def sync_from_scprs_tables() -> dict:
             log.debug("sync_from_scprs_tables: source tables don't exist yet")
             return stats
 
-        # Read lines joined with master for supplier/agency/date
-        rows = conn.execute("""
+        # Scope to GOODS (2026-05-29): won_quotes is a commodity pricing/intel
+        # KB. Skip Services / Subvention(grants) / Interagency / Lease /
+        # Encumbrance awards a goods reseller can never bid on (they dominated
+        # the KB at avg $56k-$220k and pose cross-category contamination risk).
+        # Keep Goods, Telecom, and unmatched (NULL acq_type) lines. Applied
+        # only when scprs_po_master carries acq_type (degrade gracefully on
+        # older/mocked schemas that lack the column).
+        master_cols = {r[1] for r in conn.execute("PRAGMA table_info(scprs_po_master)").fetchall()}
+        goods_filter = (
+            "  AND (p.acq_type IS NULL OR TRIM(p.acq_type) = '' "
+            "OR p.acq_type LIKE '%Goods%' OR p.acq_type LIKE '%Telecom%')"
+            if "acq_type" in master_cols else ""
+        )
+        rows = conn.execute(f"""
             SELECT l.id, l.po_number, l.item_id, l.description, l.unit_price, l.quantity,
                    COALESCE(p.supplier, '') as supplier,
                    COALESCE(p.agency_key, '') as agency_key,
@@ -912,6 +924,7 @@ def sync_from_scprs_tables() -> dict:
             FROM scprs_po_lines l
             LEFT JOIN scprs_po_master p ON l.po_id = p.id
             WHERE l.unit_price > 0 AND l.description != ''
+            {goods_filter}
         """).fetchall()
 
         now = datetime.now(timezone.utc).isoformat()
@@ -1404,5 +1417,59 @@ def diagnose_acq_type_coverage() -> dict:
             samples[at] = [{"desc": (s["description"] or "")[:50],
                             "unit_price": s["unit_price"]} for s in srows]
         return {"acq_type_distribution": dist, "top_samples_by_acq_type": samples}
+    finally:
+        conn.close()
+
+
+# Positively non-product acq_types: Services / Subvention(grants) / Interagency
+# / Leases / Encumbrance, etc. — anything that is NOT Goods or Telecom and has
+# a non-empty acq_type. Conservative: rows with NULL/empty acq_type (unmatched,
+# e.g. Reytech's own browser-won goods) are KEPT, not purged.
+_NONPRODUCT_ACQ_TYPE_SQL = (
+    "acq_type IS NOT NULL AND TRIM(acq_type) != '' "
+    "AND acq_type NOT LIKE '%Goods%' AND acq_type NOT LIKE '%Telecom%'"
+)
+
+
+def repair_noncommodity_scope(dry_run: bool = True) -> dict:
+    """Scope the KB to GOODS by purging won_quotes rows whose source PO is a
+    positively non-product award (Services / Subvention / Interagency / Lease /
+    Encumbrance — see acq_type analysis 2026-05-29). Joins won_quotes.po_number
+    to the UNIQUE scprs_po_master.po_number. KEEPS Goods, Telecom, and
+    unmatched/NULL-acq_type rows (conservative — only removes rows confirmed
+    non-product). Idempotent; `dry_run=True` counts without deleting.
+    """
+    _ensure_won_quotes_table()
+    conn = _get_db_conn()
+    try:
+        if not conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scprs_po_master'"
+        ).fetchone():
+            return {"error": "scprs_po_master not present — cannot scope"}
+        purge_pred = (
+            "po_number IN (SELECT po_number FROM scprs_po_master WHERE "
+            + _NONPRODUCT_ACQ_TYPE_SQL + ")"
+        )
+        before = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
+        to_purge = conn.execute(
+            f"SELECT COUNT(*) FROM won_quotes WHERE {purge_pred}"
+        ).fetchone()[0]
+        plan = {
+            "rows_before": before,
+            "rows_to_purge": to_purge,
+            "rows_after": before - to_purge,
+            "dry_run": dry_run,
+        }
+        if dry_run:
+            return plan
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(f"DELETE FROM won_quotes WHERE {purge_pred}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        log.warning("won_quotes scope-to-goods purge: %s", plan)
+        return plan
     finally:
         conn.close()
