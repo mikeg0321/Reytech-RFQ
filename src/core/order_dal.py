@@ -917,14 +917,21 @@ def delete_order(order_id: str, actor: str = "user", reason: str = "") -> bool:
     from src.core.db import get_db
     try:
         with get_db() as conn:
-            conn.execute("DELETE FROM order_line_items WHERE order_id=?", (order_id,))
-            conn.execute("DELETE FROM delivery_log WHERE order_id=?", (order_id,))
-            conn.execute("DELETE FROM orders WHERE id=?", (order_id,))
+            # Audit FIRST, while the order row still exists. The
+            # `fk_order_audit_log_order` trigger (migrations.py) RAISE(ABORT)s
+            # any order_audit_log insert whose order_id isn't in `orders` — so
+            # deleting the order before logging aborts the insert and ROLLS BACK
+            # the whole delete. Result: delete_order silently never deleted any
+            # order (the row survived, caller got a swallowed False). Log, then
+            # delete. (ISSUE-11 sweep, 2026-05-30.)
             conn.execute("""
                 INSERT INTO order_audit_log
                 (order_id, action, actor, details, created_at)
                 VALUES (?, 'delete', ?, ?, ?)
             """, (order_id, actor, reason or "Order deleted", _now_iso()))
+            conn.execute("DELETE FROM order_line_items WHERE order_id=?", (order_id,))
+            conn.execute("DELETE FROM delivery_log WHERE order_id=?", (order_id,))
+            conn.execute("DELETE FROM orders WHERE id=?", (order_id,))
             log.info("order_dal.delete_order(%s) by %s: %s", order_id, actor, reason)
             return True
     except Exception as e:
