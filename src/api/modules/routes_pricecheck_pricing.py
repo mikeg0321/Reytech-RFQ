@@ -308,15 +308,26 @@ def api_oracle_match_debug():
 def api_quotes_misbid_audit():
     """READ-ONLY. Did the cost-contamination bugs (SCPRS-as-cost #1247, the
     line-number cross-match #1252/#1255/#1259) cause any ALREADY-SENT/WON quote
-    to bid off a wrong cost? Scans sent/won quotes for the frozen signature: a
-    line whose `supplier_cost` is implausibly high for a commodity (>= min_cost,
-    default $300) OR a non-positive margin (bid <= cost — a wrong-high cost
-    makes the bid look like a loss). Returns a review list, newest first; flags
-    only — no mutation. `?min_cost=` overrides the threshold."""
-    try:
-        min_cost = float(request.args.get("min_cost", 300))
-    except (TypeError, ValueError):
-        min_cost = 300.0
+    to bid off a wrong cost? The true contamination signature is a CHEAP
+    commodity line (notebook/ball/poster/card/journal…) carrying a high cost —
+    a $2 notebook reading $130. So we flag: (a) a cheap-commodity description
+    with cost >= cheap_cost (default $40); (b) any non-positive margin (bid <=
+    cost); (c) very high absolute cost (>= min_cost, default $1500) as a coarse
+    backstop. Cheap-commodity flags sort first. Returns a sample of line-item
+    keys so the bid/cost fields are auditable. Read-only; no mutation."""
+    def _f(args, key, default):
+        try:
+            return float(request.args.get(key, default))
+        except (TypeError, ValueError):
+            return float(default)
+    min_cost = _f(request.args, "min_cost", 1500)
+    cheap_cost = _f(request.args, "cheap_cost", 40)
+    CHEAP = ("notebook", "journal", "poster", "ball", " card", "pencil", "marker",
+             "crayon", "sticker", "magnet", "ornament", "puzzle", "velvet art",
+             "scratch art", "gratitude", " toy", "game", "craft", "eraser",
+             "construction paper", "coloring", "mandala", "sketch")
+    BID_FIELDS = ("price_per_unit", "our_price", "sell_price", "unit_price",
+                  "price", "bid_price", "quoted_price", "extended_price")
     from src.core.db import get_db
     try:
         from src.core.pricing_math import cost_from_contract
@@ -324,6 +335,7 @@ def api_quotes_misbid_audit():
         cost_from_contract = None
     flagged = []
     scanned = 0
+    sample_keys = None
     with get_db() as conn:
         rows = conn.execute(
             "SELECT quote_number, status, created_at, line_items FROM quotes "
@@ -336,18 +348,33 @@ def api_quotes_misbid_audit():
             except Exception:
                 continue
             for it in items if isinstance(items, list) else []:
+                if not isinstance(it, dict):
+                    continue
+                if sample_keys is None:
+                    sample_keys = sorted(it.keys())
                 if cost_from_contract:
                     cost = float(cost_from_contract(it) or 0)
                 else:
                     cost = float(it.get("supplier_cost")
                                  or (it.get("pricing") or {}).get("unit_cost")
                                  or it.get("cost") or 0)
-                bid = float(it.get("price_per_unit") or it.get("our_price") or 0)
+                bid = 0.0
+                for bf in BID_FIELDS:
+                    v = it.get(bf)
+                    if v:
+                        try:
+                            bid = float(v)
+                            break
+                        except (TypeError, ValueError):
+                            pass
+                descl = (it.get("description") or "").lower()
                 reason = None
-                if cost >= min_cost:
-                    reason = f"high cost (>= ${min_cost:.0f})"
+                if cost >= cheap_cost and any(k in descl for k in CHEAP):
+                    reason = "CHEAP-COMMODITY w/ elevated cost (contamination signature)"
                 elif bid > 0 and cost > 0 and bid <= cost:
                     reason = "non-positive margin (bid <= cost)"
+                elif cost >= min_cost:
+                    reason = f"very high cost (>= ${min_cost:.0f})"
                 if reason:
                     flagged.append({
                         "quote": r["quote_number"], "status": r["status"],
@@ -357,9 +384,14 @@ def api_quotes_misbid_audit():
                         "markup_pct": round((bid - cost) / cost * 100, 1) if cost > 0 else None,
                         "reason": reason,
                     })
-    flagged.sort(key=lambda x: -(x.get("cost") or 0))
-    return jsonify({"ok": True, "quotes_scanned": scanned, "min_cost": min_cost,
-                    "n_flagged": len(flagged), "flagged": flagged[:150]})
+    flagged.sort(key=lambda x: (0 if "CHEAP" in x["reason"] else
+                                1 if "margin" in x["reason"] else 2, -(x["cost"] or 0)))
+    return jsonify({"ok": True, "quotes_scanned": scanned,
+                    "thresholds": {"min_cost": min_cost, "cheap_cost": cheap_cost},
+                    "sample_line_keys": sample_keys,
+                    "n_flagged": len(flagged),
+                    "n_cheap_commodity": sum(1 for f in flagged if "CHEAP" in f["reason"]),
+                    "flagged": flagged[:150]})
 
 
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
