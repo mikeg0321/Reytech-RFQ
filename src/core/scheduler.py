@@ -456,9 +456,29 @@ def run_backup(data_dir: str = None) -> dict:
 
 def _rotate_backups(backup_dir: str, keep_daily: int = 7, keep_weekly: int = 4):
     """Keep last N daily + M weekly backups, delete the rest. Supports .db and .db.gz."""
+    all_files = [
+        f for f in os.listdir(backup_dir)
+        if f.startswith("reytech_") and (f.endswith(".db") or f.endswith(".db.gz"))
+    ]
+
+    # Drop LEGACY uncompressed `.db` snapshots — superseded by the gzip
+    # format (2026-05-28). They're 5-8× larger than the `.db.gz` equivalent,
+    # and the count-based policy below treated a 2GB uncompressed file the
+    # same as a 386MB gzip — so two pre-migration snapshots (3.9GB total) sat
+    # in backups/ indefinitely as part of the "newest N", never size-pruned.
+    # Safe to delete every uncompressed `.db` as long as ≥1 compressed
+    # backup remains (never leave zero backups).
+    compressed = [f for f in all_files if f.endswith(".db.gz")]
+    if compressed:
+        for f in [x for x in all_files if x.endswith(".db")]:
+            try:
+                os.remove(os.path.join(backup_dir, f))
+                log.info("Rotated legacy uncompressed backup %s", f)
+            except OSError as _e:
+                log.debug("legacy backup rm suppressed: %s", _e)
+
     files = sorted(
-        [f for f in os.listdir(backup_dir)
-         if f.startswith("reytech_") and (f.endswith(".db") or f.endswith(".db.gz"))],
+        compressed if compressed else all_files,
         reverse=True  # newest first
     )
 
