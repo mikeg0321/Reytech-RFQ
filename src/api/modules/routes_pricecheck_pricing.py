@@ -208,6 +208,23 @@ def api_won_quotes_price_quality():
     return jsonify({"ok": True, "diagnostic": diagnose_price_quality()})
 
 
+@bp.route("/api/admin/won-quotes/commodity-coverage")
+@auth_required
+@safe_route
+def api_won_quotes_commodity_coverage():
+    """READ-ONLY. Verify (before any purge) how scoping the KB to commodity-only
+    would split the existing rows — keep vs purge by price bucket — so we don't
+    gut legitimate commodity rows. `?n=` overrides the per-bucket sample size."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    try:
+        n = int(request.args.get("n", 300))
+    except (TypeError, ValueError):
+        n = 300
+    from src.knowledge.won_quotes_db import diagnose_commodity_coverage
+    return jsonify({"ok": True, "diagnostic": diagnose_commodity_coverage(sample_per_bucket=n)})
+
+
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
 @auth_required
 @safe_route

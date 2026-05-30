@@ -1308,3 +1308,53 @@ def diagnose_price_quality(top_n: int = 25) -> dict:
         "line_total_signature_by_source": dict(line_total_by_source),
         "top_unit_prices": top_rows,
     }
+
+
+def diagnose_commodity_coverage(sample_per_bucket: int = 300) -> dict:
+    """READ-ONLY. Before scoping the KB to commodity-only, estimate how the
+    catalog classifier (`scprs_classifier.classify_line` → product_catalog
+    match at 0.65 — the same matcher the oracle uses) would split the existing
+    rows: KEEP (reytech_sells=1) vs PURGE (0), overall and per price bucket,
+    with sample descriptions of each side. This verifies we won't gut
+    legitimate commodity rows. Samples per bucket for speed; writes nothing.
+    """
+    from src.core.scprs_classifier import classify_line
+    _ensure_won_quotes_table()
+    conn = _get_db_conn()
+    bucket_defs = [
+        ("<=100", 0, 100), ("100-1k", 100, 1_000), ("1k-10k", 1_000, 10_000),
+        ("10k-100k", 10_000, 100_000), ("100k-1M", 100_000, 1_000_000.01),
+    ]
+    out = {"sample_per_bucket": sample_per_bucket, "buckets": {},
+           "kept_samples": [], "purged_samples": []}
+    try:
+        total_keep = total_seen = 0
+        for name, lo, hi in bucket_defs:
+            rows = conn.execute(
+                "SELECT description, item_number, unit_price FROM won_quotes "
+                "WHERE unit_price > ? AND unit_price <= ? ORDER BY RANDOM() LIMIT ?",
+                (lo, hi, sample_per_bucket),
+            ).fetchall()
+            keep = 0
+            for r in rows:
+                c = classify_line(r["description"] or "", r["item_number"] or "")
+                if c.get("reytech_sells"):
+                    keep += 1
+                    if len(out["kept_samples"]) < 15:
+                        out["kept_samples"].append(
+                            {"desc": (r["description"] or "")[:55], "unit_price": r["unit_price"]})
+                elif len(out["purged_samples"]) < 15:
+                    out["purged_samples"].append(
+                        {"desc": (r["description"] or "")[:55], "unit_price": r["unit_price"]})
+            n = len(rows)
+            out["buckets"][name] = {
+                "sampled": n, "keep": keep,
+                "keep_rate": round(keep / n, 3) if n else None,
+            }
+            total_keep += keep
+            total_seen += n
+        out["overall_keep_rate"] = round(total_keep / total_seen, 3) if total_seen else None
+        out["sampled_total"] = total_seen
+    finally:
+        conn.close()
+    return out
