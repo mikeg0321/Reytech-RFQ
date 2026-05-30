@@ -1358,3 +1358,51 @@ def diagnose_commodity_coverage(sample_per_bucket: int = 300) -> dict:
     finally:
         conn.close()
     return out
+
+
+def diagnose_acq_type_coverage() -> dict:
+    """READ-ONLY. The `reytech_sells` signal is the wrong axis for scoping
+    (it gutted 90% incl. real commodities). This checks the OTHER candidate:
+    `scprs_po_master.acq_type`. Reports, per acq_type (joined to won_quotes via
+    the UNIQUE po_number), row count, avg/max unit_price, count of >=$10k rows,
+    and the top sample descriptions — so we can see whether a small set of
+    acq_types cleanly isolates the non-product awards (grants / interagency
+    agreements / service contracts) WITHOUT catching commodity products.
+    Writes nothing.
+    """
+    _ensure_won_quotes_table()
+    conn = _get_db_conn()
+    try:
+        if not conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scprs_po_master'"
+        ).fetchone():
+            return {"error": "scprs_po_master not present"}
+        rows = conn.execute("""
+            SELECT COALESCE(NULLIF(TRIM(m.acq_type), ''), '(none)') AS at,
+                   COUNT(*) AS n,
+                   ROUND(AVG(w.unit_price), 2) AS avg_up,
+                   ROUND(MAX(w.unit_price), 2) AS max_up,
+                   SUM(CASE WHEN w.unit_price >= 10000 THEN 1 ELSE 0 END) AS n_high
+            FROM won_quotes w
+            LEFT JOIN scprs_po_master m ON w.po_number = m.po_number
+            GROUP BY at ORDER BY n DESC
+        """).fetchall()
+        dist = [{"acq_type": r["at"], "rows": r["n"], "avg_unit_price": r["avg_up"],
+                 "max_unit_price": r["max_up"], "rows_ge_10k": r["n_high"]} for r in rows]
+        samples = {}
+        for d in dist[:14]:
+            at = d["acq_type"]
+            if at == "(none)":
+                cond, params = "(m.acq_type IS NULL OR TRIM(m.acq_type)='')", ()
+            else:
+                cond, params = "TRIM(m.acq_type) = ?", (at,)
+            srows = conn.execute(f"""
+                SELECT w.description, w.unit_price FROM won_quotes w
+                LEFT JOIN scprs_po_master m ON w.po_number = m.po_number
+                WHERE {cond} ORDER BY w.unit_price DESC LIMIT 4
+            """, params).fetchall()
+            samples[at] = [{"desc": (s["description"] or "")[:50],
+                            "unit_price": s["unit_price"]} for s in srows]
+        return {"acq_type_distribution": dist, "top_samples_by_acq_type": samples}
+    finally:
+        conn.close()
