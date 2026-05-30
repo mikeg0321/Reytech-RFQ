@@ -67,10 +67,21 @@ def orders_page():
     total_line_items = len(all_items)
     delivered_items = sum(1 for it in all_items if it.get("sourcing_status") == "delivered")
 
+    # ── Headline KPIs exclude the stale 2023-2025 bulk import (ISSUE-11) ──
+    # The `active` count + `total_value` ("pipeline") used to sum EVERY order,
+    # so a $1.46M block of 2023-2025 historical POs (mass-imported 2026-04-28,
+    # status left as 'new', never actionable) showed as live pipeline — the
+    # exact rows Home deliberately stopped surfacing on 2026-05-11. Identify
+    # them by the import's created_at signature (NOT quote vintage — a real
+    # 2026 PO can ride a 2025-vintage quote), and scope the headline numbers
+    # to genuine current business. The table still lists every order.
+    from src.core.canonical_state import is_historical_import_order
+    current_orders = [o for o in order_list if not is_historical_import_order(o)]
+
     stats = {
         "total_orders": len(order_list),
-        "active": sum(1 for o in order_list if o.get("status") not in ("closed",)),
-        "total_value": sum(o.get("total", 0) for o in order_list),
+        "active": sum(1 for o in current_orders if o.get("status") not in ("closed",)),
+        "total_value": sum(o.get("total", 0) for o in current_orders),
         "invoiced_value": sum(o.get("invoice_total", 0) for o in order_list),
         "total_line_items": total_line_items,
         "pending_items": sum(1 for it in all_items if it.get("sourcing_status") == "pending"),
@@ -78,8 +89,9 @@ def orders_page():
         "shipped_items": sum(1 for it in all_items if it.get("sourcing_status") == "shipped"),
         "delivered_items": delivered_items,
         "pct_complete": round(delivered_items / total_line_items * 100) if total_line_items else 0,
-        "orders_needing_action": sum(1 for o in order_list if o.get("status") == "new" and o.get("line_items")),
+        "orders_needing_action": sum(1 for o in current_orders if o.get("status") == "new" and o.get("line_items")),
         "orders_ready_invoice": sum(1 for o in order_list if o.get("status") == "delivered"),
+        "historical_excluded": len(order_list) - len(current_orders),
     }
 
     # ── Enrich each order with aging badge + computed counts for template ──
@@ -1858,6 +1870,32 @@ def api_orders_po_date_coverage():
             FROM orders WHERE COALESCE(is_test,0) = 0
             GROUP BY vintage_prefix ORDER BY value DESC
         """).fetchall()]
+        # created_at-DAY histogram — the import is one mass-insert day; real
+        # current-year POs land on other days (ISSUE-11 discriminator).
+        out["by_created_day"] = [dict(r) for r in conn.execute("""
+            SELECT substr(created_at, 1, 10) AS day,
+                   COUNT(*) AS orders, ROUND(SUM(total),2) AS value
+            FROM orders WHERE COALESCE(is_test,0) = 0
+            GROUP BY day ORDER BY value DESC LIMIT 15
+        """).fetchall()]
+    # What the is_historical_import_order predicate keeps vs excludes — verifies
+    # the live KPI scoping AND that real current-year POs survive (Mike's ~4).
+    from src.core.order_dal import load_orders_dict
+    from src.core.canonical_state import is_historical_import_order
+    _orders = [o for o in load_orders_dict().values() if not o.get("is_test")]
+    _current = [o for o in _orders if not is_historical_import_order(o)]
+    out["predicate"] = {
+        "total": len(_orders),
+        "excluded_historical": len(_orders) - len(_current),
+        "kept_current": len(_current),
+        "kept_value": round(sum(o.get("total", 0) for o in _current), 2),
+        "kept_sample": [
+            {"id": o.get("order_id") or o.get("id"), "po": o.get("po_number"),
+             "created": (o.get("created_at") or "")[:10], "total": o.get("total"),
+             "status": o.get("status")}
+            for o in sorted(_current, key=lambda x: x.get("total", 0), reverse=True)[:10]
+        ],
+    }
     return jsonify(out)
 
 
