@@ -16,8 +16,10 @@ from src.spine_bridge.translator import (
 )
 from src.spine_bridge.ingest import (
     IngestResult,
+    NotCchcsError,
     TaxResolver,
     ingest_email_contract,
+    synthesize_cchcs_email_contract,
 )
 from src.spine_bridge.oracle_proxy import (
     OracleLineSuggestion,
@@ -31,8 +33,10 @@ __all__ = [
     "TranslationIssue",
     "translate_legacy_quote",
     "IngestResult",
+    "NotCchcsError",
     "TaxResolver",
     "ingest_email_contract",
+    "synthesize_cchcs_email_contract",
     "OracleLineSuggestion",
     "OracleSource",
     "suggestions_for_quote",

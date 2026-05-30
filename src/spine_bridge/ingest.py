@@ -529,3 +529,194 @@ def _build_email_contract(
         ingest_parser_version=_opt_str("parser_version", "ingest_parser_version") or "unknown",
         ingested_at=ingest_ts,
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Generate-time on-ramp (J1-1)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class NotCchcsError(ValueError):
+    """Raised by synthesize_cchcs_email_contract when the RFQ row is not
+    a CCHCS quote.
+
+    J1-1: the on-ramp is CCHCS-only. The caller (generate-time bridge in
+    routes_rfq_gen.py, J1-2) must gate on this before calling so it does
+    not silently produce a CCHCS contract for a non-CCHCS RFQ.
+    """
+
+
+def synthesize_cchcs_email_contract(
+    rfq_row: dict,
+    rfq_id: str,
+    *,
+    tax_resolver: TaxResolver,
+    synthesis_ts: datetime | None = None,
+) -> EmailContract:
+    """Synthesize an EmailContract for a CCHCS RFQ row at generate time.
+
+    This is the generate-time on-ramp for Job #1 (J1-1). It takes the
+    legacy RFQ dict as loaded by ``load_rfqs()`` (the ``r`` dict) and
+    returns a transient Spine ``EmailContract`` built on-demand by
+    reusing ``_build_email_contract``.
+
+    **No persistence.** This function does NOT write to spine.db, does
+    NOT create a Quote object, and does NOT touch any legacy DB table.
+    It is a pure synthesizer — call it once per generate request,
+    discard after use. The J1-2 ticket wires the returned contract into
+    the form-set selection path; J1-4/J1-5 delete the legacy config
+    entries after that wiring proves correct.
+
+    **Tax resolver is injected** (same pattern as
+    ``ingest_email_contract``) so the caller can pass the prod CDTFA
+    resolver or a deterministic stub in tests. Use
+    ``shadow_ingest._make_tax_resolver()`` for the prod binding.
+
+    Args:
+        rfq_row: The legacy RFQ dict from ``load_rfqs()[rfq_id]``.
+            Must have ``agency`` (or ``agency_key``) matching CCHCS.
+            Required keys for a non-empty contract:
+            ``solicitation_number``, ``line_items``.
+            Optional but carried: ``ship_to``, ``facility``/
+            ``institution``, ``due_date``, ``requestor_email``.
+        rfq_id: The string RFQ identifier (e.g. ``"rfq_abc123"``).
+            Used as ``rfq_id`` on the synthesized contract.
+        tax_resolver: Callable ``(address: str) -> int | None`` that
+            returns basis-points or None. Same contract as
+            ``ingest_email_contract``'s resolver.
+        synthesis_ts: Timestamp override for test determinism.
+            Defaults to ``datetime.now(timezone.utc)``.
+
+    Returns:
+        An ``EmailContract`` with all CCHCS canonical bill-to fields
+        populated from ``src.spine.agency_constants.cchcs_bill_to_tuple()``.
+
+    Raises:
+        NotCchcsError: if ``rfq_row`` is not a CCHCS quote (agency field
+            does not resolve to "CCHCS"). Caller must check before calling.
+        ValueError: if tax_resolver returns no usable rate or raises.
+        SpineValidationError: if the synthesized contract fails Pydantic
+            validation (e.g. empty line_items or missing solicitation).
+
+    Example (J1-2 caller pattern)::
+
+        from src.spine_bridge.ingest import (
+            synthesize_cchcs_email_contract, NotCchcsError,
+        )
+        from src.spine_bridge.shadow_ingest import _make_tax_resolver
+
+        try:
+            contract = synthesize_cchcs_email_contract(
+                rfq_row=r, rfq_id=rid, tax_resolver=_make_tax_resolver(),
+            )
+        except NotCchcsError:
+            pass  # not CCHCS — continue legacy path
+        # use contract.bill_to_name, contract.required_forms, etc.
+    """
+    synthesis_ts = synthesis_ts or datetime.now(timezone.utc)
+
+    # ── Agency gate ──────────────────────────────────────────────────
+    # Normalize the legacy agency field the same way shadow_ingest does.
+    _agency_raw = (
+        rfq_row.get("agency")
+        or rfq_row.get("agency_key")
+        or ""
+    )
+    _agency_upper = str(_agency_raw).strip().upper()
+    if _agency_upper not in ("CCHCS", "CCHCS-ACQ"):
+        raise NotCchcsError(
+            f"synthesize_cchcs_email_contract: rfq_id={rfq_id!r} has "
+            f"agency={_agency_raw!r} — expected CCHCS or CCHCS-ACQ. "
+            "Call only for CCHCS RFQs."
+        )
+
+    # ── Project legacy RFQ dict → ingest contract shape ──────────────
+    # Mirrors _build_contract_dict in shadow_ingest.py, but reads
+    # directly from the legacy RFQ dict (already loaded; no
+    # classification object or email metadata needed at generate time).
+    facility = (
+        (rfq_row.get("institution") or "").strip()
+        or (rfq_row.get("facility") or "").strip()
+        or "UNKNOWN"
+    )
+    ship_to = (
+        (rfq_row.get("ship_to") or "").strip()
+        or (rfq_row.get("delivery_address") or "").strip()
+        or (rfq_row.get("delivery_location") or "").strip()
+    )
+
+    sol_raw = (rfq_row.get("solicitation_number") or "").strip()
+
+    raw_items = rfq_row.get("line_items") or rfq_row.get("items") or []
+    line_items_for_contract: list[dict] = []
+    for it in raw_items:
+        if not isinstance(it, dict):
+            continue
+        desc = (it.get("description") or "").strip()
+        if not desc:
+            continue
+        line_items_for_contract.append({
+            "description": desc,
+            "qty": it.get("qty") or it.get("quantity") or 1,
+            "uom": (it.get("uom") or it.get("unit") or "EA"),
+            "item_number": (
+                it.get("item_number")
+                or it.get("mfg_number")
+                or it.get("mfg")
+                or ""
+            ),
+        })
+
+    # ── Tax resolution ────────────────────────────────────────────────
+    tax_lookup_input = ship_to or facility
+    try:
+        tax_bps: int | None = tax_resolver(tax_lookup_input)
+    except Exception as exc:
+        raise ValueError(
+            f"synthesize_cchcs_email_contract: tax_resolver raised for "
+            f"{tax_lookup_input!r}: {exc}"
+        ) from exc
+    if tax_bps is None or tax_bps <= 0:
+        raise ValueError(
+            f"synthesize_cchcs_email_contract: tax_resolver returned no "
+            f"usable rate for {tax_lookup_input!r}. "
+            "Charter rule #6: tax is mandatory."
+        )
+
+    # ── Solicitation strip (reuse shared helper) ──────────────────────
+    from src.spine_bridge._solicitation import strip_solicitation_prefix
+    solicitation = strip_solicitation_prefix(sol_raw) or sol_raw or "UNKNOWN"
+
+    # ── Assemble the ingest-contract dict ─────────────────────────────
+    # This is the same dict shape _build_email_contract() reads.
+    contract_dict: dict = {
+        "rfq_id": rfq_id,
+        "agency": "CCHCS",
+        "facility": facility,
+        "ship_to": ship_to,
+        "solicitation_number": solicitation,
+        "line_items": line_items_for_contract,
+        "buyer": {
+            "email": (rfq_row.get("requestor_email") or "").strip(),
+        },
+        "due_date": rfq_row.get("due_date") or "",
+        "rfq_title": rfq_row.get("rfq_title") or rfq_row.get("subject") or "",
+        "parser_version": "generate_time_bridge_v1",
+        # attachment_refs, source_email_id, source_thread_id are not
+        # available at generate time — leave absent (optional in schema).
+    }
+
+    # ── Build the contract via the canonical builder ──────────────────
+    # _build_email_contract is the single home for EmailContract
+    # construction; we reuse it so bill_to resolution and required_forms
+    # defaulting stay in one place. Any fix there applies here too.
+    return _build_email_contract(
+        contract=contract_dict,
+        rfq_id=rfq_id,
+        agency="CCHCS",
+        facility=facility,
+        solicitation=solicitation,
+        tax_bps=tax_bps,
+        raw_items=line_items_for_contract,
+        ingest_ts=synthesis_ts,
+    )
