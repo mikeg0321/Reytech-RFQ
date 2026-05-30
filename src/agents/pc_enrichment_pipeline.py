@@ -653,10 +653,15 @@ def _run_pipeline(pc_id: str, force: bool):
                     scprs_pn = q.get("item_number", "")
                     if scprs_pn and not it.get("mfg_number"):
                         it["mfg_number"] = scprs_pn
-                    # ONLY use as cost if reasonable (< $5,000 per unit)
-                    # SCPRS prices can be line totals, not per-unit
-                    if not it["pricing"].get("unit_cost") and per_unit < 5000:
-                        it["pricing"]["unit_cost"] = per_unit
+                    # SCPRS price is a market CEILING, never a cost basis
+                    # (CLAUDE.md Pricing Guard Rails: "SCPRS Prices Are NOT
+                    # Supplier Costs… NEVER your cost basis"). Keeping it as
+                    # `scprs_price` (above) for the ceiling; do NOT seed
+                    # unit_cost from it. Doing so produced contaminated costs
+                    # like the $130 "composition notebook" (rfq_fca653f6,
+                    # 2026-05-30) → bogus $149 bid tiers. Items with no real
+                    # supplier/catalog cost correctly fall through to
+                    # NEEDS COST (operator enters the real cost).
                     counters["scprs_matched"] += 1
             _update_status(pc_id, "scprs_lookup", f"{i+1}/{total} items")
     except Exception as e:
