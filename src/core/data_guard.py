@@ -305,15 +305,24 @@ def boot_health_check():
                         log.error("BOOT CHECK: MISMATCH — SQLite %s=%d but %s=0", table, count, json_fname)
                 except Exception as e:
                     checks["stats"][f"sqlite_{table}"] = {"error": str(e)}
-            # DB size monitoring — alert if > 500MB (was 1.27GB before VACUUM)
+            # DB size monitoring. Threshold raised 500MB→1024MB on 2026-05-29:
+            # the legit working size is ~744MB (catalog 44.6K items +
+            # scprs_po_lines + price_stats), so 500MB cried wolf on healthy
+            # data. The 2.4GB crash-bloat (intel-harvest KB tables) was fixed
+            # at the writer (PR #1223). NOTE: the bloat lever is NOT VACUUM —
+            # that bloat was LIVE rows (VACUUM freed 0); real bloat is fixed by
+            # trimming the offending tables (see GET /api/v1/admin/db-info for
+            # row counts), then `backup-now` (wal_checkpoint TRUNCATE) +
+            # VACUUM only to reclaim the freed pages afterward.
             db_size_mb = round(os.path.getsize(db_path) / 1024 / 1024, 1)
             checks["stats"]["db_size_mb"] = db_size_mb
-            if db_size_mb > 500:
+            if db_size_mb > 1024:
                 checks["issues"].append(
-                    f"DATABASE BLOAT: reytech.db is {db_size_mb}MB (threshold: 500MB). "
-                    f"Run VACUUM via /api/disk-cleanup?action=vacuum"
+                    f"DATABASE BLOAT: reytech.db is {db_size_mb}MB (threshold: 1024MB). "
+                    f"Check table row counts via /api/v1/admin/db-info — likely a "
+                    f"non-idempotent writer; trim the offending table, then VACUUM."
                 )
-                log.warning("BOOT CHECK: DB BLOAT — %sMB (threshold 500MB)", db_size_mb)
+                log.warning("BOOT CHECK: DB BLOAT — %sMB (threshold 1024MB)", db_size_mb)
             else:
                 log.info("BOOT CHECK: DB size OK — %sMB", db_size_mb)
 
