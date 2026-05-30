@@ -1268,7 +1268,9 @@ def api_order_delete(oid):
         log.debug("log_order_event order_deleted: %s", _e)
 
     from src.core.order_dal import delete_order as _delete_order
-    _delete_order(oid, actor="user", reason=reason)
+    if not _delete_order(oid, actor="user", reason=reason):
+        log.error("Order %s delete FAILED to persist", oid)
+        return jsonify({"ok": False, "error": "delete did not persist"}), 500
     log.info("Order %s deleted. Reason: %s", oid, reason)
     return jsonify({"ok": True, "deleted": oid, "reason": reason})
 
