@@ -2874,14 +2874,40 @@ def api_diag_package(rid):
 
     results = {"rid": rid, "items": len(r.get("line_items", [])), "steps": []}
     
-    # Check agency
+    # Check agency — J1-2: CCHCS reads form set from Spine contract so the
+    # diagnostic reflects the same source as the generate path.
     try:
-        from src.core.agency_config import match_agency
-        _agency_key, _agency_cfg = match_agency(r)
-        _req = _agency_cfg.get("required_forms", [])
+        _agency_key = None
+        _req = None
+        _spine_diag_contract = None
+        try:
+            from src.spine_bridge import synthesize_cchcs_email_contract, NotCchcsError
+            from src.spine_bridge.shadow_ingest import _make_tax_resolver
+            _spine_diag_contract = synthesize_cchcs_email_contract(
+                rfq_row=r, rfq_id=rid,
+                tax_resolver=_make_tax_resolver(),
+            )
+        except NotCchcsError:
+            pass  # non-CCHCS
+        except Exception as _sd_e:
+            log.debug("diag-package J1-2 synthesis failed, using legacy: %s", _sd_e)
+        if _spine_diag_contract is not None:
+            _agency_key = "cchcs"
+            _req = list(_spine_diag_contract.required_forms)
+            results["steps"].append({
+                "step": "agency_match", "ok": True,
+                "agency": _agency_key, "forms": _req, "source": "spine_contract",
+            })
+        else:
+            from src.core.agency_config import match_agency
+            _agency_key, _agency_cfg = match_agency(r)
+            _req = _agency_cfg.get("required_forms", [])
+            results["steps"].append({
+                "step": "agency_match", "ok": True,
+                "agency": _agency_key, "forms": _req, "source": "legacy",
+            })
         results["agency"] = _agency_key
         results["required_forms"] = _req
-        results["steps"].append({"step": "agency_match", "ok": True, "agency": _agency_key, "forms": _req})
     except Exception as e:
         results["steps"].append({"step": "agency_match", "ok": False, "error": str(e)})
         return jsonify(results)
@@ -3723,13 +3749,13 @@ def api_download_complete_package(rid):
         writer.write(buf)
         buf.seek(0)
 
-        _safe_agency = ""
-        try:
-            from src.core.agency_config import match_agency
-            _ak, _ac = match_agency(r)
-            _safe_agency = (_ac.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
-        except Exception as _e:
-            log.debug('suppressed in api_download_complete_package: %s', _e)
+        # J1-2: filename-only agency label — read directly from the RFQ row
+        # so that DEFAULT_AGENCY_CONFIGS["cchcs"] is not consulted here.
+        # This path does NOT touch required_forms (filename only).
+        _safe_agency = (
+            (r.get("agency") or r.get("agency_key") or "")
+            .replace(" ", "").replace("/", "")[:20]
+        )
 
         filename = f"Complete_RFQ_{_safe_agency}_{sol}_ReytechInc.pdf" if _safe_agency else f"Complete_RFQ_{sol}_ReytechInc.pdf"
 

@@ -208,8 +208,8 @@ def build_fill_plan(quote_id: str, quote_type: str,
     # 1. Email contract
     contract = _load_contract(quote_data)
 
-    # 2. Agency config → required forms
-    agency_key, agency_cfg = _resolve_agency(quote_data)
+    # 2. Agency config → required forms (J1-2: passes quote_id for CCHCS)
+    agency_key, agency_cfg = _resolve_agency(quote_data, quote_id=quote_id)
     agency_required = list(agency_cfg.get("required_forms", []))
 
     # 3. Profile registry + attached files
@@ -309,8 +309,33 @@ def _load_contract(quote_data: dict) -> dict:
         return {}
 
 
-def _resolve_agency(quote_data: dict) -> tuple:
-    """Match agency from quote → (agency_key, config_dict)."""
+def _resolve_agency(quote_data: dict, quote_id: str = "") -> tuple:
+    """Match agency from quote → (agency_key, config_dict).
+
+    J1-2: CCHCS RFQs are resolved from the Spine contract synthesizer
+    so the fill-plan panel shows the same form set as the generate path.
+    Non-CCHCS and synthesis failures fall through to the legacy
+    match_agency path (unchanged).
+    """
+    _agency_raw = (
+        quote_data.get("agency") or quote_data.get("agency_key") or ""
+    ).upper()
+    if _agency_raw in ("CCHCS", "CCHCS-ACQ"):
+        _rid = quote_id or quote_data.get("id") or quote_data.get("rfq_id") or ""
+        try:
+            from src.spine_bridge import synthesize_cchcs_email_contract, NotCchcsError
+            from src.spine_bridge.shadow_ingest import _make_tax_resolver
+            _spine_c = synthesize_cchcs_email_contract(
+                rfq_row=quote_data, rfq_id=_rid,
+                tax_resolver=_make_tax_resolver(),
+            )
+            return ("cchcs", {
+                "name": "CCHCS / CDCR",
+                "required_forms": list(_spine_c.required_forms),
+            })
+        except Exception as _e:
+            log.debug("_resolve_agency CCHCS spine synthesis failed, using legacy: %s", _e)
+            # fall through to match_agency below
     try:
         from src.core.agency_config import match_agency
         return match_agency(quote_data)
