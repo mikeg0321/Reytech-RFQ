@@ -1439,6 +1439,55 @@ def make_spine_blueprint(
                     "report": inspector_report.model_dump(),
                 }), 409
 
+        # ── Attachment-disposition gate (LAW 6 "Teeth") ───────────────
+        # Every attachment in attachment_refs must have a recorded
+        # AttachmentDisposition, AND every parsed disposition whose
+        # cross_references list is non-empty must have
+        # cross_refs_resolved=True.  Either failure → 409 with
+        # diagnostic detail so the operator knows exactly which
+        # attachment was not accounted for.
+        #
+        # The gate runs only when an EmailContract is bound (same
+        # condition as the Inspector gate above).
+        if contract_for_inspector is not None:
+            _contract = contract_for_inspector
+            _refs = list(_contract.attachment_refs)
+            _disps = list(_contract.attachment_dispositions)
+            _disposed_refs = {d.ref for d in _disps}
+
+            # (a) Any attachment_ref with no matching disposition?
+            _unaccounted = [r for r in _refs if r not in _disposed_refs]
+            if _unaccounted:
+                return jsonify({
+                    "error": "disposition_missing",
+                    "detail": (
+                        f"{len(_unaccounted)} attachment(s) in the contract "
+                        "have no recorded disposition. Ingest must classify "
+                        "every attachment as 'parsed' or 'classified_non_rfq' "
+                        "before send-prep is allowed."
+                    ),
+                    "unaccounted_refs": _unaccounted,
+                }), 409
+
+            # (b) Any parsed disposition with an unresolved cross-reference?
+            _unresolved = [
+                d.ref for d in _disps
+                if d.status == "parsed"
+                and d.cross_references
+                and not d.cross_refs_resolved
+            ]
+            if _unresolved:
+                return jsonify({
+                    "error": "cross_reference_unresolved",
+                    "detail": (
+                        f"{len(_unresolved)} parsed attachment(s) carry "
+                        "cross-references to targets that were never parsed. "
+                        "Ingest must locate and parse all cross-referenced "
+                        "attachments before send-prep is allowed."
+                    ),
+                    "unresolved_refs": _unresolved,
+                }), 409
+
         # Build the envelope. Subject and body are deterministic from
         # the quote state — same inputs → same envelope, so two preps
         # for the same quote produce the same email shape.

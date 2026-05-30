@@ -41,6 +41,84 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ──────────────────────────────────────────────────────────────────────
+# AttachmentDisposition — per-attachment parse outcome record.
+# ──────────────────────────────────────────────────────────────────────
+# LAW 6 "Teeth": every attachment the buyer sent must end in exactly one
+# of two states: parsed into the contract, or explicitly classified as
+# non-RFQ with a recorded reason. A file that produced neither is a bug.
+# The send-gate refuses 409 when any attachment_disposition is missing
+# OR when a parsed form carries a cross-reference whose target was never
+# parsed (cross_refs_resolved=False). Tested by
+# tests/spine/test_ingest_reads_all_attachments.py.
+
+
+class AttachmentDisposition(BaseModel):
+    """The outcome record for one inbound attachment.
+
+    Created at ingest time. One record per entry in
+    ``EmailContract.attachment_refs``.
+
+    ``status``:
+      - ``"parsed"``             — content was read and integrated into
+                                   the contract (line items, ship-to,
+                                   distribution list rows, etc.).
+      - ``"classified_non_rfq"`` — file was read in full and explicitly
+                                   determined to carry no bid-requirement
+                                   information (e.g. a company logo,
+                                   blank cover page, vendor brochure).
+                                   ``reason`` is mandatory in this case.
+
+    ``cross_references``: any targets the parsed form pointed to (e.g.
+    ``"see attached distribution list"``, ``"see attachment B"``,
+    ``"supplemental schedule"``, etc.). Empty list if the attachment
+    carried no forward references.
+
+    ``cross_refs_resolved``: True only when every entry in
+    ``cross_references`` can be matched to another ``AttachmentDisposition``
+    with ``status="parsed"`` in the same contract. Set by ingest after all
+    dispositions are recorded. The send-gate refuses 409 when this is False
+    on ANY parsed disposition that has non-empty cross_references.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    ref: str = Field(
+        min_length=1, max_length=512,
+        description=(
+            "Storage path or message-attachment ref — must match the "
+            "corresponding entry in EmailContract.attachment_refs."
+        ),
+    )
+    status: Literal["parsed", "classified_non_rfq"]
+    reason: str | None = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "Human-readable reason. Required when status='classified_non_rfq'; "
+            "optional (but encouraged) for 'parsed' to record what was extracted."
+        ),
+    )
+    cross_references: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Verbatim references the parsed form text pointed to other "
+            "attachments (e.g. 'see attached distribution list'). Populated "
+            "only for status='parsed' forms that contain forward-references. "
+            "Empty list means no cross-references detected."
+        ),
+    )
+    cross_refs_resolved: bool = Field(
+        default=True,
+        description=(
+            "True when every target in cross_references has a matching "
+            "parsed disposition in the same contract. Ingest sets this to "
+            "False when a referenced target was not found among the other "
+            "parsed dispositions. The send-gate blocks on False."
+        ),
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
 # FormCode — the canonical literal for every form Reytech can render.
 # ──────────────────────────────────────────────────────────────────────
 # This is the single source of truth for what the email-contract's
@@ -227,6 +305,26 @@ class EmailContract(BaseModel):
             "Storage paths or message-attachment refs for the "
             "originals. Lets future audits re-render the parser's "
             "view of what the buyer sent."
+        ),
+    )
+
+    # LAW 6 "Teeth" — per-attachment disposition manifest.
+    # Every entry in attachment_refs must have a corresponding
+    # AttachmentDisposition here (either "parsed" or
+    # "classified_non_rfq"). An empty list is valid ONLY when
+    # attachment_refs is also empty. The send-gate enforces this
+    # constraint; the forcing-function test also fails the build
+    # when dispositions are incomplete or a cross-reference is
+    # unresolved.
+    attachment_dispositions: list[AttachmentDisposition] = Field(
+        default_factory=list,
+        description=(
+            "Per-attachment parse outcome. One record per entry in "
+            "attachment_refs. Ingest populates this at the moment the "
+            "attachment set is finalized — never incremental. The "
+            "send-gate refuses 409 when any attachment_ref lacks a "
+            "disposition OR any parsed disposition has an unresolved "
+            "cross-reference (cross_refs_resolved=False)."
         ),
     )
 
