@@ -225,6 +225,19 @@ def api_won_quotes_commodity_coverage():
     return jsonify({"ok": True, "diagnostic": diagnose_commodity_coverage(sample_per_bucket=n)})
 
 
+@bp.route("/api/admin/won-quotes/acq-type-coverage")
+@auth_required
+@safe_route
+def api_won_quotes_acq_type_coverage():
+    """READ-ONLY. Check whether scprs_po_master.acq_type cleanly isolates the
+    non-product awards (grants/IAs/service contracts) vs commodity products —
+    the narrower scoping signal after reytech_sells proved too blunt."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    from src.knowledge.won_quotes_db import diagnose_acq_type_coverage
+    return jsonify({"ok": True, "diagnostic": diagnose_acq_type_coverage()})
+
+
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
 @auth_required
 @safe_route
