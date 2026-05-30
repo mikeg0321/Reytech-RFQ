@@ -1960,6 +1960,64 @@ def api_orders_po_date_coverage():
     return jsonify(out)
 
 
+@bp.route("/api/admin/orders/backfill-preapp-win", methods=["POST"])
+@auth_required
+@safe_route
+def api_backfill_preapp_win():
+    """ONE-TIME backfill (ISSUE-11, 2026-05-29): book a WON quote that was
+    quoted BEFORE the app existed and never entered the quotes table, so 2026
+    revenue + /orders are complete and every subsequent 2026 win is app-native.
+
+    Creates the won quote via the canonical `upsert_quote` writer (Law-28
+    validated), then credits the matching PO stub order in place. Idempotent
+    (upsert ON CONFLICT + in-place credit, no duplicate order). GUARD: rejects
+    if the line-item subtotal doesn't reconcile to the claimed subtotal — a
+    transcription slip can't write a wrong dollar figure.
+
+    POST JSON: {quote_number, po_number, agency, institution, ship_to_name,
+    subtotal, tax, line_items:[{description, part_number, qty, unit_price}]}"""
+    data = request.get_json(force=True, silent=True) or {}
+    qn = (data.get("quote_number") or "").strip()
+    po = (data.get("po_number") or "").strip()
+    items = data.get("line_items") or []
+    if not qn or not po or not items:
+        return jsonify({"ok": False, "error": "quote_number, po_number, line_items required"}), 400
+    subtotal = round(sum(float(it.get("qty", 0)) * float(it.get("unit_price", 0)) for it in items), 2)
+    claimed = round(float(data.get("subtotal") or 0), 2)
+    if claimed and abs(subtotal - claimed) > 0.01:
+        return jsonify({"ok": False,
+                        "error": f"subtotal reconcile FAILED: computed {subtotal} vs claimed {claimed}"}), 400
+    tax = round(float(data.get("tax") or 0), 2)
+    total = round(subtotal + tax, 2)
+    items_detail = [{
+        "description": it.get("description", ""), "part_number": it.get("part_number", ""),
+        "qty": float(it.get("qty", 0)), "unit_price": float(it.get("unit_price", 0)),
+        "extended": round(float(it.get("qty", 0)) * float(it.get("unit_price", 0)), 2),
+    } for it in items]
+    q = {
+        "quote_number": qn, "status": "won", "po_number": po,
+        "agency": data.get("agency", ""), "institution": data.get("institution", ""),
+        "ship_to_name": data.get("ship_to_name", "") or data.get("institution", ""),
+        "subtotal": subtotal, "tax": tax, "total": total,
+        "items_count": len(items_detail), "items_detail": items_detail, "line_items": items_detail,
+        "source": "preapp_backfill",
+        "notes": data.get("notes", "pre-app 2026 win backfill (ISSUE-11 sweep)"),
+    }
+    from src.core.db import upsert_quote
+    if not upsert_quote(q, actor="preapp_backfill"):
+        return jsonify({"ok": False, "error": "upsert_quote blocked (contract validation)"}), 400
+    # Credit the matching PO stub order in place (no duplicate order row).
+    from src.core.canonical_state import po_numbers_match
+    from src.core.order_dal import load_orders_dict
+    credited = None
+    for oid, o in load_orders_dict().items():
+        if not o.get("is_test") and po_numbers_match(po, o.get("po_number")):
+            credited = _credit_stub_from_won_quote(oid, o)
+            break
+    return jsonify({"ok": True, "quote_number": qn, "subtotal": subtotal,
+                    "total": total, "credited_order": credited})
+
+
 @bp.route("/api/orders/diagnostic")
 @auth_required
 @safe_route
