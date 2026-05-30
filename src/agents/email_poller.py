@@ -3594,7 +3594,18 @@ def send_po_confirmation_reply(msg_obj, po_number: str, gmail_addr: str = "", gm
     from_email = _re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', original_from)
     primary_to = from_email[0] if from_email else list(all_addrs)[0]
     cc_addrs = [a for a in all_addrs if a != primary_to]
-    
+
+    # Never auto-confirm a PO to a Reytech internal vendor / back-office
+    # address (e.g. the bookkeeper) — ISSUE-13, 2026-05-29 sweep.
+    try:
+        from src.agents.cs_agent import is_internal_vendor
+        if is_internal_vendor(primary_to):
+            log.info("PO confirmation skipped: internal vendor recipient (%s) po=%s",
+                     primary_to, po_number)
+            return False
+    except Exception as _e:
+        log.debug("internal-vendor check suppressed: %s", _e)
+
     # PO number display
     po_display = f"PO {po_number}" if po_number else "your recent purchase order"
     
@@ -3677,11 +3688,22 @@ def _send_batch_po_confirmation(items: list):
     
     if not all_addrs:
         return
-    
+
     from_email = _re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', original_from)
     primary_to = from_email[0] if from_email else list(all_addrs)[0]
     cc_addrs = [a for a in all_addrs if a != primary_to]
-    
+
+    # Never auto-confirm POs to a Reytech internal vendor / back-office
+    # address (e.g. the bookkeeper) — ISSUE-13, 2026-05-29 sweep.
+    try:
+        from src.agents.cs_agent import is_internal_vendor
+        if is_internal_vendor(primary_to):
+            log.info("Batch PO confirmation skipped: internal vendor recipient (%s)",
+                     primary_to)
+            return
+    except Exception as _e:
+        log.debug("internal-vendor check suppressed: %s", _e)
+
     # Build batch PO list
     po_list = []
     for item in items:

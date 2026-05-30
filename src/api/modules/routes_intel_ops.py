@@ -776,17 +776,14 @@ def api_manager_metrics():
     if not MANAGER_AVAILABLE:
         return jsonify({"ok": False, "error": "Manager agent not available"})
 
-    from datetime import timedelta
-    from collections import defaultdict
-
-    quotes = []
-    try:
-        qpath = os.path.join(DATA_DIR, "quotes_log.json")
-        with open(qpath) as f:
-            quotes = [q for q in json.load(f) if not q.get("is_test")]
-    except Exception as e:
-        log.debug("Suppressed: %s", e)
-        pass
+    # Canonical metrics — single source of truth (ISSUE-4 convergence,
+    # 2026-05-29 sweep). Revenue / win-rate / pipeline / counts / weekly
+    # volume / top-institutions all come from src.core.metrics (the `quotes`
+    # SQLite table), NOT a private re-read of quotes_log.json, so this
+    # endpoint reports the SAME numbers as Home / /pipeline.
+    from src.core import metrics as _m
+    wr = _m.get_win_rate()
+    pv = _m.get_pipeline_value()
 
     pcs = _load_price_checks()
     # Filter test PCs
@@ -794,58 +791,30 @@ def api_manager_metrics():
         pcs = {k: v for k, v in pcs.items() if not v.get("is_test")}
     now = datetime.now()
 
-    # Revenue metrics
-    won = [q for q in quotes if q.get("status") == "won"]
-    lost = [q for q in quotes if q.get("status") == "lost"]
-    pending = [q for q in quotes if q.get("status") in ("pending", "sent")]
-    total_revenue = sum(q.get("total", 0) for q in won)
-    pipeline_value = sum(q.get("total", 0) for q in pending)
+    # Revenue metrics (canonical)
+    total_revenue = wr["won_total"]
+    pipeline_value = pv["pipeline_value"]
+    won_count = wr["won"]
+    lost_count = wr["lost"]
+    pending_count = wr["pending"] + wr["sent"]
+    quotes_total = wr["total"]
 
     # Monthly goal aligned with $2M annual
     monthly_goal = float(os.environ.get("MONTHLY_REVENUE_GOAL", "166667"))
 
-    # This month's revenue
-    month_start = now.replace(day=1, hour=0, minute=0, second=0)
-    month_revenue = 0
-    month_quotes = 0
-    for q in won:
-        ts = q.get("status_updated", q.get("created_at", ""))
-        if ts:
-            try:
-                dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
-                if dt >= month_start:
-                    month_revenue += q.get("total", 0)
-                    month_quotes += 1
-            except (ValueError, TypeError) as _e:
-                log.debug("suppressed: %s", _e)
+    # This month's won revenue (canonical)
+    _mr = _m.get_month_revenue(now.strftime("%Y-%m"))
+    month_revenue = _mr["revenue"]
+    month_quotes = _mr["won_count"]
 
-    # Weekly quote volume (last 4 weeks)
-    weekly_volume = []
-    for w in range(4):
-        week_end = now - timedelta(weeks=w)
-        week_start = week_end - timedelta(weeks=1)
-        count = 0
-        value = 0
-        for q in quotes:
-            ts = q.get("created_at", q.get("generated_at", ""))
-            if ts:
-                try:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
-                    if week_start <= dt < week_end:
-                        count += 1
-                        value += q.get("total", 0)
-                except (ValueError, TypeError) as _e:
-                    log.debug("suppressed: %s", _e)
-        label = f"Week {4-w}" if w > 0 else "This Week"
-        weekly_volume.append({"label": label, "quotes": count, "value": round(value, 2)})
-    weekly_volume.reverse()
+    # Weekly quote volume (last 4 weeks, canonical)
+    weekly_volume = _m.get_weekly_volume(4, now)
 
-    # Win rate trend (rolling - all time)
-    decided = len(won) + len(lost)
-    win_rate = round(len(won) / max(decided, 1) * 100)
+    # Win rate trend (rolling - all time, canonical)
+    win_rate = round(wr["rate"])
 
     # Average deal size
-    avg_deal = round(total_revenue / max(len(won), 1), 2)
+    avg_deal = round(total_revenue / max(won_count, 1), 2)
 
     # Pipeline funnel — ACTIVE items only (exclude dismissed/archived/deleted)
     _active_statuses = {"parsed", "new", "parse_error", "priced", "ready", "auto_drafted",
@@ -858,10 +827,9 @@ def api_manager_metrics():
     pc_priced = sum(1 for p in active_pcs.values() if p.get("status") in ("priced", "ready", "auto_drafted"))
     pc_completed = sum(1 for p in active_pcs.values() if p.get("status") in ("completed", "converted"))
 
-    # Quote-stage counts for funnel
-    quoted_count = len([q for q in quotes if q.get("status") in ("pending", "draft")])
-    sent_count = len([q for q in quotes if q.get("status") == "sent"])
-    won_count = len(won)
+    # Quote-stage counts for funnel (canonical)
+    quoted_count = wr["pending"] + wr["draft"]
+    sent_count = wr["sent"]
 
     # Orders count — canonical sourceable POs (PR-4 #694).
     # Pre-canonical: status IN ('active','processing','shipped') —
@@ -898,15 +866,8 @@ def api_manager_metrics():
                 log.debug("suppressed: %s", _e)
     avg_response = round(sum(response_times) / max(len(response_times), 1), 1)
 
-    # Top institutions by revenue.
-    # Aggregate on the canonical facility name so name variants of the same
-    # place ("Veterans Home of California - Barstow" vs "...of CA, Barstow")
-    # collapse into one row instead of splitting the revenue.
-    from src.core.quote_contract import canonical_name
-    inst_rev = defaultdict(float)
-    for q in won:
-        inst_rev[canonical_name(q.get("institution") or "Unknown")] += q.get("total", 0)
-    top_institutions = sorted(inst_rev.items(), key=lambda x: x[1], reverse=True)[:5]
+    # Top institutions by won revenue, canonical-name aggregated (canonical).
+    top_institutions = _m.get_top_institutions(5)
 
     return jsonify({
         "ok": True,
@@ -919,10 +880,10 @@ def api_manager_metrics():
             "avg_deal": avg_deal,
         },
         "quotes": {
-            "total": len(quotes),
-            "won": len(won),
-            "lost": len(lost),
-            "pending": len(pending),
+            "total": quotes_total,
+            "won": won_count,
+            "lost": lost_count,
+            "pending": pending_count,
             "win_rate": win_rate,
             "this_month_won": month_quotes,
         },
@@ -935,12 +896,12 @@ def api_manager_metrics():
             "sent": sent_count,
             "won": won_count,
             "orders_active": orders_active,
-            "quotes_generated": len(quotes),
-            "quotes_won": len(won),
+            "quotes_generated": quotes_total,
+            "quotes_won": won_count,
         },
         "weekly_volume": weekly_volume,
         "response_time_hours": avg_response,
-        "top_institutions": [{"name": n, "revenue": round(v, 2)} for n, v in top_institutions],
+        "top_institutions": top_institutions,
     })
 
 

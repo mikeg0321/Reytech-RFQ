@@ -1819,6 +1819,48 @@ def api_test_sms():
 # Orders Diagnostic — Debug phantom order issues
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@bp.route("/api/admin/orders/po-date-coverage")
+@auth_required
+@safe_route
+def api_orders_po_date_coverage():
+    """READ-ONLY (ISSUE-11, 2026-05-29 sweep). Before backfilling orders.po_date
+    we need to know how many of the order po_numbers actually resolve to a real
+    date in scprs_po_master.start_date (the no-scrape, in-DB source). Reports the
+    join hit-rate, a start_date-format sample, and the quote-vintage breakdown so
+    we can decide whether scprs alone covers the backfill or we need the SCPRS
+    public search / Drive PO PDFs for the tail. Touches no rows."""
+    from src.core.db import get_db
+    out = {"ok": True}
+    with get_db() as conn:
+        # get_db() sets row_factory = sqlite3.Row on every yield, so dict(row) works.
+        # Exact join hit-rate vs scprs_po_master.
+        row = conn.execute("""
+            SELECT
+              COUNT(*) AS total_orders,
+              SUM(CASE WHEN m.po_number IS NOT NULL THEN 1 ELSE 0 END) AS matched_exact,
+              SUM(CASE WHEN COALESCE(m.start_date,'') != '' THEN 1 ELSE 0 END) AS with_start_date
+            FROM orders o
+            LEFT JOIN scprs_po_master m ON m.po_number = o.po_number
+            WHERE COALESCE(o.is_test,0) = 0
+        """).fetchone()
+        out["scprs_join"] = dict(row)
+        # Sample matched rows so we can SEE the start_date format before parsing it.
+        out["start_date_samples"] = [dict(r) for r in conn.execute("""
+            SELECT o.po_number, o.created_at, m.start_date
+            FROM orders o JOIN scprs_po_master m ON m.po_number = o.po_number
+            WHERE COALESCE(m.start_date,'') != '' AND COALESCE(o.is_test,0) = 0
+            LIMIT 8
+        """).fetchall()]
+        # Vintage breakdown from the order id / quote_number (R25Q.. = 2025).
+        out["by_vintage"] = [dict(r) for r in conn.execute("""
+            SELECT substr(COALESCE(quote_number, id), 1, 4) AS vintage_prefix,
+                   COUNT(*) AS orders, ROUND(SUM(total),2) AS value
+            FROM orders WHERE COALESCE(is_test,0) = 0
+            GROUP BY vintage_prefix ORDER BY value DESC
+        """).fetchall()]
+    return jsonify(out)
+
+
 @bp.route("/api/orders/diagnostic")
 @auth_required
 @safe_route
