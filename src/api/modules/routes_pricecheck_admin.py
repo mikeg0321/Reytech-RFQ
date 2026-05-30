@@ -700,39 +700,6 @@ def api_pricecheck_suggestions(pcid):
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/pricecheck/<pcid>/auto-price", methods=["POST"])
-@auth_required
-@safe_route
-def api_pricecheck_auto_price(pcid):
-    """Smart per-item pricing using catalog history, SCPRS, competitor data."""
-    pcs = _load_price_checks()
-    pc = pcs.get(pcid)
-    if not pc:
-        return jsonify({"ok": False, "error": "PC not found"})
-    try:
-        from src.agents.product_catalog import bulk_smart_price, init_catalog_db
-        init_catalog_db()
-        items = []
-        for i, it in enumerate(pc.get("items", [])):
-            items.append({
-                "idx": i,
-                "description": it.get("description", ""),
-                "item_number": str(it.get("item_number", "")),
-                "cost": it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0,
-                "qty": it.get("qty", 1),
-            })
-        results = bulk_smart_price(items, agency=pc.get("institution", ""))
-        matched = sum(1 for r in results if r.get("matched"))
-        priced = sum(1 for r in results if r.get("recommended"))
-        return jsonify({
-            "ok": True, "results": results,
-            "matched": matched, "priced": priced, "total": len(items)
-        })
-    except Exception as e:
-        log.exception("auto-price error")
-        return jsonify({"ok": False, "error": str(e)})
-
-
 @bp.route("/api/pricecheck/<pcid>/price-sweep", methods=["POST"])
 @auth_required
 @safe_route
