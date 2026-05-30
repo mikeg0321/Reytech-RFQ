@@ -684,11 +684,17 @@ def _check_item_memory(db, description, item_number="", upc=""):
             if result:
                 return result
 
-        if item_number:
+        # Only match on item_number when it's a plausible REAL part number, not
+        # a 1-3 digit RFQ LINE INDEX ('2','3'). Same cross-contamination class
+        # as _get_locked_cost (rfq_fca653f6 2026-05-30): a stress-ball line
+        # [item_number='3'] resolved to a velvet-poster item_mapping (also
+        # original_item_number='3'), rewriting `description` to the poster's
+        # canonical form → then read the poster's $150.40 locked cost.
+        if item_number and _is_real_part_number(item_number):
             row = db.execute(f"""
                 SELECT {_cols} FROM item_mappings
                 WHERE LOWER(original_item_number)=LOWER(?) AND confirmed=1 LIMIT 1
-            """, (item_number,)).fetchone()
+            """, (str(item_number).strip(),)).fetchone()
             result = _row_to_dict(row, "exact_item")
             if result:
                 return result

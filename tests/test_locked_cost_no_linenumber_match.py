@@ -12,7 +12,9 @@ import sqlite3
 
 import pytest
 
-from src.core.pricing_oracle_v2 import _get_locked_cost, _is_real_part_number
+from src.core.pricing_oracle_v2 import (
+    _get_locked_cost, _is_real_part_number, _check_item_memory,
+)
 
 
 @pytest.mark.parametrize("pn,expected", [
@@ -68,3 +70,45 @@ def test_real_part_number_still_matches():
     db = _seed_db()
     out = _get_locked_cost(db, "something unrelated", item_number="NL999")
     assert out is not None and abs(out["locked_cost"] - 2.00) < 0.01
+
+
+def _seed_item_mappings():
+    db = sqlite3.connect(":memory:")
+    db.execute("""
+        CREATE TABLE item_mappings (
+            canonical_description TEXT, canonical_item_number TEXT, product_url TEXT,
+            mfg_number TEXT, supplier TEXT, last_cost REAL, confidence REAL,
+            times_confirmed INTEGER, asin TEXT, uom TEXT, supplier_url TEXT,
+            last_sell_price REAL, mfg_name TEXT,
+            original_item_number TEXT, original_description TEXT, upc TEXT, confirmed INTEGER
+        )
+    """)
+    # A velvet-poster mapping that happens to carry line-number '3'
+    db.execute(
+        "INSERT INTO item_mappings (canonical_description, original_item_number, confirmed, last_cost) "
+        "VALUES (?,?,?,?)",
+        ("Velvet Art Posters, 16x20 (Pack of 60)", "3", 1, 150.40),
+    )
+    db.commit()
+    return db
+
+
+def test_item_memory_ignores_line_number():
+    """A stress-ball line with item_number='3' must NOT resolve to the velvet
+    poster item_mapping that also has original_item_number='3'."""
+    db = _seed_item_mappings()
+    out = _check_item_memory(db, "BALLS, STRESS RELIEF, SMILEY FACE", item_number="3")
+    if out is not None:
+        assert "velvet" not in (out.get("canonical_description") or "").lower(), (
+            "line-number '3' cross-matched the velvet-poster item_mapping"
+        )
+
+
+def test_item_memory_real_part_number_still_matches():
+    db = _seed_item_mappings()
+    db.execute(
+        "INSERT INTO item_mappings (canonical_description, original_item_number, confirmed) "
+        "VALUES (?,?,?)", ("Real Product", "PS1351", 1))
+    db.commit()
+    out = _check_item_memory(db, "anything", item_number="PS1351")
+    assert out is not None and out["canonical_description"] == "Real Product"
