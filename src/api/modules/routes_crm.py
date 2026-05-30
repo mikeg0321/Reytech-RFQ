@@ -11,6 +11,7 @@ from src.api.render import render_page
 
 from src.core.security import rate_limit
 import re
+from collections import defaultdict
 from datetime import datetime
 # ─────────────────────────────────────────────────────────────────────────────
 # 70 routes, 3186 lines

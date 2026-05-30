@@ -448,9 +448,19 @@ All in `src/agents/growth_agent.py` (104 functions). Key patterns:
 - Status dicts (`PULL_STATUS`, `BUYER_STATUS`, `INTEL_STATUS`) for long-running ops
 - Thread-based async for SCPRS scraping — poll status endpoints for progress
 
-## Known Issues (Production Audit — last audited 2026-03-23)
+## Known Issues (Production Audit — last audited 2026-05-30)
+
+> 2026-05-30 creepy-crawler sweep (`f9ee506`): booted the app (1,073 routes),
+> crawled every no-arg GET route, reconciled against §0. Full verified findings
+> + next steps in `docs/CREEPYCRAWLER_DOSSIER.md`. This section records only the
+> production-affecting, non-§0 items. (Convergence / Job #1 items are §0's
+> domain and live in the dossier, not here.)
 
 ### Resolved
+- **`/api/vendor/performance` 500 (2026-05-30):** every call raised
+  `NameError: defaultdict` — `routes_crm.py` used `defaultdict` without importing
+  it (injected globals cover `os`/`json`, not `defaultdict`). Fixed: explicit
+  import added; regression test `tests/test_vendor_performance_import.py`.
 - **SQL Injection (was Critical):** All f-string SQL instances audited — all interpolate
   hardcoded constants, table names from allowlists, or dynamic `LIKE ?` placeholder
   counts. No user input reaches SQL strings. Not injection vectors.
@@ -459,9 +469,23 @@ All in `src/agents/growth_agent.py` (104 functions). Key patterns:
   removed. Kept the more thorough implementations.
 - **Orphaned templates:** 4 dead templates removed (expand, growth_intel, growth, crm).
 
+### Warning — Shadowed Duplicate Route (2026-05-30)
+`POST /api/pricecheck/<pcid>/auto-price` is registered twice in
+`routes_pricecheck_admin.py` (`:703` and `:5619`) — one handler is dead/shadowed
+and which serves is registration-order-dependent. Pick the canonical one, delete
+the other, and add a `test_no_duplicate_route_rules` guard. (Dossier O1.)
+
+### Warning — Python 3.12 Hard Floor (2026-05-30)
+5 route modules use f-string-with-backslash (PEP 701, 3.12-only). On Python <3.12
+they `SyntaxError` and `_load_route_module` drops them **silently** (logs "Failed
+to load route module" and continues). Prod is 3.12 so this is latent; a 3.11
+runner loses whole route modules with no test failure. Pin `>=3.12`. (Dossier O6.)
+
 ### Warning — Unprotected Routes
 13 routes lack `@auth_required`. Most are intentional (health check, webhooks, email
-tracking pixels). Monitor for new unprotected admin routes.
+tracking pixels). Monitor for new unprotected admin routes. The 2026-05-30 crawl
+confirmed only `/health`, `/ping`, `/version` answer 200 unauthenticated among
+no-arg GET routes — no new unprotected admin routes.
 
 ### Info — Code Quality
 - 2 TODO comments remaining (QB line-item search, RFQ Undefined values)
