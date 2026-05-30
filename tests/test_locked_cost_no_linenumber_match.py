@@ -14,6 +14,7 @@ import pytest
 
 from src.core.pricing_oracle_v2 import (
     _get_locked_cost, _is_real_part_number, _check_item_memory,
+    _search_won_quotes,
 )
 
 
@@ -112,3 +113,39 @@ def test_item_memory_real_part_number_still_matches():
     db.commit()
     out = _check_item_memory(db, "anything", item_number="PS1351")
     assert out is not None and out["canonical_description"] == "Real Product"
+
+
+def _seed_won_quotes():
+    db = sqlite3.connect(":memory:")
+    db.execute("""
+        CREATE TABLE won_quotes (
+            description TEXT, unit_price REAL, quantity REAL, supplier TEXT,
+            department TEXT, award_date TEXT, category TEXT, confidence REAL,
+            po_number TEXT, item_number TEXT, normalized_description TEXT
+        )
+    """)
+    # A $12,406 laptop that happens to carry line-number '2'
+    db.execute("INSERT INTO won_quotes VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+               ("LAPTOP NOTEBOOK COMPUTER PC", 12406.11, 1, "PC SPECIALISTS",
+                "", "2026-01-01", "it", 1.0, "PO1", "2",
+                "laptop notebook computer pc"))
+    db.commit()
+    return db
+
+
+def test_market_search_ignores_line_number():
+    """_search_won_quotes must NOT pull a $12,406 laptop as a competitor for a
+    paper composition notebook just because both lines are line-number '2'."""
+    db = _seed_won_quotes()
+    hits = _search_won_quotes(db, "NOTEBOOK, COMPOSITION, BLACK MARBLE", item_number="2")
+    assert not any(abs(h.get("price", 0) - 12406.11) < 0.01 for h in hits), (
+        "line-number '2' cross-matched the laptop into the notebook's market data"
+    )
+
+
+def test_market_search_real_part_number_still_matches():
+    db = _seed_won_quotes()
+    hits = _search_won_quotes(db, "unrelated query text here", item_number="GP3212")
+    # No row has item_number GP3212, and the description doesn't match → no hits,
+    # but the call must not error and must not pull the laptop.
+    assert not any(abs(h.get("price", 0) - 12406.11) < 0.01 for h in hits)
