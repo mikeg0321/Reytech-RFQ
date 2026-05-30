@@ -705,13 +705,26 @@ def _check_item_memory(db, description, item_number="", upc=""):
     return None
 
 
+def _is_real_part_number(item_number: str) -> bool:
+    """A real MFG/part number is >=4 chars OR contains a letter (e.g. NL111,
+    PS1382, W12919). RFQ lines frequently carry a 1-3 digit LINE INDEX as
+    `item_number` ('1','2','3') — matching that against supplier_costs.item_number
+    cross-contaminates unrelated products. Incident rfq_fca653f6 (2026-05-30):
+    a sensory-ball line [item_number='2'] read a Welch Allyn cradle's $1,066
+    locked cost because that lock also had item_number='2'. Treat short pure-
+    digit values as line numbers, not part numbers.
+    """
+    pn = (item_number or "").strip()
+    return len(pn) >= 4 or any(c.isalpha() for c in pn)
+
+
 def _get_locked_cost(db, description, item_number=""):
     try:
         params = []
         where = "expires_at > datetime('now')"
-        if item_number:
+        if item_number and _is_real_part_number(item_number):
             where += " AND (item_number=? OR LOWER(description) LIKE ?)"
-            params.extend([item_number, f"%{description.lower()[:50]}%"])
+            params.extend([str(item_number).strip(), f"%{description.lower()[:50]}%"])
         else:
             where += " AND LOWER(description) LIKE ?"
             params.append(f"%{description.lower()[:50]}%")
