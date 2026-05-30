@@ -3143,13 +3143,12 @@ def api_scan_contaminated_reprices():
     except (TypeError, ValueError):
         min_markup = 300.0
 
-    from src.core import paths as _paths
-    rfqs_path = os.path.join(_paths.DATA_DIR, "rfqs.json")
-    if not os.path.exists(rfqs_path):
-        return jsonify({"ok": True, "min_markup_pct": min_markup,
-                        "flagged_count": 0, "flagged": []})
-    with open(rfqs_path) as f:
-        rfqs = json.load(f)
+    # Canonical store is SQLite (load_rfqs); rfqs.json is only a stale legacy
+    # migration fallback (data_layer.py:240). Reading the file directly under-
+    # reports on prod — the first deploy of this scan returned 0 flags for that
+    # exact reason. Use the same loader the price-intel + render paths use.
+    from src.api.data_layer import load_rfqs
+    rfqs = load_rfqs() or {}
 
     def _f(v):
         try:
