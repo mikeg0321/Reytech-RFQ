@@ -216,3 +216,117 @@ class TestScprsIsCeiling:
             unit_cost = ref_price
 
         assert unit_cost == 25.0, "SCPRS as reference should trigger guardrail at 4x"
+
+
+class TestCostGuardHelper:
+    """Tests for the canonical cost_guard() helper in src/core/pricing_math.py.
+
+    This is the single implementation of the 3x cost-sanity rule + price-role
+    contract (SCPRS=ceiling, Amazon=reference, catalog=cost).  O5 unified
+    the duplicate inline implementations that previously lived in
+    routes_pricecheck.py and quote_model.py.
+    """
+
+    def _guard(self, unit_cost, ref_price, source="catalog"):
+        from src.core.pricing_math import cost_guard
+        return cost_guard(unit_cost, ref_price=ref_price, source=source)
+
+    # ── Boundary: just under 3x ──────────────────────────────────────────────
+
+    def test_just_under_3x_no_correction(self):
+        """$74.99 vs $25 reference (2.9996x) — should NOT trigger."""
+        cost, reason = self._guard(74.99, ref_price=25.0)
+        assert reason is None, f"Should not trigger at 2.9996x, got: {reason}"
+        assert cost == 74.99
+
+    # ── Boundary: exactly 3x ─────────────────────────────────────────────────
+
+    def test_exactly_3x_no_correction(self):
+        """$75.00 vs $25 reference (exactly 3x) — should NOT trigger (uses >)."""
+        cost, reason = self._guard(75.0, ref_price=25.0)
+        assert reason is None, "Exactly 3x must not trigger — guard uses strict >"
+        assert cost == 75.0
+
+    # ── Boundary: just over 3x ───────────────────────────────────────────────
+
+    def test_just_over_3x_corrects(self):
+        """$75.01 vs $25 reference (3.0004x) — should trigger."""
+        cost, reason = self._guard(75.01, ref_price=25.0)
+        assert reason is not None, "3.0004x should trigger correction"
+        assert cost == 25.0, f"Corrected cost should be ref_price=25.0, got {cost}"
+
+    # ── Clear over-3x (bad-scrape scenario) ──────────────────────────────────
+
+    def test_over_3x_corrects_to_ref(self):
+        """$300 vs $25 reference (12x) — corrected to $25."""
+        cost, reason = self._guard(300.0, ref_price=25.0)
+        assert cost == 25.0
+        assert reason is not None
+        assert "auto-corrected" in reason
+
+    def test_reason_string_contains_amounts(self):
+        """Reason string includes both the original cost and the ref price."""
+        cost, reason = self._guard(300.0, ref_price=25.0, source="catalog")
+        assert "300.00" in reason, "Reason must include original cost"
+        assert "25.00" in reason, "Reason must include ref price"
+        assert "catalog" in reason, "Reason must name the source"
+
+    # ── Source roles: SCPRS ceiling ──────────────────────────────────────────
+
+    def test_scprs_source_triggers_correction(self):
+        """SCPRS as reference: cost $100 vs scprs_ref $25 (4x) — corrects."""
+        cost, reason = self._guard(100.0, ref_price=25.0, source="scprs")
+        assert cost == 25.0
+        assert "scprs" in reason
+
+    def test_scprs_source_below_3x_no_correction(self):
+        """SCPRS as reference: cost $60 vs scprs_ref $25 (2.4x) — no correction."""
+        cost, reason = self._guard(60.0, ref_price=25.0, source="scprs")
+        assert reason is None
+        assert cost == 60.0
+
+    # ── Source roles: Amazon reference ───────────────────────────────────────
+
+    def test_amazon_source_triggers_correction(self):
+        """Amazon as reference: cost $100 vs amazon_ref $25 (4x) — corrects."""
+        cost, reason = self._guard(100.0, ref_price=25.0, source="amazon")
+        assert cost == 25.0
+        assert "amazon" in reason
+
+    # ── Source roles: catalog cost ────────────────────────────────────────────
+
+    def test_catalog_source_triggers_correction(self):
+        """Catalog as reference: cost $100 vs catalog_ref $25 (4x) — corrects."""
+        cost, reason = self._guard(100.0, ref_price=25.0, source="catalog")
+        assert cost == 25.0
+
+    # ── Edge cases ────────────────────────────────────────────────────────────
+
+    def test_zero_ref_price_disables_guard(self):
+        """No reference available — guard must not fire."""
+        cost, reason = self._guard(999.0, ref_price=0)
+        assert reason is None, "Zero ref_price disables guard"
+        assert cost == 999.0
+
+    def test_none_ref_price_disables_guard(self):
+        """None reference — guard must not fire."""
+        cost, reason = self._guard(999.0, ref_price=None)
+        assert reason is None
+
+    def test_zero_cost_disables_guard(self):
+        """Zero cost — nothing to guard against."""
+        cost, reason = self._guard(0, ref_price=25.0)
+        assert reason is None
+        assert cost == 0.0
+
+    def test_none_cost_coerces_to_zero(self):
+        """None unit_cost coerces to 0."""
+        cost, reason = self._guard(None, ref_price=25.0)
+        assert reason is None
+        assert cost == 0.0
+
+    def test_equal_cost_and_ref_no_correction(self):
+        """cost == ref_price (1x) — no correction."""
+        cost, reason = self._guard(25.0, ref_price=25.0)
+        assert reason is None
+        assert cost == 25.0

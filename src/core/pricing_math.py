@@ -838,3 +838,73 @@ def unit_mismatch_vs_scprs(cost, scprs, factor: float = 3.0) -> bool:
     except (TypeError, ValueError):
         return False
     return cost > 0 and scprs > 0 and cost > factor * scprs
+
+
+# ── Price-role guard (CLAUDE.md §"Pricing Guard Rails") ───────────────────────
+#
+# "Prices Have Roles": SCPRS = ceiling (what the STATE paid, never our cost);
+# Amazon = reference (retail, never our wholesale cost);
+# Catalog / S&S = cost (actual supplier price, the only valid cost basis).
+#
+# When a resolved unit_cost is >3x a known reference price, the most likely
+# cause is a bad Amazon scrape (wrong product matched) or a unit-of-measure
+# mismatch.  The canonical response: auto-correct unit_cost to ref_price and
+# record a human-readable reason so the operator sees a warning badge.
+#
+# Previously implemented as inline logic in 3 separate places:
+#   - routes_pricecheck.py (COST_GUARDRAIL block)
+#   - quote_model.py::set_price (3x sanity check)
+# Both now delegate here (O5, 2026-05-30).
+
+
+def cost_guard(
+    unit_cost,
+    *,
+    ref_price,
+    source: str,
+) -> tuple:
+    """Return (corrected_cost: float, reason: str | None).
+
+    Encodes the 3x sanity rule and the price-role contract in ONE place:
+
+      * SCPRS   — ceiling   (what the STATE paid another vendor; never our cost)
+      * Amazon  — reference (retail; never our wholesale cost)
+      * catalog — cost      (actual supplier price; the canonical cost basis)
+      * scprs   — alias for "scprs"
+
+    If ``unit_cost > ref_price * 3`` the cost is almost certainly a bad scrape
+    or unit-of-measure mismatch.  The corrected cost is ``ref_price`` and
+    ``reason`` is a non-empty string suitable for ``item["_cost_override_reason"]``
+    or a log message.  If no correction is needed, ``reason`` is ``None`` and
+    the returned cost equals the (float-coerced) input.
+
+    Arguments
+    ---------
+    unit_cost  : numeric — resolved supplier cost (float, Decimal, int, str).
+    ref_price  : numeric — the best available reference for sanity checking.
+                 Pass the catalog cost first, falling back to the SCPRS price.
+                 Pass 0 (or None) to disable the guard (no reference available).
+    source     : str — the provenance of ``ref_price``, used in the reason
+                 string.  Canonical values: "catalog", "scprs", "amazon".
+
+    Returns a plain ``tuple`` (not a NamedTuple) so callers can unpack with
+    ``cost, reason = cost_guard(...)`` without importing a type.
+
+    Never raises.  Zero / None / non-numeric inputs are coerced to 0.0.
+    """
+    try:
+        uc = float(unit_cost or 0)
+    except (TypeError, ValueError):
+        uc = 0.0
+    try:
+        rp = float(ref_price or 0)
+    except (TypeError, ValueError):
+        rp = 0.0
+
+    if uc > 0 and rp > 0 and uc > rp * 3:
+        reason = (
+            f"Cost ${uc:.2f} was >3x {source} reference ${rp:.2f} — auto-corrected"
+        )
+        return rp, reason
+
+    return uc, None

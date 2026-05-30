@@ -538,16 +538,15 @@ def _pricecheck_detail_inner(pcid):
         # ── GUARDRAIL: Sanity check cost against known references ────────
         # If SCPRS or Catalog gives a reference AND our cost is >3x higher,
         # something is wrong (bad Amazon match, wrong product scraped).
-        # Use the lower reference as cost instead.
+        # Delegates to the canonical cost_guard helper (src/core/pricing_math.py).
         _ref_price = _safe_float(p.get("catalog_cost")) or scprs_cost or 0
-        if unit_cost > 0 and _ref_price > 0 and unit_cost > _ref_price * 3:
-            log.warning("COST_GUARDRAIL: item '%s' cost $%.2f is >3x reference $%.2f — "
-                        "using reference as cost (likely bad scrape)",
-                        (item.get("description") or "")[:40], unit_cost, _ref_price)
-            item["_cost_override_reason"] = (
-                f"Cost ${unit_cost:.2f} was >3x reference ${_ref_price:.2f} — auto-corrected"
-            )
-            unit_cost = _ref_price
+        _ref_source = "catalog" if _safe_float(p.get("catalog_cost")) else "scprs"
+        from src.core.pricing_math import cost_guard as _cost_guard
+        unit_cost, _guard_reason = _cost_guard(unit_cost, ref_price=_ref_price, source=_ref_source)
+        if _guard_reason:
+            log.warning("COST_GUARDRAIL: item '%s' — %s",
+                        (item.get("description") or "")[:40], _guard_reason)
+            item["_cost_override_reason"] = _guard_reason
 
         # ── LANDED COST: factor in shipping + tax based on supplier profile ──
         _supplier_name = item.get("item_supplier") or p.get("source") or ""
