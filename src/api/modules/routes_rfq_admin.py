@@ -2880,23 +2880,56 @@ def api_diag_package(rid):
         _agency_key = None
         _req = None
         _spine_diag_contract = None
+        _diag_forms_fallback = None  # J1-5a: set when synthesis fails for CCHCS
         try:
-            from src.spine_bridge import synthesize_cchcs_email_contract, NotCchcsError
+            from src.spine_bridge import (
+                synthesize_cchcs_email_contract,
+                NotCchcsError,
+                get_cchcs_required_forms,
+            )
             from src.spine_bridge.shadow_ingest import _make_tax_resolver
             _spine_diag_contract = synthesize_cchcs_email_contract(
                 rfq_row=r, rfq_id=rid,
                 tax_resolver=_make_tax_resolver(),
             )
         except NotCchcsError:
-            pass  # non-CCHCS
+            pass  # non-CCHCS — correct and expected; fall through to legacy
         except Exception as _sd_e:
-            log.debug("diag-package J1-2 synthesis failed, using legacy: %s", _sd_e)
-        if _spine_diag_contract is not None:
+            # J1-5a: synthesis failed for a confirmed CCHCS RFQ (tax outage or
+            # empty items).  Log at WARNING — NOT a silent degradation.
+            _diag_agency_raw = (r.get("agency") or r.get("agency_key") or "")
+            if str(_diag_agency_raw).strip().upper() in ("CCHCS", "CCHCS-ACQ"):
+                log.warning(
+                    "diag-package %s: J1-5a CCHCS synthesis failed (tax outage "
+                    "or empty items) — using form-set fallback, NOT legacy config. "
+                    "Error: %s",
+                    rid, _sd_e,
+                )
+                _diag_forms_fallback = get_cchcs_required_forms(r)
+            else:
+                log.debug(
+                    "diag-package %s: J1-2 synthesis failed (non-CCHCS), "
+                    "using legacy: %s",
+                    rid, _sd_e,
+                )
+        if _spine_diag_contract is not None or _diag_forms_fallback is not None:
             _agency_key = "cchcs"
-            _req = list(_spine_diag_contract.required_forms)
+            _req = (
+                list(_spine_diag_contract.required_forms)
+                if _spine_diag_contract is not None
+                else list(_diag_forms_fallback)
+            )
+            _diag_forms_source = (
+                "spine_contract" if _spine_diag_contract is not None
+                else "spine_forms_fallback"
+            )
+            log.info(
+                "diag-package %s: J1-2 CCHCS form set from %s (%d forms): %s",
+                rid, _diag_forms_source, len(_req), ", ".join(sorted(_req)),
+            )
             results["steps"].append({
                 "step": "agency_match", "ok": True,
-                "agency": _agency_key, "forms": _req, "source": "spine_contract",
+                "agency": _agency_key, "forms": _req, "source": _diag_forms_source,
             })
         else:
             from src.core.agency_config import match_agency

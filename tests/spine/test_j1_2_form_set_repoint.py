@@ -142,34 +142,33 @@ class TestResolveAgencyFillPlan:
         mock_match.assert_not_called()
         assert key == "cchcs"
 
-    def test_cchcs_synthesis_failure_falls_back_to_match_agency(self):
-        """If synthesize raises ValueError, _resolve_agency falls back to match_agency."""
+    def test_cchcs_synthesis_failure_uses_forms_fallback_not_match_agency(self):
+        """J1-5a: If synthesize raises ValueError for a CCHCS RFQ, _resolve_agency
+        uses get_cchcs_required_forms (NOT match_agency) so the CCHCS form set
+        is never silently dropped — even after DEFAULT_AGENCY_CONFIGS["cchcs"] is
+        deleted in J1-5.
+        """
         from src.agents.fill_plan_builder import _resolve_agency
 
         rfq = _minimal_rfq()
-        fallback_cfg = {
-            "name": "CCHCS / CDCR (legacy)",
-            "required_forms": ["703b", "704b", "bidpkg", "quote"],
-        }
-        # The dynamic import inside _resolve_agency does:
-        #   from src.spine_bridge import synthesize_cchcs_email_contract
-        # which resolves via src.spine_bridge.__init__. Patch the package
-        # attribute so the dynamic import gets the mock.
+        # Patch synthesize to raise ValueError (tax outage / empty items).
         import src.spine_bridge as _sb_module
-        orig = _sb_module.synthesize_cchcs_email_contract
+        orig_synth = _sb_module.synthesize_cchcs_email_contract
         try:
             _sb_module.synthesize_cchcs_email_contract = MagicMock(
                 side_effect=ValueError("tax resolver returned no rate")
             )
             with patch("src.core.agency_config.match_agency") as mock_match:
-                mock_match.return_value = ("cchcs", fallback_cfg)
                 key, cfg = _resolve_agency(rfq, quote_id="rfq_fallback")
         finally:
-            _sb_module.synthesize_cchcs_email_contract = orig
+            _sb_module.synthesize_cchcs_email_contract = orig_synth
 
-        mock_match.assert_called_once()
+        # J1-5a: match_agency must NOT be called for a CCHCS synthesis failure
+        # — the form set comes from get_cchcs_required_forms(), not legacy config.
+        mock_match.assert_not_called()
         assert key == "cchcs"
         assert "704b" in cfg["required_forms"]
+        assert "bidpkg" in cfg["required_forms"]
 
 
 # ──────────────────────────────────────────────────────────────────────
