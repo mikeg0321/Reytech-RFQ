@@ -4482,33 +4482,35 @@ def fill_genai_708(input_path, rfq_data, config, output_path):
     sign_date = rfq_data.get("sign_date", get_pst_date())
     sol = _sol_display(rfq_data.get("solicitation_number", ""))
 
+    # AMS 708 (Rev. 03/2025) real AcroForm field names - verified against
+    # data/templates/cdcr_bid_package_template.pdf (GenAI pages) and a filled
+    # sample. The old name guesses ("Company Name", "No", "NoGenAI", ...) match
+    # NOTHING on this form and produced a blank 708. 708_Check Box1 = "Yes (use
+    # GenAI)", 708_Check Box2 = "No" (both on-state "/Yes"). Reytech never uses
+    # GenAI -> check "No" only; the 15 detail cells are N/A.
+    addr = company.get("address", "")
     values = {
-        "Solicitation Number": sol, "Solicitation": sol, "Solicitation #": sol,
-        "Company Name": company["name"], "Vendor Name": company["name"],
-        "Contact Person": company["owner"], "Date": sign_date,
-        "Date1_af_date": sign_date,
+        "708_Text1": sol,                       # Solicitation Number
+        "708_Text3": company["name"],           # Business Name
+        "708_Text4": company.get("phone", ""),  # Business Telephone
+        "708_Text5": addr,                      # Address
+        "708_Text6": company.get("city", "Trabuco Canyon"),
+        "708_Text7": company.get("state", "CA"),
+        "708_Text8": company.get("zip", "92679"),
+        "708_Check Box2": "/Yes",               # "No" -> not using GenAI
+        # 15 N/A detail cells (model name/owner/overview/...)
+        "708_Text11": "N/A",
+        "708_Text12.0": "N/A", "708_Text12.1": "N/A", "708_Text12.2": "N/A",
+        "708_Text12.3.0": "N/A", "708_Text12.3.1": "N/A", "708_Text12.3.2": "N/A",
+        "708_Text13.0": "N/A", "708_Text13.1": "N/A", "708_Text13.2": "N/A",
+        "708_Text13.3": "N/A", "708_Text13.4": "N/A", "708_Text13.5": "N/A",
+        "708_Text13.6": "N/A", "708_Text13.7": "N/A",
+        "708_Text14": "N/A",
+        "708_Text16": sign_date,                # certification date
     }
 
-    # Scan fields and check "No" for GenAI usage
-    try:
-        from pypdf import PdfReader
-        r = PdfReader(input_path)
-        fields = r.get_fields() or {}
-        for fname, fobj in fields.items():
-            fn_lower = fname.lower()
-            if ("no" in fn_lower and ("genai" in fn_lower or "ai" in fn_lower or "option" in fn_lower)) or \
-               ("check" in fn_lower and "no" in fn_lower):
-                values[fname] = "/Yes"
-        # Common checkbox names
-        for prefix in ["", "_2"]:
-            values[f"NoGenAI{prefix}"] = "/Yes"
-            values[f"No{prefix}"] = "/Yes"
-            values[f"Check_No{prefix}"] = "/Yes"
-    except Exception as _e:
-        log.debug("suppressed: %s", _e)
-
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    print(f"  ✓ 708 GenAI filled — No GenAI used")
+    print("  [ok] 708 GenAI filled - No GenAI used")
 
 
 def fill_std205(input_path, rfq_data, config, output_path):

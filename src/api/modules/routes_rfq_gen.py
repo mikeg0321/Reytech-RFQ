@@ -2777,8 +2777,11 @@ def generate_rfq_package(rid):
                 t.step("Drug-Free STD 21 generated")
             except Exception as e:
                 t.warn("Drug-Free failed", error=str(e))
-        # GenAI 708
-        if _include("genai_708"):
+        # GenAI 708 (a.k.a. AMS 708 (same form), two id-spaces: the catalog/
+        # email-detection/std1000-swap use "ams708", the generator + template
+        # use "genai_708". form_registry maps ams708 -> fill_genai_708. Fire on
+        # EITHER so an ams708 required-forms entry is never silently dropped.)
+        if _include("genai_708") or _include("ams708"):
             _genai_tmpl = os.path.join(DATA_DIR, "templates", "genai_708_blank.pdf")
             if os.path.exists(_genai_tmpl):
                 try:
