@@ -237,6 +237,16 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
 # ── PR-R: SCPRS rollup cap binding (active mode for PR-J shadow) ───────
 
 
+MARKET_CEILING_SANITY_MAX_MARKUP_PCT = 400.0
+"""Defense-in-depth cap (Mr. Wolf 2026-05-29, rfq_fca653f6). A market-derived
+quote ceiling implying MORE than this markup over a *known* cost, without a
+strong (calibrated or dense-data) basis, is treated as comp-pool contamination
+— a loose match pulled unrelated, pricier items into the average — and replaced
+with a cost-plus default. 400% is deliberately generous: Reytech's real markups
+sit well under 60%, so this only trips on gross cross-category leakage (the
+notebook incident was ~3,500%). Sibling of the operator-side 'cost > 3x
+reference' guard, but applied to the BID so a junk comp can't anchor a quote."""
+
 SCPRS_CAP_MIN_SAMPLES = 5
 """Don't cap a line unless we have at least this many SCPRS rows in the
 (MFG#/UNSPSC, agency, qty_band) bucket. Below this, the p75 estimate is
@@ -937,12 +947,27 @@ def _search_product_catalog(db, description, item_number=""):
         token_groups = _tokenize(description)[:3]
         if not token_groups:
             return prices
-        # Use OR across all variant groups for product catalog (broader match)
-        all_variants = []
+        # AND across token groups (OR within a synonym group) — matching the
+        # 4 sibling search functions. Previously this was the ONE matcher that
+        # flat-OR'd ALL variants together ("broader match"), so a single
+        # generic token matched cross-category rows: a $2 composition notebook
+        # pulled in $70 medical items (heel boots, stethoscopes, combs) on the
+        # word "black", and those sell_prices became `weighted_avg` → the quote
+        # ceiling. Divergent-helper drift; incident 2026-05-29 rfq_fca653f6
+        # item 5 ($74.32 bid on a $2.00 cost, 93% "profit"). These rows are
+        # tagged is_reytech=True, so they never show as competitors — they only
+        # poison the reytech/weighted average that comp_avg falls back to.
+        where_parts = []
+        params = []
         for group in token_groups:
-            all_variants.extend(group)
-        where = " OR ".join(["LOWER(name) LIKE ?" for _ in all_variants])
-        params = [f"%{v}%" for v in all_variants]
+            if len(group) == 1:
+                where_parts.append("LOWER(name) LIKE ?")
+                params.append(f"%{group[0]}%")
+            else:
+                or_clause = " OR ".join(["LOWER(name) LIKE ?" for _ in group])
+                where_parts.append(f"({or_clause})")
+                params.extend([f"%{v}%" for v in group])
+        where = " AND ".join(where_parts)
         rows = db.execute(f"""
             SELECT name, sell_price, cost, best_supplier FROM product_catalog WHERE {where} LIMIT 10
         """, params).fetchall()
@@ -1517,6 +1542,36 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
             sparse_floor = round(cost * 1.25, 2)
             if ceiling < sparse_floor:
                 ceiling = sparse_floor
+
+        # Sanity backstop (Mr. Wolf 2026-05-29, rfq_fca653f6): a market ceiling
+        # implying an absurd markup over a KNOWN cost is almost always cross-
+        # category contamination in the comp pool, not a real pricing signal.
+        # Without a strong basis (calibration or dense data) don't anchor the
+        # quote on it — fall back to cost-plus. This is the backstop for ANY
+        # loose matcher leaking junk into comp_avg, independent of the
+        # source-side fix in _search_product_catalog.
+        if cost > 0 and ceiling > 0:
+            implied_markup = (ceiling - cost) / cost * 100
+            strong_basis = (
+                (cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES)
+                or market.get("data_points", 0) >= 10
+            )
+            if implied_markup > MARKET_CEILING_SANITY_MAX_MARKUP_PCT and not strong_basis:
+                safe = round(cost * 1.30, 2)
+                log.warning(
+                    "Oracle sanity cap: market ceiling $%.2f = %.0f%% over cost "
+                    "$%.2f (> %.0f%% bound, weak basis dp=%d) — likely cross-"
+                    "category contamination; using cost-plus $%.2f",
+                    ceiling, implied_markup, cost,
+                    MARKET_CEILING_SANITY_MAX_MARKUP_PCT,
+                    market.get("data_points", 0), safe,
+                )
+                result["market_ceiling_contaminated"] = {
+                    "rejected_ceiling": round(ceiling, 2),
+                    "implied_markup_pct": round(implied_markup, 1),
+                    "fallback_price": safe,
+                }
+                ceiling = safe
 
         ceiling_m = ((ceiling - cost) / cost * 100) if cost > 0 else 0
         competitive = round(comp_low * 0.98, 2)

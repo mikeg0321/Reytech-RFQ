@@ -3114,6 +3114,87 @@ def api_scan_ghost_quote_bindings():
     })
 
 
+@bp.route("/api/admin/scan-contaminated-reprices")
+@auth_required
+@safe_route
+def api_scan_contaminated_reprices():
+    """Blast-radius scan for the Oracle cross-category contamination bug.
+
+    Incident 2026-05-29 (rfq_fca653f6 item 5): a $2.00 composition notebook
+    repriced to a $74.32 bid (~3,616% markup) because `_search_product_catalog`
+    flat-OR'd its tokens and let $70 cross-category items poison the market
+    average. The source + backstop fixes are forward-only — bids already
+    written stay frozen. This read-only scan finds every persisted line whose
+    bid implies an absurd markup over its own cost, so they can be re-priced
+    or hand-corrected (§5 fix-the-data).
+
+    A line is flagged when cost > 0, bid > 0, and implied markup
+    `(bid - cost) / cost * 100` exceeds `min_markup_pct` (default 300, the
+    same family as the 400% engine backstop but lower so near-misses surface).
+    Sorted by extended-bid dollar impact descending — biggest damage first.
+
+    Query params:
+        min_markup_pct: int — flag threshold (default 300)
+
+    Read-only. Does NOT mutate any quote. Returns the candidate list only.
+    """
+    try:
+        min_markup = float(request.args.get("min_markup_pct", 300))
+    except (TypeError, ValueError):
+        min_markup = 300.0
+
+    from src.core import paths as _paths
+    rfqs_path = os.path.join(_paths.DATA_DIR, "rfqs.json")
+    if not os.path.exists(rfqs_path):
+        return jsonify({"ok": True, "min_markup_pct": min_markup,
+                        "flagged_count": 0, "flagged": []})
+    with open(rfqs_path) as f:
+        rfqs = json.load(f)
+
+    def _f(v):
+        try:
+            return float(str(v if v is not None else 0).replace("$", "").replace(",", ""))
+        except (ValueError, TypeError):
+            return 0.0
+
+    flagged = []
+    for rid, r in rfqs.items():
+        items = r.get("line_items") or r.get("items") or []
+        for idx, it in enumerate(items):
+            cost = _f(it.get("supplier_cost"))
+            bid = _f(it.get("price_per_unit"))
+            if cost <= 0 or bid <= 0:
+                continue
+            implied = (bid - cost) / cost * 100
+            if implied <= min_markup:
+                continue
+            qty = _f(it.get("qty") or it.get("quantity") or 1) or 1
+            flagged.append({
+                "rid": rid,
+                "sol": r.get("solicitation_number") or "",
+                "agency": r.get("agency") or r.get("institution") or "",
+                "status": r.get("status") or "",
+                "line": idx + 1,
+                "description": (it.get("description") or "")[:70],
+                "qty": qty,
+                "cost": round(cost, 2),
+                "bid": round(bid, 2),
+                "implied_markup_pct": round(implied, 1),
+                "ext_bid": round(bid * qty, 2),
+                "repriced_reason": it.get("repriced_reason") or "",
+                "scprs_ref": _f(it.get("scprs_last_price")) or None,
+            })
+
+    flagged.sort(key=lambda e: e["ext_bid"], reverse=True)
+    return jsonify({
+        "ok": True,
+        "min_markup_pct": min_markup,
+        "flagged_count": len(flagged),
+        "total_exposure": round(sum(e["ext_bid"] for e in flagged), 2),
+        "flagged": flagged,
+    })
+
+
 @bp.route("/api/admin/clear-ghost-quote-bindings", methods=["POST"])
 @auth_required
 @safe_route

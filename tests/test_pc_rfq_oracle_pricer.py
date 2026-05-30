@@ -37,7 +37,8 @@ def test_adapter_returns_only_allowlisted_price_fields(monkeypatch):
     """Even if the oracle's result dict contains description/qty-shaped keys,
     the adapter must discard them and return only {supplier_cost, unit_price,
     bid_price, markup_pct}."""
-    def _fake_get_pricing(description, quantity, cost, item_number, department):
+    def _fake_get_pricing(description, quantity, cost, item_number, department,
+                          **kwargs):
         return {
             "description": "SHOULD NOT LEAK",
             "quantity": 9999,
@@ -60,7 +61,8 @@ def test_adapter_returns_only_allowlisted_price_fields(monkeypatch):
         agency="CCHCS",
     )
     assert out is not None
-    assert set(out.keys()) <= {"supplier_cost", "unit_price", "bid_price", "markup_pct"}
+    assert set(out.keys()) <= {"supplier_cost", "unit_price", "bid_price",
+                               "markup_pct", "oracle_audit"}
     assert out["unit_price"] == 17.0
     assert out["bid_price"] == 17.0
     # Prefer oracle's locked_cost over provided_cost
@@ -202,7 +204,8 @@ def test_confirm_with_reprice_calls_oracle_only_for_drifted_lines(
 
     oracle_calls = []
 
-    def _fake_oracle(description, quantity, cost, item_number, department):
+    def _fake_oracle(description, quantity, cost, item_number, department,
+                     **kwargs):
         oracle_calls.append({
             "description": description, "quantity": quantity,
             "cost": cost, "item_number": item_number,
