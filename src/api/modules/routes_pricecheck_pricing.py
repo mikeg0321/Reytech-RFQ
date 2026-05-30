@@ -238,6 +238,25 @@ def api_won_quotes_acq_type_coverage():
     return jsonify({"ok": True, "diagnostic": diagnose_acq_type_coverage()})
 
 
+@bp.route("/api/admin/won-quotes/scope-to-goods", methods=["POST"])
+@auth_required
+@safe_route
+def api_won_quotes_scope_to_goods():
+    """Purge non-product (Services/grants/IAs/leases/encumbrance) rows from the
+    won_quotes KB, scoping it to GOODS. Dry-run by default; real purge needs
+    BOTH confirm=scope_to_goods AND dry_run=0. Keeps Goods/Telecom/unmatched
+    rows. Idempotent."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    confirm = (request.args.get("confirm") or request.form.get("confirm") or "")
+    dry_run = (request.args.get("dry_run") or request.form.get("dry_run") or "1") not in ("0", "false", "False")
+    if not dry_run and confirm != "scope_to_goods":
+        return jsonify({"ok": False,
+                        "error": "real purge requires confirm=scope_to_goods"}), 400
+    from src.knowledge.won_quotes_db import repair_noncommodity_scope
+    return jsonify({"ok": True, "result": repair_noncommodity_scope(dry_run=dry_run)})
+
+
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
 @auth_required
 @safe_route
