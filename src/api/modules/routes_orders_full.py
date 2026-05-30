@@ -131,6 +131,49 @@ def _load_rfqs_from_json():
         return {}
 
 
+def _credit_stub_from_won_quote(oid, o):
+    """Link an unmatched stub order to its WON quote (matched by PO number)
+    and credit it in place — total + line_items + quote_number from the quote.
+
+    ISSUE-11 (2026-05-29 sweep): PO ingest created bare $0 stubs and never
+    linked them to the won quote (it matched the wrong key). Crediting from the
+    won quote — the source of truth for the win — makes /orders reflect reality.
+    In place (keeps the order's id / status / tracking), so no duplicate order
+    is created and no revenue_log row is added (revenue already counts the won
+    quote). Returns {quote_number,total} on success, else None. Idempotent."""
+    po = (o.get("po_number") or "").strip()
+    if not po:
+        return None
+    from src.core.canonical_state import po_numbers_match
+    try:
+        from src.forms.quote_generator import get_all_quotes
+    except Exception:
+        return None
+    won = None
+    for qt in get_all_quotes():
+        if (qt.get("status") or "").lower() != "won":
+            continue
+        if po_numbers_match(po, qt.get("po_number")):
+            won = qt
+            break
+    if not won:
+        return None
+    from src.api.dashboard import _create_order_from_quote
+    built = _create_order_from_quote(won, po_number=po)
+    o["quote_number"] = won.get("quote_number", "")
+    o["total"] = built["total"]
+    o["line_items"] = built["line_items"]
+    try:
+        from src.core.order_dal import save_order as _save_order
+        _save_order(oid, o, actor="retry_match_quote")
+    except Exception as _e:
+        log.warning("credit-stub: persist failed for %s: %s", oid, _e)
+        return None
+    log.info("CREDIT: stub %s linked to won quote %s ($%.2f, %d items)",
+             oid, o["quote_number"], o["total"] or 0, len(o["line_items"]))
+    return {"quote_number": o["quote_number"], "total": o["total"]}
+
+
 def _find_unresolved_orders():
     """Return the list of orders that have no quote_number linkage to any
     known RFQ. The orders table doesn't carry rfq_id, so we link by
@@ -266,6 +309,18 @@ def api_orders_retry_match(oid):
                 match_qn = (r.get("quote_number") or "").strip()
                 break
         if not match_rid:
+            # Fallback (ISSUE-11 sweep): the real order↔quote key is the PO
+            # number on the WON quote, not rfq.solicitation_number — that's
+            # why won 2026 POs sat as $0 stubs. Find the won quote by PO and
+            # CREDIT this stub in place (value + items + link) so the order
+            # reflects the win. No new order row (no dup), no revenue_log
+            # touch (revenue already counts the won quote). Idempotent.
+            credited = _credit_stub_from_won_quote(oid, o)
+            if credited:
+                return jsonify({"ok": True, "matched": True,
+                                "quote_number": credited["quote_number"],
+                                "total": credited["total"],
+                                "credited_from_won_quote": True})
             return jsonify({"ok": True, "matched": False})
         # Persist the linkage on the order.
         if match_qn:

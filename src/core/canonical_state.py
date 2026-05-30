@@ -404,6 +404,25 @@ def is_year_revenue(
     return parsed.year == year
 
 
+def po_numbers_match(a: Any, b: Any) -> bool:
+    """Do two PO-number strings refer to the same purchase order?
+
+    Compares the digit cores, tolerant of agency prefixes — an order may
+    store `8955-0000076737` while the won quote stores `0000076737`. A match
+    requires the shorter digit core to be >= 7 digits and the longer to end
+    with it (or exact equality). ISSUE-11 (2026-05-29 sweep): the order↔quote
+    link key is the PO number on the WON quote, not rfq.solicitation_number —
+    which is why won 2026 POs sat as $0 unmatched stubs."""
+    da = "".join(c for c in str(a or "") if c.isdigit())
+    db = "".join(c for c in str(b or "") if c.isdigit())
+    if not da or not db:
+        return False
+    short, long = (da, db) if len(da) <= len(db) else (db, da)
+    if len(short) < 7:
+        return False
+    return short == long or long.endswith(short)
+
+
 def is_historical_import_order(
     record: Mapping[str, Any],
     current_year: int = REVENUE_YEAR,
