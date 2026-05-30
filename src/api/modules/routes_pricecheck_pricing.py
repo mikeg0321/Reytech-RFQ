@@ -302,6 +302,62 @@ def api_oracle_match_debug():
     return jsonify({"ok": True, "debug": out})
 
 
+@bp.route("/api/admin/rfq/clear-line-costs", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_clear_line_costs():
+    """Null ALL cost aliases (supplier_cost / vendor_cost / pricing.unit_cost /
+    cost) on RFQ line items whose description matches one of `descriptions`
+    (case-insensitive substring) → the line falls to NEEDS COST. For repairing
+    lines that froze a cross-matched cost (e.g. a sensory-ball line that read a
+    Welch Allyn cradle's $1,066 during a pre-fix enrichment). Body:
+    {rfq_id, descriptions:[...], confirm:"clear_costs"}. Dry-run unless confirm.
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    rid = (body.get("rfq_id") or "").strip()
+    needles = [str(s).lower().strip() for s in (body.get("descriptions") or []) if str(s).strip()]
+    confirm = body.get("confirm") == "clear_costs"
+    if not rid or not needles:
+        return jsonify({"ok": False, "error": "rfq_id and descriptions[] required"}), 400
+
+    from src.api.data_layer import _save_rfqs_lock
+    with _save_rfqs_lock:
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": f"RFQ {rid} not found"}), 404
+        matched = []
+        for idx, item in enumerate(r.get("line_items", [])):
+            desc = (item.get("description") or "").lower()
+            if any(n in desc for n in needles):
+                before = {
+                    "supplier_cost": item.get("supplier_cost"),
+                    "vendor_cost": item.get("vendor_cost"),
+                    "pricing_unit_cost": (item.get("pricing") or {}).get("unit_cost"),
+                    "cost": item.get("cost"),
+                }
+                matched.append({"idx": idx, "description": item.get("description"), "before": before})
+                if confirm:
+                    for k in ("supplier_cost", "vendor_cost", "cost"):
+                        if k in item:
+                            item[k] = ""
+                    if isinstance(item.get("pricing"), dict):
+                        for k in ("unit_cost", "catalog_cost", "cost"):
+                            if k in item["pricing"]:
+                                item["pricing"][k] = ""
+                        item["pricing"]["cost_source"] = "cleared_cross_match"
+        if confirm and matched:
+            try:
+                from src.core.pricing_math import reconcile_items as _reconcile
+                _reconcile(r.get("line_items", []))
+            except Exception as _e:
+                log.debug("reconcile after clear suppressed: %s", _e)
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r, raise_on_error=True)
+    return jsonify({"ok": True, "rfq_id": rid, "confirm": confirm,
+                    "matched": matched, "cleared": len(matched) if confirm else 0})
+
+
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
 @auth_required
 @safe_route
