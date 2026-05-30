@@ -302,6 +302,66 @@ def api_oracle_match_debug():
     return jsonify({"ok": True, "debug": out})
 
 
+@bp.route("/api/admin/quotes/misbid-audit")
+@auth_required
+@safe_route
+def api_quotes_misbid_audit():
+    """READ-ONLY. Did the cost-contamination bugs (SCPRS-as-cost #1247, the
+    line-number cross-match #1252/#1255/#1259) cause any ALREADY-SENT/WON quote
+    to bid off a wrong cost? Scans sent/won quotes for the frozen signature: a
+    line whose `supplier_cost` is implausibly high for a commodity (>= min_cost,
+    default $300) OR a non-positive margin (bid <= cost — a wrong-high cost
+    makes the bid look like a loss). Returns a review list, newest first; flags
+    only — no mutation. `?min_cost=` overrides the threshold."""
+    try:
+        min_cost = float(request.args.get("min_cost", 300))
+    except (TypeError, ValueError):
+        min_cost = 300.0
+    from src.core.db import get_db
+    try:
+        from src.core.pricing_math import cost_from_contract
+    except Exception:
+        cost_from_contract = None
+    flagged = []
+    scanned = 0
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT quote_number, status, created_at, line_items FROM quotes "
+            "WHERE is_test=0 AND status IN ('sent','won','pc_sent','pc_won')"
+        ).fetchall()
+        for r in rows:
+            scanned += 1
+            try:
+                items = json.loads(r["line_items"] or "[]")
+            except Exception:
+                continue
+            for it in items if isinstance(items, list) else []:
+                if cost_from_contract:
+                    cost = float(cost_from_contract(it) or 0)
+                else:
+                    cost = float(it.get("supplier_cost")
+                                 or (it.get("pricing") or {}).get("unit_cost")
+                                 or it.get("cost") or 0)
+                bid = float(it.get("price_per_unit") or it.get("our_price") or 0)
+                reason = None
+                if cost >= min_cost:
+                    reason = f"high cost (>= ${min_cost:.0f})"
+                elif bid > 0 and cost > 0 and bid <= cost:
+                    reason = "non-positive margin (bid <= cost)"
+                if reason:
+                    flagged.append({
+                        "quote": r["quote_number"], "status": r["status"],
+                        "date": (r["created_at"] or "")[:10],
+                        "desc": (it.get("description") or "")[:55],
+                        "cost": round(cost, 2), "bid": round(bid, 2),
+                        "markup_pct": round((bid - cost) / cost * 100, 1) if cost > 0 else None,
+                        "reason": reason,
+                    })
+    flagged.sort(key=lambda x: -(x.get("cost") or 0))
+    return jsonify({"ok": True, "quotes_scanned": scanned, "min_cost": min_cost,
+                    "n_flagged": len(flagged), "flagged": flagged[:150]})
+
+
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
 @auth_required
 @safe_route
