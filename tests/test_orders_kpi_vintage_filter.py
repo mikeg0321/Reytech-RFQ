@@ -10,7 +10,33 @@ from src.core.canonical_state import (
     is_historical_import_order,
     BULK_IMPORT_CREATED_AT_PREFIX,
     REVENUE_YEAR,
+    po_numbers_match,
 )
+
+
+class TestPoNumbersMatch:
+    """ISSUE-11 sweep: order↔won-quote link key is the PO number (agency-prefix
+    tolerant), NOT rfq.solicitation. Used to credit $0 stub orders."""
+
+    def test_exact_match(self):
+        assert po_numbers_match("4500750017", "4500750017") is True
+
+    def test_agency_prefix_tolerant_both_directions(self):
+        assert po_numbers_match("8955-0000076737", "0000076737") is True
+        assert po_numbers_match("0000076737", "8955-0000076737") is True
+
+    def test_distinct_pos_do_not_match(self):
+        assert po_numbers_match("4500750017", "0000076737") is False
+
+    def test_short_cores_rejected(self):
+        assert po_numbers_match("123", "1234567") is False  # <7 digit core
+
+    def test_empty_or_none(self):
+        assert po_numbers_match("4500750017", "") is False
+        assert po_numbers_match(None, "4500750017") is False
+
+    def test_strips_non_digits(self):
+        assert po_numbers_match("PO 4500750017", "4500750017") is True
 
 
 class TestHistoricalImportOrder:
