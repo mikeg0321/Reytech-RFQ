@@ -3,32 +3,26 @@
 fill_genai_708 previously wrote field names that do not exist on the real
 AMS 708 (Rev. 03/2025) form ("Company Name", "No", "NoGenAI", ...), so it
 produced a BLANK 708 wherever it ran. The real AcroForm fields are
-708_Text1..16 + 708_Check Box1 (Yes) / 708_Check Box2 (No).
+708_Text1..16 + 708_Check Box1 (Yes) / 708_Check Box2 (No), each on-state
+"/Yes".
 
 Reytech never uses GenAI, so the correct output checks "No" (708_Check Box2)
-and fills the 15 detail cells "N/A". This test extracts the real 708 pages
-from the repo's CDCR bid-package template, fills them, and reads the values
-back — the checkbox + N/A cells are the part that has regressed before.
+and fills the 15 detail cells "N/A".
+
+NOTE on the fixture: the 708 form lives inside the CDCR bid-package template.
+You CANNOT extract just the 708 pages with PdfWriter.add_page — pypdf page
+copy drops the AcroForm, so the fields disappear. The filler runs in place on
+the full template (exactly how fill_bid_package uses it), so the test fills a
+copy of the full template and reads the 708_* values back.
 """
 import os
+import shutil
 from pathlib import Path
 
 import pytest
 
 TMPL = Path("data/templates/cdcr_bid_package_template.pdf")
 pytestmark = pytest.mark.skipif(not TMPL.exists(), reason="bid-package template absent")
-
-
-def _extract_708(dst):
-    from pypdf import PdfReader, PdfWriter
-    r = PdfReader(str(TMPL))
-    w = PdfWriter()
-    for i in (9, 10):          # GenAI pages (0-based) carrying the 708_* widgets
-        w.add_page(r.pages[i])
-    with open(dst, "wb") as f:
-        w.write(f)
-    return dst
-
 
 CONFIG = {"company": {
     "name": "Reytech Inc.", "phone": "949-229-1575",
@@ -43,10 +37,11 @@ def test_genai_708_fills_real_fields(tmp_path):
     from pypdf import PdfReader
     from src.forms.reytech_filler_v4 import fill_genai_708
 
-    blank = _extract_708(str(tmp_path / "708_blank.pdf"))
-    out = str(tmp_path / "708_filled.pdf")
-    fill_genai_708(blank, {"solicitation_number": "10843276",
-                           "sign_date": "05/30/2026"}, CONFIG, out)
+    src = str(tmp_path / "pkg_in.pdf")
+    out = str(tmp_path / "pkg_out.pdf")
+    shutil.copy(str(TMPL), src)               # full template — AcroForm intact
+    fill_genai_708(src, {"solicitation_number": "10843276",
+                         "sign_date": "05/30/2026"}, CONFIG, out)
 
     flds = PdfReader(out).get_fields() or {}
 
@@ -69,13 +64,23 @@ def test_genai_708_fills_real_fields(tmp_path):
     assert v("708_Text16") == "05/30/2026"
 
 
-def test_genai_708_uses_real_field_names_not_guesses():
-    """Anti-regression: the filler must reference the real 708_* fields, never
-    the old non-existent guesses that produced a blank form."""
+def _values_dict_source() -> str:
+    """Return just the `values = {...}` literal of fill_genai_708 (no comments),
+    so the anti-regression check inspects real code, not the explanatory note."""
     src = Path("src/forms/reytech_filler_v4.py").read_text(encoding="utf-8")
     fn = src[src.index("def fill_genai_708"):src.index("def fill_std205")]
-    assert '"708_Check Box2": "/Yes"' in fn
-    assert '"708_Text1"' in fn and '"708_Text3"' in fn
-    # the old broken guesses must be gone
-    assert '"NoGenAI' not in fn
-    assert '"Company Name"' not in fn
+    start = fn.index("values = {")
+    end = fn.index("}", start) + 1
+    return fn[start:end]
+
+
+def test_genai_708_uses_real_field_names_not_guesses():
+    """Anti-regression: the values dict must use real 708_* fields, never the
+    old non-existent guesses that produced a blank form."""
+    vd = _values_dict_source()
+    assert '"708_Check Box2": "/Yes"' in vd
+    assert '"708_Text1"' in vd and '"708_Text3"' in vd
+    # the old broken guesses must be gone from the actual field map
+    assert "NoGenAI" not in vd
+    assert '"Company Name"' not in vd
+    assert '"Vendor Name"' not in vd

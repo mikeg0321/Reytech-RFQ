@@ -4510,7 +4510,7 @@ def fill_genai_708(input_path, rfq_data, config, output_path):
     }
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    print(f"  ✓ 708 GenAI filled — No GenAI used")
+    print("  [ok] 708 GenAI filled - No GenAI used")
 
 
 def fill_std205(input_path, rfq_data, config, output_path):
