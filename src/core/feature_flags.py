@@ -11,9 +11,9 @@ Keep importing `from src.core.feature_flags import get_flag, set_flag, ...` —
 the calls now resolve through the unified flag table so admin-API writes and
 code reads always see the same value. A one-shot boot migration copies any
 pre-existing `app_settings WHERE key LIKE 'flag:%'` rows into `feature_flags`
-(see `src/core/db.py::_migrate_feature_flags_from_app_settings`), and
-`flags.get_flag` keeps a dual-read safety net for one week in case a caller
-still writes via the legacy path.
+(see `src/core/db.py::_migrate_feature_flags_from_app_settings`). The
+temporary dual-read safety net that existed in `flags.get_flag` was removed
+on 2026-05-30 — the boot migration is sufficient coverage.
 
 Prefer `from src.core.flags import get_flag` in new code.
 """

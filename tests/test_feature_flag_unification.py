@@ -6,11 +6,10 @@ the admin API (`/api/admin/flags` → `flags.set_flag`) was invisible to legacy
 callers who imported `feature_flags.get_flag`. This file locks in the fix:
 
 1. A value written via either import path is readable via the other.
-2. A legacy row that still lives in `app_settings` (pre-migration state or a
-   stray write from ops) is readable via `flags.get_flag` via the dual-read
-   safety net.
-3. The boot migration (`_migrate_feature_flags_from_app_settings`) copies
-   legacy rows forward and is idempotent.
+2. The boot migration (`_migrate_feature_flags_from_app_settings`) copies
+   legacy `app_settings` flag rows forward into `feature_flags` and is
+   idempotent. The dual-read safety net in `flags.get_flag` was removed on
+   2026-05-30 (39 days overdue) — the migration covers every boot.
 """
 import sqlite3
 
@@ -48,42 +47,6 @@ class TestFacadeReadsWriteFromNewAPI:
         assert legacy_del("nl_query_enabled")
         _cache_clear_all()
         assert new_get("nl_query_enabled", default=False) is False
-
-
-class TestDualReadSafetyNet:
-    """Ops (or a stray legacy writer) might still write to app_settings
-    with the `flag:` prefix during the 1-week transition. flags.get_flag
-    must fall back to that row when feature_flags has no match."""
-
-    def _write_legacy(self, key: str, json_value: str):
-        from src.core.db import DB_PATH
-        conn = sqlite3.connect(DB_PATH, timeout=10)
-        conn.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-            (f"flag:{key}", json_value),
-        )
-        conn.commit()
-        conn.close()
-
-    def test_legacy_only_write_is_visible_via_new_get(self):
-        from src.core.flags import get_flag, _cache_clear_all
-        self._write_legacy("compliance_matrix", "true")
-        _cache_clear_all()
-        assert get_flag("compliance_matrix", default=False) is True
-
-    def test_legacy_quoted_string_is_unwrapped(self):
-        from src.core.flags import get_flag, _cache_clear_all
-        # Legacy writer used json.dumps, so "foo" was stored as "\"foo\""
-        self._write_legacy("ingest.mode", '"v2"')
-        _cache_clear_all()
-        assert get_flag("ingest.mode", default="v1") == "v2"
-
-    def test_new_write_takes_precedence_over_legacy(self):
-        from src.core.flags import get_flag, set_flag, _cache_clear_all
-        self._write_legacy("bid_scoring", "false")
-        set_flag("bid_scoring", "true")  # new write wins
-        _cache_clear_all()
-        assert get_flag("bid_scoring", default=False) is True
 
 
 class TestBootMigration:
