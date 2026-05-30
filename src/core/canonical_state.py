@@ -81,6 +81,14 @@ from typing import Any, Mapping, Optional
 #: annually on Jan 1 of the new year.
 REVENUE_YEAR: int = 2026
 
+#: created_at signature of the one-time 2023-2025 historical PO bulk import
+#: (ISSUE-11, 2026-05-29 sweep). Every imported row was mass-inserted in this
+#: minute, so this prefix identifies the batch precisely — and, crucially,
+#: WITHOUT using quote vintage: a genuine 2026 PO can link to a 2025-vintage
+#: quote (R25Q..), so filtering by vintage would wrongly hide real current
+#: business. A real PO created on any other timestamp is NOT matched.
+BULK_IMPORT_CREATED_AT_PREFIX: str = "2026-04-28T14:37"
+
 #: Statuses that take an RFQ/PC out of the active operator queue. Once
 #: a record reaches any of these, the operator is no longer expected
 #: to act on it as part of "today's work". Sent / pending_award →
@@ -394,6 +402,56 @@ def is_year_revenue(
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.year == year
+
+
+def is_historical_import_order(
+    record: Mapping[str, Any],
+    current_year: int = REVENUE_YEAR,
+) -> bool:
+    """Is this order part of the stale historical bulk import that should NOT
+    count toward the /orders LIVE KPIs (active count + pipeline $)?
+
+    ISSUE-11 (2026-05-29 sweep): /orders headlined $1.46M of 2023-2025 POs as
+    live pipeline — the same rows Home deliberately stopped surfacing on
+    2026-05-11. They are identified by created_at, NOT quote vintage:
+
+      - The $1.5M block was mass-inserted in one minute (see
+        BULK_IMPORT_CREATED_AT_PREFIX) — matching that prefix catches the
+        batch exactly.
+      - Older $0 artifacts carry a pre-current-year created_at.
+      - A real current-year PO — even one whose quote_number is a prior-year
+        vintage (e.g. a 2026 PO against a late-2025 R25Q quote) — has a
+        genuine current-year created_at on some OTHER timestamp, so it is
+        NOT matched and stays in the live KPI. (Mike, 2026-05-29: "we have
+        won POs in 2026 … so it's not none.")
+
+    Source-of-truth order (Mike, 2026-05-29: "there's always a source of
+    truth"): the authoritative PO date is `po_date`, backfilled from the PO
+    email / dispatch PDF (stored ISO). When present it WINS — a real PO date
+    is always preferred over the created_at heuristic. The import signature is
+    only the fallback for rows not yet backfilled.
+
+    Returns False on missing/unparseable timestamps (don't guess → keep)."""
+    # 1. Authoritative PO date (backfilled from the email/PDF source of truth).
+    po_date = (record.get("po_date") or "").strip()
+    if po_date:
+        parsed = _parse_iso(po_date)
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.year < current_year
+    # 2. Fallback: the bulk-import created_at signature (rows lacking po_date).
+    ca = (record.get("created_at") or "").strip()
+    if not ca:
+        return False
+    if ca.startswith(BULK_IMPORT_CREATED_AT_PREFIX):
+        return True
+    parsed = _parse_iso(ca)
+    if parsed is None:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.year < current_year
 
 
 # ─────────────────────────────────────────────────────────────────────────
