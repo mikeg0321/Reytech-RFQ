@@ -2514,7 +2514,7 @@ def page_outbox():
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
     <button class="btn btn-sm" onclick="approveDraft('{d.get('id','')}',this)" style="background:var(--r-accent);color:#000;font-size:14px">✅ Approve</button>
     <button class="btn btn-sm" onclick="deleteDraft('{d.get('id','')}',this)" style="background:var(--r-surface-2);color:var(--r-bad);font-size:14px">🗑 Delete</button>
-    {"<span style='font-size:13px;color:var(--r-accent);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px'>📋 sales draft</span>" if d.get('type') != 'cs_response' else ''}
+    {"<span style='font-size:13px;color:var(--r-accent);padding:2px 6px;background:rgba(16,185,129,.1);border-radius:4px'>📋 sales draft</span>" if d.get('type') != 'cs_response' else ''}
    </div>
   </div>
 </div>"""
@@ -4463,7 +4463,7 @@ def daily_brief_page():
     for d in drafts[:3]:
         subj = _sanitize_input(d.get("subject", "(no subject)"))[:60]
         to_addr = _sanitize_input(d.get("to", "?"))
-        draft_html += f'<div style="padding:10px 14px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.3);border-radius:8px;margin-bottom:8px">Draft: {subj} &rarr; {to_addr}</div>'
+        draft_html += f'<div style="padding:10px 14px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.3);border-radius:8px;margin-bottom:8px">Draft: {subj} &rarr; {to_addr}</div>'
     if len(drafts) > 3:
         draft_html += f'<div style="padding:8px;color:var(--t2);font-size:13px">+ {len(drafts)-3} more</div>'
     draft_btn = f'<a href="/outbox" class="btn btn-s" style="margin-top:8px;padding:8px 14px;font-size:13px">Review {len(drafts)} Drafts</a>' if drafts else ""

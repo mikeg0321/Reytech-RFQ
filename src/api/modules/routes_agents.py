@@ -267,7 +267,7 @@ def email_templates_page():
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
               <button onclick="previewTmpl('{tid}')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;font-size:14px;padding:5px 10px">Preview</button>
-              <button onclick="composeTmpl('{tid}')" class="btn" style="background:#1f6feb;color:#fff;font-size:14px;padding:5px 10px">Use Template</button>
+              <button onclick="composeTmpl('{tid}')" class="btn" style="background:var(--r-accent);color:#fff;font-size:14px;padding:5px 10px">Use Template</button>
             </div>
           </div></div>"""
 
@@ -277,7 +277,7 @@ def email_templates_page():
     body{{font-family:"Segoe UI",system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;padding:20px;font-size:15px}}
     .card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}}
     .btn{{padding:7px 14px;border-radius:6px;border:none;cursor:pointer;font-weight:600;font-size:14px;text-decoration:none;display:inline-block}}
-    a{{color:#58a6ff;text-decoration:none}}
+    a{{color:var(--r-accent);text-decoration:none}}
     input,textarea,select{{background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px;border-radius:5px;font-size:14px;width:100%;box-sizing:border-box;margin-bottom:10px}}
     textarea{{resize:vertical;min-height:140px;font-family:monospace;line-height:1.5}}
     .modal{{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:100;padding:20px;overflow:auto;align-items:flex-start;justify-content:center}}
@@ -298,8 +298,8 @@ def email_templates_page():
         <button onclick="composeTmpl('')" class="btn" style="margin-left:auto;background:#238636;color:#fff">+ Compose</button>
       </div>
 
-      <div class="card" style="margin-bottom:16px;background:#0d2137;border-color:#1f6feb">
-        <b style="color:#58a6ff">PRD Feature 4.3</b>
+      <div class="card" style="margin-bottom:16px;background:#0d2137;border-color:var(--r-accent)">
+        <b style="color:var(--r-accent)">PRD Feature 4.3</b>
         <span style="color:#8b949e;font-size:13px"> — Personalized templates. Use from CRM contact pages or compose below. Target: outreach drafted in &lt;2 min.</span>
       </div>
 
@@ -318,7 +318,7 @@ def email_templates_page():
         <pre id="prevBody" style="background:#0d1117;border:1px solid #30363d;padding:14px;border-radius:5px;font-size:13px;white-space:pre-wrap;line-height:1.6;max-height:400px;overflow:auto;margin:0"></pre>
         <div style="margin-top:12px;display:flex;gap:8px">
           <button onclick="closeModal('previewModal')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d">Close</button>
-          <button onclick="navigator.clipboard.writeText(document.getElementById('prevBody').textContent);this.textContent='Copied!'" class="btn" style="background:#1f6feb;color:#fff">Copy Body</button>
+          <button onclick="navigator.clipboard.writeText(document.getElementById('prevBody').textContent);this.textContent='Copied!'" class="btn" style="background:var(--r-accent);color:#fff">Copy Body</button>
         </div>
       </div>
     </div>
@@ -345,7 +345,7 @@ def email_templates_page():
         <div id="cmpMsg"></div>
         <div style="display:flex;gap:8px;margin-top:4px">
           <button onclick="closeModal('composeModal')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d">Cancel</button>
-          <button onclick="copyAll()" class="btn" style="background:#21262d;color:#58a6ff;border:1px solid #1f6feb">Copy All</button>
+          <button onclick="copyAll()" class="btn" style="background:#21262d;color:var(--r-accent);border:1px solid var(--r-accent)">Copy All</button>
           <button onclick="sendEmail()" class="btn" id="sendBtn" style="background:#238636;color:#fff">Send Email</button>
         </div>
       </div>

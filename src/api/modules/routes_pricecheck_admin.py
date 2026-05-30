@@ -2342,8 +2342,8 @@ def oracle_price_stats_preview():
        font-family:system-ui,sans-serif;font-size:13px}}
   .container{{max-width:1200px;margin:0 auto}}
   .banner{{padding:10px 14px;margin-bottom:16px;
-       background:#1f6feb22;border:1px solid #1f6feb55;border-radius:8px;
-       color:#58a6ff}}
+       background:rgba(16,185,129,.13);border:1px solid rgba(16,185,129,.33);border-radius:8px;
+       color:var(--r-accent)}}
   .banner strong{{color:#79c0ff}}
   .banner code{{background:#0d1117;padding:1px 6px;border-radius:4px;
        color:#79c0ff;font-size:12px}}
@@ -2354,7 +2354,7 @@ def oracle_price_stats_preview():
   td{{padding:5px 8px;border-bottom:1px solid #21262d}}
   code{{color:#79c0ff;background:#0d1117;padding:1px 4px;border-radius:3px;
        font-size:11px}}
-  .filters a{{color:#58a6ff;text-decoration:none;
+  .filters a{{color:var(--r-accent);text-decoration:none;
        padding:3px 8px;margin-right:6px;border-radius:4px;
        background:#21262d;font-size:12px}}
   .filters a:hover{{background:#30363d}}
@@ -2431,8 +2431,8 @@ def oracle_digest_preview():
   body{{margin:0;padding:20px;background:#010409;color:#e6edf3;
        font-family:system-ui,sans-serif}}
   .preview-banner{{max-width:700px;margin:0 auto 16px;padding:10px 14px;
-       background:#1f6feb22;border:1px solid #1f6feb55;border-radius:8px;
-       color:#58a6ff;font-size:13px}}
+       background:rgba(16,185,129,.13);border:1px solid rgba(16,185,129,.33);border-radius:8px;
+       color:var(--r-accent);font-size:13px}}
   .preview-banner strong{{color:#79c0ff}}
   .preview-banner code{{background:#0d1117;padding:1px 6px;border-radius:4px;
        color:#79c0ff;font-size:12px}}
@@ -2627,8 +2627,8 @@ def admin_funnel_diagnostic():
   th{{background:#161b22;color:#8b949e;font-weight:600;font-size:12px;
        text-transform:uppercase;letter-spacing:.4px}}
   .meta{{color:#8b949e;font-size:12px;margin-top:14px}}
-  .banner{{padding:10px 14px;background:#1f6feb22;
-       border:1px solid #1f6feb55;border-radius:8px;color:#58a6ff;
+  .banner{{padding:10px 14px;background:rgba(16,185,129,.13);
+       border:1px solid rgba(16,185,129,.33);border-radius:8px;color:var(--r-accent);
        font-size:13px;margin-bottom:18px}}
   .audit{{padding:8px 12px;background:{audit_color}22;
        border:1px solid {audit_color}55;color:{audit_color};
@@ -2844,8 +2844,8 @@ def oracle_drift_preview():
   body{{margin:0;padding:20px;background:#010409;color:#e6edf3;
        font-family:system-ui,sans-serif}}
   .wrap{{max-width:780px;margin:0 auto}}
-  .banner{{padding:10px 14px;background:#1f6feb22;border:1px solid #1f6feb55;
-       border-radius:8px;color:#58a6ff;font-size:13px;margin-bottom:18px}}
+  .banner{{padding:10px 14px;background:rgba(16,185,129,.13);border:1px solid rgba(16,185,129,.33);
+       border-radius:8px;color:var(--r-accent);font-size:13px;margin-bottom:18px}}
   .banner strong{{color:#79c0ff}}
   h1{{font-size:18px;margin:8px 0 14px}}
   h2{{font-size:14px;margin:18px 0 8px;color:#8b949e;
@@ -4855,7 +4855,7 @@ def qa_email_pipeline_page():
     <div style="display:flex;gap:12px;margin-bottom:20px">
       <button onclick="runFullQA()" style="background:#238636;color:white;padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600">
         Run Full Inbox Audit</button>
-      <button onclick="runClassTests()" style="background:#1f6feb;color:white;padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600">
+      <button onclick="runClassTests()" style="background:var(--r-accent);color:white;padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600">
         Run Classification Tests</button>
     </div>
 

@@ -147,7 +147,7 @@ window.markQuote = function(qn, status){
         if (d.oracle_calibrated) {
           var msg = document.createElement('div');
           msg.className = 'rt-confirm-toast';
-          msg.style.background = '#1f6feb';
+          msg.style.background = 'var(--r-accent)';
           msg.textContent = '✓ Marked ' + status.toUpperCase() + ' — oracle calibrated';
           document.body.appendChild(msg);
           setTimeout(function(){ if (msg.parentNode) msg.parentNode.removeChild(msg); }, 2500);
@@ -253,7 +253,7 @@ window.openItemHistory = function(idx){
     // Stat strip
     var winRate = (s.win_rate_pct === null || s.win_rate_pct === undefined) ? '—' : s.win_rate_pct.toFixed(0) + '%';
     var winColor = (typeof s.win_rate_pct === 'number' && s.win_rate_pct >= 30) ? '#2ecc71' : '#f0883e';
-    var stripHtml = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.18);border-radius:6px;margin-bottom:14px">' +
+    var stripHtml = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.18);border-radius:6px;margin-bottom:14px">' +
       statCell('Win rate', winRate, winColor) +
       statCell('Wins', s.wins || 0, '#2ecc71') +
       statCell('Losses', s.losses || 0, '#f85149') +
@@ -576,7 +576,7 @@ function filterCmd(q){
  var m=CMD_ITEMS.filter(function(c){return !q||c.n.toLowerCase().indexOf(q)>=0||c.k.indexOf(q)>=0;});
  if(cmdIdx>=m.length)cmdIdx=0;
  el.innerHTML=m.map(function(c,i){
-  return '<div onclick="location.href=\''+c.u+'\'" onmouseenter="cmdIdx='+i+';filterCmd(document.getElementById(\'cmd-input\').value)" style="padding:10px 16px;cursor:pointer;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:8px;'+(i===cmdIdx?'background:rgba(79,140,255,.12);color:var(--r-accent)':'')+'" class="cmd-i">'+c.n+'<span style="margin-left:auto;font-size:12px;color:var(--r-text-muted)">'+c.u+'</span></div>';
+  return '<div onclick="location.href=\''+c.u+'\'" onmouseenter="cmdIdx='+i+';filterCmd(document.getElementById(\'cmd-input\').value)" style="padding:10px 16px;cursor:pointer;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:8px;'+(i===cmdIdx?'background:rgba(16,185,129,.12);color:var(--r-accent)':'')+'" class="cmd-i">'+c.n+'<span style="margin-left:auto;font-size:12px;color:var(--r-text-muted)">'+c.u+'</span></div>';
  }).join('');
 }
 function cmdKey(e){
@@ -676,7 +676,7 @@ document.addEventListener('submit',function(e){
  // Also show a toast
  var toast=document.createElement('div');
  toast.id='upload-toast';
- toast.style.cssText='position:fixed;bottom:20px;right:20px;padding:10px 20px;background:#1c2128;border:1px solid #58a6ff;border-radius:8px;color:#58a6ff;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+ toast.style.cssText='position:fixed;bottom:20px;right:20px;padding:10px 20px;background:#1c2128;border:1px solid var(--r-accent);border-radius:8px;color:var(--r-accent);font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4)';
  toast.textContent='Uploading...';
  document.body.appendChild(toast);
  // Restore after 30s max (in case page doesn't redirect)
@@ -700,9 +700,9 @@ document.addEventListener('submit',function(e){
 #deadline-sidebar .dl-dot.soon{background:#3fb950}
 #deadline-sidebar .dl-dot.normal{background:#8b949e}
 #deadline-sidebar .dl-label{color:#e6edf3;font-weight:600}
-#deadline-sidebar .dl-countdown{color:#58a6ff;font-variant-numeric:tabular-nums;font-weight:700}
+#deadline-sidebar .dl-countdown{color:var(--r-accent);font-variant-numeric:tabular-nums;font-weight:700}
 #deadline-sidebar .dl-meta{color:#8b949e;font-size:12px}
-#deadline-sidebar a{color:#58a6ff;text-decoration:none;font-weight:600}
+#deadline-sidebar a{color:var(--r-accent);text-decoration:none;font-weight:600}
 #deadline-sidebar a:hover{text-decoration:underline}
 @keyframes dl-pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
@@ -808,7 +808,7 @@ document.addEventListener('submit',function(e){
         +'<div class="name">'+dl.doc_type.toUpperCase()+' #'+dl.pc_number+'</div>'
         +'<div class="meta">'+dl.institution+' — '+dl.item_count+' items — '+dl.due_date+' '+(dl.due_time||'2:00 PM')+'</div>'
         +'</div>'
-        +'<a href="'+dl.url+'" style="color:#58a6ff;font-size:13px;font-weight:600;text-decoration:none">Open</a>';
+        +'<a href="'+dl.url+'" style="color:var(--r-accent);font-size:13px;font-weight:600;text-decoration:none">Open</a>';
       list.appendChild(div);
     });
     if(items.length>0)_dlMostUrgentUrl=items[0].url;

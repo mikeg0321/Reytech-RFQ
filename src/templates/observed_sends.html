@@ -18,7 +18,7 @@
       <a href="/admin/observed-sends?status={{ s if s != 'all' else '' }}"
          data-testid="filter-{{ s }}"
          style="padding:6px 14px;border-radius:6px;font-size:13px;
-                background:{% if status_filter == s or (s == 'all' and not status_filter) %}#1f6feb{% else %}var(--r-surface-2){% endif %};
+                background:{% if status_filter == s or (s == 'all' and not status_filter) %}var(--r-accent){% else %}var(--r-surface-2){% endif %};
                 color:{% if status_filter == s or (s == 'all' and not status_filter) %}#fff{% else %}var(--r-text-muted){% endif %};
                 text-decoration:none;border:1px solid var(--r-border)">
         {{ s }}{% if s == 'all' %} ({{ total_count }}){% endif %}
@@ -31,7 +31,7 @@
 <div class="card" style="margin-bottom:14px;padding:14px">
   <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
     <div style="flex:1;min-width:200px">
-      <strong style="color:#58a6ff">🔎 Scan Sent folder</strong>
+      <strong style="color:var(--r-accent)">🔎 Scan Sent folder</strong>
       <div style="font-size:12px;color:var(--r-text-muted);margin-top:2px">
         Look back N days, match outbound messages to existing records,
         save matches as <code>pending</code> for review.
@@ -82,7 +82,7 @@
           {% if r.drive_backup_url %}
             <a href="{{ r.drive_backup_url }}" target="_blank"
                data-testid="drive-link-{{ r.id }}"
-               style="display:block;margin-top:4px;font-size:11px;color:#58a6ff;text-decoration:none">📁 Drive</a>
+               style="display:block;margin-top:4px;font-size:11px;color:var(--r-accent);text-decoration:none">📁 Drive</a>
           {% endif %}
         </td>
         <td style="padding:10px;vertical-align:top;max-width:380px">
@@ -92,7 +92,7 @@
           </div>
           {% if r.thread_id %}
           <a href="https://mail.google.com/mail/u/0/#sent/{{ r.thread_id }}" target="_blank"
-             style="font-size:11px;color:#58a6ff;text-decoration:none">↗ Gmail thread</a>
+             style="font-size:11px;color:var(--r-accent);text-decoration:none">↗ Gmail thread</a>
           {% endif %}
         </td>
         <td style="padding:10px;vertical-align:top">
@@ -101,7 +101,7 @@
             {% if r.match_value %}<span style="color:#d29922">{{ r.match_value }}</span> →{% endif %}
             {% if r.matched_record_id %}
               <a href="{{ '/pricecheck/' + r.matched_record_id if r.matched_record_kind == 'pc' else '/rfq/' + r.matched_record_id }}"
-                 style="color:#58a6ff;text-decoration:none">{{ r.matched_record_id }}</a>
+                 style="color:var(--r-accent);text-decoration:none">{{ r.matched_record_id }}</a>
             {% else %}
               <em style="color:var(--r-text-muted)">(no match)</em>
             {% endif %}
@@ -125,7 +125,7 @@
             </button>
           {% elif r.status == 'confirmed' and not r.drive_backup_url %}
             <button onclick="backupObs({{ r.id }})" data-testid="backup-{{ r.id }}"
-                    style="padding:4px 10px;background:#1f6feb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin:2px">
+                    style="padding:4px 10px;background:var(--r-accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin:2px">
               📁 Backup to Drive
             </button>
           {% elif r.status == 'confirmed' and r.drive_backup_url %}

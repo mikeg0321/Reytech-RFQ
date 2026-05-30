@@ -15,7 +15,7 @@
       <h2 style="margin:0;font-size:20px;color:var(--r-text)">📥 Approval Queue</h2>
       <p style="color:var(--r-text-muted);font-size:13px;margin:4px 0 0">
         Quotes the orchestrator has handed back to you. Sorted newest first.
-        See <a href="/quoting/status" style="color:#58a6ff">Quoting Status</a> for the full audit.
+        See <a href="/quoting/status" style="color:var(--r-accent)">Quoting Status</a> for the full audit.
       </p>
     </div>
     <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--r-text-muted)">
@@ -61,7 +61,7 @@
         {% set source_url = ('/pricecheck/' ~ r.doc_id) if r.doc_type == 'pc' else ('/rfq/' ~ r.doc_id) %}
         <tr style="border-bottom:1px solid var(--r-border)">
           <td style="padding:6px 8px">
-            <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace">{{ r.doc_id or '(blank)' }}</a>
+            <a href="/quoting/status/{{ r.doc_id }}" style="color:var(--r-accent);font-family:'JetBrains Mono',monospace">{{ r.doc_id or '(blank)' }}</a>
           </td>
           <td style="padding:6px 8px;text-transform:uppercase;font-size:12px;color:var(--r-text-muted)">{{ r.doc_type or '—' }}</td>
           <td style="padding:6px 8px">{{ (r.agency_key|agency_display) or '—' }}</td>

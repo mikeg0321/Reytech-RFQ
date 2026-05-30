@@ -119,7 +119,7 @@
           {% set color = outcome_colors.get(r.outcome, 'var(--r-text-muted)') %}
           <tr style="border-bottom:1px solid var(--r-border)">
             <td style="padding:6px 8px">
-              <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff">{{ r.doc_id or '(blank)' }}</a>
+              <a href="/quoting/status/{{ r.doc_id }}" style="color:var(--r-accent)">{{ r.doc_id or '(blank)' }}</a>
             </td>
             <td style="padding:6px 8px">{{ r.doc_type }}</td>
             <td style="padding:6px 8px">{{ (r.agency_key|agency_display) or '—' }}</td>
@@ -248,7 +248,7 @@
   function renderRow(r) {
     var color = OUTCOME_COLORS[r.outcome] || 'var(--r-text-muted)';
     var docLink = r.doc_id
-      ? '<a href="/quoting/status/' + encodeURIComponent(r.doc_id) + '" style="color:#58a6ff">' + escapeHtml(r.doc_id) + '</a>'
+      ? '<a href="/quoting/status/' + encodeURIComponent(r.doc_id) + '" style="color:var(--r-accent)">' + escapeHtml(r.doc_id) + '</a>'
       : '<span style="color:var(--r-text-muted)">(blank)</span>';
     var reasonsHtml = '—';
     if (r.reasons && r.reasons.length) {

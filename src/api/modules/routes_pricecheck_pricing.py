@@ -686,14 +686,14 @@ def pricechecks_archive():
         due_color = "#f85149;font-weight:700" if is_overdue else "var(--r-text-muted)"
         rows += f'''<tr data-status="{p['display_status']}" data-search="{search_index}" data-id="{p['id']}" style="cursor:pointer;{overdue_style}" onclick="if(!event.target.closest('input,button'))location.href='/pricecheck/{p['id']}'">
          <td style="padding:8px 6px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="pc-bulk-check" value="{p['id']}" onchange="updateBulkBar()" style="width:16px;height:16px;cursor:pointer"></td>
-         <td style="padding:14px 12px"><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
+         <td style="padding:14px 12px"><a href="/pricecheck/{p['id']}" style="color:var(--r-accent);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
          <td style="padding:14px 12px;font-size:15px;font-weight:500">{p['institution']}</td>
          <td style="padding:14px 12px;font-size:15px">{p['requestor'][:30]}</td>
          <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:{due_color}">{due_str}{' 🔴' if is_overdue else ''}</td>
          <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--r-text-muted)">{date_str}</td>
          <td style="padding:14px 12px;text-align:center;font-size:16px;font-weight:700">{p['items_count']}</td>
          <td style="padding:14px 12px;text-align:right;font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace">{total_str}</td>
-         <td style="padding:14px 12px;text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:700;font-size:14px">{qn}</span>' if qn else chr(8212)}</td>
+         <td style="padding:14px 12px;text-align:center">{f'<span style="color:var(--r-accent);font-family:JetBrains Mono,monospace;font-weight:700;font-size:14px">{qn}</span>' if qn else chr(8212)}</td>
          <td style="padding:14px 12px;text-align:center"><span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:14px;font-weight:600;background:{badge_bg};color:{badge_color};white-space:nowrap">{badge_label}</span> {src_icon}</td>
          <td style="padding:14px 12px;text-align:center;font-size:14px;color:#8b949e">{sent_elapsed}</td>
          <td style="padding:6px 8px;text-align:center" onclick="event.stopPropagation()"><button onclick="quickDismiss('{p['id']}','archived')" title="Archive" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:4px">🗄️</button><button onclick="quickDismiss('{p['id']}','duplicate')" title="Duplicate" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:4px">📋</button><button onclick="quickDismiss('{p['id']}','delete')" title="Delete" style="background:none;border:none;color:#f85149;cursor:pointer;font-size:16px;padding:4px">🗑</button></td></tr>'''
@@ -711,9 +711,9 @@ def pricechecks_archive():
     </div>
     <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap">
       <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Total</div></div>
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--r-accent)">{total}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Total</div></div>
       <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total_new}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">New</div></div>
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--r-accent)">{total_new}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">New</div></div>
       <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
         <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#fbbf24">{total_draft}</div><div style="font-size:14px;color:var(--r-text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Draft</div></div>
       <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
@@ -727,8 +727,8 @@ def pricechecks_archive():
         <option value="">All Statuses</option>{status_options}</select>
       <span id="pc-count" style="font-size:15px;color:var(--r-text-muted);white-space:nowrap">{total} PCs</span>
     </div>
-    <div id="bulk-bar" style="display:none;align-items:center;gap:12px;padding:8px 16px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:8px;margin-bottom:8px">
-      <span id="bulk-count" style="font-size:14px;font-weight:600;color:#58a6ff">0 selected</span>
+    <div id="bulk-bar" style="display:none;align-items:center;gap:12px;padding:8px 16px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:8px;margin-bottom:8px">
+      <span id="bulk-count" style="font-size:14px;font-weight:600;color:var(--r-accent)">0 selected</span>
       <button onclick="bulkAction('archived')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:13px;cursor:pointer">🗄️ Archive</button>
       <button onclick="bulkAction('duplicate')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:13px;cursor:pointer">📋 Duplicate</button>
       <button onclick="bulkAction('delete')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#f85149;font-size:13px;cursor:pointer">🗑 Delete</button>
@@ -1216,19 +1216,19 @@ def pricecheck_documents(pcid):
         status_badge = {"current": ("Current", "#3fb950"), "superseded": ("Superseded", "#8b949e")}.get(
             d.get("status", ""), ("?", "#8b949e"))
         rows += f'''<tr style="cursor:pointer" onclick="location.href='/pricecheck/{pcid}/document/{d['id']}'">
-         <td style="font-family:monospace;font-weight:600;color:#58a6ff">v{d['version']}</td>
+         <td style="font-family:monospace;font-weight:600;color:var(--r-accent)">v{d['version']}</td>
          <td>{d['created_at'][:19].replace('T',' ')}</td>
          <td>{d.get('notes','')[:40]}</td>
          <td>{d.get('change_summary','')[:60]}</td>
          <td><span style="background:{status_badge[1]};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">{status_badge[0]}</span></td>
          <td style="text-align:right;font-family:monospace">{d.get('file_size',0)//1024}KB</td>
-         <td><a href="/api/pricecheck/document/{d['id']}/pdf" style="color:#58a6ff">📥 Download</a></td>
+         <td><a href="/api/pricecheck/document/{d['id']}/pdf" style="color:var(--r-accent)">📥 Download</a></td>
         </tr>'''
     
     content = f'''
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="margin:0">📄 Sent Documents — PC #{pc.get("pc_number","?")}</h2>
-      <a href="/pricecheck/{pcid}" style="color:#58a6ff;text-decoration:none;font-size:13px">← Back to PC Detail</a>
+      <a href="/pricecheck/{pcid}" style="color:var(--r-accent);text-decoration:none;font-size:13px">← Back to PC Detail</a>
     </div>
     <div style="font-size:13px;color:var(--r-text-muted);margin-bottom:16px">{pc.get("institution","")} · {len(docs)} version(s)</div>
     <div style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:8px;overflow:hidden">
@@ -1330,8 +1330,8 @@ def pricecheck_document_editor(pcid, doc_id):
      </div>
      <div style="display:flex;gap:8px;align-items:center">
       <select id="verSelect" onchange="location.href='/pricecheck/{pcid}/document/'+this.value" style="background:var(--r-surface);border:1px solid var(--r-border);border-radius:6px;padding:6px 10px;color:var(--r-text);font-size:14px">{ver_options}</select>
-      <a href="/pricecheck/{pcid}/documents" style="color:#58a6ff;font-size:14px;text-decoration:none">📋 All Versions</a>
-      <a href="/pricecheck/{pcid}" style="color:#58a6ff;font-size:14px;text-decoration:none">← PC Detail</a>
+      <a href="/pricecheck/{pcid}/documents" style="color:var(--r-accent);font-size:14px;text-decoration:none">📋 All Versions</a>
+      <a href="/pricecheck/{pcid}" style="color:var(--r-accent);font-size:14px;text-decoration:none">← PC Detail</a>
      </div>
     </div>
     <div class="doc-split">
@@ -1343,7 +1343,7 @@ def pricecheck_document_editor(pcid, doc_id):
        <span style="font-size:14px;font-weight:700;color:var(--r-text)">✏️ Edit Line Items</span>
        <div style="display:flex;gap:8px">
         <button onclick="saveDocument(this)" class="btn btn-sm" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600">💾 Save & Regenerate</button>
-        <a href="/api/pricecheck/document/{doc_id}/pdf" download class="btn btn-sm" style="background:#21262d;color:#58a6ff;font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #30363d;text-decoration:none">📥 Download</a>
+        <a href="/api/pricecheck/document/{doc_id}/pdf" download class="btn btn-sm" style="background:#21262d;color:var(--r-accent);font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #30363d;text-decoration:none">📥 Download</a>
        </div>
       </div>
       <div id="docMsg" style="display:none;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:10px"></div>

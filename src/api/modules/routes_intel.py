@@ -1629,7 +1629,7 @@ def universal_search_page_intel():
     for r in results:
         color, bg, lbl = type_styles.get(r["type"], ("#8b949e","rgba(139,148,160,.12)","?"))
         rows_html += f"""
-        <a href="{r['url']}" style="display:block;text-decoration:none;padding:14px 16px;border-bottom:1px solid var(--r-border);transition:background .1s" onmouseover="this.style.background='rgba(79,140,255,.06)'" onmouseout="this.style.background=''">
+        <a href="{r['url']}" style="display:block;text-decoration:none;padding:14px 16px;border-bottom:1px solid var(--r-border);transition:background .1s" onmouseover="this.style.background='rgba(16,185,129,.06)'" onmouseout="this.style.background=''">
          <div style="display:flex;align-items:center;gap:12px">
           <span style="font-size:14px;padding:3px 8px;border-radius:10px;color:{color};background:{bg};white-space:nowrap;font-weight:600">{lbl}</span>
           <div style="flex:1;min-width:0">
@@ -1823,7 +1823,7 @@ def quotes_list():
                 pn_raw = str(it.get("part_number", ""))
                 pn = esc(pn_raw)
                 if pn_raw and pn_raw.startswith("B0"):
-                    pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:#58a6ff;font-size:13px">{pn}</a>'
+                    pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:var(--r-accent);font-size:13px">{pn}</a>'
                 elif pn_raw:
                     pn_link = f'<span style="color:#8b949e;font-size:13px">{pn}</span>'
                 else:
@@ -1879,7 +1879,7 @@ def quotes_list():
         qn_cell = f'<a href="{qn_href}" style="color:var(--r-accent);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="Open RFQ to edit and resend">{esc(qn)}</a>{test_badge}'
 
         # RFQ # column — also links to RFQ detail
-        rfq_cell = f'<a href="{qn_href}" style="color:#58a6ff;text-decoration:none">{esc(rfq_num_val)}</a>' if rfq_num_val else "—"
+        rfq_cell = f'<a href="{qn_href}" style="color:var(--r-accent);text-decoration:none">{esc(rfq_num_val)}</a>' if rfq_num_val else "—"
 
         # Decided rows get subtle opacity
         row_style = "opacity:0.5" if st in ("won", "lost", "expired") else ""

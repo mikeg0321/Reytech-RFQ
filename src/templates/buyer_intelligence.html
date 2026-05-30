@@ -3,7 +3,7 @@
 {% block content %}
 <div class="r-app">
 
-{% macro stat(value, label, color='#58a6ff', suffix='') -%}
+{% macro stat(value, label, color='var(--r-accent)', suffix='') -%}
   <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">
     <div style="font-size:22px;font-weight:700;color:{{ color }};font-family:monospace">{{ value }}{{ suffix }}</div>
     <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">{{ label }}</div>
@@ -16,7 +16,7 @@
     {% for d in [90, 180, 365, 730] %}
       <a href="/buyer-intelligence?days={{d}}"
          style="padding:6px 14px;border-radius:6px;font-size:13px;
-                background:{% if days == d %}#1f6feb{% else %}var(--r-surface-2,#161b22){% endif %};
+                background:{% if days == d %}var(--r-accent){% else %}var(--r-surface-2,#161b22){% endif %};
                 color:{% if days == d %}#fff{% else %}var(--r-text-muted,#8b949e){% endif %};
                 text-decoration:none;border:1px solid var(--r-border,#30363d)">
         {{ d }}d
@@ -28,7 +28,7 @@
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">Overview — last {{ days }}d</div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
-    {{ stat(totals.institutions, 'Institutions', '#58a6ff') }}
+    {{ stat(totals.institutions, 'Institutions', 'var(--r-accent)') }}
     {{ stat(totals.quotes, 'Quotes (won+lost)', '#79c0ff') }}
     {{ stat((totals.won * 100 / totals.quotes)|round(1) if totals.quotes else '--',
             'Overall win rate',
@@ -97,8 +97,8 @@
       </tbody>
     </table>
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:12px;color:var(--r-text-muted,#8b949e)">
-      Resolve via <a href="/quotes?status=sent" style="color:#58a6ff">/quotes?status=sent</a> ·
-      JSON feed at <a href="/api/oracle/capture-gap" style="color:#58a6ff">/api/oracle/capture-gap</a>
+      Resolve via <a href="/quotes?status=sent" style="color:var(--r-accent)">/quotes?status=sent</a> ·
+      JSON feed at <a href="/api/oracle/capture-gap" style="color:var(--r-accent)">/api/oracle/capture-gap</a>
     </div>
   </div>
 {% endif %}
@@ -157,11 +157,11 @@
     </table>
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--r-border,#30363d);font-size:12px;color:var(--r-text-muted,#8b949e)">
       JSON feed:
-      <a href="/api/oracle/outreach-triggers?silence_days={{silence_days}}" style="color:#58a6ff">/api/oracle/outreach-triggers</a>
+      <a href="/api/oracle/outreach-triggers?silence_days={{silence_days}}" style="color:var(--r-accent)">/api/oracle/outreach-triggers</a>
       · window:
-      <a href="/buyer-intelligence?days={{days}}&silence_days=30" style="color:#58a6ff">30d</a>
-      <a href="/buyer-intelligence?days={{days}}&silence_days=60" style="color:#58a6ff">60d</a>
-      <a href="/buyer-intelligence?days={{days}}&silence_days=90" style="color:#58a6ff">90d</a>
+      <a href="/buyer-intelligence?days={{days}}&silence_days=30" style="color:var(--r-accent)">30d</a>
+      <a href="/buyer-intelligence?days={{days}}&silence_days=60" style="color:var(--r-accent)">60d</a>
+      <a href="/buyer-intelligence?days={{days}}&silence_days=90" style="color:var(--r-accent)">90d</a>
     </div>
   </div>
 {% endif %}
@@ -284,7 +284,7 @@ function showCurve(idx) {
   html += '    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">Recommended markup</div>';
   html += '  </div>';
   html += '  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">';
-  html += '    <div style="font-size:22px;font-weight:700;color:#58a6ff;font-family:monospace">' + Math.round((b.win_probability || 0) * 100) + '%</div>';
+  html += '    <div style="font-size:22px;font-weight:700;color:var(--r-accent);font-family:monospace">' + Math.round((b.win_probability || 0) * 100) + '%</div>';
   html += '    <div style="font-size:12px;color:var(--r-text-muted,#8b949e)">P(win) at optimum</div>';
   html += '  </div>';
   html += '  <div style="text-align:center;padding:10px;background:var(--r-surface-2,#161b22);border-radius:8px">';

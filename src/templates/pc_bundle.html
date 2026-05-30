@@ -48,7 +48,7 @@
     &#x1F4E7; Send Combined Quote
    </button>
    {% if bundle_pdf_exists %}
-   <a href="/api/pricecheck/download/{{ bundle_pdf_name }}" class="btn btn-sm" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3)">
+   <a href="/api/pricecheck/download/{{ bundle_pdf_name }}" class="btn btn-sm" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3)">
     &#x2B07; Download Bundle PDF
    </a>
    {% endif %}
@@ -56,7 +56,7 @@
    <button class="btn btn-p" id="convertEachBtn" onclick="convertEachToRFQ(this)">
     &#x1F4E4; Convert Each &rarr; Separate RFQs
    </button>
-   <button class="btn btn-sm" onclick="convertBundleToRFQ(this)" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2)">
+   <button class="btn btn-sm" onclick="convertBundleToRFQ(this)" style="background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.2)">
     &#x1F4E4; Convert All &rarr; Single RFQ
    </button>
   </div>
@@ -138,7 +138,7 @@
     </td>
     <td style="text-align:center;color:var(--r-text-muted);font-size:13px">{{ pc.page_start|default(0)|int + 1 }}-{{ pc.page_end|default(0)|int + 1 }}</td>
     <td style="text-align:center">
-     <a href="/pricecheck/{{ pc.id }}" class="btn btn-sm" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2);padding:4px 10px;font-size:12px">Open</a>
+     <a href="/pricecheck/{{ pc.id }}" class="btn btn-sm" style="background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.2);padding:4px 10px;font-size:12px">Open</a>
     </td>
    </tr>
    {% endfor %}
@@ -213,7 +213,7 @@ function handleGenResult(d, btn) {
    (s.items_priced || 0) + '/' + (s.items_total || 0) + ' items priced, ' +
    d.page_count + ' pages' +
    (d.pcs_failed ? ' (' + d.pcs_failed + ' failed)' : '') +
-   ' &nbsp; <a href="' + d.download + '" style="color:#58a6ff;font-weight:700">Download &darr;</a>',
+   ' &nbsp; <a href="' + d.download + '" style="color:var(--r-accent);font-weight:700">Download &darr;</a>',
    'ok'
   );
   document.getElementById('sendBundleBtn').disabled = false;
@@ -279,7 +279,7 @@ function convertEachToRFQ(btn) {
   if (d.ok) {
    var links = d.created.map(function(c) {
     if (c.skipped) return '<span style="color:#8b949e">' + c.pc_id.substring(0,8) + ' (already converted)</span>';
-    return '<a href="' + c.url + '" style="color:#58a6ff">' + c.rfq_id + ' (' + c.items + ' items)</a>';
+    return '<a href="' + c.url + '" style="color:var(--r-accent)">' + c.rfq_id + ' (' + c.items + ' items)</a>';
    }).join(' &middot; ');
    showMsg('&#x2705; Created ' + d.total + ' RFQs: ' + links, 'ok');
    btn.innerHTML = '&#x2705; Converted';
@@ -306,7 +306,7 @@ function convertBundleToRFQ(btn) {
  .then(function(r) { return r.json(); })
  .then(function(d) {
   if (d.ok) {
-   showMsg('&#x2705; Created RFQ <a href="' + d.url + '" style="color:#58a6ff">' + d.rfq_id + '</a> with ' + d.items + ' items from ' + d.pcs + ' PCs', 'ok');
+   showMsg('&#x2705; Created RFQ <a href="' + d.url + '" style="color:var(--r-accent)">' + d.rfq_id + '</a> with ' + d.items + ' items from ' + d.pcs + ' PCs', 'ok');
    btn.innerHTML = '&#x2705; Converted';
    setTimeout(function() { location.reload(); }, 2000);
   } else {

@@ -136,7 +136,7 @@ function renderBuyers(buyers){
    ? overlap.map(function(it){return '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;background:rgba(63,185,80,.12);color:var(--r-accent);margin:1px">'+escH(it)+'</span>'}).join('')
    : '<span style="color:var(--r-text-muted);font-size:12px">—</span>';
 
-  html+='<tr style="border-bottom:1px solid var(--r-border);cursor:pointer" onmouseover="this.style.background=\'rgba(79,140,255,.04)\'" onmouseout="this.style.background=\'\'">'
+  html+='<tr style="border-bottom:1px solid var(--r-border);cursor:pointer" onmouseover="this.style.background=\'rgba(16,185,129,.04)\'" onmouseout="this.style.background=\'\'">'
    +'<td style="padding:10px 12px"><div style="font-weight:600;color:var(--r-text)">'+escH(b.buyer_name||'Unknown')+'</div>'
    +'<div style="font-size:12px;color:var(--r-accent)"><a href="mailto:'+escH(b.buyer_email)+'" style="color:var(--r-accent)">'+escH(b.buyer_email)+'</a></div></td>'
    +'<td style="padding:10px 12px"><div style="color:var(--r-text)">'+escH(b.agency||'')+'</div><div style="font-size:12px;color:var(--r-text-muted)">'+escH(b.institution||'')+'</div></td>'

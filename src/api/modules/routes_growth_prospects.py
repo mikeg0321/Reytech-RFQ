@@ -119,7 +119,7 @@ def growth_prospect_detail(prospect_id):
         etype = ev.get("type","").replace("_"," ").title()
         detail = ev.get("detail","")
         actor = ev.get("actor","")
-        actor_badge = f'<span style="font-size:13px;padding:1px 6px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--r-accent);margin-left:4px">{actor}</span>' if actor and actor != "system" else ""
+        actor_badge = f'<span style="font-size:13px;padding:1px 6px;border-radius:8px;background:rgba(16,185,129,.15);color:var(--r-accent);margin-left:4px">{actor}</span>' if actor and actor != "system" else ""
         meta = ev.get("metadata",{})
         meta_html = ""
         if meta.get("amount"): meta_html += f' · <span style="color:#3fb950">${float(meta["amount"]):,.0f}</span>'

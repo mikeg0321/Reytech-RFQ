@@ -35,7 +35,7 @@
      a{color:var(--r-accent,#10b981)} h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em}
      .meta{color:var(--r-text-muted,#9ca3af);font-size:13px}
      .status{padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
-     .status-parsed{background:rgba(88,166,255,.12);color:#58a6ff}
+     .status-parsed{background:rgba(16,185,129,.12);color:var(--r-accent)}
      .status-priced{background:var(--r-accent-soft,rgba(16,185,129,0.10));color:var(--r-accent,#10b981)}
      .status-completed{background:var(--r-accent-soft,rgba(16,185,129,0.10));color:var(--r-accent,#10b981)}
      .status-converted{background:rgba(137,87,229,.18);color:#bc8cff}
@@ -182,13 +182,13 @@
       <span>Price Check #</span>
       <span id="pcNumDisplay" style="cursor:pointer" title="Click to rename" onclick="document.getElementById('pcNumEdit').style.display='inline-flex';this.style.display='none'">{{ pc.get('pc_number','PC') }}</span>
       <span id="pcNumEdit" style="display:none;align-items:center;gap:4px">
-       <input type="text" id="pcNumInput" value="{{ pc.get('pc_number','') }}" style="background:#0d1117;border:1px solid #58a6ff;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
+       <input type="text" id="pcNumInput" value="{{ pc.get('pc_number','') }}" style="background:#0d1117;border:1px solid var(--r-accent);color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
        <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:14px;cursor:pointer" aria-label="Save">Save</button>
        <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:14px;cursor:pointer" aria-label="Cancel rename">✕</button>
       </span>
       <span class="status status-{{ pc.get('status','parsed') }}">{{ pc.get('status','parsed').upper() }}</span>
-      {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}
-      <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--r-surface,#161b22);border:1px solid var(--r-border,#30363d);border-radius:6px;color:#58a6ff;font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
+      {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:var(--r-accent);font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}
+      <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--r-surface,#161b22);border:1px solid var(--r-border,#30363d);border-radius:6px;color:var(--r-accent);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
       <button id="qaToggleBtn" onclick="toggleQAPanel()" style="padding:4px 10px;background:var(--r-surface,#161b22);border:1px solid var(--r-border,#30363d);border-radius:6px;color:#8b949e;font-size:12px;cursor:pointer;margin-left:4px" title="View QA/QC results">QA</button>
      </h1>
 
@@ -242,7 +242,7 @@
      {% if pc.get('status') == 'sent' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);color:#3fb950;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">📨</span><div><b>Sent</b> — Awaiting award decision{% if pc.get('sent_at') %} · Sent {{ pc.get('sent_at','')[:10] }}{% endif %}
-       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/{{ pcid }}/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/{{ pcid }}/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
+       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/{{ pcid }}/document/{{ pc.get('current_doc_id','') }}" style="color:var(--r-accent);font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/{{ pcid }}/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
       <div style="display:flex;gap:6px">
        <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer" aria-label="Mark Won">🏆 Mark Won</button>
        <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer" aria-label="Mark Lost">❌ Mark Lost</button>
@@ -281,14 +281,14 @@
       <button class="btn btn-sm" onclick="markSent(this)" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600" aria-label="Mark Sent">📨 Mark Sent</button>
      </div>
      {% elif pc.get('status') == 'priced' %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Generate.</div></div>
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);color:var(--r-accent);margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Generate.</div></div>
      {% elif pc.get('status') == 'new' %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);color:#4f8cff;margin-bottom:10px"><span style="font-size:18px">📋</span><div><b>New</b> — click Auto-Price Now to find prices, then Save &amp; Generate.</div>
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);color:var(--r-accent);margin-bottom:10px"><span style="font-size:18px">📋</span><div><b>New</b> — click Auto-Price Now to find prices, then Save &amp; Generate.</div>
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Retry automatic pricing">🔄 Auto-Price Now</button></div>
      {% elif pc.get('status') == 'parsed' or pc.get('status') == 'priced' %}
      {% if pc.get('enrichment_status') == 'enriching' %}
-     <div id="enrichingBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.25);color:#388bfd;margin-bottom:10px">
-      <span class="spinner" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(56,139,253,.3);border-top-color:#388bfd;border-radius:50%;animation:spin 1s linear infinite"></span>
+     <div id="enrichingBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);color:var(--r-accent);margin-bottom:10px">
+      <span class="spinner" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(16,185,129,.3);border-top-color:var(--r-accent);border-radius:50%;animation:spin 1s linear infinite"></span>
       <div><b>Enriching...</b> <span id="enrichPhase">searching catalog, SCPRS, and web prices</span></div>
      </div>
      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
@@ -362,7 +362,7 @@
      {% endif %}
 
      {% if pc.get('trend_alerts') %}
-     <div style="padding:8px 16px;border-radius:8px;font-size:13px;background:rgba(79,140,255,.06);border:1px solid rgba(79,140,255,.2);color:#4f8cff;margin-bottom:10px">
+     <div style="padding:8px 16px;border-radius:8px;font-size:13px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);color:var(--r-accent);margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">📉</span><b>Price Trend Alerts</b></div>
       {% for alert in pc.trend_alerts[:5] %}
       <div style="margin-top:4px;padding-left:24px">{{ alert }}</div>
@@ -488,9 +488,9 @@
      {# Phase 5: classification banner — auto-surface what the classifier sees #}
      {% set _cls = pc.get('_classification') or {} %}
      {% if _cls and _cls.get('shape') %}
-     <div style="margin-top:10px;padding:10px 14px;border-radius:8px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);font-size:13px">
+     <div style="margin-top:10px;padding:10px 14px;border-radius:8px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.25);font-size:13px">
       <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
-       <span style="font-weight:700;color:#58a6ff">🤖 Auto-Classification</span>
+       <span style="font-weight:700;color:var(--r-accent)">🤖 Auto-Classification</span>
        <span><span style="color:#8b949e">shape:</span> <b style="color:#c9d1d9">{{ _cls.shape }}</b></span>
        <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ (_cls.agency_name or _cls.agency)|agency_display }}</b></span>
        {% if _cls.solicitation_number %}<span><span style="color:#8b949e">sol#:</span> <b style="color:#c9d1d9">{{ _cls.solicitation_number }}</b></span>{% endif %}
@@ -589,7 +589,7 @@
       <div id="historyCard" style="flex:1;min-width:320px;background:var(--r-surface-2);border:1px solid var(--r-border);border-radius:8px;padding:16px;font-size:13px">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span style="font-size:14px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📊 Quote History</span>
-        <span id="historyBadge" style="font-size:14px;padding:2px 10px;border-radius:10px;font-weight:600;background:#1a3a5c;color:#58a6ff;display:none"></span>
+        <span id="historyBadge" style="font-size:14px;padding:2px 10px;border-radius:10px;font-weight:600;background:rgba(16,185,129,.13);color:var(--r-accent);display:none"></span>
        </div>
        <div id="historyBody" style="color:var(--r-text-muted);font-size:13px">Loading...</div>
       </div>
@@ -682,14 +682,14 @@
      <!-- Actions: Save + Preview + Fill/Download -->
      <!-- Generate Quote banner — only visible for formal 704b/703b quote requests -->
      {% if pc.get('is_quote_request') or pc.get('form_type') in ('704b', '703b') %}
-     <div id="quote-gen-banner" style="background:linear-gradient(135deg,#1a3a5c,#0d2137);border:1px solid #1f6feb;border-radius:10px;padding:14px 20px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+     <div id="quote-gen-banner" style="background:linear-gradient(135deg,rgba(16,185,129,.12),rgba(16,185,129,.06));border:1px solid var(--r-accent);border-radius:10px;padding:14px 20px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:16px">
       <div>
-       <div style="font-size:13px;font-weight:700;color:#58a6ff;margin-bottom:3px">🎯 Generate Reytech Quote</div>
+       <div style="font-size:13px;font-weight:700;color:var(--r-accent);margin-bottom:3px">🎯 Generate Reytech Quote</div>
        <div style="font-size:14px;color:#8b949e" id="quote-gen-meta">Prices saved → 1 click to PDF + logged to CRM + DB</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
        <span style="font-size:14px;color:#3fb950;font-family:monospace" id="next-qn-badge">Next: {{ next_quote_preview or '—' }}</span>
-       <button class="btn" id="genQuoteBtn" data-testid="pc-generate-quote-1click" onclick="generateQuote1Click(this)" style="background:#1f6feb;color:#fff;font-weight:700;font-size:14px;padding:10px 24px;border-radius:8px;transition:all .2s;white-space:nowrap" aria-label="Generate Quote">📋 Generate Quote →</button>
+       <button class="btn" id="genQuoteBtn" data-testid="pc-generate-quote-1click" onclick="generateQuote1Click(this)" style="background:var(--r-accent);color:#fff;font-weight:700;font-size:14px;padding:10px 24px;border-radius:8px;transition:all .2s;white-space:nowrap" aria-label="Generate Quote">📋 Generate Quote →</button>
       </div>
      </div>
      {% endif %}
@@ -757,16 +757,16 @@
        <button class="btn" onclick="viewOriginalPc()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">View Sent</button>
       {% elif st in ('completed','converted') %}
        <button class="btn" onclick="sendPcQuote()" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Send Quote</button>
-       <button class="btn" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 18px">Preview 704</button>
+       <button class="btn" onclick="previewPcPdf()" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:14px;padding:8px 18px">Preview 704</button>
        <button class="btn" onclick="savePrices(this)" id="saveBtn" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:14px;padding:8px 18px">Regenerate</button>
       {% elif st in ('priced','enriched') %}
        <button class="btn" onclick="savePrices(this)" id="saveBtn" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Save & Generate</button>
-       <button class="btn" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 18px">Preview 704</button>
-       <button class="btn" onclick="sendPcQuote()" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:14px;padding:8px 18px">Send Quote</button>
+       <button class="btn" onclick="previewPcPdf()" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:14px;padding:8px 18px">Preview 704</button>
+       <button class="btn" onclick="sendPcQuote()" style="background:#21262d;color:var(--r-accent);border:1px solid #30363d;font-size:14px;padding:8px 18px">Send Quote</button>
       {% else %}
        <button class="btn" onclick="runAutoPrice(this)" id="saveBtn" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Find Prices</button>
        <button class="btn" onclick="savePrices(this)" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:14px;padding:8px 18px">Save & Generate</button>
-       <button class="btn" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 18px">Preview</button>
+       <button class="btn" onclick="previewPcPdf()" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:14px;padding:8px 18px">Preview</button>
       {% endif %}
       {{ download_html | default('') | safe }}
       <button class="btn" onclick="viewOriginalPc()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">Original</button>
@@ -801,7 +801,7 @@
         <hr style="border-color:#30363d;margin:6px 0">
         <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Admin</div>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this);this.closest('details').open=false">Re-parse from Source</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click();this.closest('details').open=false">Upload File & Parse</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:var(--r-accent);border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click();this.closest('details').open=false">Upload File & Parse</button>
         <form id="pc-upload-form" action="/pricecheck/{{pcid}}/upload-pdf" method="POST" enctype="multipart/form-data" style="display:none">
          <input type="file" id="pc-pdf-upload" name="file" accept=".pdf,.xls,.xlsx,.doc,.docx" onchange="this.form.submit()">
         </form>
@@ -822,18 +822,18 @@
     <!-- ═══ PRICING ACTION BAR ═══ -->
     <div style="display:flex;gap:8px;align-items:center;margin:12px 0">
      <button onclick="retryAutoPrice(this)" class="btn" style="padding:10px 24px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Auto-price all items">⚡ Auto-Price All</button>
-     <button onclick="openBulkPaste()" class="btn" style="padding:10px 20px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Bulk paste product URLs">📋 Bulk Paste URLs</button>
+     <button onclick="openBulkPaste()" class="btn" style="padding:10px 20px;background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Bulk paste product URLs">📋 Bulk Paste URLs</button>
      <div style="position:relative;display:inline-block" id="pricingToolsWrap">
       <button onclick="var d=document.getElementById('pricingToolsMenu');d.style.display=d.style.display==='block'?'none':'block'" class="btn" style="padding:10px 16px;background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;font-size:13px;cursor:pointer">More Pricing Tools ▾</button>
       <div id="pricingToolsMenu" style="display:none;position:absolute;top:40px;left:0;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px 0;min-width:220px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-       <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';runScprs(this)" style="display:block;padding:8px 16px;font-size:13px;color:#58a6ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">SCPRS Lookup — State contracts</a>
+       <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';runScprs(this)" style="display:block;padding:8px 16px;font-size:13px;color:var(--r-accent);text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">SCPRS Lookup — State contracts</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';runCatalogMatch(this)" style="display:block;padding:8px 16px;font-size:13px;color:#3fb950;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Catalog Match — Our products</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';runAutoPrice()" style="display:block;padding:8px 16px;font-size:13px;color:#f0883e;text-decoration:none;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Auto-Price All — Catalog + Amazon</a>
        <div style="border-top:1px solid #30363d;margin:4px 0"></div>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';openBulkPaste()" style="display:block;padding:8px 16px;font-size:13px;color:#d2a8ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Bulk Paste URLs</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';rescrapeUnpriced(this)" style="display:block;padding:8px 16px;font-size:13px;color:#d29922;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Re-scrape Missing Prices</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';reconcileMfg(this)" style="display:block;padding:8px 16px;font-size:13px;color:#79c0ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Fix MFG# from Descriptions</a>
-       <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';refreshCatalogPricesForPc(this)" style="display:block;padding:8px 16px;font-size:13px;color:#58a6ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" title="Pull fresh web MSRP for items in the catalog. Runs in background — reload in ~1 min to see updates.">🔄 Refresh Catalog MSRP</a>
+       <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';refreshCatalogPricesForPc(this)" style="display:block;padding:8px 16px;font-size:13px;color:var(--r-accent);text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" title="Pull fresh web MSRP for items in the catalog. Runs in background — reload in ~1 min to see updates.">🔄 Refresh Catalog MSRP</a>
       </div>
      </div>
     </div>
@@ -881,7 +881,7 @@
       <div style="display:flex;align-items:center;gap:6px;background:#21262d;padding:8px 14px;border-radius:8px;border:1px solid #30363d">
        <span style="color:#8b949e;font-size:16px;font-weight:600">$</span>
        <input type="number" id="pc-custom-flat" step="0.01" min="0" placeholder="0.00" style="width:70px;background:transparent;border:none;color:#e6edf3;font-size:17px;font-weight:700;text-align:center;outline:none">
-       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:6px 12px;font-size:16px;cursor:pointer;font-weight:700" onclick="applyFlatMarkupPC()">+$</button>
+       <button class="btn btn-sm" style="background:transparent;color:var(--r-accent);border:none;padding:6px 12px;font-size:16px;cursor:pointer;font-weight:700" onclick="applyFlatMarkupPC()">+$</button>
       </div>
       <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:68px;text-align:center;font-size:15px;font-weight:700;padding:6px;display:none">
      </div>
@@ -943,13 +943,13 @@
         a cadence; reusing the prior pricing is the operator-leverage win. #}
      {% if recurring_bids %}
      <div id="bid-recurrence-chip" data-testid="bid-recurrence-chip"
-          style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.3);border-radius:8px;margin-bottom:12px;font-size:13px;flex-wrap:wrap">
+          style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.3);border-radius:8px;margin-bottom:12px;font-size:13px;flex-wrap:wrap">
        <span style="font-size:18px" aria-hidden="true">🔁</span>
-       <span style="color:#58a6ff;font-weight:600">Prior bids at this institution:</span>
+       <span style="color:var(--r-accent);font-weight:600">Prior bids at this institution:</span>
        {% for rb in recurring_bids %}
          <a href="{{ rb.url }}"
             data-testid="bid-recurrence-link"
-            style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#58a6ff;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:12px"
+            style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:var(--r-accent);text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:12px"
             title="{{ rb.matched_items }}/{{ rb.total_items }} items match (qty + description). Status: {{ rb.status }}{% if rb.requestor %} | Requestor: {{ rb.requestor }}{% endif %}">
            #{{ rb.pc_number or rb.id }}
            <span style="color:#8b949e">·</span>
@@ -981,7 +981,7 @@
       <span id="pc-ms-landed" style="display:none;font-size:12px;color:#d29922;margin-left:4px" title="True margin after shipping + tax on non-exempt suppliers"></span>
       <span style="border-left:1px solid #484f58;height:20px"></span>
       <button id="oracleAutoPriceBtn" onclick="oracleAutoPrice()" style="background:rgba(63,185,80,.15);border:1px solid rgba(63,185,80,.4);color:#3fb950;font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap" title="Auto-price all items using Oracle market data">⚡ Oracle Price</button>
-      <button id="quoteAnalysisBtn" onclick="runQuoteAnalysis()" style="background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.3);color:#58a6ff;font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap" title="Run Oracle analysis on full quote">📊 Quote Analysis</button>
+      <button id="quoteAnalysisBtn" onclick="runQuoteAnalysis()" style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:var(--r-accent);font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap" title="Run Oracle analysis on full quote">📊 Quote Analysis</button>
      </div>
      <div id="quote-analysis-panel" style="display:none;margin-bottom:12px"></div>
      {% set _tc = tier_counts | default({'READY':0,'REVIEW':0,'MANUAL':0,'SKIP':0}) %}
@@ -1079,7 +1079,7 @@
        <input type="checkbox" id="taxToggle" onchange="recalcPC()" style="width:18px;height:18px">
        <span>Include CA Sales Tax</span>
        <span id="taxRateDisplay" style="color:#8b949e;font-size:13px">({{ tax_source }} — {{ (tax_rate * 100)|round(3) }}%)</span>
-       <button type="button" onclick="lookupPcTaxRate()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:5px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;margin-left:6px" aria-label="Verify tax rate">🔍 Verify</button>
+       <button type="button" onclick="lookupPcTaxRate()" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);border-radius:5px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;margin-left:6px" aria-label="Verify tax rate">🔍 Verify</button>
        <span id="pc-tax-validation" style="font-size:12px;margin-left:4px"></span>
       </label>
       <span style="color:#30363d">|</span>
@@ -1147,7 +1147,7 @@
       <div id="bulkProgress" style="display:none;margin-top:8px">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <span id="bulkProgressLabel" style="font-size:12px;color:#8b949e">Preparing...</span>
-        <span id="bulkProgressPct" style="font-size:12px;color:#58a6ff;font-weight:600">0%</span>
+        <span id="bulkProgressPct" style="font-size:12px;color:var(--r-accent);font-weight:600">0%</span>
        </div>
        <div style="height:6px;background:#30363d;border-radius:3px;overflow:hidden">
         <div id="bulkProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg,#238636,#3fb950);border-radius:3px;transition:width 0.3s ease"></div>
@@ -1181,7 +1181,7 @@
       <div style="text-align:center;padding:40px 20px;color:#8b949e">
        <div style="font-size:32px;margin-bottom:8px">🔍</div>
        <div>Run QA to check this Price Check</div>
-       <button onclick="runQAManual()" style="margin-top:12px;padding:8px 20px;background:#1f6feb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px">Run QA Now</button>
+       <button onclick="runQAManual()" style="margin-top:12px;padding:8px 20px;background:var(--r-accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px">Run QA Now</button>
       </div>
      </div>
     </div>
@@ -1204,9 +1204,9 @@
       var s=d.data,h='';
       if(s.email_subject||s.email_from){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Original Email</div>';if(s.email_subject)h+='<div style="font-weight:600;color:#e6edf3;margin-bottom:4px">'+_escH(s.email_subject)+'</div>';if(s.email_from)h+='<div style="font-size:13px;color:#8b949e">From: '+_escH(s.email_from)+'</div>';if(s.email_date)h+='<div style="font-size:13px;color:#8b949e">Date: '+_escH(s.email_date)+'</div>';h+='</div>';}
       if(s.email_body){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Email Body</div><div style="font-size:13px;color:#e6edf3;white-space:pre-wrap;max-height:300px;overflow-y:auto;font-family:monospace;line-height:1.4">'+_escH(s.email_body)+'</div></div>';}
-      if(s.attachments&&s.attachments.length){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:8px">Attachments ('+s.attachments.length+')</div>';s.attachments.forEach(function(a){h+='<div style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:4px;margin-bottom:4px;background:#0d1117"><span style="flex:1;font-size:13px;color:#e6edf3">'+_escH(a.filename)+'</span>';if(a.size_kb)h+='<span style="font-size:11px;color:#8b949e">'+a.size_kb+'KB</span>';if(a.download_url)h+='<a href="'+a.download_url+'" target="_blank" style="font-size:12px;color:#58a6ff">View</a>';h+='</div>';});h+='</div>';}
+      if(s.attachments&&s.attachments.length){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:8px">Attachments ('+s.attachments.length+')</div>';s.attachments.forEach(function(a){h+='<div style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:4px;margin-bottom:4px;background:#0d1117"><span style="flex:1;font-size:13px;color:#e6edf3">'+_escH(a.filename)+'</span>';if(a.size_kb)h+='<span style="font-size:11px;color:#8b949e">'+a.size_kb+'KB</span>';if(a.download_url)h+='<a href="'+a.download_url+'" target="_blank" style="font-size:12px;color:var(--r-accent)">View</a>';h+='</div>';});h+='</div>';}
       if(s.extracted_fields){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Extracted Fields</div>';for(var k in s.extracted_fields){var v=s.extracted_fields[k];h+='<div style="display:flex;gap:6px;font-size:13px;padding:2px 0"><span>'+(v?'\u2705':'\u274c')+'</span><span style="color:#8b949e;min-width:110px">'+_escH(k)+':</span><span style="color:#e6edf3">'+(v?_escH(String(v).substring(0,80)):'<em style="color:#8b949e">not found</em>')+'</span></div>';}h+='</div>';}
-      if(s.linked_rfq){h+='<div style="padding:8px 0"><a href="/rfq/'+s.linked_rfq.id+'" style="color:#58a6ff;font-size:13px">Linked RFQ #'+_escH(s.linked_rfq.number||s.linked_rfq.id)+'</a></div>';}
+      if(s.linked_rfq){h+='<div style="padding:8px 0"><a href="/rfq/'+s.linked_rfq.id+'" style="color:var(--r-accent);font-size:13px">Linked RFQ #'+_escH(s.linked_rfq.number||s.linked_rfq.id)+'</a></div>';}
       c.innerHTML=h;
      }).catch(function(){c.innerHTML='<div style="padding:12px">Failed to load</div>';});
     }
@@ -1301,7 +1301,7 @@
         overlay = document.createElement('div');
         overlay.id = 'pdf-gen-overlay';
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
-        overlay.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:30px 40px;text-align:center"><div style="width:32px;height:32px;border:3px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div><div style="color:#c9d1d9;font-size:15px">Generating PDF...</div></div>';
+        overlay.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:30px 40px;text-align:center"><div style="width:32px;height:32px;border:3px solid #30363d;border-top-color:var(--r-accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div><div style="color:#c9d1d9;font-size:15px">Generating PDF...</div></div>';
         document.body.appendChild(overlay);
       }
       overlay.style.display = 'flex';
@@ -1325,7 +1325,7 @@
      // Push main content left so table stays scrollable
      document.body.style.marginRight = _qaPanelOpen ? '500px' : '';
      var btn = document.getElementById('qaToggleBtn');
-     if (btn) btn.style.borderColor = _qaPanelOpen ? '#58a6ff' : '#30363d';
+     if (btn) btn.style.borderColor = _qaPanelOpen ? 'var(--r-accent)' : '#30363d';
     }
 
     function _openQAPanel() {
@@ -1337,7 +1337,7 @@
      document.querySelectorAll('tr[data-row]').forEach(function(r) { r.style.boxShadow = ''; r.style.background = ''; });
      var row = document.querySelector('tr[data-row="' + idx + '"]');
      if (!row) return;
-     row.style.boxShadow = 'inset 0 0 0 2px #58a6ff';
+     row.style.boxShadow = 'inset 0 0 0 2px var(--r-accent)';
      row.style.background = '#1a233280';
      // Scroll both the page and the table container
      var wrap = row.closest('.pc-table-wrap');
@@ -1451,7 +1451,7 @@
       var _msg = (issue.message||'').replace(/</g,'&lt;');
       if (_msg.length > 120) {
        var _mid = 'qa-msg-' + Math.random().toString(36).substr(2,6);
-       c += '<div style="flex:1;color:#c9d1d9"><span>' + _msg.substr(0,120) + '</span><span id="' + _mid + '" style="display:none">' + _msg.substr(120) + '</span> <a onclick="var s=document.getElementById(\'' + _mid + '\');s.style.display=s.style.display===\'none\'?\'inline\':\'none\';this.textContent=s.style.display===\'none\'?\'more\':\'less\'" style="cursor:pointer;color:#58a6ff;font-size:11px">more</a></div>';
+       c += '<div style="flex:1;color:#c9d1d9"><span>' + _msg.substr(0,120) + '</span><span id="' + _mid + '" style="display:none">' + _msg.substr(120) + '</span> <a onclick="var s=document.getElementById(\'' + _mid + '\');s.style.display=s.style.display===\'none\'?\'inline\':\'none\';this.textContent=s.style.display===\'none\'?\'more\':\'less\'" style="cursor:pointer;color:var(--r-accent);font-size:11px">more</a></div>';
       } else {
        c += '<div style="flex:1;color:#c9d1d9">' + _msg + '</div>';
       }
@@ -1645,7 +1645,7 @@
           if(existing) existing.remove();
           var badge=document.createElement('span');
           badge.id='buyer-suggest';
-          badge.style.cssText='background:rgba(88,166,255,.1);border:1px solid rgba(88,166,255,.3);border-radius:4px;padding:2px 8px;font-size:12px;color:#58a6ff;margin-left:6px;cursor:pointer';
+          badge.style.cssText='background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:4px;padding:2px 8px;font-size:12px;color:var(--r-accent);margin-left:6px;cursor:pointer';
           badge.innerHTML='Suggested: '+d.ship_to.substring(0,40)+(d.ship_to.length>40?'...':'')+' <span style="margin-left:4px;opacity:.6" title="Dismiss">\u2715</span>';
           badge.onclick=function(){
             shipEl.value=d.ship_to;
@@ -1672,7 +1672,7 @@
           if (el) el.innerHTML = '&#x25be; Price history';
           var div = document.createElement('div');
           div.className = 'ph-open';
-          div.style.cssText = 'margin:4px 0 8px 0;padding:6px 10px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.15);border-radius:6px;font-size:13px';
+          div.style.cssText = 'margin:4px 0 8px 0;padding:6px 10px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:6px;font-size:13px';
           if (!d.ok || !d.history || !d.history.length) {
             div.innerHTML = '<span style="color:#484f58">No pricing history found for this item</span>';
           } else {
@@ -1808,7 +1808,7 @@
         btn.disabled=false; _hideGenOverlay();
         if(g.ok){
          btn.textContent='✅ Saved + PDF Ready';btn.style.background='#238636';
-         showMsg('✅ Saved & PDF generated. <a href="'+g.download+'" style="color:#58a6ff">📥 Download</a>','ok');
+         showMsg('✅ Saved & PDF generated. <a href="'+g.download+'" style="color:var(--r-accent)">📥 Download</a>','ok');
          var dlBtn=document.querySelector('a[href*="/api/pricecheck/download/"]');
          if(dlBtn) dlBtn.href=g.download;
          if(typeof _refreshComposeAttachments==='function') _refreshComposeAttachments(g.quote_url||null, g.download);
@@ -2308,7 +2308,7 @@
              var html = '⚠ No exact match. Top results:<br>';
              d.matches.forEach(function(m, i){
                var t = m.title.length > 50 ? m.title.substring(0,47)+'...' : m.title;
-               html += '<a href="'+m.url+'" target="_blank" style="color:#58a6ff;font-size:11px" title="'+m.title.replace(/"/g,'&quot;')+'">'+t+'</a>';
+               html += '<a href="'+m.url+'" target="_blank" style="color:var(--r-accent);font-size:11px" title="'+m.title.replace(/"/g,'&quot;')+'">'+t+'</a>';
                if (m.price) html += ' <span style="color:#3fb950">$'+m.price.toFixed(2)+'</span>';
                if (m.title_qty) html += ' <span style="color:#a78bfa">('+m.title_qty+'ct)</span>';
                html += '<br>';
@@ -2368,7 +2368,7 @@
 
       // Column 1: Market Intel
       html+='<div style="border-right:1px solid #30363d;padding-right:12px">';
-      html+='<div style="font-weight:700;color:#58a6ff;margin-bottom:8px">Market Intel</div>';
+      html+='<div style="font-weight:700;color:var(--r-accent);margin-bottom:8px">Market Intel</div>';
       if(m.weighted_avg)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">SCPRS Weighted Avg</span><b style="color:#e6edf3">'+_p(m.weighted_avg)+'</b></div>';
       if(m.reytech_avg)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">Our Past Wins</span><b style="color:#a78bfa">'+_p(m.reytech_avg)+'</b></div>';
       if(m.competitor_avg)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">Competitor Avg</span><b style="color:#f0883e">'+_p(m.competitor_avg)+'</b></div>';
@@ -2445,7 +2445,7 @@
       }
       if(rec.buyer_curve){
         var bc=rec.buyer_curve;
-        intel+='<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">📈 EV-optimal markup</span><b style="color:#58a6ff">'+bc.optimal_markup_pct+'% · P(win) '+Math.round(bc.win_probability*100)+'%</b></div>';
+        intel+='<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">📈 EV-optimal markup</span><b style="color:var(--r-accent)">'+bc.optimal_markup_pct+'% · P(win) '+Math.round(bc.win_probability*100)+'%</b></div>';
         intel+='<div style="font-size:11px;color:#484f58;margin-left:14px">'+bc.won+' won / '+bc.lost+' lost · expected value '+bc.expected_value.toFixed(2)+'</div>';
       }
       if(d.volume_aware_band){
@@ -2513,7 +2513,7 @@
       var html='<td colspan="12" style="padding:12px 20px;background:#161b22;border:1px solid #30363d">';
       html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><b style="color:#d29922;font-size:14px">🔍 Supplier Research Results</b><button onclick="this.closest(\'tr\').remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">&times;</button></div>';
       if(d.summary)html+='<div style="color:#8b949e;font-size:13px;margin-bottom:10px">'+d.summary+'</div>';
-      if(d.manufacturer&&d.manufacturer.name)html+='<div style="font-size:12px;color:#58a6ff;margin-bottom:8px">Manufacturer: <b>'+d.manufacturer.name+'</b>'+(d.manufacturer.sells_direct?' (sells direct)':'')+' '+(d.manufacturer.contact||'')+'</div>';
+      if(d.manufacturer&&d.manufacturer.name)html+='<div style="font-size:12px;color:var(--r-accent);margin-bottom:8px">Manufacturer: <b>'+d.manufacturer.name+'</b>'+(d.manufacturer.sells_direct?' (sells direct)':'')+' '+(d.manufacturer.contact||'')+'</div>';
       strats.forEach(function(s){
         var color=s.priority==='high'?'#3fb950':s.priority==='medium'?'#d29922':'#8b949e';
         html+='<div style="padding:6px 10px;margin-bottom:4px;background:#21262d;border-radius:6px;border-left:3px solid '+color+'">';
@@ -2522,7 +2522,7 @@
         if(s.estimated_price)html+='<span style="color:#3fb950;font-weight:600;font-family:JetBrains Mono,monospace">$'+s.estimated_price.toFixed(2)+(s.savings_pct?' ('+s.savings_pct+'% savings)':'')+'</span>';
         html+='</div>';
         html+='<div style="color:#c9d1d9;font-size:12px;margin-top:2px">'+s.description+'</div>';
-        if(s.contact)html+='<div style="color:#58a6ff;font-size:12px;margin-top:2px">Contact: '+s.contact+'</div>';
+        if(s.contact)html+='<div style="color:var(--r-accent);font-size:12px;margin-top:2px">Contact: '+s.contact+'</div>';
         html+='</div>';
       });
       html+='</td>';
@@ -2545,7 +2545,7 @@
       var panel=document.createElement('tr');
       panel.id='comp-panel-'+idx;
       var html='<td colspan="12" style="padding:12px 20px;background:#161b22;border:1px solid #30363d">';
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><b style="color:#58a6ff;font-size:14px">📊 Competitor Price Scan'+(d.cached?' <span style=\"color:#8b949e;font-size:11px;font-weight:400\">(cached)</span>':'')+'</b><button onclick="this.closest(\'tr\').remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">&times;</button></div>';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><b style="color:var(--r-accent);font-size:14px">📊 Competitor Price Scan'+(d.cached?' <span style=\"color:#8b949e;font-size:11px;font-weight:400\">(cached)</span>':'')+'</b><button onclick="this.closest(\'tr\').remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">&times;</button></div>';
       if(!comps.length){
         html+='<div style="color:#8b949e;font-size:13px">'+(d.reason||'No competitor results')+'</div>';
       } else {
@@ -2557,7 +2557,7 @@
           html+='</div>';
           html+='<div style="display:flex;gap:10px;align-items:center;flex-shrink:0">';
           if(c.price)html+='<span style="color:#3fb950;font-weight:600;font-family:JetBrains Mono,monospace">$'+(+c.price).toFixed(2)+'</span>';
-          if(c.url)html+='<a href="'+c.url+'" target="_blank" rel="noopener" style="color:#58a6ff;font-size:12px">Open ↗</a>';
+          if(c.url)html+='<a href="'+c.url+'" target="_blank" rel="noopener" style="color:var(--r-accent);font-size:12px">Open ↗</a>';
           html+='</div></div>';
         });
       }
@@ -2662,7 +2662,7 @@
             var label = ci.danger ? '🔴 LOSS BUCKET' : '⚠';
             swap.innerHTML = '<span style="color:#f85149">' + label + '</span>'
               + ' · <a href="#" class="rt-swap-link" '
-              + 'style="color:#58a6ff;text-decoration:underline;cursor:pointer">↓ swap to $'
+              + 'style="color:var(--r-accent);text-decoration:underline;cursor:pointer">↓ swap to $'
               + altPrice.toFixed(2) + '</a>';
             priceTd.appendChild(swap);
             var lnk = swap.querySelector('.rt-swap-link');
@@ -2876,7 +2876,7 @@
       html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">Items At Risk</div><div style="font-size:16px;font-weight:600;color:'+(s.items_at_risk>0?'#f85149':'#3fb950')+'">'+s.items_at_risk+'</div></div>';
       html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">No Market Data</div><div style="font-size:16px;font-weight:600;color:'+(s.items_no_data>0?'#d29922':'#8b949e')+'">'+s.items_no_data+'</div></div>';
       html+='<span style="border-left:1px solid #484f58;height:40px"></span>';
-      html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">SCPRS Data Points</div><div style="font-size:16px;font-weight:600;color:#58a6ff">'+s.total_scprs_points+'</div></div>';
+      html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">SCPRS Data Points</div><div style="font-size:16px;font-weight:600;color:var(--r-accent)">'+s.total_scprs_points+'</div></div>';
       html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">Avg Markup</div><div style="font-size:16px;font-weight:600;color:#e6edf3">'+(s.avg_markup||0).toFixed(0)+'%</div></div>';
       html+='</div>';
       // Item breakdown
@@ -2889,15 +2889,15 @@
           var statusLabel=it.status==='competitive'?'✓ Competitive':it.status==='at_risk'?'⚠ Above Market':'— No Data';
           var desc=it.description||'';if(desc.length>40)desc=desc.substring(0,37)+'...';
           var hasSamples=(it.samples&&it.samples.length);
-          var caret=hasSamples?'<span id="qa_caret_'+_i+'" style="color:#58a6ff;font-family:monospace">▸</span>':'<span style="color:#484f58">·</span>';
+          var caret=hasSamples?'<span id="qa_caret_'+_i+'" style="color:var(--r-accent);font-family:monospace">▸</span>':'<span style="color:#484f58">·</span>';
           var rowCursor=hasSamples?'cursor:pointer':'cursor:default';
-          html+='<tr data-qa-row="'+_i+'" style="border-top:1px solid #21262d;'+rowCursor+'" onclick="toggleQaSamples('+_i+')"><td style="padding:4px 6px;text-align:center">'+caret+'</td><td style="padding:4px 6px;color:#8b949e">'+it.line_num+'</td><td style="padding:4px 6px;color:#c9d1d9" title="'+(it.description||'').replace(/"/g,'&quot;')+'">'+desc+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#e6edf3">'+_p(it.your_price)+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#58a6ff">'+(it.scprs_avg?_p(it.scprs_avg):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#f0883e">'+(it.comp_low?_p(it.comp_low):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:center;color:'+statusColor+';font-size:11px">'+statusLabel+'</td><td style="padding:4px 6px;text-align:right;color:#8b949e">'+(it.markup_pct!=null?it.markup_pct.toFixed(0)+'%':'—')+'</td></tr>';
+          html+='<tr data-qa-row="'+_i+'" style="border-top:1px solid #21262d;'+rowCursor+'" onclick="toggleQaSamples('+_i+')"><td style="padding:4px 6px;text-align:center">'+caret+'</td><td style="padding:4px 6px;color:#8b949e">'+it.line_num+'</td><td style="padding:4px 6px;color:#c9d1d9" title="'+(it.description||'').replace(/"/g,'&quot;')+'">'+desc+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#e6edf3">'+_p(it.your_price)+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:var(--r-accent)">'+(it.scprs_avg?_p(it.scprs_avg):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#f0883e">'+(it.comp_low?_p(it.comp_low):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:center;color:'+statusColor+';font-size:11px">'+statusLabel+'</td><td style="padding:4px 6px;text-align:right;color:#8b949e">'+(it.markup_pct!=null?it.markup_pct.toFixed(0)+'%':'—')+'</td></tr>';
           if(hasSamples){
             // Header signals: partition active (MFG# anchored avg),
             // qty-band downweight count, brand-detector status. Each
             // is suppressed when not applicable to keep the line tidy.
             var partTag=it.mfg_partition_active?' · <span style="color:#3fb950" title="SCPRS Avg computed from MFG#-anchored rows only ('+it.mfg_anchored_count+' rows)">MFG# partition active ('+it.mfg_anchored_count+')</span>':(it.mfg_anchored_count>0?' · <span style="color:#8b949e" title="MFG#-anchored rows present but partition flag off or count<2">'+it.mfg_anchored_count+' MFG#-anchored</span>':'');
-            var brandTagHdr=(it.brand_detected===true)?' · <span style="color:#58a6ff" title="Brand detected in target description">brand detected</span>':((it.brand_detected===false)?' · <span style="color:#8b949e" title="Generic description — no brand-anchor signal">generic desc</span>':'');
+            var brandTagHdr=(it.brand_detected===true)?' · <span style="color:var(--r-accent)" title="Brand detected in target description">brand detected</span>':((it.brand_detected===false)?' · <span style="color:#8b949e" title="Generic description — no brand-anchor signal">generic desc</span>':'');
             var qtyTag=it.qty_band_downweighted>0?' · <span style="color:#d29922">'+it.qty_band_downweighted+' rows downweighted (qty &gt;10× off target)</span>':'';
             html+='<tr data-qa-samples="'+_i+'" style="display:none;background:#161b22"><td colspan="8" style="padding:8px 12px"><div style="font-size:11px;color:#8b949e;margin-bottom:4px">Top '+it.samples.length+' contributing rows · target qty: <b>'+(it.target_quantity||1)+'</b>'+partTag+brandTagHdr+qtyTag+'</div>';
             html+='<table style="width:100%;font-size:11px;border-collapse:collapse"><tr style="color:#8b949e;font-size:10px;text-transform:uppercase"><th style="text-align:left;padding:3px 4px">Source</th><th style="text-align:left;padding:3px 4px">Description</th><th style="text-align:right;padding:3px 4px">Qty</th><th style="text-align:right;padding:3px 4px">Unit $</th><th style="text-align:left;padding:3px 4px">Supplier</th><th style="text-align:left;padding:3px 4px">Date</th><th style="text-align:right;padding:3px 4px">Weight</th><th style="text-align:left;padding:3px 4px">PO# / Verify</th></tr>';
@@ -2907,7 +2907,7 @@
               var sdesc=(s.description||'').substring(0,60).replace(/</g,'&lt;');
               var poLink='—';
               if(s.po_number){
-                poLink='<a href="https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx" target="_blank" rel="noopener" title="Opens SCPRS public search — paste PO# to verify" style="color:#58a6ff;text-decoration:none;font-family:JetBrains Mono,monospace">'+s.po_number+' ↗</a>';
+                poLink='<a href="https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx" target="_blank" rel="noopener" title="Opens SCPRS public search — paste PO# to verify" style="color:var(--r-accent);text-decoration:none;font-family:JetBrains Mono,monospace">'+s.po_number+' ↗</a>';
               }
               var fresh=_qaFreshness(s.date);
               var dateCell=(s.date||'')+(fresh.label?' <span style="color:'+fresh.color+';font-weight:600">·'+fresh.label+'</span>':'');
@@ -2920,7 +2920,7 @@
                 basisBadge=' <span title="Matched on MFG# — highest trust" style="font-size:9px;background:#3fb95022;color:#3fb950;border:1px solid #3fb95055;padding:0 4px;border-radius:3px;font-weight:700">MFG#</span>';
               }
               if(s.brand_anchored===true){
-                basisBadge+=' <span title="Row description contains the brand token" style="font-size:9px;background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff55;padding:0 4px;border-radius:3px">brand</span>';
+                basisBadge+=' <span title="Row description contains the brand token" style="font-size:9px;background:rgba(16,185,129,.13);color:var(--r-accent);border:1px solid rgba(16,185,129,.33);padding:0 4px;border-radius:3px">brand</span>';
               } else if(s.brand_anchored===false){
                 basisBadge+=' <span title="Row matched on generic tokens — brand absent" style="font-size:9px;color:#8b949e">·no-brand</span>';
               }
@@ -2950,8 +2950,8 @@
       +'<td><input type="text" name="itemnum_'+idx+'" value="" class="text-in" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:14px;font-family:JetBrains Mono,monospace;padding:6px 4px" placeholder="MFG#" aria-label="Manufacturer part number" onblur="handleMfgInput('+idx+',this)"></td>'
       +'<td><input type="number" name="qty_'+idx+'" value="1" min="1" max="999999" step="1" class="num-in sm" style="width:72px;text-align:center" aria-label="Quantity (whole numbers only)" oninput="if(this.value!==\'\'){this.value=Math.max(1,Math.min(999999,Math.round(parseFloat(this.value)||1)))};recalcPC()" onblur="if(!this.value)this.value=1" onwheel="this.blur()"><input type="hidden" name="qpu_'+idx+'" value="1"></td>'
       +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600" aria-label="Unit of measure" maxlength="6"></td>'
-      +'<td style="position:relative"><textarea name="desc_'+idx+'" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" placeholder="Enter description or paste URL" aria-label="Item description" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl('+idx+',this)"></textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" aria-label="Expand description field" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">\u2922</button><button type="button" class="amazon-match-btn" onclick="matchAmazon('+idx+')" title="Search Amazon for exact product match" aria-label="Search Amazon for product match">\uD83D\uDD0D Amazon</button><span id="amz_status_'+idx+'" style="display:none;font-size:11px;margin-left:4px"></span></td>'
-      +'<td><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" aria-label="Supplier URL" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link" aria-label="Open supplier link in new tab">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
+      +'<td style="position:relative"><textarea name="desc_'+idx+'" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" placeholder="Enter description or paste URL" aria-label="Item description" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl('+idx+',this)"></textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" aria-label="Expand description field" style="position:absolute;bottom:2px;right:4px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.25);color:var(--r-accent);font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">\u2922</button><button type="button" class="amazon-match-btn" onclick="matchAmazon('+idx+')" title="Search Amazon for exact product match" aria-label="Search Amazon for product match">\uD83D\uDD0D Amazon</button><span id="amz_status_'+idx+'" style="display:none;font-size:11px;margin-left:4px"></span></td>'
+      +'<td><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" aria-label="Supplier URL" class="text-in" style="flex:1;font-size:14px;color:var(--r-accent);padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:var(--r-accent);font-size:14px;text-decoration:none;flex-shrink:0" title="Open link" aria-label="Open supplier link in new tab">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td><span style="color:#484f58;font-size:14px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" aria-label="Supplier cost" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
       +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="" placeholder="25" aria-label="Markup percent" class="num-in sm" style="width:68px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
@@ -3453,7 +3453,7 @@
         var summary='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
          +'<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-size:12px">'+conf+'%</span>'
          +'<span style="color:#8b949e;font-size:13px">'+escHtml((r.canonical_name||'').substring(0,40))+'</span>'
-         +'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">'+costStr+'</span>'
+         +'<span style="color:var(--r-accent);font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">'+costStr+'</span>'
          +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none">Use</a>'
          +'<a href="#" onclick="var d=document.getElementById(\''+detailId+'\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';return false" style="color:#484f58;font-size:11px;text-decoration:none">details</a>'
          +'</div>';
@@ -3653,7 +3653,7 @@
           html+='<div style="display:flex;justify-content:space-between;align-items:center">';
           html+='<div><b style="color:#a78bfa">Rev #'+rev.revision+'</b> <span style="color:#8b949e;font-size:13px">'+rev.saved_at.substring(0,16)+'</span>';
           html+=' <span style="color:#8b949e;font-size:12px">('+rev.reason+')</span></div>';
-          html+='<button onclick="revertRevision('+rev.revision+')" style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff;font-size:12px;cursor:pointer" aria-label="Revert">↩ Revert</button>';
+          html+='<button onclick="revertRevision('+rev.revision+')" style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:var(--r-accent);font-size:12px;cursor:pointer" aria-label="Revert">↩ Revert</button>';
           html+='</div>';
           html+='<div style="font-size:13px;color:#8b949e;margin-top:4px">'+itemCount+' items · status: '+rev.status+'</div>';
           html+='</div>';
@@ -3827,7 +3827,7 @@
           srcHtml+='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span> ';
          }
          if(r.cost>0){
-          srcHtml+='<span style="background:rgba(79,140,255,.12);color:#58a6ff;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Oracle</span>';
+          srcHtml+='<span style="background:rgba(16,185,129,.12);color:var(--r-accent);padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Oracle</span>';
          }
          if(srcHtml) srcCell.innerHTML=srcHtml;
         }
@@ -3846,7 +3846,7 @@
         // Collapsed: one clean line
         var oSummary='<div style="display:flex;align-items:center;gap:6px">'
          +'<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-size:12px">Oracle</span>'
-         +'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">'+costVal+'</span>'
+         +'<span style="color:var(--r-accent);font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">'+costVal+'</span>'
          +'<span style="color:'+winColor+';font-size:12px">'+Math.round(r.win_probability)+'% win</span>'
          +'<a href="#" onclick="var d=document.getElementById(\''+oDetailId+'\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';return false" style="color:#484f58;font-size:11px;text-decoration:none">details</a>'
          +'</div>';
@@ -3964,7 +3964,7 @@
          }
          badge.innerHTML='<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">'+conf+'% match</span>'
           +'<span style="color:#8b949e;font-size:13px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
-          +(r.last_cost?'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace">$'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
+          +(r.last_cost?'<span style="color:var(--r-accent);font-weight:600;font-family:JetBrains Mono,monospace">$'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
           +freshness+winInfo+verifyWarn
           +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
          descEl.parentElement.insertBefore(badge,descEl);
@@ -4030,7 +4030,7 @@
       if(suppliers.length){
        html+='<div style="font-size:13px;margin-bottom:4px">';
        suppliers.forEach(function(s,i){
-        html+='<span style="color:#58a6ff;margin-right:10px">'+(s.url?'<a href="'+escHtml(s.url)+'" target="_blank" style="color:#58a6ff;text-decoration:underline">'+escHtml(s.name)+'</a>':escHtml(s.name))+' $'+Number(s.estimated_price||0).toFixed(2)+'</span>';
+        html+='<span style="color:var(--r-accent);margin-right:10px">'+(s.url?'<a href="'+escHtml(s.url)+'" target="_blank" style="color:var(--r-accent);text-decoration:underline">'+escHtml(s.name)+'</a>':escHtml(s.name))+' $'+Number(s.estimated_price||0).toFixed(2)+'</span>';
        });
        html+='</div>';
       }
@@ -4355,7 +4355,7 @@
           if (valEl) valEl.innerHTML = '<span style="color:' + (isFallback ? (_isDefault ? '#f85149' : '#d29922') : '#3fb950') + '">' +
             (isFallback ? '\u26A0\uFE0F' : '\u2705') + ' ' + d.rate + '% \u00B7 ' + (d.jurisdiction || '') +
             (isFallback ? (_isDefault ? ' NOT validated (CA base fallback)' : ' (fallback)') : '') + '</span>'
-            + (d.warning ? '<div style="color:#f85149;font-size:12px;margin-top:4px;max-width:500px">' + d.warning + ' <a href="https://maps.cdtfa.ca.gov/" target="_blank" style="color:#58a6ff">CDTFA map</a></div>' : '');
+            + (d.warning ? '<div style="color:#f85149;font-size:12px;margin-top:4px;max-width:500px">' + d.warning + ' <a href="https://maps.cdtfa.ca.gov/" target="_blank" style="color:var(--r-accent)">CDTFA map</a></div>' : '');
           document.getElementById('taxToggle').checked = true;
           document.getElementById('taxRateDisplay').textContent = '(' + d.source + ' \u2014 ' + d.rate + '%)';
           recalcPC();
@@ -4654,7 +4654,7 @@
            + (d.fully_costed === false ? ' <span style="color:#d29922;font-size:14px">(partial — enter costs for remaining items)</span>' : '')
            : ' · <span style="color:#8b949e;font-size:13px">Profit unknown — enter vendor costs to track margin</span>';
          if(banner) { banner.style.borderColor = '#3fb950'; banner.style.background = 'linear-gradient(135deg,#0d2a0d,#0d1117)'; }
-         if(meta) meta.innerHTML = '✅ Quote <b style="color:#3fb950">'+qn+'</b>'+total+' generated · <a href="'+(d.download||'')+'" style="color:#58a6ff" download>Download PDF</a> · <a href="/quotes" style="color:#58a6ff">View in Quotes →</a>' + profitStr;
+         if(meta) meta.innerHTML = '✅ Quote <b style="color:#3fb950">'+qn+'</b>'+total+' generated · <a href="'+(d.download||'')+'" style="color:var(--r-accent)" download>Download PDF</a> · <a href="/quotes" style="color:var(--r-accent)">View in Quotes →</a>' + profitStr;
          btn.textContent = '✅ ' + qn + ' Generated';
          btn.style.background = '#238636';
          var nqBadge = document.getElementById('next-qn-badge');
@@ -4665,14 +4665,14 @@
          if(banner) banner.style.borderColor = '#f85149';
          if(meta) meta.textContent = '❌ ' + (d?.error || 'Generation failed');
          btn.textContent = '📋 Generate Quote →';
-         btn.style.background = '#1f6feb';
+         btn.style.background = 'var(--r-accent)';
          showMsg('❌ Quote generation failed: ' + (d?.error || 'unknown'), 'err');
        }
      })
      .catch(e => {
        btn.disabled = false; _hideGenOverlay();
        btn.textContent = '📋 Generate Quote →';
-       btn.style.background = '#1f6feb';
+       btn.style.background = 'var(--r-accent)';
        if(banner) banner.style.borderColor = '#f85149';
        if(meta) meta.textContent = '❌ Error: ' + e.message;
        showMsg('❌ Error: ' + e, 'err');
@@ -4874,7 +4874,7 @@
        badge.style.color = agColors[ag]||'#8b949e';
        let html = '<div style="font-weight:600;font-size:14px;color:var(--r-text)">' + (c.display_name||'') + '</div>';
        if (c.parent) html += '<div style="font-size:14px;color:#8b949e;margin-top:2px">↳ ' + c.parent + '</div>';
-       if (c.email) html += '<div style="margin-top:4px">📧 <a href="mailto:' + c.email + '" style="color:#58a6ff">' + c.email + '</a></div>';
+       if (c.email) html += '<div style="margin-top:4px">📧 <a href="mailto:' + c.email + '" style="color:var(--r-accent)">' + c.email + '</a></div>';
        if (c.phone) html += '<div>📞 ' + c.phone + '</div>';
        if (c.address) html += '<div style="margin-top:4px;font-size:14px;color:var(--r-text-muted)">' + c.address.replace(/\\n/g,'<br>') + '</div>';
        if (c.city) html += '<div style="font-size:14px;color:var(--r-text-muted)">' + c.city + ', ' + (c.state||'CA') + ' ' + (c.zip||'') + '</div>';
@@ -4948,7 +4948,7 @@
 
        html += '<div style="padding:8px 0;border-bottom:1px solid rgba(48,54,61,0.5)">';
        html += '<div style="display:flex;gap:10px;align-items:center">';
-       html += '<a href="' + (h.quote_url||'/quotes') + '" style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">' + h.quote_number + '</a>';
+       html += '<a href="' + (h.quote_url||'/quotes') + '" style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:13px;color:var(--r-accent);text-decoration:none">' + h.quote_number + '</a>';
        html += '<span style="color:' + color + ';font-size:14px;padding:1px 8px;border-radius:10px;background:' + color + '18;font-weight:600">' + icon + ' ' + h.status + '</span>';
        html += '<span style="font-size:14px;color:#8b949e;flex:1">' + (h.date||'') + (h.days_ago ? ' · '+h.days_ago : '') + '</span>';
        html += '<span style="font-family:JetBrains Mono,monospace;font-weight:600;font-size:13px;color:var(--r-text)">$' + (h.total||0).toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
@@ -5067,7 +5067,7 @@
      if(composer){
       composer.scrollIntoView({behavior:'smooth'});
       // Flash the border to draw attention
-      composer.style.borderColor = '#58a6ff';
+      composer.style.borderColor = 'var(--r-accent)';
       setTimeout(function(){ composer.style.borderColor = '#30363d'; }, 1500);
      } else {
       alert('Email composer not available — save prices first to enable sending.');
@@ -5138,11 +5138,11 @@
           attachments.forEach(function(a) {
             var fname = a.path ? a.path.split('/').pop().split('\\').pop() : a.name;
             var dlUrl = a.url || '';
-            html += '<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#58a6ff">'
+            html += '<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:var(--r-accent)">'
               + '📎 ' + (a.name || fname);
             if (dlUrl) {
               html += ' <a href="' + dlUrl + '?inline=1" target="_blank" style="color:#3fb950;text-decoration:none;font-size:12px" title="Preview">👁</a>'
-                + ' <a href="' + dlUrl + '" download style="color:#58a6ff;text-decoration:none;font-size:12px" title="Download">📥</a>';
+                + ' <a href="' + dlUrl + '" download style="color:var(--r-accent);text-decoration:none;font-size:12px" title="Download">📥</a>';
             }
             html += '</span>';
           });
@@ -5541,7 +5541,7 @@
         <span style="font-size:12px;color:#8b949e">Verify company info, prices and extensions before sending</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
-        <a id="pcPdfOpenTab" href="#" target="_blank" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none">↗ Open in Tab</a>
+        <a id="pcPdfOpenTab" href="#" target="_blank" style="background:rgba(16,185,129,.1);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none">↗ Open in Tab</a>
         <a id="pcPdfPreviewDownload" href="#" download style="display:none;background:#238636;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none;align-items:center;gap:6px">📥 Download</a>
         <button onclick="document.getElementById('pcPdfPreviewModal').style.display='none';document.getElementById('pcPdfPreviewFrame').src=''" style="background:rgba(139,148,158,.15);border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Close PDF preview">✕ Close</button>
       </div>
@@ -5552,7 +5552,7 @@
 
 <!-- ═══ VIEW CONTROLS (zoom + highlight) ═══ -->
 <div id="viewControls" style="position:fixed;bottom:60px;left:16px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;z-index:9998;display:none;align-items:center;gap:12px;font-size:13px;color:#8b949e;box-shadow:0 4px 12px rgba(0,0,0,.4)">
- <span style="font-weight:600;color:#58a6ff">View</span>
+ <span style="font-weight:600;color:var(--r-accent)">View</span>
  <button onclick="_adjZoom(-0.05)" style="background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700">−</button>
  <span id="zoomLevel" style="font-family:'JetBrains Mono',monospace;font-weight:600;min-width:38px;text-align:center;color:#e6edf3">125%</span>
  <button onclick="_adjZoom(0.05)" style="background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700">+</button>
@@ -6212,7 +6212,7 @@ try { window.tierCascadeRescan(); } catch(e) { console.error('tierCascadeRescan 
           + '</span>'
         : '';
       var attached = it.buyer_template_filename
-        ? '<span style="color:#58a6ff;font-size:11px;margin-left:6px" title="Buyer attached this blank">📎 ' + esc(it.buyer_template_filename) + '</span>'
+        ? '<span style="color:var(--r-accent);font-size:11px;margin-left:6px" title="Buyer attached this blank">📎 ' + esc(it.buyer_template_filename) + '</span>'
         : '';
       // Enhancement B: candidate badge — buyer attached an unknown variant
       var candBadge = '';

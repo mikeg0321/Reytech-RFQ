@@ -9,7 +9,7 @@
       <h2 style="margin:0;font-size:20px;color:var(--r-text)">🔒 Locked Supplier Costs</h2>
       <p style="color:var(--r-text-muted);font-size:13px;margin:4px 0 0">Pinned costs that override Oracle/web pricing — unlock or extend before they wreck your margin.</p>
     </div>
-    <button onclick="location.reload()" style="padding:6px 14px;background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:6px;font-size:13px;cursor:pointer">Refresh</button>
+    <button onclick="location.reload()" style="padding:6px 14px;background:#21262d;color:var(--r-accent);border:1px solid #30363d;border-radius:6px;font-size:13px;cursor:pointer">Refresh</button>
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
@@ -64,7 +64,7 @@
           <td style="padding:8px 12px;color:var(--r-text-muted);font-size:12px">{{ r.source|default('—') }}</td>
           <td style="padding:8px 12px;color:var(--r-text-muted);font-size:12px;white-space:nowrap">{{ (r.expires_at or '')[:10] or '—' }}</td>
           <td style="padding:8px 12px;text-align:right;white-space:nowrap">
-            <button class="lc-extend-btn" data-days="30" style="padding:3px 9px;background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:5px;font-size:11px;cursor:pointer">+30d</button>
+            <button class="lc-extend-btn" data-days="30" style="padding:3px 9px;background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);border-radius:5px;font-size:11px;cursor:pointer">+30d</button>
             <button class="lc-unlock-btn" style="padding:3px 9px;background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:5px;font-size:11px;cursor:pointer;margin-left:4px">Unlock</button>
           </td>
         </tr>

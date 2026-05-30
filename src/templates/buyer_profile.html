@@ -9,7 +9,7 @@
   <div>
    <div style="font-size:22px;font-weight:700">{{buyer_name or buyer_key}}</div>
    <div style="color:var(--r-text-muted);font-size:13px;margin-top:2px">
-    {% if buyer_email %}<a href="mailto:{{buyer_email}}" style="color:#58a6ff">{{buyer_email}}</a> · {% endif %}
+    {% if buyer_email %}<a href="mailto:{{buyer_email}}" style="color:var(--r-accent)">{{buyer_email}}</a> · {% endif %}
     {{ (agency|agency_display) or 'Unknown Agency' }}
    </div>
   </div>

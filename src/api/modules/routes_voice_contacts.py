@@ -110,7 +110,7 @@ def intelligence_page():
      .card{{background:var(--r-surface);border:1px solid var(--r-border);border-radius:10px;padding:16px;margin-bottom:14px}}
      .card h3{{font-size:14px;font-weight:700;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}}
      .g-btn{{padding:8px 14px;border-radius:7px;border:1px solid var(--r-border);background:var(--r-surface-2);color:var(--r-text);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:5px}}
-     .g-btn:hover{{border-color:var(--r-accent);background:rgba(79,140,255,.1)}}
+     .g-btn:hover{{border-color:var(--r-accent);background:rgba(16,185,129,.1)}}
      .g-btn-go{{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}}
      .g-btn-warn{{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}}
      .g-btn-red{{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}}
@@ -118,7 +118,7 @@ def intelligence_page():
      table{{width:100%;border-collapse:collapse;font-size:14px}}
      th{{text-align:left;padding:8px;font-size:13px;color:var(--r-text-muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--r-border)}}
      td{{padding:8px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}}
-     tr:hover td{{background:rgba(79,140,255,.04)}}
+     tr:hover td{{background:rgba(16,185,129,.04)}}
      .mono{{font-family:'JetBrains Mono',monospace}}
      .modal-bg{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}}
      .modal-box{{background:var(--r-surface);border:1px solid var(--r-border);border-radius:12px;padding:24px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto}}
@@ -213,7 +213,7 @@ def intelligence_page():
            f'<td style="font-size:14px">{", ".join(list(b.get("categories",{}).keys())[:2])}</td>'
            f'<td class="mono" style="color:#3fb950">${b.get("total_spend",0):,.0f}</td>'
            f'<td class="mono" style="color:#a78bfa">{b.get("opportunity_score",0) or int((b.get("score",0) or 0)*100)}</td>'
-           f'<td><span style="font-size:13px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--r-accent)">{b.get("outreach_status","new")}</span></td>'
+           f'<td><span style="font-size:13px;padding:2px 8px;border-radius:8px;background:rgba(16,185,129,.15);color:var(--r-accent)">{b.get("outreach_status","new")}</span></td>'
            f'<td><a href="/growth/prospect/{b.get("id","")}" style="color:var(--r-accent);font-size:14px">View →</a></td>'
            f'</tr>'
            for b in buyers
@@ -242,7 +242,7 @@ def intelligence_page():
         <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Gap</div><div style="font-weight:700;color:#f85149;font-family:monospace">${gap:,.0f}</div></div>
         <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Mo. Needed</div><div style="font-weight:700;color:#fbbf24;font-family:monospace">${monthly:,.0f}</div></div>
         <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Run Rate</div><div style="font-weight:700;color:{'#3fb950' if on_track else '#f87171'};font-family:monospace">${run_rate:,.0f}</div></div>
-        <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Pipeline</div><div style="font-weight:700;color:#58a6ff;font-family:monospace">${pipeline:,.0f}</div></div>
+        <div style="background:var(--r-surface-2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--r-text-muted);font-size:13px;text-transform:uppercase">Pipeline</div><div style="font-weight:700;color:var(--r-accent);font-family:monospace">${pipeline:,.0f}</div></div>
        </div>
        <div style="display:flex;gap:6px">
         <button class="g-btn g-btn-go" onclick="openLogRevenue()" style="flex:1;justify-content:center">💰 Log Revenue</button>

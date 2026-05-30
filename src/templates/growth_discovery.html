@@ -8,7 +8,7 @@
 
 <!-- Intel Tab Bar -->
 <div id="intel-tabs" style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:1px solid var(--r-border);padding-bottom:8px">
-  <button class="btn btn-sm intel-tab active" onclick="switchIntelTab('discovery',this)" style="font-size:13px;background:rgba(79,140,255,.12);color:var(--r-accent)">🔍 Discovery</button>
+  <button class="btn btn-sm intel-tab active" onclick="switchIntelTab('discovery',this)" style="font-size:13px;background:rgba(16,185,129,.12);color:var(--r-accent)">🔍 Discovery</button>
   <button class="btn btn-sm intel-tab" onclick="switchIntelTab('scprs',this)" style="font-size:13px">📊 SCPRS</button>
   <button class="btn btn-sm intel-tab" onclick="switchIntelTab('competitor',this)" style="font-size:13px">🏢 Competitor</button>
   <button class="btn btn-sm intel-tab" onclick="switchIntelTab('intelligence',this)" style="font-size:13px">🧠 Intelligence</button>
@@ -28,7 +28,7 @@
 <!-- KPI Cards -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
  <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#3fb950" id="k-agencies">—</div><div style="font-size:13px;color:var(--r-text-muted)">New Agencies Found</div></div>
- <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#58a6ff" id="k-dvbe">—</div><div style="font-size:13px;color:var(--r-text-muted)">DVBE Mandate ($)</div></div>
+ <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:var(--r-accent)" id="k-dvbe">—</div><div style="font-size:13px;color:var(--r-text-muted)">DVBE Mandate ($)</div></div>
  <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#d2a8ff" id="k-overlap">—</div><div style="font-size:13px;color:var(--r-text-muted)">Product Overlap ($)</div></div>
  <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#fbbf24" id="k-buyers">—</div><div style="font-size:13px;color:var(--r-text-muted)">New Buyers Found</div></div>
  <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#f87171" id="k-dbe">—</div><div style="font-size:13px;color:var(--r-text-muted)">DBE Addressable ($)</div></div>
@@ -97,7 +97,7 @@ function switchIntelTab(tab, btn) {
     b.style.color = 'var(--r-text-muted)';
   });
   btn.classList.add('active');
-  btn.style.background = 'rgba(79,140,255,.12)';
+  btn.style.background = 'rgba(16,185,129,.12)';
   btn.style.color = 'var(--r-accent)';
   var container = document.getElementById('intel-tab-content');
   if (tab === 'discovery') {
@@ -157,7 +157,7 @@ function loadAgencies(){
   } else {
    d.opportunities.forEach(function(o){
     const scoreColor=o.opportunity_score>=70?'#3fb950':o.opportunity_score>=40?'#d29922':'#8b949e';
-    const tag=o.is_current_customer?'<span style="color:#3fb950;font-size:12px;font-weight:600">✅ CURRENT</span>':'<span style="color:#58a6ff;font-size:12px;font-weight:600">🆕 NEW</span>';
+    const tag=o.is_current_customer?'<span style="color:#3fb950;font-size:12px;font-weight:600">✅ CURRENT</span>':'<span style="color:var(--r-accent);font-size:12px;font-weight:600">🆕 NEW</span>';
     const dbeTag=o.dbe_opportunity?'<span style="background:rgba(210,168,255,.15);color:#d2a8ff;padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;margin-left:6px">🚛 DBE</span>':'';
     html+='<div class="opp-card">';
     html+='<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">';
@@ -168,7 +168,7 @@ function loadAgencies(){
     html+='<div style="display:flex;gap:16px;margin-bottom:10px;font-size:13px">';
     html+='<div><span style="color:var(--r-text-muted)">Total Spend:</span> <b style="color:var(--r-text)">'+fmt$(o.total_spend)+'</b></div>';
     html+='<div><span style="color:var(--r-text-muted)">3% DVBE:</span> <b style="color:#3fb950">'+fmt$(o.dvbe_mandate_3pct)+'</b></div>';
-    html+='<div><span style="color:var(--r-text-muted)">Product Overlap:</span> <b style="color:#58a6ff">'+fmt$(o.overlap_spend)+' ('+o.overlap_pct+'%)</b></div>';
+    html+='<div><span style="color:var(--r-text-muted)">Product Overlap:</span> <b style="color:var(--r-accent)">'+fmt$(o.overlap_spend)+' ('+o.overlap_pct+'%)</b></div>';
     html+='<div><span style="color:var(--r-text-muted)">Buyers:</span> <b style="color:#a78bfa">'+o.buyer_count+'</b></div>';
     html+='</div>';
     // Score bar
@@ -214,14 +214,14 @@ function loadDVBE(){
    html+='<td style="text-align:right;padding:8px;font-family:monospace">'+fmt$(a.total_spend)+'</td>';
    html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#3fb950;font-weight:600">'+fmt$(a.dvbe_mandate_3pct)+'</td>';
    html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#f87171">'+fmt$(a.non_dvbe_spend)+' ('+a.non_dvbe_pct+'%)</td>';
-   html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#58a6ff;font-weight:700">'+fmt$(a.opportunity)+'</td>';
+   html+='<td style="text-align:right;padding:8px;font-family:monospace;color:var(--r-accent);font-weight:700">'+fmt$(a.opportunity)+'</td>';
    html+='</tr>';
   });
   html+='<tr style="border-top:2px solid var(--r-border);font-weight:700"><td style="padding:8px">TOTAL</td>';
   html+='<td style="text-align:right;padding:8px;font-family:monospace"></td>';
   html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#3fb950">'+fmt$(d.total_dvbe_mandate)+'</td>';
   html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#f87171">'+fmt$(d.total_non_dvbe_spend)+'</td>';
-  html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#58a6ff;font-size:16px">'+fmt$(d.total_opportunity)+'</td>';
+  html+='<td style="text-align:right;padding:8px;font-family:monospace;color:var(--r-accent);font-size:16px">'+fmt$(d.total_opportunity)+'</td>';
   html+='</tr></tbody></table>';
   document.getElementById('dvbeTable').innerHTML=html;
  });
@@ -239,7 +239,7 @@ function loadDBE(){
   }
   html+='</div>';
   // Immediate actions
-  html+='<div class="card" style="margin-bottom:16px;padding:14px;background:rgba(88,166,255,.06);border-color:rgba(88,166,255,.2)"><b style="color:#58a6ff">Immediate Actions:</b><ol style="margin:8px 0 0;padding-left:20px;font-size:14px;color:var(--r-text)">';
+  html+='<div class="card" style="margin-bottom:16px;padding:14px;background:rgba(16,185,129,.06);border-color:rgba(16,185,129,.2)"><b style="color:var(--r-accent)">Immediate Actions:</b><ol style="margin:8px 0 0;padding-left:20px;font-size:14px;color:var(--r-text)">';
   (d.immediate_actions||[]).forEach(function(a){html+='<li style="margin-bottom:4px">'+escH(a)+'</li>'});
   html+='</ol></div>';
   // Opportunities
@@ -250,7 +250,7 @@ function loadDBE(){
    html+='<div style="font-size:18px;font-weight:700;color:#3fb950">'+fmt$(opp.addressable)+'<span style="font-size:12px;color:var(--r-text-muted)"> DBE goal</span></div></div>';
    html+='<div style="font-size:14px;color:var(--r-text-muted);margin-bottom:8px">Budget: '+fmt$(opp.annual_budget)+' · DBE goal: '+(opp.dbe_pct*100)+'%</div>';
    html+='<div style="font-size:14px;color:var(--r-text-muted);margin-bottom:8px">Products: '+escH((opp.categories||[]).join(', '))+'</div>';
-   if(opp.how_to_enter){html+='<div style="font-size:13px"><b style="color:#58a6ff">How to enter:</b><ul style="margin:4px 0;padding-left:20px">';opp.how_to_enter.forEach(function(h){html+='<li>'+escH(h)+'</li>'});html+='</ul></div>'}
+   if(opp.how_to_enter){html+='<div style="font-size:13px"><b style="color:var(--r-accent)">How to enter:</b><ul style="margin:4px 0;padding-left:20px">';opp.how_to_enter.forEach(function(h){html+='<li>'+escH(h)+'</li>'});html+='</ul></div>'}
    if(opp.contact) html+='<div style="font-size:13px;color:var(--r-text-muted);margin-top:6px">📞 '+escH(opp.contact)+'</div>';
    html+='</div>';
   }
@@ -298,7 +298,7 @@ function loadVehicles(){
  fetch('/api/intel/contract-vehicles').then(r=>r.json()).then(d=>{
   if(!d.ok){document.getElementById('vehicleGuide').innerHTML=escH(d.error);return}
   let html='<div style="font-size:15px;font-weight:600;color:var(--r-text);margin-bottom:12px">Recommended Sequence</div>';
-  html+='<div class="card" style="padding:14px;margin-bottom:16px;background:rgba(88,166,255,.06);border-color:rgba(88,166,255,.2)"><ol style="margin:0;padding-left:20px;font-size:14px;color:var(--r-text)">';
+  html+='<div class="card" style="padding:14px;margin-bottom:16px;background:rgba(16,185,129,.06);border-color:rgba(16,185,129,.2)"><ol style="margin:0;padding-left:20px;font-size:14px;color:var(--r-text)">';
   (d.recommended_sequence||[]).forEach(function(s){html+='<li style="margin-bottom:6px">'+escH(s)+'</li>'});
   html+='</ol></div>';
   // Vehicle cards
@@ -310,7 +310,7 @@ function loadVehicles(){
    html+='<span style="padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;color:'+pColor+';background:'+pColor+'22">'+escH(v.priority)+'</span></div>';
    html+='<div style="font-size:14px;color:var(--r-text-muted);margin-bottom:4px"><b>Type:</b> '+escH(v.type)+' · <b>Threshold:</b> '+escH(v.threshold)+'</div>';
    html+='<div style="font-size:14px;color:var(--r-text);margin-bottom:8px">'+escH(v.how_it_helps)+'</div>';
-   html+='<div style="font-size:13px"><b style="color:#58a6ff">How to get on:</b><ul style="margin:4px 0;padding-left:20px">';
+   html+='<div style="font-size:13px"><b style="color:var(--r-accent)">How to get on:</b><ul style="margin:4px 0;padding-left:20px">';
    (v.how_to_get_on||[]).forEach(function(h){html+='<li>'+escH(h)+'</li>'});
    html+='</ul></div></div>';
   }
