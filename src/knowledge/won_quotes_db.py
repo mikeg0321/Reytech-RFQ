@@ -1244,3 +1244,67 @@ def repair_existing_rows(dry_run: bool = True) -> dict:
         return plan
     finally:
         conn.close()
+
+
+def diagnose_price_quality(top_n: int = 25) -> dict:
+    """READ-ONLY. Investigate whether won_quotes.unit_price is genuinely
+    per-unit (the contract — see scprs_per_unit) or whether some rows carry
+    a LINE TOTAL stored as unit_price. A line total treated as a per-unit
+    price poisons the oracle. Signature of the bug: quantity > 1 AND
+    unit_price ≈ total (i.e. it was never divided by qty). Writes nothing.
+    """
+    _ensure_won_quotes_table()
+    conn = _get_db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT po_number, item_number, description, unit_price, quantity, "
+            "total, source FROM won_quotes"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    buckets = {"<=100": 0, "100-1k": 0, "1k-10k": 0, "10k-100k": 0, "100k-1M": 0}
+    by_source_high = defaultdict(int)          # source → count of unit_price >= 5k
+    line_total_sig = 0                          # qty>1 AND unit_price≈total
+    line_total_by_source = defaultdict(int)
+    recoverable = []                            # (desc, unit_price, qty, recovered_per_unit)
+    for r in rows:
+        up = float(r["unit_price"] or 0)
+        qty = float(r["quantity"] or 0)
+        tot = float(r["total"] or 0)
+        src = r["source"] or "?"
+        if up <= 100:
+            buckets["<=100"] += 1
+        elif up <= 1_000:
+            buckets["100-1k"] += 1
+        elif up <= 10_000:
+            buckets["1k-10k"] += 1
+        elif up <= 100_000:
+            buckets["10k-100k"] += 1
+        else:
+            buckets["100k-1M"] += 1
+        if up >= 5_000:
+            by_source_high[src] += 1
+        # Line-total signature: qty>1 and unit_price equals the stored total
+        if qty > 1 and tot > 0 and abs(up - tot) < 0.01:
+            line_total_sig += 1
+            line_total_by_source[src] += 1
+
+    top = sorted(rows, key=lambda r: float(r["unit_price"] or 0), reverse=True)[:top_n]
+    top_rows = [{
+        "desc": (r["description"] or "")[:60],
+        "unit_price": round(float(r["unit_price"] or 0), 2),
+        "quantity": float(r["quantity"] or 0),
+        "total": round(float(r["total"] or 0), 2),
+        "source": r["source"],
+        "po_number": r["po_number"],
+    } for r in top]
+
+    return {
+        "total_rows": len(rows),
+        "unit_price_buckets": buckets,
+        "high_rows_by_source (unit_price>=5k)": dict(by_source_high),
+        "line_total_signature_rows (qty>1 & unit_price==total)": line_total_sig,
+        "line_total_signature_by_source": dict(line_total_by_source),
+        "top_unit_prices": top_rows,
+    }

@@ -195,6 +195,19 @@ def api_won_quotes_diagnostic():
     return jsonify({"ok": True, "diagnostic": diagnose_bloat()})
 
 
+@bp.route("/api/admin/won-quotes/price-quality")
+@auth_required
+@safe_route
+def api_won_quotes_price_quality():
+    """READ-ONLY. Investigate the post-repair avg-$71k/max-$1M unit_price tail —
+    genuine per-unit data, or line-totals stored as unit_price? (ISSUE-3
+    follow-up, 2026-05-29.)"""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    from src.knowledge.won_quotes_db import diagnose_price_quality
+    return jsonify({"ok": True, "diagnostic": diagnose_price_quality()})
+
+
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
 @auth_required
 @safe_route
