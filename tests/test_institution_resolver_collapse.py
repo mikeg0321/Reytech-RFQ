@@ -288,3 +288,32 @@ class TestFacadePublicApiShape:
         assert institution_resolver.same_institution(
             "CSP-SAC", "CIM"
         ) is False
+
+
+# ─── ISSUE-6: top_institutions aggregation key collapse ──────────────
+
+
+def test_top_institutions_name_variants_collapse_on_canonical_name():
+    """`/api/manager/metrics` top_institutions aggregates won revenue by
+    institution. Pre-fix it keyed on the raw `institution` string, so two
+    spellings of the same place split the revenue into two rows
+    (CreepyCrawler sweep 2026-05-29: "Veterans Home of California -
+    Barstow" $313,709 AND "Veterans Home of CA, Barstow" $313,601). The
+    fix keys on `quote_contract.canonical_name`. Lock that the two
+    variants collapse to one key so the split can't recur."""
+    from collections import defaultdict
+    from src.core.quote_contract import canonical_name
+
+    won = [
+        {"institution": "Veterans Home of California - Barstow", "total": 313709.0},
+        {"institution": "Veterans Home of CA, Barstow", "total": 313601.0},
+    ]
+    inst_rev = defaultdict(float)
+    for q in won:
+        inst_rev[canonical_name(q.get("institution") or "Unknown")] += q.get("total", 0)
+
+    assert len(inst_rev) == 1, (
+        f"Barstow name variants must collapse to one aggregation key; "
+        f"got {dict(inst_rev)!r}"
+    )
+    assert abs(next(iter(inst_rev.values())) - 627310.0) < 0.01

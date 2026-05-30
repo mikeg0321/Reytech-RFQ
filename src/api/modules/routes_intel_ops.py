@@ -898,10 +898,14 @@ def api_manager_metrics():
                 log.debug("suppressed: %s", _e)
     avg_response = round(sum(response_times) / max(len(response_times), 1), 1)
 
-    # Top institutions by revenue
+    # Top institutions by revenue.
+    # Aggregate on the canonical facility name so name variants of the same
+    # place ("Veterans Home of California - Barstow" vs "...of CA, Barstow")
+    # collapse into one row instead of splitting the revenue.
+    from src.core.quote_contract import canonical_name
     inst_rev = defaultdict(float)
     for q in won:
-        inst_rev[q.get("institution", "Unknown")] += q.get("total", 0)
+        inst_rev[canonical_name(q.get("institution") or "Unknown")] += q.get("total", 0)
     top_institutions = sorted(inst_rev.items(), key=lambda x: x[1], reverse=True)[:5]
 
     return jsonify({

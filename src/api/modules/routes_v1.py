@@ -791,7 +791,7 @@ def api_v1_db_info():
         info["table_count"] = len(tables)
         # Key table row counts
         info["tables"] = {}
-        for t in ["scprs_po_master", "won_quotes_kb", "connectors",
+        for t in ["scprs_po_master", "won_quotes_kb", "won_quotes", "connectors",
                    "agency_registry", "vendor_intel", "buyer_intel",
                    "rfqs", "price_checks", "quotes", "orders"]:
             try:
