@@ -1444,7 +1444,20 @@ def _reconcile_vision_and_base(
     else:
         _low_density_review = False
 
-    if delta > threshold:
+    # ISSUE-19: Vision is primary. A base parser that extracted nothing is
+    # inapplicable to this document class (the norm for generic_rfq PDFs),
+    # not in disagreement -- don't raise count_disagreement. Only v_count>0
+    # & b_count==0 is suppressed; v_count==0 & b_count>0 still flags below
+    # (Vision missed what base caught); both-zero is the zero_items gate above.
+    base_inapplicable = v_count > 0 and b_count == 0
+    if base_inapplicable:
+        log.info(
+            "ingest reconcile: base parser %s found 0 items on %s while "
+            "Vision found %d -- base inapplicable, not a disagreement; "
+            "shipping Vision items without review.",
+            base_parser_label, os.path.basename(path), v_count,
+        )
+    if delta > threshold and not base_inapplicable:
         needs_review = True
         warnings.append({
             "kind": "count_disagreement",
