@@ -187,6 +187,48 @@ def test_rotate_files_still_accepts_string_suffix(tmp_path):
     assert "reytech_20260101_000000.db" not in remaining
 
 
+def test_rotate_backups_prunes_legacy_uncompressed_db(tmp_path):
+    """REGRESSION (2026-05-29): two pre-gzip uncompressed `.db` snapshots
+    (2.1GB + 1.8GB) sat in /data/backups indefinitely — the count-based
+    rotation kept them as part of the "newest N" and never size/legacy-pruned
+    them, so backups/ stayed at ~11GB. `_rotate_backups` now drops every
+    uncompressed `.db` once a `.db.gz` exists.
+    """
+    d = tmp_path / "backups"
+    d.mkdir()
+    # 2 legacy uncompressed monsters + 1 current gzip
+    (d / "reytech_20260524_045857.db").write_bytes(b"x" * 1000)
+    (d / "reytech_20260526_163300.db").write_bytes(b"x" * 1000)
+    (d / "reytech_20260530_001518.db.gz").write_bytes(b"x" * 100)
+
+    from src.core.scheduler import _rotate_backups
+    _rotate_backups(str(d), keep_daily=3, keep_weekly=1)
+
+    remaining = sorted(p.name for p in d.iterdir() if p.is_file())
+    # Legacy uncompressed gone; the gzip survives.
+    assert remaining == ["reytech_20260530_001518.db.gz"], remaining
+
+
+def test_rotate_backups_never_leaves_zero_when_only_legacy_db(tmp_path):
+    """Safety: if ONLY uncompressed `.db` files exist (no gzip yet), don't
+    delete them all — fall back to the count policy so a backup always
+    remains."""
+    d = tmp_path / "backups"
+    d.mkdir()
+    for ts in ("20260101_000000", "20260102_000000", "20260103_000000",
+               "20260104_000000"):
+        (d / f"reytech_{ts}.db").write_bytes(b"x")
+
+    from src.core.scheduler import _rotate_backups
+    _rotate_backups(str(d), keep_daily=3, keep_weekly=1)
+
+    remaining = sorted(p.name for p in d.iterdir() if p.is_file())
+    # No gzip exists → legacy sweep is skipped; count policy keeps the
+    # newest 3 (+ any Sunday weekly). Never zero.
+    assert len(remaining) >= 3, remaining
+    assert "reytech_20260104_000000.db" in remaining  # newest kept
+
+
 def test_scheduler_run_backup_writes_gz(tmp_path, monkeypatch):
     """scheduler.run_backup (daily) also writes .db.gz."""
     data_dir = tmp_path
