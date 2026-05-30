@@ -1627,7 +1627,11 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
                 po_number=po_number,
                 item_number=item_id,
                 description=desc,
-                unit_price=unit_price,
+                # per_unit (not raw unit_price): scprs line `unit_price` is a
+                # LINE TOTAL for multi-qty rows; won_quotes.unit_price is
+                # contractually per-unit (see scprs_per_unit). Passing the raw
+                # line total fed the oracle a price inflated by the order qty.
+                unit_price=per_unit,
                 quantity=quantity,
                 supplier=supplier,
                 department=agency,
