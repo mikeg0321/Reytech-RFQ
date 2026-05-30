@@ -237,6 +237,18 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
 # ── PR-R: SCPRS rollup cap binding (active mode for PR-J shadow) ───────
 
 
+WIN_ANCHOR_SANITY_MAX_MARKUP_PCT = 400.0
+"""Companion to MARKET_CEILING_SANITY_MAX_MARKUP_PCT for the win-history
+anchor path (Mr. Wolf 2026-05-30, rfq_fca653f6 L7). A remembered win price
+implying more than this markup over the CURRENT cost is treated as a
+mis-matched item identity (item-memory matched the wrong product) and rejected
+so it can't anchor a quote — the engine falls through to the normal
+market/cost-plus logic (which carries its own MARKET_CEILING_SANITY backstop).
+Same generous 400% bound: real Reytech markups sit under 60%, so this only
+trips on gross identity mismatch (a $8.99 journal carrying a $61.91 'win' =
+589%). The anchor path already requires win_price > cost; this adds the upper
+ceiling the path was missing."""
+
 MARKET_CEILING_SANITY_MAX_MARKUP_PCT = 400.0
 """Defense-in-depth cap (Mr. Wolf 2026-05-29, rfq_fca653f6). A market-derived
 quote ceiling implying MORE than this markup over a *known* cost, without a
@@ -1332,10 +1344,32 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
         if _wp and _wp > 0 and _wt >= 3:
             win_price = float(_wp)
             win_times = int(_wt)
-            result["win_anchor"] = {"price": win_price, "times": win_times}
-            log.info("Win anchor: $%.2f (%dx confirmed)", win_price, win_times)
-            if has_cost and win_price < cost:
-                log.warning("Win anchor $%.2f is BELOW current cost $%.2f — previous win price is now unprofitable", win_price, cost)
+            # Win-anchor sanity guard (Mr. Wolf 2026-05-30, rfq_fca653f6 L7):
+            # the anchor trusts a remembered win price absolutely, but if it
+            # implies an absurd markup over the CURRENT cost it's almost
+            # certainly anchored on a MIS-MATCHED item identity (a wrong
+            # item_number/UPC/description hit in item-memory) — e.g. an $8.99
+            # journal carrying a $61.91 "win" (589%). Reject it so it can't
+            # become the quote; the function falls through to market/cost-plus.
+            _win_markup = ((win_price - cost) / cost * 100) if has_cost else 0
+            if has_cost and _win_markup > WIN_ANCHOR_SANITY_MAX_MARKUP_PCT:
+                log.warning(
+                    "Win anchor REJECTED: $%.2f = %.0f%% over cost $%.2f "
+                    "(> %.0f%% — likely mis-matched item identity in memory); "
+                    "falling through to market/cost-plus",
+                    win_price, _win_markup, cost,
+                    WIN_ANCHOR_SANITY_MAX_MARKUP_PCT)
+                result["win_anchor_rejected"] = {
+                    "price": win_price, "times": win_times,
+                    "implied_markup_pct": round(_win_markup, 1),
+                }
+                win_price = None
+                win_times = 0
+            else:
+                result["win_anchor"] = {"price": win_price, "times": win_times}
+                log.info("Win anchor: $%.2f (%dx confirmed)", win_price, win_times)
+                if has_cost and win_price < cost:
+                    log.warning("Win anchor $%.2f is BELOW current cost $%.2f — previous win price is now unprofitable", win_price, cost)
 
     # UOM normalization: SCPRS/market data is already per-line (not per-unit).
     # Cost is per-pack/per-UOM. Do NOT multiply market prices by qpu — that inflates
