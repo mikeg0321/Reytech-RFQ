@@ -164,8 +164,14 @@ def _credit_stub_from_won_quote(oid, o):
     o["total"] = built["total"]
     o["line_items"] = built["line_items"]
     try:
-        from src.core.order_dal import save_order as _save_order
+        from src.core.order_dal import save_order as _save_order, save_line_items_batch
+        # Header (links quote_number + legacy total/items columns)…
         _save_order(oid, o, actor="retry_match_quote")
+        # …AND the normalized order_line_items rows — list_orders DERIVES the
+        # order total from these (sum of extendeds), not orders.total, so the
+        # credit only reaches the canonical read path by rewriting them (this
+        # also replaces any exploded/garbage lines on the stub).
+        save_line_items_batch(oid, built["line_items"])
     except Exception as _e:
         log.warning("credit-stub: persist failed for %s: %s", oid, _e)
         return None
