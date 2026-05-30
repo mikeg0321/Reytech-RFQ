@@ -252,9 +252,41 @@ def classify_category(description: str) -> str:
 
 
 def generate_record_id(po_number: str, item_number: str, description: str) -> str:
-    """Generate a deterministic ID for deduplication."""
+    """Generate a deterministic ID for deduplication.
+
+    This is the ONE canonical id for won_quotes. Every writer must use it
+    so the same logical SCPRS line collapses to a single row regardless of
+    which path wrote it (per-lookup ingest, mark-won, or the bulk SCPRS
+    sync). The 2026-05-29 audit found `sync_from_scprs_tables` had used a
+    second scheme (`wq_scprs_{line_id}`); because ON CONFLICT/INSERT OR
+    IGNORE only dedup WITHIN a scheme, a synced line and the same line seen
+    via a lookup became two rows — a structural source of the 90,886-row
+    bloat against ~6.3k real lines.
+    """
     raw = f"{po_number}|{item_number}|{normalize_text(description)}"
     return f"wq_{hashlib.md5(raw.encode()).hexdigest()[:12]}"
+
+
+# Upper bound for a plausible per-unit SCPRS award price. The prod KB held
+# rows up to $9.4B (column-shift / bad scrape) which poisoned avg/max stats
+# and the pricing oracle. State line items don't legitimately exceed this.
+WQ_MAX_UNIT_PRICE = 1_000_000.0
+
+
+def is_valid_won_quote(description: str, unit_price: float) -> bool:
+    """Gate every won_quotes write. Rejects the junk the 2026-05-29 audit
+    found polluting the KB: blank descriptions (no dedup key, no value) and
+    non-positive / implausibly large unit prices (the $2B–$9B corruption).
+    Forward-only: keeps NEW garbage out; existing rows are a separate
+    (LAW-4) backfill.
+    """
+    if not (description or "").strip():
+        return False
+    try:
+        p = float(unit_price or 0)
+    except (TypeError, ValueError):
+        return False
+    return 0 < p <= WQ_MAX_UNIT_PRICE
 
 
 # ─── Freshness Scoring ───────────────────────────────────────────────────────
@@ -583,6 +615,14 @@ def ingest_scprs_result(
     Deduplicates by (po_number, item_number, normalized_description).
     Also cross-posts to price_history so the pricing oracle sees it.
     """
+    # Forward-only validation gate — keep blank-desc / $0 / corrupt-price
+    # junk out of the KB (2026-05-29 audit). Skip silently with a debug log;
+    # a bad lookup must never raise into the caller's pricing flow.
+    if not is_valid_won_quote(description, unit_price):
+        log.debug("won_quotes: skipped invalid row (desc=%r price=%r)",
+                  (description or "")[:40], unit_price)
+        return {}
+
     record_id = generate_record_id(po_number, item_number, description)
     tokens = list(tokenize(description))
     category = classify_category(description)
@@ -876,7 +916,6 @@ def sync_from_scprs_tables() -> dict:
 
         now = datetime.now(timezone.utc).isoformat()
         for r in rows:
-            line_id = r[0]  # Unique PK from scprs_po_lines
             po_num = r[1] or ""
             item_num = r[2] or ""
             desc = r[3] or ""
@@ -888,12 +927,19 @@ def sync_from_scprs_tables() -> dict:
             dept = r[7] or ""
             award_date = r[8] or ""
 
-            if price <= 0 or not desc:
+            if not is_valid_won_quote(desc, price):
                 stats["skipped"] += 1
                 continue
 
-            # Use scprs_po_lines.id as unique key — prevents ALL collisions
-            record_id = f"wq_scprs_{line_id}"
+            # Canonical id (NOT wq_scprs_{line_id}) — the same line seen via
+            # a per-lookup ingest must collide with this synced row, not
+            # create a duplicate under a second id scheme. See
+            # generate_record_id docstring (2026-05-29 bloat fix).
+            record_id = generate_record_id(po_num, item_num, desc)
+            # Always derive category from the description. The upstream
+            # scprs_po_lines.category (r[9]) was landing award DATES in this
+            # column (audit: ~110 date values in won_quotes.category), so we
+            # no longer trust it.
             try:
                 conn.execute("""
                     INSERT OR IGNORE INTO won_quotes
@@ -905,7 +951,7 @@ def sync_from_scprs_tables() -> dict:
                     record_id, po_num, item_num, desc,
                     normalize_text(desc),
                     ",".join(tokenize(desc)),
-                    r[9] or classify_category(desc),
+                    classify_category(desc),
                     supplier, dept, price, qty,
                     round(price * qty, 2),
                     award_date, "scprs_sync", 1.0, now,
