@@ -432,19 +432,51 @@ def _apply_scprs_rollup_cap(result: dict) -> None:
         return
     if cur_price <= p75:
         return
+    # Never-below-cost floor (Mr. Wolf 2026-05-30, rfq_fca653f6 L3): SCPRS p75
+    # is what the STATE paid OTHER vendors and can sit BELOW our own cost.
+    # Capping the quote down to it then commits the bid to a guaranteed loss
+    # (L3: a $97.95-cost line capped to $45.11). Floor the cap at cost so the
+    # competitive cap can lower the bid toward market but never below
+    # break-even. Cost is read from the same block the reprice adapter uses
+    # (locked > provided > last).
+    cap_price = round(p75, 2)
+    floored_at_cost = False
+    _cost = 0.0
+    _cb = result.get("cost") or {}
+    if isinstance(_cb, dict):
+        for _k in ("locked_cost", "provided_cost", "last_cost"):
+            try:
+                _v = float(_cb.get(_k) or 0)
+            except (TypeError, ValueError):
+                _v = 0.0
+            if _v > 0:
+                _cost = _v
+                break
+    if _cost > 0 and cap_price < _cost:
+        cap_price = round(_cost, 2)
+        floored_at_cost = True
+        log.warning(
+            "SCPRS rollup cap floored at cost: p75 $%.2f is below cost $%.2f "
+            "— capping to cost (break-even), not below it", p75, _cost)
+    # After flooring the cap may no longer be below the current price; a cap
+    # must only ever LOWER a bid, never raise it. Leave the price untouched.
+    if cap_price >= cur_price:
+        return
     # Bind the cap. Pre-cap price preserved on the rec dict for the
     # audit; caps_applied list extended so multiple cap sources (volume-
     # aware, category-intel, etc.) can stack later.
     rec["quote_price_pre_cap"] = cur_price
-    rec["quote_price"] = round(p75, 2)
+    rec["quote_price"] = cap_price
     caps = rec.get("caps_applied") or []
     if not isinstance(caps, list):
         caps = []
     caps.append({
         "source": "scprs_rollup",
-        "cap_price": round(p75, 2),
+        "cap_price": cap_price,
+        "p75": round(p75, 2),
+        "floored_at_cost": floored_at_cost,
         "pre_cap_price": cur_price,
-        "delta_pct": round(((cur_price - p75) / p75) * 100, 2),
+        "delta_pct": round(((cur_price - cap_price) / cap_price) * 100, 2),
         "match_key": rollup.get("match_key", ""),
         "match_key_type": rollup.get("match_key_type", ""),
         "sample_count": count,
@@ -452,10 +484,16 @@ def _apply_scprs_rollup_cap(result: dict) -> None:
     rec["caps_applied"] = caps
     # Make the rationale visible to the operator
     prior_rationale = rec.get("rationale", "") or ""
-    cap_note = (
-        f"SCPRS rollup cap: lowered from ${cur_price:.2f} → ${p75:.2f} "
-        f"(p75 of {count} prior wins)"
-    )
+    if floored_at_cost:
+        cap_note = (
+            f"SCPRS rollup cap floored at cost ${cap_price:.2f} "
+            f"(p75 ${p75:.2f} was below cost; lowered from ${cur_price:.2f})"
+        )
+    else:
+        cap_note = (
+            f"SCPRS rollup cap: lowered from ${cur_price:.2f} → ${cap_price:.2f} "
+            f"(p75 of {count} prior wins)"
+        )
     rec["rationale"] = (
         f"{prior_rationale} [{cap_note}]" if prior_rationale else cap_note
     ).strip()
