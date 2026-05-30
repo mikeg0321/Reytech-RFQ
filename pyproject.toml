@@ -1,0 +1,7 @@
+# Minimal project metadata — no [build-system] table so nixpacks continues
+# to use requirements.txt for installation (nixpacks.toml [phases.install]
+# is already explicit; this file is additive metadata only).
+[project]
+name = "reytech-rfq"
+version = "0.1.0"
+requires-python = ">=3.12"

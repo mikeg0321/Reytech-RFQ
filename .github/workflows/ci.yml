@@ -99,6 +99,17 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
+      - name: Python version floor (>=3.12)
+        run: |
+          python -c "
+          import sys
+          vi = sys.version_info
+          if vi < (3, 12):
+              print(f'FAIL: Python >=3.12 required, got {vi.major}.{vi.minor}.{vi.micro}')
+              sys.exit(1)
+          print(f'OK: Python {vi.major}.{vi.minor}.{vi.micro} >= 3.12')
+          "
+
       - name: Syntax check (all Python files)
         run: |
           python -c "
