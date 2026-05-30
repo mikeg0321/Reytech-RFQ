@@ -260,6 +260,48 @@ def api_won_quotes_scope_to_goods():
     return jsonify({"ok": True, "result": repair_noncommodity_scope(dry_run=dry_run)})
 
 
+@bp.route("/api/admin/oracle/match-debug")
+@auth_required
+@safe_route
+def api_oracle_match_debug():
+    """READ-ONLY. Run the oracle's per-item market searches for a raw
+    description and return the matched rows (description, per-unit, supplier,
+    source) — to see exactly which rows a query pulls and why (e.g. why an IT
+    laptop shows as a competitor for a paper notebook). `?desc=` required,
+    `?item_number=` optional."""
+    desc = request.args.get("desc", "").strip()
+    if not desc:
+        return jsonify({"ok": False, "error": "desc query param required"}), 400
+    item_number = request.args.get("item_number", "").strip()
+    from src.core.db import get_db
+    from src.core import pricing_oracle_v2 as ov2
+    out = {"desc": desc, "item_number": item_number, "tokens": ov2._tokenize(desc),
+           "sources": {}}
+    searches = [
+        ("won_quotes", ov2._search_won_quotes),
+        ("winning_prices", ov2._search_winning_prices),
+        ("scprs_catalog", ov2._search_scprs_catalog),
+    ]
+    with get_db() as db:
+        for name, fn in searches:
+            try:
+                rows = fn(db, desc, item_number)
+                rows_sorted = sorted(rows, key=lambda r: r.get("price", 0), reverse=True)
+                out["sources"][name] = {
+                    "n": len(rows),
+                    "rows": [{
+                        "per_unit": round(r.get("price", 0), 2),
+                        "desc": (r.get("description") or "")[:70],
+                        "supplier": (r.get("supplier") or "")[:30],
+                        "match_basis": r.get("match_basis"),
+                        "po": r.get("po_number", ""),
+                    } for r in rows_sorted[:12]],
+                }
+            except Exception as e:
+                out["sources"][name] = {"error": f"{type(e).__name__}: {e}"}
+    return jsonify({"ok": True, "debug": out})
+
+
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
 @auth_required
 @safe_route
