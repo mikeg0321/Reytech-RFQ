@@ -1092,3 +1092,155 @@ def get_kb_stats() -> dict:
         log.error("get_kb_stats SQLite error: %s", e)
         return {"total_records": 0, "categories": {}, "departments": {},
                 "suppliers": {}, "date_range": None, "avg_unit_price": None, "error": str(e)}
+
+
+# ─── Existing-row repair (ISSUE-3, 2026-05-29 audit) ─────────────────────────
+#
+# PR #1228 converged the WRITERS on `generate_record_id` + `is_valid_won_quote`,
+# so NEW rows are clean. But the 90,886 rows already in prod (avg unit_price
+# $790k, max $9.4B, dates living in the `category` column) are the old
+# dual-ID-scheme bloat (`wq_scprs_{line_id}` rows that never collided with the
+# canonical-id rows for the same line). CLAUDE.md §5: a writer-side fix does
+# NOT repair frozen rows. These two functions are that repair.
+
+# A category value that is actually an award DATE — the column-shift bug
+# (#1228 root cause #2) parked ~110 of these in `category`.
+_DATE_IN_CATEGORY_RE = re.compile(r"^\s*\d{1,2}/\d{1,2}/\d{2,4}\s*$")
+
+
+def diagnose_bloat() -> dict:
+    """READ-ONLY. Quantify the existing-row corruption before any repair.
+
+    Recomputes the canonical id for every row and reports how many rows
+    would collapse, how many are corrupt, and how many carry a date in the
+    category column. Writes nothing — safe to call on prod at any time.
+    """
+    _ensure_won_quotes_table()
+    conn = _get_db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, po_number, item_number, description, unit_price, category "
+            "FROM won_quotes"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    canon_counts = defaultdict(int)
+    noncanonical_id = corrupt_price = corrupt_blank = date_in_category = 0
+    for r in rows:
+        cid = generate_record_id(r["po_number"] or "", r["item_number"] or "",
+                                 r["description"] or "")
+        canon_counts[cid] += 1
+        if r["id"] != cid:
+            noncanonical_id += 1
+        if not is_valid_won_quote(r["description"], r["unit_price"]):
+            if not (r["description"] or "").strip():
+                corrupt_blank += 1
+            else:
+                corrupt_price += 1
+        if r["category"] and _DATE_IN_CATEGORY_RE.match(str(r["category"])):
+            date_in_category += 1
+
+    total = len(rows)
+    distinct = len(canon_counts)
+    max_cluster = max(canon_counts.values()) if canon_counts else 0
+    # Rows that would survive the repair: one valid row per canonical key.
+    return {
+        "total_rows":             total,
+        "distinct_canonical_keys": distinct,
+        "duplicate_rows":         total - distinct,
+        "noncanonical_id_rows":   noncanonical_id,
+        "corrupt_price_rows":     corrupt_price,
+        "corrupt_blank_desc_rows": corrupt_blank,
+        "date_in_category_rows":  date_in_category,
+        "largest_dup_cluster":    max_cluster,
+        "inflation_factor":       round(total / distinct, 1) if distinct else None,
+    }
+
+
+def repair_existing_rows(dry_run: bool = True) -> dict:
+    """Collapse the existing won_quotes bloat onto the canonical id scheme.
+
+    For every cluster of rows sharing a canonical id (recomputed from
+    po|item|normalized_description):
+      • If NO member passes `is_valid_won_quote`, the whole cluster is junk
+        (blank desc / corrupt price) → all members deleted.
+      • Otherwise keep the newest valid member, re-key it to the canonical id,
+        repair a date-in-category to a derived category, and delete every
+        other member of the cluster.
+
+    Idempotent: after a run, each canonical key has exactly one row whose
+    `id` == the canonical id, so a second run is a no-op. `dry_run=True`
+    computes the plan and returns the same counts WITHOUT writing.
+
+    The table PRIMARY KEY is `id` (== the canonical id post-repair), so once
+    collapsed the PK itself is the UNIQUE constraint on (po, item,
+    normalized_description) — no separate index is needed, given every writer
+    now goes through `generate_record_id` (#1228).
+    """
+    _ensure_won_quotes_table()
+    conn = _get_db_conn()
+    try:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM won_quotes").fetchall()]
+        clusters = defaultdict(list)
+        for r in rows:
+            cid = generate_record_id(r.get("po_number") or "", r.get("item_number") or "",
+                                     r.get("description") or "")
+            r["_cid"] = cid
+            r["_valid"] = is_valid_won_quote(r.get("description"), r.get("unit_price"))
+            clusters[cid].append(r)
+
+        delete_ids = []          # existing row ids to remove
+        survivors = []           # full rows to (re)write under the canonical id
+        dropped_corrupt_clusters = 0
+        for cid, members in clusters.items():
+            valid = [m for m in members if m["_valid"]]
+            if not valid:
+                delete_ids.extend(m["id"] for m in members)
+                dropped_corrupt_clusters += 1
+                continue
+            keep = max(valid, key=lambda m: (m.get("updated_at") or m.get("ingested_at") or ""))
+            # Repair date-in-category → derived category.
+            cat = keep.get("category")
+            if not cat or _DATE_IN_CATEGORY_RE.match(str(cat or "")):
+                keep["category"] = classify_category(keep.get("description") or "")
+            # Every member that isn't already the canonical-id row is removed;
+            # the survivor is rewritten under the canonical id.
+            for m in members:
+                if m["id"] != cid:
+                    delete_ids.append(m["id"])
+            survivors.append({**keep, "id": cid})
+
+        plan = {
+            "rows_before":            len(rows),
+            "rows_after":             len(survivors),
+            "rows_deleted":           len(rows) - len(survivors),
+            "corrupt_clusters_dropped": dropped_corrupt_clusters,
+            "dry_run":                dry_run,
+        }
+        if dry_run:
+            return plan
+
+        cols = ["id", "po_number", "item_number", "description",
+                "normalized_description", "tokens", "category", "supplier",
+                "department", "unit_price", "quantity", "total", "award_date",
+                "source", "confidence", "ingested_at", "updated_at"]
+        placeholders = ",".join("?" for _ in cols)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if delete_ids:
+                conn.executemany("DELETE FROM won_quotes WHERE id=?",
+                                 [(rid,) for rid in delete_ids])
+            conn.executemany(
+                f"INSERT OR REPLACE INTO won_quotes ({','.join(cols)}) "
+                f"VALUES ({placeholders})",
+                [tuple(s.get(c) for c in cols) for s in survivors],
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        log.warning("won_quotes repair: %s", plan)
+        return plan
+    finally:
+        conn.close()

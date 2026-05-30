@@ -183,6 +183,39 @@ def api_won_quotes_dump():
     return jsonify({"total": len(quotes), "first_10": quotes[:10]})
 
 
+@bp.route("/api/admin/won-quotes/diagnostic")
+@auth_required
+@safe_route
+def api_won_quotes_diagnostic():
+    """READ-ONLY. Quantify the existing-row bloat/corruption (ISSUE-3,
+    2026-05-29 audit) without touching a single row."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    from src.knowledge.won_quotes_db import diagnose_bloat
+    return jsonify({"ok": True, "diagnostic": diagnose_bloat()})
+
+
+@bp.route("/api/admin/won-quotes/repair", methods=["POST"])
+@auth_required
+@safe_route
+def api_won_quotes_repair():
+    """Collapse the existing won_quotes bloat onto the canonical id scheme.
+
+    Dry-run by default — returns the plan without writing. To actually
+    repair, pass BOTH confirm=collapse_bloat AND dry_run=0. Idempotent:
+    a second real run is a no-op. PR #1228 must be live first (the writers
+    must be converged or the bloat regrows next harvest cycle)."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    confirm = (request.args.get("confirm") or request.form.get("confirm") or "")
+    dry_run = (request.args.get("dry_run") or request.form.get("dry_run") or "1") not in ("0", "false", "False")
+    if not dry_run and confirm != "collapse_bloat":
+        return jsonify({"ok": False,
+                        "error": "real repair requires confirm=collapse_bloat"}), 400
+    from src.knowledge.won_quotes_db import repair_existing_rows
+    return jsonify({"ok": True, "result": repair_existing_rows(dry_run=dry_run)})
+
+
 @bp.route("/api/debug/paths")
 @auth_required
 @safe_route
