@@ -423,6 +423,20 @@ def po_numbers_match(a: Any, b: Any) -> bool:
     return short == long or long.endswith(short)
 
 
+def solicitation_numbers_match(a: Any, b: Any) -> bool:
+    """Do two solicitation strings refer to the same solicitation?
+
+    Compares digit cores, tolerant of label prefixes (PREQ / PR / PO / RFQ /
+    SOL) and punctuation — `"PREQ 10846357"`, `"10846357"`, and
+    `"PR-10846357"` all match. ISSUE-11 (2026-05-29 sweep): PO ingest matched
+    solicitations by raw `==` and read only the RFQ's `reytech_quote_number`
+    field — both brittle — so a PO fell to a $0 stub even when the canonical
+    quotes table held the won quote for that solicitation."""
+    da = "".join(c for c in str(a or "") if c.isdigit())
+    db = "".join(c for c in str(b or "") if c.isdigit())
+    return bool(da) and len(da) >= 4 and da == db
+
+
 def is_historical_import_order(
     record: Mapping[str, Any],
     current_year: int = REVENUE_YEAR,
