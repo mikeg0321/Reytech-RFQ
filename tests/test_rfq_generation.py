@@ -48,12 +48,18 @@ class TestRfqApiEndpoints:
         # May return JSON or redirect
         assert resp.status_code in (200, 302)
 
-    def test_generate_without_templates_fails_gracefully(self, client, seed_rfq):
-        """POST generate without uploaded templates should flash error, not crash."""
-        resp = client.post(f"/rfq/{seed_rfq}/generate",
-                           data={})
-        # Should redirect back with flash, not 500
-        assert resp.status_code in (200, 302), f"Expected redirect, got {resp.status_code}"
+    def test_legacy_generate_route_deleted(self, client, seed_rfq):
+        """J1-4 deletion pin: /rfq/<rid>/generate was the dead legacy CCHCS
+        package route.  Closer + Inspector confirmed no template/JS POSTs to it
+        (the live button uses /rfq/<rid>/generate-package).  Route was deleted in
+        feat/j1-4; this test pins the deletion — any future re-add must remove
+        this test, surfacing the LAW 2 regression at PR review.
+        """
+        resp = client.post(f"/rfq/{seed_rfq}/generate", data={})
+        assert resp.status_code == 404, (
+            f"Dead /generate route must return 404 after J1-4 deletion, "
+            f"got {resp.status_code}"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
