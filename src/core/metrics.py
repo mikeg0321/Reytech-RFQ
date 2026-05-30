@@ -296,6 +296,141 @@ def get_pending_drafts() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 6. Time-bucketed revenue / volume + top institutions
+#    (canonical replacements for the per-page quotes_log.json / rfqs-JSON
+#     derivations — ISSUE-4, 2026-05-29 sweep). All read the `quotes`
+#     table so /api/manager/metrics and /analytics report the SAME numbers
+#     as Home/pipeline instead of three independent substrates.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _won_date(row) -> str:
+    """When a quote became won. `quotes` has no status_updated column;
+    updated_at is set on the won transition, created_at is the floor."""
+    return (row["updated_at"] or row["created_at"] or "")
+
+
+def get_month_revenue(year_month: Optional[str] = None) -> dict:
+    """Won revenue + count for a single calendar month (default: current).
+
+    `year_month` is "YYYY-MM"; when None the caller passes the current
+    month (computed PST upstream). Returns {revenue, won_count}.
+    """
+    result = {"revenue": 0.0, "won_count": 0}
+    if not year_month:
+        return result
+    try:
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT total, updated_at, created_at FROM quotes "
+                "WHERE is_test = 0 AND status = 'won'"
+            ).fetchall()
+            for r in rows:
+                if _won_date(r)[:7] == year_month:
+                    result["revenue"] += float(r["total"] or 0)
+                    result["won_count"] += 1
+            result["revenue"] = round(result["revenue"], 2)
+    except Exception as e:
+        log.debug("get_month_revenue: %s", e)
+    return result
+
+
+def get_revenue_by_month() -> dict:
+    """Won revenue + count keyed by YYYY-MM (all time).
+
+    Returns {month: {revenue, won_count}} — drives the analytics
+    monthly-revenue chart from the canonical quotes table instead of
+    re-summing rfqs JSON line-items.
+    """
+    out: dict = {}
+    try:
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT total, updated_at, created_at FROM quotes "
+                "WHERE is_test = 0 AND status = 'won'"
+            ).fetchall()
+            for r in rows:
+                month = _won_date(r)[:7]
+                if not month:
+                    continue
+                b = out.setdefault(month, {"revenue": 0.0, "won_count": 0})
+                b["revenue"] += float(r["total"] or 0)
+                b["won_count"] += 1
+            for b in out.values():
+                b["revenue"] = round(b["revenue"], 2)
+    except Exception as e:
+        log.debug("get_revenue_by_month: %s", e)
+    return out
+
+
+def get_weekly_volume(weeks: int = 4, now=None) -> list:
+    """Quote count + value per week for the last `weeks` weeks.
+
+    `now` is injected (PST) by the caller so the bucketing matches the
+    rest of the dashboard. Returns oldest→newest list of
+    {label, quotes, value}. Reads the quotes table (was quotes_log.json).
+    """
+    from datetime import datetime, timedelta
+    if now is None:
+        now = datetime.now()
+    buckets = []
+    try:
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT total, created_at FROM quotes WHERE is_test = 0"
+            ).fetchall()
+            parsed = []
+            for r in rows:
+                ts = r["created_at"] or ""
+                if not ts:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(
+                        ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                except (ValueError, TypeError):
+                    continue
+                parsed.append((dt, float(r["total"] or 0)))
+            for w in range(weeks):
+                week_end = now - timedelta(weeks=w)
+                week_start = week_end - timedelta(weeks=1)
+                count = sum(1 for dt, _v in parsed if week_start <= dt < week_end)
+                value = sum(v for dt, v in parsed if week_start <= dt < week_end)
+                label = f"Week {weeks - w}" if w > 0 else "This Week"
+                buckets.append({"label": label, "quotes": count,
+                                "value": round(value, 2)})
+            buckets.reverse()
+    except Exception as e:
+        log.debug("get_weekly_volume: %s", e)
+    return buckets
+
+
+def get_top_institutions(limit: int = 5) -> list:
+    """Top institutions by won revenue, aggregated on the CANONICAL
+    facility name so spelling variants of the same place collapse into
+    one row. Returns [{name, revenue}]. (Reads the quotes table — was
+    a raw-string defaultdict over quotes_log.json.)"""
+    from collections import defaultdict
+    try:
+        from src.core.quote_contract import canonical_name
+    except Exception:
+        def canonical_name(x):
+            return x or "Unknown"
+    inst_rev: dict = defaultdict(float)
+    try:
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT institution, total FROM quotes "
+                "WHERE is_test = 0 AND status = 'won'"
+            ).fetchall()
+            for r in rows:
+                inst_rev[canonical_name(r["institution"] or "Unknown")] += \
+                    float(r["total"] or 0)
+    except Exception as e:
+        log.debug("get_top_institutions: %s", e)
+    top = sorted(inst_rev.items(), key=lambda x: x[1], reverse=True)[:limit]
+    return [{"name": n, "revenue": round(v, 2)} for n, v in top]
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Convenience: all metrics in one call (for /api/dashboard/init)
 # ═══════════════════════════════════════════════════════════════════════
 

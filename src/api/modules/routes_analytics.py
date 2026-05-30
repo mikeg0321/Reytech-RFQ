@@ -451,24 +451,26 @@ def analytics_dashboard():
         for pc in pcs.values():
             statuses[f"pc_{pc.get('status', 'unknown')}"] += 1
 
+        # Decided counts (won/lost) + monthly revenue come from canonical
+        # core.metrics (the `quotes` table) so analytics matches Home /
+        # pipeline instead of re-deriving from rfqs JSON line-items
+        # (ISSUE-4 convergence, 2026-05-29 sweep). The pipeline-stage rollup
+        # (imported/parsed/priced/sent) stays an analytics-specific PC+RFQ view.
+        from src.core import metrics as _cm
+        _wr = _cm.get_win_rate()
         funnel = {
             "imported": len(rfqs) + len(pcs),
             "parsed": sum(1 for r in rfqs.values() if r.get("status") not in ("dismissed",)),
             "priced": statuses.get("priced", 0) + statuses.get("pc_priced", 0),
             "sent": statuses.get("sent", 0) + statuses.get("pc_sent", 0),
-            "won": statuses.get("won", 0) + statuses.get("pc_won", 0),
-            "lost": statuses.get("lost", 0) + statuses.get("pc_lost", 0),
+            "won": _wr["won"],
+            "lost": _wr["lost"],
         }
 
-        # Revenue by month
-        monthly_revenue = _defaultdict(float)
-        monthly_won = _defaultdict(int)
-        for r in rfqs.values():
-            if r.get("status") == "won":
-                created = r.get("created_at", "")[:7]  # YYYY-MM
-                for item in r.get("line_items", []):
-                    monthly_revenue[created] += (item.get("qty", 0) or 0) * (item.get("price_per_unit", 0) or 0)
-                monthly_won[created] += 1
+        # Revenue by month — canonical (quotes table), was rfqs JSON line-items.
+        _rbm = _cm.get_revenue_by_month()
+        monthly_revenue = {m: v["revenue"] for m, v in _rbm.items()}
+        monthly_won = {m: v["won_count"] for m, v in _rbm.items()}
 
         # Win rate by institution
         inst_stats = _defaultdict(lambda: {"won": 0, "lost": 0, "revenue": 0})

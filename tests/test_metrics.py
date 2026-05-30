@@ -161,3 +161,72 @@ class TestGetAllMetrics:
         # Inbox should reflect both
         assert result["inbox"]["won"] == 1
         assert result["inbox"]["pipeline_value"] == 500.0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ISSUE-4 convergence (2026-05-29 sweep): time-bucketed revenue / volume /
+# top-institutions helpers. These replace the per-page quotes_log.json /
+# rfqs-JSON derivations in /api/manager/metrics and /analytics so every
+# surface reports the SAME numbers as Home (the `quotes` table).
+# ═══════════════════════════════════════════════════════════════════════
+
+from datetime import datetime
+
+
+class TestMonthRevenue:
+    def test_empty_or_no_month(self):
+        assert metrics.get_month_revenue(None) == {"revenue": 0.0, "won_count": 0}
+
+    def test_current_month_won_only(self, seed_db_quote):
+        ym = datetime.now().strftime("%Y-%m")
+        seed_db_quote("R26Q500", status="won", total=1200.0)
+        seed_db_quote("R26Q501", status="won", total=800.0)
+        seed_db_quote("R26Q502", status="pending", total=9999.0)  # excluded
+        result = metrics.get_month_revenue(ym)
+        assert result["revenue"] == 2000.0
+        assert result["won_count"] == 2
+
+    def test_other_month_is_zero(self, seed_db_quote):
+        seed_db_quote("R26Q503", status="won", total=500.0)
+        assert metrics.get_month_revenue("1999-01") == {"revenue": 0.0, "won_count": 0}
+
+
+class TestRevenueByMonth:
+    def test_buckets_current_month(self, seed_db_quote):
+        ym = datetime.now().strftime("%Y-%m")
+        seed_db_quote("R26Q510", status="won", total=1000.0)
+        seed_db_quote("R26Q511", status="lost", total=400.0)  # excluded
+        out = metrics.get_revenue_by_month()
+        assert ym in out
+        assert out[ym]["revenue"] == 1000.0
+        assert out[ym]["won_count"] == 1
+
+
+class TestWeeklyVolume:
+    def test_returns_requested_weeks_oldest_first(self):
+        out = metrics.get_weekly_volume(weeks=4)
+        assert len(out) == 4
+        assert out[-1]["label"] == "This Week"
+
+    def test_counts_this_week(self, seed_db_quote):
+        seed_db_quote("R26Q520", status="pending", total=300.0)
+        seed_db_quote("R26Q521", status="won", total=700.0)
+        # pass a `now` strictly after the seeded rows so they land in This Week
+        out = metrics.get_weekly_volume(weeks=4, now=datetime.now())
+        this_week = out[-1]
+        assert this_week["quotes"] == 2
+        assert this_week["value"] == 1000.0
+
+
+class TestTopInstitutions:
+    def test_empty_db(self):
+        assert metrics.get_top_institutions() == []
+
+    def test_aggregates_won_by_institution(self, seed_db_quote):
+        seed_db_quote("R26Q530", status="won", total=1000.0, institution="CSP-Sacramento")
+        seed_db_quote("R26Q531", status="won", total=500.0, institution="CSP-Sacramento")
+        seed_db_quote("R26Q532", status="lost", total=9999.0, institution="CSP-Sacramento")  # excluded
+        out = metrics.get_top_institutions(limit=5)
+        assert len(out) == 1
+        # both won quotes for the same institution collapse into one row
+        assert out[0]["revenue"] == 1500.0
