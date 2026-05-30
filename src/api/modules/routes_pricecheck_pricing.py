@@ -306,17 +306,26 @@ def api_oracle_match_debug():
 @auth_required
 @safe_route
 def api_rfq_clear_line_costs():
-    """Null ALL cost aliases (supplier_cost / vendor_cost / pricing.unit_cost /
-    cost) on RFQ line items whose description matches one of `descriptions`
-    (case-insensitive substring) → the line falls to NEEDS COST. For repairing
-    lines that froze a cross-matched cost (e.g. a sensory-ball line that read a
-    Welch Allyn cradle's $1,066 during a pre-fix enrichment). Body:
-    {rfq_id, descriptions:[...], confirm:"clear_costs"}. Dry-run unless confirm.
+    """Repair RFQ line items whose description matches one of `descriptions`
+    (case-insensitive substring). Targets lines that froze a cross-matched
+    value during a pre-fix enrichment:
+      • costs (supplier_cost / vendor_cost / pricing.unit_cost / cost) → line
+        falls to NEEDS COST. E.g. a sensory-ball line that read a Welch Allyn
+        cradle's $1,066.
+      • item_number / mfg_number → line stops matching a WRONG part number's
+        locked cost. E.g. a stress-ball line frozen with item_number 'PS1351'
+        (a velvet poster's) that read the poster's $150.40, while the line's
+        OWN stored cost ($31.72) was correct.
+    Body: {rfq_id, descriptions:[...], confirm:"clear_costs"|"clear_item_number"
+    |"clear_both"}. Dry-run unless confirm is set.
     """
     body = request.get_json(force=True, silent=True) or {}
     rid = (body.get("rfq_id") or "").strip()
     needles = [str(s).lower().strip() for s in (body.get("descriptions") or []) if str(s).strip()]
-    confirm = body.get("confirm") == "clear_costs"
+    confirm_val = body.get("confirm") or ""
+    do_costs = confirm_val in ("clear_costs", "clear_both")
+    do_item = confirm_val in ("clear_item_number", "clear_both")
+    applying = do_costs or do_item
     if not rid or not needles:
         return jsonify({"ok": False, "error": "rfq_id and descriptions[] required"}), 400
 
@@ -332,12 +341,12 @@ def api_rfq_clear_line_costs():
             if any(n in desc for n in needles):
                 before = {
                     "supplier_cost": item.get("supplier_cost"),
-                    "vendor_cost": item.get("vendor_cost"),
                     "pricing_unit_cost": (item.get("pricing") or {}).get("unit_cost"),
-                    "cost": item.get("cost"),
+                    "item_number": item.get("item_number"),
+                    "mfg_number": item.get("mfg_number"),
                 }
                 matched.append({"idx": idx, "description": item.get("description"), "before": before})
-                if confirm:
+                if do_costs:
                     for k in ("supplier_cost", "vendor_cost", "cost"):
                         if k in item:
                             item[k] = ""
@@ -346,7 +355,11 @@ def api_rfq_clear_line_costs():
                             if k in item["pricing"]:
                                 item["pricing"][k] = ""
                         item["pricing"]["cost_source"] = "cleared_cross_match"
-        if confirm and matched:
+                if do_item:
+                    for k in ("item_number", "mfg_number"):
+                        if item.get(k):
+                            item[k] = ""
+        if applying and matched:
             try:
                 from src.core.pricing_math import reconcile_items as _reconcile
                 _reconcile(r.get("line_items", []))
@@ -354,8 +367,9 @@ def api_rfq_clear_line_costs():
                 log.debug("reconcile after clear suppressed: %s", _e)
             from src.api.dashboard import _save_single_rfq
             _save_single_rfq(rid, r, raise_on_error=True)
-    return jsonify({"ok": True, "rfq_id": rid, "confirm": confirm,
-                    "matched": matched, "cleared": len(matched) if confirm else 0})
+    return jsonify({"ok": True, "rfq_id": rid, "confirm": confirm_val,
+                    "cleared_costs": do_costs, "cleared_item_number": do_item,
+                    "matched": matched, "applied": len(matched) if applying else 0})
 
 
 @bp.route("/api/admin/won-quotes/repair", methods=["POST"])
