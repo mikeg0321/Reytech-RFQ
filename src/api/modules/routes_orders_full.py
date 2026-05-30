@@ -3894,6 +3894,7 @@ def api_orders_orphan_review():
     """
     from src.core.db import get_db
     from src.core.orders_link_orphans import (
+        fetch_scorable_quotes,
         find_orphan_orders,
         find_quote_candidates,
     )
@@ -3902,9 +3903,14 @@ def api_orders_orphan_review():
             import sqlite3 as _sqlite3
             conn.row_factory = _sqlite3.Row
             orphans = find_orphan_orders(conn)
+            # Fetch the quotes table ONCE, not once per orphan. Passing the
+            # shared snapshot into find_quote_candidates eliminates the N*M
+            # full-table re-scan that left this endpoint hanging on "Loading…".
+            quote_rows = fetch_scorable_quotes(conn)
             out = []
             for orphan in orphans:
-                cands = find_quote_candidates(conn, orphan, limit=5)
+                cands = find_quote_candidates(
+                    conn, orphan, limit=5, quote_rows=quote_rows)
                 out.append({
                     "id": orphan.get("id"),
                     "po_number": orphan.get("po_number") or "",

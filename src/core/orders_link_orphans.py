@@ -29,6 +29,7 @@ Usage from the script wrapper:
 """
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Optional
 
@@ -110,6 +111,7 @@ def _coerce_float(v) -> float:
         return 0.0
 
 
+@functools.lru_cache(maxsize=2048)
 def _agency_canonical(s) -> str:
     """Normalize agency text to a canonical umbrella-agency key for matching.
 
@@ -156,7 +158,23 @@ def _days_apart(order_created_at: str, quote_when: str) -> Optional[int]:
         return None
 
 
-def find_quote_candidates(conn, orphan: dict, *, limit: int = 5) -> list[dict]:
+def fetch_scorable_quotes(conn):
+    """Return all non-test, numbered quotes used to score orphan matches.
+
+    Hoist this out of any per-orphan loop — it reads the full quotes table,
+    so running it once per orphan is an N*M re-scan. `find_quote_candidates`
+    accepts the result via its `quote_rows` kwarg.
+    """
+    return conn.execute("""
+        SELECT quote_number, po_number, agency, total, sent_at, created_at
+        FROM quotes
+        WHERE COALESCE(is_test, 0) = 0
+          AND quote_number IS NOT NULL
+          AND TRIM(quote_number) != ''
+    """).fetchall()
+
+
+def find_quote_candidates(conn, orphan: dict, *, limit: int = 5, quote_rows=None) -> list[dict]:
     """Rank quote candidates that could match this orphan order.
 
     Returns up to `limit` candidates sorted by score desc, then by
@@ -186,16 +204,13 @@ def find_quote_candidates(conn, orphan: dict, *, limit: int = 5) -> list[dict]:
     if order_total <= 0 and not po_canonical:
         return []
 
-    # Pull all non-test quotes once. Orphan list is ~64 prod, quote table
-    # is ~1k — N*M is fine and keeps tier scoring in Python rather than
-    # forcing it through SQL.
-    quote_rows = conn.execute("""
-        SELECT quote_number, po_number, agency, total, sent_at, created_at
-        FROM quotes
-        WHERE COALESCE(is_test, 0) = 0
-          AND quote_number IS NOT NULL
-          AND TRIM(quote_number) != ''
-    """).fetchall()
+    # Score against all non-test quotes. The route hoists this fetch out of
+    # its per-orphan loop and passes `quote_rows` in, so the full-table read
+    # runs ONCE per request instead of once per orphan (the N*M re-scan that
+    # hung /api/orders/orphan-review as the quotes table grew). When called
+    # standalone (None), fall back to fetching here.
+    if quote_rows is None:
+        quote_rows = fetch_scorable_quotes(conn)
 
     candidates: list[dict] = []
     for q in quote_rows:
