@@ -11,7 +11,28 @@ from src.core.canonical_state import (
     BULK_IMPORT_CREATED_AT_PREFIX,
     REVENUE_YEAR,
     po_numbers_match,
+    solicitation_numbers_match,
 )
+
+
+class TestSolicitationNumbersMatch:
+    """ISSUE-11 sweep: PO ingest must match a won quote by solicitation in the
+    canonical quotes table, tolerant of label prefixes (PREQ/PR/PO)."""
+
+    def test_prefix_tolerant(self):
+        assert solicitation_numbers_match("PREQ 10846357", "10846357") is True
+        assert solicitation_numbers_match("PR-10846357", "10846357") is True
+
+    def test_exact_and_leading_zeros(self):
+        assert solicitation_numbers_match("10846357", "10846357") is True
+        assert solicitation_numbers_match("00000767", "00000767") is True
+
+    def test_distinct_no_match(self):
+        assert solicitation_numbers_match("10846357", "00000767") is False
+
+    def test_empty(self):
+        assert solicitation_numbers_match("", "10846357") is False
+        assert solicitation_numbers_match(None, None) is False
 
 
 class TestPoNumbersMatch:

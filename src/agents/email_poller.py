@@ -2381,6 +2381,27 @@ class EmailPoller:
                                 except Exception as _me:
                                     log.debug("PO item matching failed: %s", _me)
 
+                            # 2c. Canonical fallback (ISSUE-11 sweep): steps 1-2b
+                            # read quotes_log.json + rfq.reytech_quote_number,
+                            # both of which can be empty/stale when the PO arrives
+                            # (the won quote's RFQ-link field isn't always set yet).
+                            # The quotes TABLE is the source of truth — match a
+                            # quote there by solicitation (prefix-tolerant) so a
+                            # real win stops falling to a $0 stub.
+                            if not matched_quote and sol_number:
+                                try:
+                                    from src.core.canonical_state import solicitation_numbers_match
+                                    from src.forms.quote_generator import get_all_quotes
+                                    for _q in get_all_quotes():
+                                        _qs = _q.get("solicitation_number") or _q.get("sol") or ""
+                                        if solicitation_numbers_match(sol_number, _qs):
+                                            matched_quote = _q.get("quote_number", "")
+                                            log.info("PO matched via canonical quotes-table sol#%s → quote %s",
+                                                     sol_number, matched_quote)
+                                            break
+                                except Exception as _qe:
+                                    log.debug("canonical quotes-table sol match failed: %s", _qe)
+
                             # 3. Mark quote as won + trigger vendor ordering
                             _all_quotes = []
                             if matched_quote:
