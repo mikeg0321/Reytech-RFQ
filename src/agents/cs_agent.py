@@ -296,6 +296,27 @@ CS_AUTO_REJECT_DOMAINS = frozenset({
     "govspendemail.com",  # GovSpend lead-gen pings, never CS
 })
 
+# Reytech's OWN back-office / internal vendors (bookkeeper, AP). These are
+# never customers, so we must NEVER auto-draft any reply to them — not a CS
+# reply, not a PO-confirmation. The inbound ingest gate blocks the same
+# domains separately (email_poller.BLOCKED_SENDERS); kept as a distinct
+# named concept here rather than folded into that broad list (which also
+# carries marketing / automated-mailer patterns irrelevant to "is this an
+# internal address"). 2026-05-29 sweep ISSUE-13: the inbound block landed
+# (PR #1221) but the OUTBOUND draft gates didn't know the bookkeeper was
+# internal, so CS + po_confirm drafts kept getting queued to her.
+INTERNAL_VENDOR_DOMAINS = frozenset({
+    "streamlineoc.com",   # Streamline OC — Reytech's outsourced bookkeeper/AP
+})
+
+
+def is_internal_vendor(email: str) -> bool:
+    """True if `email` belongs to a Reytech internal / back-office vendor we
+    must never auto-correspond with. Used by every outbound draft path
+    (CS reply + PO confirmation) so the rule lives in one place."""
+    addr = (email or "").strip().lower()
+    return "@" in addr and addr.split("@", 1)[1] in INTERNAL_VENDOR_DOMAINS
+
 
 def _should_skip_cs_draft(sender_email: str) -> tuple:
     """Return (skip: bool, reason: str) for whether to suppress a CS draft."""
@@ -308,6 +329,8 @@ def _should_skip_cs_draft(sender_email: str) -> tuple:
         domain = addr.split("@", 1)[1]
         if domain in CS_AUTO_REJECT_DOMAINS:
             return True, f"sender domain on CS auto-reject list ({domain})"
+        if domain in INTERNAL_VENDOR_DOMAINS:
+            return True, f"internal vendor / back-office, never CS ({domain})"
     return False, ""
 
 
