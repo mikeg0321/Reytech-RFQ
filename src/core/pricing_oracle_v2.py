@@ -802,7 +802,7 @@ def _search_won_quotes(db, description, item_number=""):
         # post-hoc whether a row came from the MFG# branch or the
         # description branch.
         select_mfg = "0 AS mfg_hit"
-        if item_number:
+        if item_number and _is_real_part_number(item_number):
             item_lc = item_number.lower()
             where = f"({where}) OR LOWER(item_number) = ?"
             params.append(item_lc)
@@ -858,7 +858,7 @@ def _search_winning_prices(db, description, item_number=""):
                 params.extend([f"%{v}%" for v in group])
         where = " AND ".join(where_parts)
         select_mfg = "0 AS mfg_hit"
-        if item_number:
+        if item_number and _is_real_part_number(item_number):
             item_lc = item_number.lower()
             where = f"({where}) OR LOWER(part_number) = ?"
             params.append(item_lc)
@@ -910,7 +910,7 @@ def _search_scprs_catalog(db, description, item_number=""):
                 params.extend([f"%{v}%" for v in group])
         where = " AND ".join(where_parts)
         select_mfg = "0 AS mfg_hit"
-        if item_number:
+        if item_number and _is_real_part_number(item_number):
             item_lc = item_number.lower()
             where = f"({where}) OR LOWER(mfg_number) = ?"
             params.append(item_lc)
@@ -968,7 +968,7 @@ def _search_po_lines(db, description, item_number=""):
                 params.extend([f"%{v}%" for v in group])
         where = " AND ".join(where_parts)
         select_mfg = "0 AS mfg_hit"
-        if item_number:
+        if item_number and _is_real_part_number(item_number):
             item_lc = item_number.lower()
             where = f"({where}) OR LOWER(l.item_id) = ?"
             params.append(item_lc)
