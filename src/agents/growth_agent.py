@@ -1227,48 +1227,43 @@ def get_reytech_credentials() -> dict:
     category_spend = defaultdict(float)
     since_year = 2022
 
-    # Source 1: SCPRS history
-    hist = _load_json(HISTORY_FILE)
-    if isinstance(hist, dict):
-        total_pos = hist.get("total_pos", 0)
-        total_items = hist.get("total_items", 0)
-        for po in hist.get("purchase_orders", []):
-            dept = po.get("dept", "")
-            amount = float(po.get("total", 0) or po.get("amount", 0) or 0)
-            total_sales += amount
-            if dept:
-                agencies.add(dept)
-            # CalVet detection
-            if dept and any(kw in dept.lower() for kw in ["calvet", "cal vet", "veterans", "cdva"]):
-                calvet_amount += amount
-                calvet_pos += 1
-            # Category tracking
-            for item in po.get("items", []) if isinstance(po.get("items"), list) else []:
-                cat = categorize_item(str(item)) if callable(categorize_item) else ""
-                if cat:
-                    category_spend[cat] += amount / max(len(po.get("items", [1])), 1)
-
-    # Source 2: Quotes log
+    # Source of truth: WON quotes in the canonical DB (Orders V2 store).
+    # 2026-05-29 audit (ISSUE-5): the prior code summed EVERY quote in
+    # quotes_log.json (won + lost + pending) into total_sales and counted
+    # un-normalized agency strings, so outbound emails claimed ~$4.86M
+    # "sales" that actually included lost/pending deals, across an inflated
+    # 179 "agencies" (CIW alone appeared ~10 ways, plus price-check junk).
+    # growth_reytech_history.json contributed $0 (all PO amounts were null).
+    # We now count WON only, agency-normalized — reconciled with every
+    # dashboard ($1.65M won). The claim in outbound email must be defensible.
     try:
-        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
-        if os.path.exists(quotes_path):
-            with open(quotes_path) as f:
-                quotes = json.load(f)
-            for q in quotes:
-                if q.get("is_test"):
-                    continue
-                a = q.get("agency", "") or q.get("institution", "")
-                if a:
-                    agencies.add(a)
-                qt = float(q.get("total", 0) or 0)
-                total_sales += qt
-                items_count = len(q.get("items", []))
-                if items_count == 0 and qt > 0:
-                    items_count = max(int(q.get("line_count", 0)), 1)  # At least 1 item per real quote
-                total_items += items_count
-                total_pos += 1
+        from src.core.db import get_db
+        from src.core.quote_contract import canonical_name
+        _CALVET_KW = ("calvet", "cal vet", "veterans", "cdva")
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT agency, institution, total, items_count, created_at "
+                "FROM quotes WHERE is_test=0 AND status='won'"
+            ).fetchall()
+        years = []
+        for r in rows:
+            amount = float(r["total"] or 0)
+            total_sales += amount
+            total_pos += 1
+            total_items += int(r["items_count"] or 0)
+            raw = (r["agency"] or r["institution"] or "").strip()
+            if raw:
+                agencies.add(canonical_name(raw))
+                if any(kw in raw.lower() for kw in _CALVET_KW):
+                    calvet_amount += amount
+                    calvet_pos += 1
+            ca = r["created_at"] or ""
+            if len(ca) >= 4 and ca[:4].isdigit():
+                years.append(int(ca[:4]))
+        if years:
+            since_year = min(years)
     except Exception as _e:
-        log.debug("suppressed: %s", _e)
+        log.error("get_reytech_credentials DB error: %s", _e)
 
     # Source 3: Categories file
     cat_data = _load_json(CATEGORIES_FILE)
