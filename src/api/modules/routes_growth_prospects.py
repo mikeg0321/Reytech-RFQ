@@ -1328,3 +1328,55 @@ def api_growth_merge():
     return jsonify(merge_prospects(data.get("keep_id", ""), data.get("remove_ids", [])))
 
 
+
+
+@bp.route("/api/admin/track-record/audit")
+@auth_required
+def api_track_record_audit():
+    """READ-ONLY (ISSUE-5, 2026-05-29): decompose the outbound-email track
+    record into its sources so we can judge whether the $4.86M / 621-PO
+    lifetime figure is real Reytech award history (keep it) or stale/inflated
+    (switch outbound to the app-era DB $1.65M). Reads nothing destructive."""
+    try:
+        from src.agents.growth_agent import (
+            get_reytech_credentials, HISTORY_FILE, CATEGORIES_FILE,
+        )
+        out = {"ok": True, "credentials": get_reytech_credentials(), "sources": {}}
+        # Source 1 — growth_reytech_history.json (the lifetime SCPRS PO history)
+        hist = {}
+        try:
+            with open(HISTORY_FILE, encoding="utf-8") as f:
+                hist = json.load(f)
+        except Exception as e:
+            out["sources"]["history_file"] = {"path": HISTORY_FILE, "error": str(e)}
+            hist = None
+        if isinstance(hist, dict):
+            pos = hist.get("purchase_orders", []) or []
+            dates = [p.get("date") or p.get("award_date") for p in pos if (p.get("date") or p.get("award_date"))]
+            amts = [float(p.get("total", 0) or p.get("amount", 0) or 0) for p in pos]
+            out["sources"]["history_file"] = {
+                "path": HISTORY_FILE,
+                "total_pos_field": hist.get("total_pos"),
+                "total_items_field": hist.get("total_items"),
+                "n_purchase_orders": len(pos),
+                "sum_amount": round(sum(amts), 2),
+                "date_min": min(dates) if dates else None,
+                "date_max": max(dates) if dates else None,
+                "sample": [{k: p.get(k) for k in ("po", "dept", "total", "amount", "date")} for p in pos[:5]],
+            }
+        # Source 2 — quotes_log.json (app-era quotes)
+        try:
+            qpath = os.path.join(DATA_DIR, "quotes_log.json")
+            with open(qpath, encoding="utf-8") as f:
+                quotes = [q for q in json.load(f) if not q.get("is_test")]
+            out["sources"]["quotes_log"] = {
+                "path": qpath,
+                "n_quotes": len(quotes),
+                "sum_total": round(sum(float(q.get("total", 0) or 0) for q in quotes), 2),
+            }
+        except Exception as e:
+            out["sources"]["quotes_log"] = {"error": str(e)}
+        return jsonify(out)
+    except Exception as e:
+        log.error("track-record audit error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
