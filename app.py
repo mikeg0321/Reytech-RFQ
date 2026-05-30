@@ -4,10 +4,24 @@ Reytech RFQ — Application Entry Point
 Creates Flask app and registers the dashboard Blueprint.
 """
 
+# ── Python version floor — must be the very first check ──
+# 5 modules use 3.12+ syntax (match/case, walrus operator scoping, etc.).
+# Fail loudly here rather than letting a cryptic ImportError or SyntaxError
+# surface deep in startup.  sys is a builtin — always available.
+import sys
+if sys.version_info < (3, 12):
+    print(
+        f"[BOOT] FATAL: Python >=3.12 required, got "
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}. "
+        "Upgrade the interpreter before running Reytech RFQ.",
+        flush=True,
+    )
+    sys.exit(1)
+
 # ── Clear stale bytecode BEFORE any imports ──
 # Railway's persistent volume caches .pyc across deploys, causing old code to run.
 # ONLY clean src/ — don't walk the 4GB data volume!
-import sys, pathlib
+import pathlib
 sys.dont_write_bytecode = True
 _src_dir = pathlib.Path(__file__).parent / "src"
 if _src_dir.exists():
