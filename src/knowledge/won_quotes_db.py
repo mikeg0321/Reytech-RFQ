@@ -902,8 +902,20 @@ def sync_from_scprs_tables() -> dict:
             log.debug("sync_from_scprs_tables: source tables don't exist yet")
             return stats
 
-        # Read lines joined with master for supplier/agency/date
-        rows = conn.execute("""
+        # Scope to GOODS (2026-05-29): won_quotes is a commodity pricing/intel
+        # KB. Skip Services / Subvention(grants) / Interagency / Lease /
+        # Encumbrance awards a goods reseller can never bid on (they dominated
+        # the KB at avg $56k-$220k and pose cross-category contamination risk).
+        # Keep Goods, Telecom, and unmatched (NULL acq_type) lines. Applied
+        # only when scprs_po_master carries acq_type (degrade gracefully on
+        # older/mocked schemas that lack the column).
+        master_cols = {r[1] for r in conn.execute("PRAGMA table_info(scprs_po_master)").fetchall()}
+        goods_filter = (
+            "  AND (p.acq_type IS NULL OR TRIM(p.acq_type) = '' "
+            "OR p.acq_type LIKE '%Goods%' OR p.acq_type LIKE '%Telecom%')"
+            if "acq_type" in master_cols else ""
+        )
+        rows = conn.execute(f"""
             SELECT l.id, l.po_number, l.item_id, l.description, l.unit_price, l.quantity,
                    COALESCE(p.supplier, '') as supplier,
                    COALESCE(p.agency_key, '') as agency_key,
@@ -912,14 +924,7 @@ def sync_from_scprs_tables() -> dict:
             FROM scprs_po_lines l
             LEFT JOIN scprs_po_master p ON l.po_id = p.id
             WHERE l.unit_price > 0 AND l.description != ''
-              -- Scope to GOODS (2026-05-29): won_quotes is a commodity
-              -- pricing/intel KB. Skip Services / Subvention(grants) /
-              -- Interagency / Lease / Encumbrance awards a goods reseller can
-              -- never bid on (they dominated the KB at avg $56k-$220k and pose
-              -- cross-category contamination risk). Keep Goods, Telecom, and
-              -- unmatched (NULL acq_type) lines.
-              AND (p.acq_type IS NULL OR TRIM(p.acq_type) = ''
-                   OR p.acq_type LIKE '%Goods%' OR p.acq_type LIKE '%Telecom%')
+            {goods_filter}
         """).fetchall()
 
         now = datetime.now(timezone.utc).isoformat()
