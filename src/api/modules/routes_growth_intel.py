@@ -366,10 +366,25 @@ def _get_price_alerts(threshold_pct=10.0, limit=20):
                                 })
 
                 # Alert: SCPRS undercut opportunity
+                from src.core.pricing_math import unit_mismatch_vs_scprs as _umvs
                 sell = prod["sell_price"] or prod["last_sold_price"] or 0
                 scprs_price = prod["scprs_last_price"] or 0
+                _cost = prod["cost"] or prod["best_cost"] or 0
                 if sell > 0 and scprs_price > 0:
-                    if sell > scprs_price * 1.15:
+                    # ISSUE-32: cost >3x SCPRS => pack-vs-each unit mismatch,
+                    # not overpricing. Relabel instead of a false undercut alert.
+                    if _umvs(_cost, scprs_price):
+                        alerts.append({
+                            "type": "unit_mismatch",
+                            "severity": "info",
+                            "product_id": pid,
+                            "product_name": name[:60],
+                            "message": f"Our cost ${_cost:.2f} is {_cost/scprs_price:.0f}x SCPRS ${scprs_price:.2f} \u2014 likely pack-vs-each unit mismatch; verify before treating as overpriced",
+                            "your_price": sell,
+                            "scprs_price": scprs_price,
+                            "date": prod["scprs_last_date"] or "",
+                        })
+                    elif sell > scprs_price * 1.15:
                         _pct = (sell / scprs_price - 1) * 100
                         alerts.append({
                             "type": "scprs_undercut",

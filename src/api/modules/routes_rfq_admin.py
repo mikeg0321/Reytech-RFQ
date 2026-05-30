@@ -2015,8 +2015,16 @@ def api_rfq_qa_check(rid):
 
         # 4: Bid vs SCPRS
         if bid > 0 and scprs > 0:
+            from src.core.pricing_math import unit_mismatch_vs_scprs as _umvs
             diff_pct = (bid - scprs) / scprs * 100
-            if diff_pct > 10:
+            # ISSUE-32: cost >3x SCPRS => pack-vs-each unit mismatch, not
+            # overpricing. Relabel instead of a false "N% above SCPRS".
+            if _umvs(cost, scprs):
+                checks.append({"check": "scprs", "status": "warn",
+                               "msg": f"cost ${cost:.2f} is {cost/scprs:.0f}x SCPRS \u2014 likely pack-vs-each unit mismatch, verify"})
+                if item_status != "fail":
+                    item_status = "warn"
+            elif diff_pct > 10:
                 checks.append({"check": "scprs", "status": "warn",
                                "msg": f"{diff_pct:.0f}% above SCPRS ${scprs:.2f}"})
                 if item_status != "fail":
