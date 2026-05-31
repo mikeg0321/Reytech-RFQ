@@ -1,0 +1,17 @@
+# Test-only dependencies — NOT installed in production.
+#
+# Production deliberately runs WITHOUT these and degrades gracefully:
+#   PyMuPDF (`fitz`) powers PDF form-field flattening (src/forms/.. flatten.py)
+#   and visual-QA page rasterization (visual_qa.py). When it is absent, flatten
+#   returns the input unchanged and visual_qa runs Tier-1 only — by design.
+#
+# Kept OUT of requirements.txt / nixpacks.toml on purpose: PyMuPDF is a heavy
+# binary wheel, and adding it to the production install risks the nixpacks
+# Docker apt/pip layer-cache guard rails (slow deploys) AND changes prod
+# behavior. It lives here so CI and dev environments can exercise the
+# fitz-gated tests (tests/spine/test_flatten.py, test_visual_qa.py,
+# test_routes_inspector.py), which skipif PyMuPDF is absent.
+#
+# Install:  pip install -r requirements-dev.txt
+-r requirements.txt
+pymupdf==1.27.2.3

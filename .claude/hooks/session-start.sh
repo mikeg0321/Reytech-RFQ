@@ -51,6 +51,13 @@ fi
 "$VENV/bin/python" -m pip install --quiet --upgrade pip
 "$VENV/bin/python" -m pip install --quiet -r requirements.txt
 
+# Test-only deps (PyMuPDF/fitz etc.) — kept out of production requirements
+# on purpose, but installed here so the fitz-gated flatten/visual_qa tests
+# actually run in web sessions instead of skipping.
+if [ -f requirements-dev.txt ]; then
+  "$VENV/bin/python" -m pip install --quiet -r requirements-dev.txt
+fi
+
 # Surface the venv as the session's default interpreter. Everything the agent
 # runs afterwards (python, pip, pytest) resolves to the 3.12 venv.
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
