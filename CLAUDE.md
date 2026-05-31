@@ -197,11 +197,53 @@ revision; 703C is the IT-RFQ variant.)
   the CalVet/DSH/DGS migrations: the 8 legacy writers and the shared
   files `data_layer.py` / `quote_generator.py` survive Job #1. (The
   Architect's 2026-05-21 Job #1 plan established this — do not re-litigate.)
+  **Bundled into that same deferred wave (amended 2026-05-31, LAW 7 —
+  Architect+Closer trace across J1-5a/J1-5b/J1-5-pre): the deletion of
+  `DEFAULT_AGENCY_CONFIGS["cchcs"]` (`src/core/agency_config.py`) AND the
+  repoint of the four residual CCHCS consumers of the shared
+  `match_agency()` classifier — `agency_quote_profile.py` (pricing
+  markup, via `pricing_oracle_v2.py`), `orders_link_orphans.py`,
+  `routes_v1.py`, `forms_drift_monitor.py` — plus the ~8 classification
+  pins in `tests/test_agency_config.py`. The deletion commit lands in
+  `git log` when that wave ships. Rationale in the re-scoped bullet
+  below.**
 - The `AGENCY_CONFIGS["CCHCS"]` entry (`src/forms/quote_generator.py`)
-  and the `"cchcs"` entry (`src/core/agency_config.py`) DELETED — commit
-  in `git log`. (There is no literal "CCHCS branch" in
-  `src/core/quote_contract.py`; that file is agency-agnostic — the
+  DELETED — **already satisfied** (removed in #1156; J1-4 / #1273
+  repointed the legacy `generate_quote()` CCHCS bill-to to
+  `src/spine/agency_constants.py`). (There is no literal "CCHCS branch"
+  in `src/core/quote_contract.py`; that file is agency-agnostic — the
   original wording was corrected by the 2026-05-21 plan.)
+- **The `"cchcs"` entry in `src/core/agency_config.py` — RE-ASSIGNED
+  from Job #1 to the deferred classifier-retirement wave (amended
+  2026-05-31, LAW 7 — Architect+Closer trace across
+  J1-5a/J1-5b/J1-5-pre).** The 2026-05-21 plan assumed this key was a
+  CCHCS-local quote config that J1-5 could delete once the form-set
+  readers were repointed. The live tree proved otherwise:
+  `DEFAULT_AGENCY_CONFIGS["cchcs"]` is the **data for the shared,
+  multi-agency legacy classifier `agency_config.match_agency()`** — the
+  same classifier CalVet/DSH/DGS still use. The CCHCS **quote path is
+  already key-independent** (proven by the forcing test below), so
+  deleting the key converges nothing on the quote path; it only breaks
+  CCHCS *classification* in four residual **non-quote-write** consumers
+  (`agency_quote_profile.py` pricing-markup via `pricing_oracle_v2.py`,
+  `orders_link_orphans.py`, `routes_v1.py`, `forms_drift_monitor.py`)
+  and the ~8 `tests/test_agency_config.py` classification pins. Retiring
+  `match_agency` for CCHCS is the **same shared-substrate work** the
+  CalVet/DSH/DGS wave must do for its own agencies; doing it CCHCS-only
+  now is a throwaway repoint of a substrate that is about to be retired
+  wholesale. So the key deletion rides the numeric ratchet already
+  deferred to that wave (bullet above) — **same convergence, same
+  schedule, not a new deferral.** **Teeth (this is a scheduled
+  re-assignment, NOT the LAW 2 "never-delete" disease — a docs-only
+  promise would not satisfy this):** the forcing test
+  `tests/spine/test_cchcs_form_set_survives_config_deletion.py` pops the
+  key in-test and asserts every CCHCS **quote-path** reader — including
+  the orchestrator and Gmail-label consumers repointed in J1-5-pre
+  (#1279) — still yields the full `[703b,704b,bidpkg,quote]` set with the
+  key gone. The quote path therefore carries **zero deletion debt**; the
+  residual classifier consumers and the literal key deletion are the
+  recorded, `git log`-enforced acceptance of the deferred wave (bullet
+  above).
 - Legacy CCHCS quote/package routes DELETED — commit in `git log`.
 - The retired CCHCS adapter shims under `src/spine/agency_forms/`
   (the `cchcs_*.py` files) DELETED. **Correction (2026-05-30, LAW 7 —
