@@ -301,6 +301,92 @@ session (worktrees 7→1; merged/dead branches pruned) so the
 tracked-directory count has dropped, and the substrate count drops when
 this wave ships its deletions.
 
+### Job #2 — CalVet migration, with deletion  (owner: Architect | due 2026-07-09)
+
+Make the Spine the ONLY CalVet quote path, then delete the legacy one.
+Same pattern as Job #1, same gate. CalVet is the California Department of
+Veterans Affairs (the eight Veterans Homes; facilities canonical in
+`src/core/facility_registry.py`).
+
+**CalVet has ONE response format** — a standalone compliance-form set
+(no AMS 703/704, no bid package): `quote, calrecycle74, bidder_decl,
+dvbe843, darfur_act, cv012_cuf, std204, std205, std1000, sellers_permit`
+(`DEFAULT_AGENCY_CONFIGS["calvet"]`). Barstow (`calvet_barstow`) adds
+`barstow_cuf` and resolves the 8.75% BARSTOW jurisdiction. Which set
+applies is declared by the email contract (LAW 6) — never guessed.
+
+**Grounding correction (verified 2026-05-31, Architect filler-fidelity
+pass — pre-J2-0, artifacts in the PR):** the legacy config labels
+`cv012_cuf` as `primary_response_form`, but `cv012_cuf` is a CUF
+**attestation** — it carries ZERO line items, ZERO pricing, no
+subtotal/tax/total. The CalVet **line-item carrier and math-reconcile
+artifact is the Reytech Quote** (`render_quote_pdf`, `FORM_REGISTRY['quote']`),
+exactly as it was for CCHCS at J1-7. The J2-7 math gate therefore targets
+the **Reytech Quote** (Σext = subtotal; tax = subtotal × facility rate;
+total = subtotal + tax) — NOT cv012. cv012's gate is "attestation fields
++ solicitation# + the 6 CUF radios fill," not a math gate.
+
+**Spine head start (verified rendering today):** 7 forms already render
+clean through `FORM_REGISTRY` — `quote`, `std_204`, `std_1000`,
+`dvbe_843`, `darfur`, `calrecycle_74`, plus `cuf` (attestation). The 3
+forms with NO Spine FormCode/adapter yet — `bidder_decl`, `std_205`,
+`sellers_permit` (+ `barstow_cuf` for Barstow) — render today via their
+legacy fillers and are the new-adapter scope for J2-2 (`bidder_decl` and
+`sellers_permit` trivial; `std_205` and `barstow_cuf` need the
+path-based temp-file bridge that the `calrecycle_74` adapter already
+uses).
+
+**Acceptance — all required:**
+- 0 imports from `src/core/` in the CalVet quote path (extend
+  `test_no_legacy_imports` to cover the CalVet routes).
+- CalVet ingest synthesizes a complete `EmailContract` at ingest
+  (`synthesize_calvet_email_contract`, mirroring CCHCS) that resolves
+  every LAW 6 answer — required forms (incl. the Barstow split), due
+  date, solicitation #, buyer + per-facility ship-to, line items, and
+  the correct facility tax jurisdiction — proven by a forcing test. The
+  CCHCS-only ingest gate is widened to admit CalVet.
+- CalVet renders the full standalone set through the agency-agnostic
+  `/spine/quotes/<id>/package` route from `contract.required_forms`,
+  with J2-2's three new adapters registered in `FORM_REGISTRY`.
+- A survives-config-deletion forcing test for CalVet (mirror
+  `test_cchcs_form_set_survives_config_deletion.py`): pop
+  `calvet`/`calvet_barstow` in-test, assert the CalVet quote path still
+  yields the full form set.
+- Legacy CalVet quote reachability removed — CalVet no longer routes
+  through the shared legacy `/rfq/<id>/generate-package` →
+  `match_agency()` path; commit visible in `git log`.
+- **The deferred convergence DELIVERABLE lands in this wave as real
+  `git log` deletions:** `DEFAULT_AGENCY_CONFIGS["cchcs"]` AND
+  `["calvet"]`/`["calvet_barstow"]` deleted; the 4 residual
+  `match_agency` consumers (`agency_quote_profile`, `orders_link_orphans`,
+  `routes_v1`, `forms_drift_monitor`) repointed for BOTH cchcs+calvet;
+  the ~8 `tests/test_agency_config.py` classification pins rewritten to
+  the survives-deletion contract (never loosened).
+- **The numeric LAW 3 ratchet (writers 9→8, substrates 3→2) drops only
+  by the count the deletions actually PROVE.** Honest scope (Architect,
+  2026-05-31): the shared `data_layer`/`quote_generator` writers and
+  `quote_contract.py` survive until the LAST of CalVet/DSH/DGS leaves
+  the legacy route, so writers 9→8 / substrates 3→2 may legitimately
+  carry into DSH. Do NOT game `convergence_baseline.json` — it ratchets
+  DOWN only on an accompanying deletion commit; any re-assignment of the
+  numeric drop to DSH is a §0 PR (LAW 7), exactly like the CCHCS-key
+  re-assignment (#1280).
+- 3 consecutive CalVet quotes shipped through the Spine — including ≥1
+  Barstow (two-CUF + 8.75% jurisdiction) — each with a clean Inspector
+  report (Chrome walkthrough + math reconcile against the Reytech Quote).
+
+**Open verification carryovers (from the 2026-05-31 grounding pass, to
+close inside J2):** (a) live-CDTFA tax validation could not be exercised
+offline (Yountville fell to the 7.75% fallback table; rate value
+correct) — confirm `validated=True` on a real networked CalVet quote at
+J2-7; (b) `bidder_decl` live template = 34 fields vs fixture 36 — pin
+the J2-2 adapter test against the LIVE `data/templates` template and
+have the Inspector eyeball placement at J2-7.
+
+**First ticket: J2-0 (this PR)** — add this acceptance block to §0
+(LAW 7) + re-measure the baseline. No Implementer is dispatched until
+J2-0 merges.
+
 ### Pack checkpoint — 2026-06-20
 
 If, by 2026-06-20, the substrate count and the tracked-directory count
