@@ -6,6 +6,7 @@ rendered form set would diverge from the contract's required_forms.
 """
 from __future__ import annotations
 
+import importlib.util
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,12 @@ from src.spine import (
     init_db,
     write_email_contract,
     write_quote,
+)
+
+_HAS_FITZ = importlib.util.find_spec("fitz") is not None
+_needs_fitz = pytest.mark.skipif(
+    not _HAS_FITZ,
+    reason="PyMuPDF (fitz) not installed — flatten degrades to no-op in prod",
 )
 
 
@@ -121,17 +128,26 @@ def test_package_returns_409_when_no_contract_bound(client, db_path):
 
 
 # ── Gate: contract requires a form with no registered renderer → 409 ─
+#
+# All FormCode literals are now registered in FORM_REGISTRY, so we
+# must monkeypatch FORM_REGISTRY to exercise the 409 renderer_missing
+# path. Remove "std_204" temporarily so the gate fires correctly.
 
 
-def test_package_returns_409_when_renderer_missing(client, db_path):
+def test_package_returns_409_when_renderer_missing(client, db_path, monkeypatch):
+    import src.spine.agency_forms as _af
+
     q = _make_quote(quote_id="Q-missing-renderer")
-    # Contract demands `std_204` — known-deferred, not in FORM_REGISTRY.
     c = _make_contract(
         quote_id=q.quote_id,
         required_forms=["703b", "704b", "bidpkg", "quote", "std_204"],
     )
     write_quote(db_path, q, actor="test_seed")
     write_email_contract(db_path, c)
+
+    # Temporarily remove std_204 from FORM_REGISTRY so the gate fires.
+    patched = {k: v for k, v in _af.FORM_REGISTRY.items() if k != "std_204"}
+    monkeypatch.setattr(_af, "FORM_REGISTRY", patched)
 
     r = client.get(f"/spine/quotes/{q.quote_id}/package")
     assert r.status_code == 409
@@ -145,15 +161,23 @@ def test_package_returns_409_when_renderer_missing(client, db_path):
 # ── Gate: contract requires multiple missing forms → all surfaced ────
 
 
-def test_package_surfaces_all_missing_renderers(client, db_path):
+def test_package_surfaces_all_missing_renderers(client, db_path, monkeypatch):
+    import src.spine.agency_forms as _af
+
     q = _make_quote(quote_id="Q-multi-missing")
     c = _make_contract(
         quote_id=q.quote_id,
-        # Three known-deferred forms in one contract.
         required_forms=["703b", "quote", "std_204", "darfur", "cuf"],
     )
     write_quote(db_path, q, actor="test_seed")
     write_email_contract(db_path, c)
+
+    # Remove the three forms to exercise the multi-missing gate.
+    patched = {
+        k: v for k, v in _af.FORM_REGISTRY.items()
+        if k not in {"std_204", "darfur", "cuf"}
+    }
+    monkeypatch.setattr(_af, "FORM_REGISTRY", patched)
 
     r = client.get(f"/spine/quotes/{q.quote_id}/package")
     assert r.status_code == 409
@@ -207,3 +231,105 @@ def test_package_preserves_contract_form_order(client, db_path):
     body = r.get_json()
     codes = [f["form_code"] for f in body["files"]]
     assert codes == ["704b", "703b", "quote", "bidpkg"]
+
+
+# ── Newly-wired per-form routes — positive HTTP coverage ─────────────
+#
+# Each of the six Pillar-4 forms now has a /forms/<code>/pdf route.
+# These tests confirm:
+#   (a) /package returns HTTP 200 with the form in its URL list, and
+#   (b) the per-form route itself returns HTTP 200 with valid PDF bytes.
+# The renderer calls are real (they hit the legacy fillers + templates),
+# which is the same pattern used by test_std_204.py / test_dvbe_843_and
+# _darfur.py / etc. to verify that each renderer produces valid PDF.
+
+
+@pytest.mark.parametrize("form_code", [
+    "std_204",
+    "dvbe_843",
+    "darfur",
+    "calrecycle_74",
+    "cuf",
+    "std_1000",
+])
+def test_newly_wired_form_appears_in_package_url_list(client, db_path, form_code):
+    """/package returns 200 and maps the form to a per-form URL."""
+    qid = f"Q-newroute-{form_code}"
+    q = _make_quote(quote_id=qid)
+    c = _make_contract(
+        quote_id=qid,
+        required_forms=["quote", form_code],
+    )
+    write_quote(db_path, q, actor="test_seed")
+    write_email_contract(db_path, c)
+
+    r = client.get(f"/spine/quotes/{qid}/package")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    body = r.get_json()
+    urls = {f["form_code"]: f["url"] for f in body["files"]}
+    assert form_code in urls
+    expected_url = f"/spine/quotes/{qid}/forms/{form_code}/pdf"
+    assert urls[form_code] == expected_url
+
+
+@pytest.mark.parametrize("form_code", [
+    "std_204",
+    "dvbe_843",
+    "darfur",
+    "calrecycle_74",
+    "cuf",
+    "std_1000",
+])
+def test_newly_wired_per_form_route_returns_pdf_bytes(client, db_path, form_code):
+    """GET /forms/<code>/pdf returns 200 with valid PDF bytes."""
+    qid = f"Q-formroute-{form_code}"
+    q = _make_quote(quote_id=qid)
+    c = _make_contract(quote_id=qid, required_forms=["quote", form_code])
+    write_quote(db_path, q, actor="test_seed")
+    write_email_contract(db_path, c)
+
+    r = client.get(f"/spine/quotes/{qid}/forms/{form_code}/pdf")
+    assert r.status_code == 200, (
+        f"expected 200, got {r.status_code}: {r.get_data(as_text=True)[:300]}"
+    )
+    assert r.content_type == "application/pdf"
+    data = r.data
+    assert data[:5] == b"%PDF-", f"not a PDF header: {data[:8]!r}"
+    assert len(data) > 1024, "PDF suspiciously small"
+
+
+@_needs_fitz
+@pytest.mark.parametrize("form_code", [
+    "std_204",
+    "dvbe_843",
+    "darfur",
+    "calrecycle_74",
+    "cuf",
+    "std_1000",
+])
+def test_newly_wired_per_form_route_flatten_strips_fields(
+    client, db_path, form_code
+):
+    """?flatten=1 bakes AcroForm widgets into static content (field count→0).
+
+    Skipped when PyMuPDF (fitz) is absent — the flatten primitive degrades
+    gracefully to a no-op in that environment (see src/spine/flatten.py).
+    """
+    import io
+    from pypdf import PdfReader
+
+    qid = f"Q-flatten-{form_code}"
+    q = _make_quote(quote_id=qid)
+    c = _make_contract(quote_id=qid, required_forms=["quote", form_code])
+    write_quote(db_path, q, actor="test_seed")
+    write_email_contract(db_path, c)
+
+    r = client.get(f"/spine/quotes/{qid}/forms/{form_code}/pdf?flatten=1")
+    assert r.status_code == 200, r.get_data(as_text=True)[:300]
+    data = r.data
+    assert data[:5] == b"%PDF-"
+    # After flatten the AcroForm widget count should be zero.
+    field_count = len(PdfReader(io.BytesIO(data)).get_fields() or {})
+    assert field_count == 0, (
+        f"{form_code} ?flatten=1 still has {field_count} form field(s)"
+    )

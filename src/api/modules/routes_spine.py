@@ -611,6 +611,149 @@ def make_spine_blueprint(
     def get_bidpkg_pdf(quote_id: str):
         return _serve_cchcs_form(quote_id, "bidpkg")
 
+    # ─── Standalone-form renderer — FORM_REGISTRY direct dispatch ─────
+    #
+    # Six Pillar-4 forms (std_204, dvbe_843, darfur, calrecycle_74,
+    # cuf, std_1000) are registered in FORM_REGISTRY but had no HTTP
+    # route. The /package endpoint iterated per_form_routes and returned
+    # HTTP 500 `no_http_route` for any quote whose contract listed one of
+    # them. These six forms are vendor-identity / cert forms — they do
+    # not require the buyer's template PDFs and do not dispatch through
+    # _serve_cchcs_form. Instead they are served by calling the renderer
+    # in FORM_REGISTRY directly with the Spine Quote + EmailContract.
+
+    def _serve_agency_form(quote_id: str, form_code: str):
+        """Render + stream one standalone agency form via FORM_REGISTRY.
+
+        Used for cert / vendor-identity forms (std_204, dvbe_843, darfur,
+        calrecycle_74, cuf, std_1000) that do NOT require a buyer-supplied
+        template PDF. The renderer is called with (quote, identity=None,
+        today=None, flatten=flatten_requested, contract=contract); it
+        derives identity from the env and raises SpineFormFillError when
+        its PDF template is missing. Honors ?flatten=1 and ?inline=0 the
+        same way every other /forms/*/pdf route does.
+        """
+        from src.spine.agency_forms import FORM_REGISTRY
+
+        renderer = FORM_REGISTRY.get(form_code)
+        if renderer is None:
+            return jsonify({
+                "error": "renderer_missing",
+                "detail": f"no renderer registered for {form_code!r}",
+            }), 409
+
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.forms.%s: load failed for %s", form_code, quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception(
+                "spine.forms.%s: contract lookup failed for %s", form_code, quote_id
+            )
+            contract = None
+
+        inline = request.args.get("inline", "1") != "0"
+        flatten_requested = request.args.get("flatten", "0") == "1"
+
+        try:
+            pdf_bytes = renderer(
+                quote,
+                None,
+                today=None,
+                flatten=flatten_requested,
+                contract=contract,
+            )
+        except Exception as e:
+            log.exception(
+                "spine.forms.%s: render failed for %s", form_code, quote_id
+            )
+            return jsonify({"error": "render_failed", "detail": str(e)}), 500
+
+        if flatten_requested:
+            from src.spine.flatten import flatten_pdf_bytes
+            pdf_bytes = flatten_pdf_bytes(pdf_bytes)
+
+        fname = f"cchcs_{form_code}_{quote_id}.pdf"
+        disposition = (
+            f'inline; filename="{fname}"' if inline
+            else f'attachment; filename="{fname}"'
+        )
+        return Response(
+            pdf_bytes,
+            mimetype="application/pdf",
+            headers={
+                "Content-Disposition": disposition,
+                "X-Spine-Form-Code": form_code,
+                "X-Spine-Flattened": "1" if flatten_requested else "0",
+            },
+        )
+
+    # ─── GET /spine/quotes/<quote_id>/forms/std_204/pdf ───────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/std_204/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_std_204_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "std_204")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/dvbe_843/pdf ──────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/dvbe_843/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_dvbe_843_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "dvbe_843")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/darfur/pdf ────────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/darfur/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_darfur_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "darfur")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/calrecycle_74/pdf ─────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/calrecycle_74/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_calrecycle_74_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "calrecycle_74")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/cuf/pdf ───────────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/cuf/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_cuf_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "cuf")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/std_1000/pdf ─────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/std_1000/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_std_1000_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "std_1000")
+
     # ─── GET /spine/quotes/<quote_id>/inspector ───────────────────────
     #
     # The Inspector gate's JSON report — math + identity + coverage +
@@ -929,11 +1072,22 @@ def make_spine_blueprint(
 
         # Build per-form URLs. The Quote PDF uses the existing /pdf route
         # (not /forms/quote/pdf — predates the agency-forms pattern).
+        # 703c and 704c alias to their 703b/704b routes (the format-aware
+        # _serve_cchcs_form handler already reads the contract's actual
+        # packaging to decide which variant to fill).
         per_form_routes = {
-            "quote":  f"/spine/quotes/{quote_id}/pdf",
-            "703b":   f"/spine/quotes/{quote_id}/forms/703b/pdf",
-            "704b":   f"/spine/quotes/{quote_id}/forms/704b/pdf",
-            "bidpkg": f"/spine/quotes/{quote_id}/forms/bidpkg/pdf",
+            "quote":         f"/spine/quotes/{quote_id}/pdf",
+            "703b":          f"/spine/quotes/{quote_id}/forms/703b/pdf",
+            "703c":          f"/spine/quotes/{quote_id}/forms/703b/pdf",
+            "704b":          f"/spine/quotes/{quote_id}/forms/704b/pdf",
+            "704c":          f"/spine/quotes/{quote_id}/forms/704b/pdf",
+            "bidpkg":        f"/spine/quotes/{quote_id}/forms/bidpkg/pdf",
+            "std_204":       f"/spine/quotes/{quote_id}/forms/std_204/pdf",
+            "dvbe_843":      f"/spine/quotes/{quote_id}/forms/dvbe_843/pdf",
+            "darfur":        f"/spine/quotes/{quote_id}/forms/darfur/pdf",
+            "calrecycle_74": f"/spine/quotes/{quote_id}/forms/calrecycle_74/pdf",
+            "cuf":           f"/spine/quotes/{quote_id}/forms/cuf/pdf",
+            "std_1000":      f"/spine/quotes/{quote_id}/forms/std_1000/pdf",
         }
 
         files = []
