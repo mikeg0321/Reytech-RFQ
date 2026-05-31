@@ -67,6 +67,13 @@ FormCode = Literal[
     "dvbe_843",      # CA DVBE 843 declaration
     "darfur",        # Darfur Act certification
     "cuf",           # CV 012 Commercially Useful Function
+    # J2-2 (CalVet migration): the 3 CalVet required forms that had no
+    # Spine adapter, plus the Barstow-only CUF. Architect-authorized per
+    # CLAUDE.md §0 Job #2 LAW 4.
+    "bidder_decl",   # GSPD-05-105 Bidder Declaration
+    "std_205",       # CA STD 205 Payee Data Record Supplement
+    "sellers_permit",  # Static Reytech seller's permit attachment
+    "barstow_cuf",   # Veterans Home of California, Barstow CUF (calvet_barstow only)
 ]
 
 ALL_FORM_CODES: tuple[str, ...] = get_args(FormCode)
