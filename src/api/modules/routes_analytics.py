@@ -1597,16 +1597,28 @@ def _convert_single_pc_to_rfq(pcid, pc, extra_fields=None):
     rfq_data.setdefault("reytech_quote_number", pc.get("reytech_quote_number", ""))
 
     # ── Infer agency and required forms ──────────────────────────────────
+    # J1-5b reader 4: CCHCS form set sourced from Spine helper so the
+    # warning loop (703b/703c/704b) works correctly after config deletion.
+    # Non-CCHCS agencies fall through to match_agency unchanged.
     _agency_key = "other"
     _agency_cfg = {}
     _conversion_warnings = []
+    _r4_agency_raw = (rfq_data.get("agency") or rfq_data.get("agency_key") or "").upper()
     try:
-        from src.core.agency_config import match_agency as _match_agency, get_agency_config as _get_cfg
-        _agency_key, _agency_cfg = _match_agency(rfq_data)
-        rfq_data["agency_key"] = _agency_key
-        rfq_data["agency_name"] = _agency_cfg.get("name", _agency_key)
-        log.info("PC→RFQ agency inference: %s (matched_by: %s)",
-                 _agency_key, _agency_cfg.get("matched_by", "?"))
+        if _r4_agency_raw in ("CCHCS", "CCHCS-ACQ"):
+            from src.spine_bridge import get_cchcs_required_forms
+            _agency_key = "cchcs"
+            _agency_cfg = {"name": "CCHCS / CDCR", "required_forms": get_cchcs_required_forms(rfq_data)}
+            rfq_data["agency_key"] = _agency_key
+            rfq_data["agency_name"] = "CCHCS / CDCR"
+            log.info("PC→RFQ agency inference: cchcs (Spine bridge)")
+        else:
+            from src.core.agency_config import match_agency as _match_agency, get_agency_config as _get_cfg
+            _agency_key, _agency_cfg = _match_agency(rfq_data)
+            rfq_data["agency_key"] = _agency_key
+            rfq_data["agency_name"] = _agency_cfg.get("name", _agency_key)
+            log.info("PC→RFQ agency inference: %s (matched_by: %s)",
+                     _agency_key, _agency_cfg.get("matched_by", "?"))
     except Exception as _ae:
         log.warning("Agency inference failed for PC→RFQ %s: %s", pcid, _ae)
         _conversion_warnings.append("Could not auto-detect agency — set it manually on the RFQ page.")

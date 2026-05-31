@@ -188,17 +188,44 @@ class QuoteRequest:
     def get_required_forms(self) -> List[str]:
         """Forms that MUST be generated. Primary source: the
         classifier result. Secondary: agency_config lookup via the
-        agency key."""
+        agency key.
+
+        J1-5b reader 6: primary path (classifier) is safe because
+        reader 5 (request_classifier.py) now fills _classification.
+        required_forms from the Spine helper for CCHCS — so the common
+        path returns before ever reaching the fallback.  The fallback
+        guards the rare case where a CCHCS row arrives with no
+        _classification (e.g. legacy records ingested before J1-5b or
+        manually-created RFQs): it now calls get_cchcs_required_forms
+        instead of DEFAULT_AGENCY_CONFIGS.get("cchcs", {}), which would
+        return {} after J1-5 deletes the key.
+
+        Proof of unreachable for the common case: every CCHCS row that
+        goes through the classifier gets _classification.required_forms
+        populated (reader 5), so the `if isinstance(cls, dict): ...`
+        branch returns before the fallback executes.  Only rows that
+        were never classified (empty _classification or missing key)
+        reach the fallback guard."""
         r = self.raw
         cls = r.get("_classification")
         if isinstance(cls, dict):
             forms = cls.get("required_forms")
             if isinstance(forms, list) and forms:
                 return list(forms)
-        # Fall back to agency_config
+        # Fall back: CCHCS guard first (J1-5b), then agency_config for non-CCHCS.
+        _agency = self.get_agency()
+        if _agency in ("cchcs", "cchcs-acq"):
+            # Rare path: no _classification present. Source from Spine helper
+            # so a no-classification CCHCS row still gets the correct form set
+            # after DEFAULT_AGENCY_CONFIGS["cchcs"] is deleted (J1-5).
+            try:
+                from src.spine_bridge import get_cchcs_required_forms
+                return get_cchcs_required_forms(r)
+            except Exception as _e:
+                log.debug("get_cchcs_required_forms suppressed: %s", _e)
         try:
             from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
-            cfg = DEFAULT_AGENCY_CONFIGS.get(self.get_agency(), {})
+            cfg = DEFAULT_AGENCY_CONFIGS.get(_agency, {})
             forms = cfg.get("required_forms", [])
             if forms:
                 return list(forms)
