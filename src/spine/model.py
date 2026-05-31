@@ -99,7 +99,13 @@ def _resolve_cost_freshness_days() -> int:
 
 
 COST_VALIDATION_FRESHNESS_DAYS = _resolve_cost_freshness_days()
-SUPPORTED_AGENCIES = ("CCHCS",)                  # v1: one agency only.
+# Architect-authorized: J2-3 CalVet ingest synthesis (§0 Job #2, LAW 4).
+# CalVet admitted as a Spine-supported agency — the Spine `agency` Literal
+# (Quote.agency / EmailContract.agency) already includes "CalVet"; this
+# tuple is the documentation-of-record for which agencies the Spine
+# synthesizes contracts for. CCHCS (Job #1, CLOSED) + CalVet (Job #2, in
+# progress). DSH/DGS follow under their own jobs.
+SUPPORTED_AGENCIES = ("CCHCS", "CalVet")
 
 # UOM allowlist — derived from Mike's actual procurement traffic, not
 # from a generic ISO list. New UOMs must be added explicitly + tested.

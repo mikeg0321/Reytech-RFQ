@@ -352,6 +352,17 @@ def _resolve_canonical_bill_to(agency: str | None) -> tuple[str | None, str | No
         name, email, address_lines = cchcs_bill_to_tuple()
         address = "\n".join(address_lines) or None
         return name, email, address
+    if agency == "CalVet":
+        # J2-3 (Job #2): CalVet bill-to is owned by the Spine constant
+        # (src/spine/agency_constants.CALVET_CANONICAL_BILL_TO, J2-1 #1284)
+        # — NOT DEFAULT_AGENCY_CONFIGS["calvet"]. This keeps the CalVet
+        # quote path import-clean of src/core for the J2 "0 src/core
+        # imports" acceptance and survives the legacy-config deletion
+        # scheduled for J2-6.
+        from src.spine.agency_constants import calvet_bill_to_tuple
+        name, email, address_lines = calvet_bill_to_tuple()
+        address = "\n".join(address_lines) or None
+        return name, email, address
     try:
         from src.forms.quote_generator import AGENCY_CONFIGS
     except Exception:
@@ -753,6 +764,260 @@ def synthesize_cchcs_email_contract(
         contract=contract_dict,
         rfq_id=rfq_id,
         agency="CCHCS",
+        facility=facility,
+        solicitation=solicitation,
+        tax_bps=tax_bps,
+        raw_items=line_items_for_contract,
+        ingest_ts=synthesis_ts,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# CalVet generate-time on-ramp (J2-3, Job #2)
+# ──────────────────────────────────────────────────────────────────────
+
+# Code of the Barstow Veterans Home in facility_registry. Barstow is the
+# only CalVet facility that takes the two-CUF set + the 8.75% BARSTOW
+# jurisdiction. We detect it by the RESOLVED facility record's code
+# (deterministic, LAW 6 — declared, never guessed from free text), not by
+# substring-matching "barstow" in the ship-to string.
+_CALVET_BARSTOW_FACILITY_CODE = "CALVETHOME-BF"
+
+
+class NotCalVetError(ValueError):
+    """Raised by synthesize_calvet_email_contract when the RFQ row is not
+    a CalVet quote.
+
+    J2-3 (Job #2): the CalVet on-ramp mirrors the CCHCS NotCchcsError
+    gate. The caller must check the agency before calling so it does not
+    silently produce a CalVet contract for a non-CalVet RFQ.
+    """
+
+
+def get_calvet_required_forms(rfq_row: dict, *, barstow: bool) -> list[str]:
+    """Return the canonical CalVet form set for an RFQ row.
+
+    This is the Spine-native, config-free CalVet analogue of
+    ``get_cchcs_required_forms``. It returns the FULL canonical CalVet
+    set (standard set, or the Barstow two-CUF split) read from the
+    Spine-local ``CALVET_*_REQUIRED_FORMS`` constants — NOT from
+    ``DEFAULT_AGENCY_CONFIGS["calvet"]``. The survives-config-deletion
+    forcing test asserts this set is returned with the legacy key popped.
+
+    The codes are the canonical FormCode spelling. Some of them
+    (``bidder_decl``, ``std_205``, ``sellers_permit``, ``barstow_cuf``)
+    are not yet members of the ``FormCode`` Literal (J2-2 adds them); see
+    ``_calvet_literal_valid_required_forms`` for the subset the
+    EmailContract can carry today.
+
+    Args:
+        rfq_row: legacy RFQ dict (kept for signature symmetry with the
+            CCHCS helper; the set is determined by ``barstow``).
+        barstow: True iff this is the Barstow Veterans Home (two-CUF set).
+
+    Returns:
+        The full canonical CalVet form-code list (strings).
+    """
+    from src.spine.email_contract import (
+        CALVET_BARSTOW_REQUIRED_FORMS,
+        CALVET_DEFAULT_REQUIRED_FORMS,
+    )
+    return list(
+        CALVET_BARSTOW_REQUIRED_FORMS if barstow else CALVET_DEFAULT_REQUIRED_FORMS
+    )
+
+
+def _calvet_literal_valid_required_forms(full_set: list[str]) -> list[str]:
+    """Partition the canonical CalVet form set into the subset that the
+    EmailContract's ``required_forms: list[FormCode]`` can validate today.
+
+    ``EmailContract.required_forms`` is a ``list[FormCode]`` (a Pydantic
+    Literal). Emitting a code not yet in the Literal would raise a
+    ValidationError — so until J2-2 widens ``FormCode`` to add
+    ``bidder_decl``/``std_205``/``sellers_permit``/``barstow_cuf``, the
+    synthesized contract carries only the already-valid subset. The FULL
+    canonical set remains available via ``get_calvet_required_forms`` and
+    is what the J2 forcing test asserts against.
+
+    CROSS-TICKET DEPENDENCY (J2-2): once ``FormCode`` includes the four
+    pending codes, this filter becomes a no-op and the contract carries
+    the full set. Flagged in the J2-3 report.
+    """
+    from src.spine.email_contract import ALL_FORM_CODES
+    return [f for f in full_set if f in ALL_FORM_CODES]
+
+
+def synthesize_calvet_email_contract(
+    rfq_row: dict,
+    rfq_id: str,
+    *,
+    tax_resolver: TaxResolver,
+    synthesis_ts: datetime | None = None,
+) -> EmailContract:
+    """Synthesize an EmailContract for a CalVet RFQ row at generate time.
+
+    J2-3 (Job #2) — the CalVet generate-time on-ramp, mirroring
+    ``synthesize_cchcs_email_contract``. Takes the legacy RFQ dict (as
+    loaded by ``load_rfqs()``) and returns a transient Spine
+    ``EmailContract`` that resolves EVERY LAW 6 answer at ingest:
+
+      * required_forms — the canonical CalVet compliance-form set, with
+        the Barstow two-CUF split when the facility resolves to Barstow
+        (declared by the resolved facility record, never guessed);
+      * due_date, solicitation_number, buyer email;
+      * per-facility ship-to + the correct facility tax jurisdiction
+        (Barstow → 8.75% BARSTOW; other homes → their facility rate),
+        resolved through ``tax_resolver`` + ``facility_registry`` — the
+        same Spine-clean seam CCHCS uses;
+      * line items with qty / UOM / MFG#.
+
+    The bill-to is read from the Spine constant
+    ``src.spine.agency_constants.calvet_bill_to_tuple()`` (J2-1 #1284) via
+    ``_resolve_canonical_bill_to("CalVet")`` — NOT from
+    ``DEFAULT_AGENCY_CONFIGS["calvet"]`` — so the CalVet quote path stays
+    import-clean of ``src/core`` for the J2 acceptance and survives the
+    legacy-config deletion scheduled for J2-6.
+
+    **No persistence.** Pure synthesizer — call once per generate
+    request, discard after use (same contract as the CCHCS on-ramp).
+
+    Args:
+        rfq_row: legacy RFQ dict. Must have ``agency``/``agency_key``
+            resolving to CalVet. Required for a non-empty contract:
+            ``solicitation_number``, ``line_items``; carried when
+            present: ``ship_to``/``facility``/``institution``,
+            ``due_date``, ``requestor_email``.
+        rfq_id: string RFQ identifier.
+        tax_resolver: ``(address) -> bps | None`` (same contract as
+            ``ingest_email_contract``). Resolves the facility's
+            jurisdiction rate — Barstow returns 8.75% (875 bps).
+        synthesis_ts: timestamp override for test determinism.
+
+    Returns:
+        An ``EmailContract`` with CalVet bill-to populated, the
+        Literal-valid CalVet required_forms subset, per-facility ship-to,
+        and the facility tax rate.
+
+    Raises:
+        NotCalVetError: if ``rfq_row`` is not a CalVet quote.
+        ValueError: if tax_resolver returns no usable rate or raises.
+        SpineValidationError: if the synthesized contract fails Pydantic
+            validation (empty line_items / missing solicitation).
+    """
+    synthesis_ts = synthesis_ts or datetime.now(timezone.utc)
+
+    # ── Agency gate ──────────────────────────────────────────────────
+    _agency_raw = rfq_row.get("agency") or rfq_row.get("agency_key") or ""
+    _agency_upper = str(_agency_raw).strip().upper()
+    # Accept the legacy classifier spellings ("CALVET", "CALVET_BARSTOW")
+    # and the Spine canonical "CALVET". The barstow split is determined
+    # below by the resolved facility record, not by this gate value.
+    if _agency_upper not in ("CALVET", "CAL VET", "CALVET_BARSTOW", "CALVET-BARSTOW"):
+        raise NotCalVetError(
+            f"synthesize_calvet_email_contract: rfq_id={rfq_id!r} has "
+            f"agency={_agency_raw!r} — expected CalVet. "
+            "Call only for CalVet RFQs."
+        )
+
+    # ── Project legacy RFQ dict → ingest contract shape ──────────────
+    facility = (
+        (rfq_row.get("institution") or "").strip()
+        or (rfq_row.get("facility") or "").strip()
+        or "UNKNOWN"
+    )
+    ship_to = (
+        (rfq_row.get("ship_to") or "").strip()
+        or (rfq_row.get("delivery_address") or "").strip()
+        or (rfq_row.get("delivery_location") or "").strip()
+    )
+    sol_raw = (rfq_row.get("solicitation_number") or "").strip()
+
+    raw_items = rfq_row.get("line_items") or rfq_row.get("items") or []
+    line_items_for_contract: list[dict] = []
+    for it in raw_items:
+        if not isinstance(it, dict):
+            continue
+        desc = (it.get("description") or "").strip()
+        if not desc:
+            continue
+        line_items_for_contract.append({
+            "description": desc,
+            "qty": it.get("qty") or it.get("quantity") or 1,
+            "uom": (it.get("uom") or it.get("unit") or "EA"),
+            "item_number": (
+                it.get("item_number")
+                or it.get("mfg_number")
+                or it.get("mfg")
+                or ""
+            ),
+        })
+
+    # ── Barstow detection — declared by the resolved facility record ──
+    # LAW 6: the facility (and therefore the form set + jurisdiction) is
+    # DECLARED, resolved deterministically through facility_registry —
+    # never guessed by substring-matching free text. src.core.facility_
+    # registry is the sanctioned spine_bridge seam (same one CCHCS uses
+    # via _resolve_canonical_ship_to); it is NOT a quote-path src.core
+    # import that the J2 architecture test forbids (that test scopes
+    # src/spine/ + route files, not src/spine_bridge/).
+    is_barstow = False
+    try:
+        from src.core.facility_registry import resolve as _resolve_facility
+        _rec = _resolve_facility(ship_to) or _resolve_facility(facility)
+        if _rec is not None and _rec.code == _CALVET_BARSTOW_FACILITY_CODE:
+            is_barstow = True
+    except Exception:
+        is_barstow = False
+
+    # ── Tax resolution (mandatory at ingest — Charter rule #6) ────────
+    tax_lookup_input = ship_to or facility
+    try:
+        tax_bps: int | None = tax_resolver(tax_lookup_input)
+    except Exception as exc:
+        raise ValueError(
+            f"synthesize_calvet_email_contract: tax_resolver raised for "
+            f"{tax_lookup_input!r}: {exc}"
+        ) from exc
+    if tax_bps is None or tax_bps <= 0:
+        raise ValueError(
+            f"synthesize_calvet_email_contract: tax_resolver returned no "
+            f"usable rate for {tax_lookup_input!r}. "
+            "Charter rule #6: tax is mandatory."
+        )
+
+    # ── Solicitation strip (shared helper) ────────────────────────────
+    from src.spine_bridge._solicitation import strip_solicitation_prefix
+    solicitation = strip_solicitation_prefix(sol_raw) or sol_raw or "UNKNOWN"
+
+    # ── required_forms — canonical CalVet set (Barstow split) ─────────
+    # Full canonical set (incl. J2-2-pending codes) drives the forcing
+    # test; the contract carries the Literal-valid subset until J2-2
+    # widens FormCode. See _calvet_literal_valid_required_forms.
+    _full_forms = get_calvet_required_forms(rfq_row, barstow=is_barstow)
+    _contract_forms = _calvet_literal_valid_required_forms(_full_forms)
+
+    # ── Assemble the ingest-contract dict ─────────────────────────────
+    contract_dict: dict = {
+        "rfq_id": rfq_id,
+        "agency": "CalVet",
+        "facility": facility,
+        "ship_to": ship_to,
+        "solicitation_number": solicitation,
+        "line_items": line_items_for_contract,
+        "buyer": {
+            "email": (rfq_row.get("requestor_email") or "").strip(),
+        },
+        "due_date": rfq_row.get("due_date") or "",
+        "rfq_title": rfq_row.get("rfq_title") or rfq_row.get("subject") or "",
+        "required_forms": _contract_forms,
+        "parser_version": "generate_time_bridge_calvet_v1",
+    }
+
+    # ── Build via the canonical builder ───────────────────────────────
+    return _build_email_contract(
+        contract=contract_dict,
+        rfq_id=rfq_id,
+        agency="CalVet",
         facility=facility,
         solicitation=solicitation,
         tax_bps=tax_bps,

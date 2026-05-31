@@ -16,10 +16,13 @@ from src.spine_bridge.translator import (
 )
 from src.spine_bridge.ingest import (
     IngestResult,
+    NotCalVetError,
     NotCchcsError,
     TaxResolver,
+    get_calvet_required_forms,
     get_cchcs_required_forms,
     ingest_email_contract,
+    synthesize_calvet_email_contract,
     synthesize_cchcs_email_contract,
 )
 from src.spine_bridge.oracle_proxy import (
@@ -34,10 +37,13 @@ __all__ = [
     "TranslationIssue",
     "translate_legacy_quote",
     "IngestResult",
+    "NotCalVetError",
     "NotCchcsError",
     "TaxResolver",
+    "get_calvet_required_forms",
     "get_cchcs_required_forms",
     "ingest_email_contract",
+    "synthesize_calvet_email_contract",
     "synthesize_cchcs_email_contract",
     "OracleLineSuggestion",
     "OracleSource",
