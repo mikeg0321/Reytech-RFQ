@@ -110,6 +110,27 @@ _FILE_SCOPED_LEGACY_IMPORTS: dict[str, set[str]] = {
     "std_204.py": {
         "src.forms.cchcs_attachment_fillers",  # fill_std204
     },
+    # J2-2 (CalVet migration, 2026-05-31) — the 3 CalVet required forms
+    # with no Spine adapter, plus the Barstow-only CUF. Same boundary
+    # justification as the rest of agency_forms/: a thin adapter that
+    # delegates to a verified legacy filler. bidder_decl + sellers_permit
+    # are flat-shape (cchcs_attachment_fillers); std_205 + barstow_cuf use
+    # the path-based temp-file bridge (reytech_filler_v4 — same seam
+    # forms_render.py rides). Architect-authorized per CLAUDE.md §0 Job #2
+    # LAW 4.
+    "bidder_decl.py": {
+        "src.forms.cchcs_attachment_fillers",  # fill_bidder_declaration
+    },
+    "sellers_permit.py": {
+        "src.forms.cchcs_attachment_fillers",  # splice_static
+    },
+    "std_205.py": {
+        "src.forms.cchcs_attachment_fillers",  # _template_path (blank resolve)
+        "src.forms.reytech_filler_v4",         # fill_std205
+    },
+    "barstow_cuf.py": {
+        "src.forms.reytech_filler_v4",         # generate_barstow_cuf
+    },
 }
 
 # Stdlib + well-known third-party packages always OK.

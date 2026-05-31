@@ -210,12 +210,31 @@ Each adapter delegates to exactly one legacy module:
   (`fill_std_1000`). STD-1000 prohibited-funder certification.
 - **`std_204.py`** → `src.forms.cchcs_attachment_fillers`
   (`fill_std204`). STD-204 payee data record.
+- **`bidder_decl.py`** → `src.forms.cchcs_attachment_fillers`
+  (`fill_bidder_declaration`). GSPD-05-105 Bidder Declaration.
+  *(J2-2, CalVet migration, 2026-05-31.)*
+- **`sellers_permit.py`** → `src.forms.cchcs_attachment_fillers`
+  (`splice_static`). Static pre-filled Reytech seller's permit
+  pass-through. *(J2-2.)*
+- **`std_205.py`** → `src.forms.reytech_filler_v4` (`fill_std205`,
+  path-based `(input,rfq_data,config,output)` bridge) plus
+  `src.forms.cchcs_attachment_fillers` (`_template_path` blank resolve).
+  STD-205 Payee Data Record Supplement. *(J2-2.)*
+- **`barstow_cuf.py`** → `src.forms.reytech_filler_v4`
+  (`generate_barstow_cuf`, ReportLab-generated, no template).
+  Veterans Home of California, Barstow CUF — required only by the
+  `calvet_barstow` form set. *(J2-2.)*
 
-These six adapters share the boundary justification of
+These adapters share the boundary justification of
 `forms_render.py` and `packet_render.py`: re-implementing a verified
 legacy filler to satisfy import purity would force the Spine to depend
 on a *worse, unverified* renderer instead of the audited one. The
-boundary is sanctioned, not reluctantly tolerated.
+boundary is sanctioned, not reluctantly tolerated. The path-based
+adapters (`std_205`, `barstow_cuf`) use the same temp-file bridge as
+`forms_render.py`'s `_legacy_fill_to_bytes` — write to a tempfile, read
+the bytes back — but build `config["company"]` from the Spine's
+`ReytechIdentity` rather than the legacy `reytech_config.json`, keeping
+the identity boundary on the Spine side.
 
 The CCHCS-specific renderers (`cchcs_{703b,703c,704b,704c,bidpkg}.py`)
 that previously appeared in this list were DELETED in PR-Job1-D

@@ -62,6 +62,21 @@ from src.spine.agency_forms.std_1000 import (
 from src.spine.agency_forms.cuf import (
     fill_cuf_pdf,
 )
+# J2-2 (CalVet migration, 2026-05-31): the 3 CalVet required forms with
+# no Spine adapter yet, plus the Barstow-only CUF. Architect-authorized
+# per CLAUDE.md §0 Job #2 LAW 4.
+from src.spine.agency_forms.bidder_decl import (
+    fill_bidder_decl_pdf,
+)
+from src.spine.agency_forms.std_205 import (
+    fill_std_205_pdf,
+)
+from src.spine.agency_forms.sellers_permit import (
+    fill_sellers_permit_pdf,
+)
+from src.spine.agency_forms.barstow_cuf import (
+    fill_barstow_cuf_pdf,
+)
 # PR-Job1-D (2026-05-27): the five per-form CCHCS adapter shims that
 # previously lived under ``src/spine/agency_forms/cchcs_*.py`` were
 # folded into ``src/spine/forms_render.py`` — same delegation, one home.
@@ -177,6 +192,15 @@ FORM_REGISTRY: dict[str, Renderer] = {
     # directly (inventory + logistics + delivery) — all 6 questions
     # answered "Yes".
     "cuf":           fill_cuf_pdf,
+    # J2-2 (CalVet migration): the 3 CalVet required forms that had no
+    # Spine adapter, plus the Barstow-only CUF. bidder_decl + sellers_permit
+    # are flat-shape adapters (cchcs_attachment_fillers); std_205 +
+    # barstow_cuf use the path-based temp-file bridge (reytech_filler_v4).
+    # Architect-authorized per CLAUDE.md §0 Job #2 LAW 4.
+    "bidder_decl":    fill_bidder_decl_pdf,
+    "std_205":        fill_std_205_pdf,
+    "sellers_permit": fill_sellers_permit_pdf,
+    "barstow_cuf":    fill_barstow_cuf_pdf,
 }
 
 
@@ -194,6 +218,10 @@ __all__ = [
     "fill_calrecycle_74_pdf",
     "fill_std_1000_pdf",
     "fill_cuf_pdf",
+    "fill_bidder_decl_pdf",
+    "fill_std_205_pdf",
+    "fill_sellers_permit_pdf",
+    "fill_barstow_cuf_pdf",
     "FORM_REGISTRY",
     "Renderer",
 ]
