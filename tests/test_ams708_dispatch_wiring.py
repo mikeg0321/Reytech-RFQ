@@ -46,3 +46,32 @@ def test_708_block_still_records_missing_template_gap():
     missing template / fill error reaches the operator's errors list."""
     src = _source()
     assert 'errors.append(f"GenAI 708: {e}")' in src
+
+
+def test_708_standalone_guarded_by_bidpkg_inclusion():
+    """The 708 lives inside the bid package; a standalone copy must only be
+    emitted when the bid package is NOT included, else it double-emits.
+    Mirrors the sellers_permit / calrecycle74 guard."""
+    src = _source()
+    assert (
+        '(_include("genai_708") or _include("ams708")) and not _bidpkg_included'
+        in src
+    ), "standalone 708 must be guarded by `not _bidpkg_included` (no double-emit)"
+    assert (
+        '(_include("genai_708") or _include("ams708")) and _bidpkg_included'
+        in src
+    ), "the bidpkg-present branch must log the skip (708 already inside bidpkg)"
+
+
+def test_708_missing_template_is_not_silently_dropped():
+    """A required ams708 that can't render standalone must append an error —
+    the pre-fix `if os.path.exists(...)` with no else SILENTLY dropped it,
+    the exact class #1263 set out to kill, one level down."""
+    src = _source()
+    # the old silent-skip pattern (existence-gate on a standalone blank, no else)
+    assert 'os.path.join(DATA_DIR, "templates", "genai_708_blank.pdf")' not in src, (
+        "the dead genai_708_blank.pdf existence-gate is the silent-drop path — "
+        "the standalone 708 is now derived from the bid-package template."
+    )
+    # the render-failure path must reach the operator
+    assert "AMS 708 required standalone but could not be rendered" in src

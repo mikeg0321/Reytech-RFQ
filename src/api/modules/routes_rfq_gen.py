@@ -2826,20 +2826,32 @@ def generate_rfq_package(rid):
                 t.step("Drug-Free STD 21 generated")
             except Exception as e:
                 t.warn("Drug-Free failed", error=str(e))
-        # GenAI 708 (a.k.a. AMS 708 (same form), two id-spaces: the catalog/
-        # email-detection/std1000-swap use "ams708", the generator + template
-        # use "genai_708". form_registry maps ams708 -> fill_genai_708. Fire on
-        # EITHER so an ams708 required-forms entry is never silently dropped.)
-        if _include("genai_708") or _include("ams708"):
-            _genai_tmpl = os.path.join(DATA_DIR, "templates", "genai_708_blank.pdf")
-            if os.path.exists(_genai_tmpl):
-                try:
-                    from src.forms.reytech_filler_v4 import fill_genai_708
-                    fill_genai_708(_genai_tmpl, r, CONFIG, f"{out_dir}/{sol}_GenAI708_Reytech.pdf")
+        # GenAI 708 (a.k.a. AMS 708 — same form, two id-spaces: the catalog/
+        # email-detection/std1000-swap use "ams708", the generator/filler use
+        # "genai_708"). Fire on EITHER so an ams708 entry is never dropped.
+        # The 708 lives INSIDE the bid package (fill_bid_package fills it), so
+        # only emit a STANDALONE copy when the bid package is NOT included —
+        # mirroring the sellers_permit / calrecycle74 guard. Otherwise it would
+        # double-emit. The standalone is derived from the bid-package template
+        # (no separate blank exists); on failure we surface a visible error so
+        # an ams708 request is never SILENTLY dropped.
+        if (_include("genai_708") or _include("ams708")) and not _bidpkg_included:
+            try:
+                from src.forms.fill_ams708 import fill_ams708_standalone
+                _708_out = f"{out_dir}/{sol}_GenAI708_Reytech.pdf"
+                if fill_ams708_standalone(r, CONFIG, _708_out):
                     output_files.append(f"{sol}_GenAI708_Reytech.pdf")
-                    t.step("GenAI 708 filled")
-                except Exception as e:
-                    errors.append(f"GenAI 708: {e}")
+                    t.step("AMS 708 filled (standalone)")
+                else:
+                    errors.append(
+                        "AMS 708 required standalone but could not be rendered "
+                        "(source template missing) — include the bid package, "
+                        "which carries the 708."
+                    )
+            except Exception as e:
+                errors.append(f"GenAI 708: {e}")
+        elif (_include("genai_708") or _include("ams708")) and _bidpkg_included:
+            t.step("AMS 708 skipped — already inside bid package")
 
         # STD 205 from template (prefer over ReportLab version)
         if _include("std205"):
