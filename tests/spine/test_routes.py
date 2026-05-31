@@ -276,6 +276,15 @@ def test_multiple_posts_append_to_event_log(client, db_path):
     the route precondition added 2026-05-15. See W-S-009 in the
     walkthrough catalog.
     """
+    # IMPORTANT: each subsequent POST builds its body from the SERVER's
+    # returned state (r.get_json()), mirroring the real editor flow
+    # (spine_pc_detail.html: `transitionBody = Object.assign({},
+    # saveResult.body, {status})`). The server stamps quote_seq /
+    # quote_year on first write (display_number identity); a body rebuilt
+    # from a stale in-memory object would carry quote_seq=None and trip
+    # the finalized→sent snapshot-divergence gate on identity fields the
+    # operator never touched. The editor never does that — it round-trips
+    # the server state — so the test must not either.
     q1 = _ok_quote("Q-flow-001", status=QuoteStatus.PARSED)
     r1 = client.post("/spine/quotes/Q-flow-001/state",
                       json=q1.to_persisted_dict(),
@@ -283,14 +292,16 @@ def test_multiple_posts_append_to_event_log(client, db_path):
                                "X-Spine-Note": "initial parse"})
     assert r1.status_code == 200
 
-    q2 = q1.model_copy(update={"status": QuoteStatus.PRICED})
+    q2 = Quote.model_validate(r1.get_json()).model_copy(
+        update={"status": QuoteStatus.PRICED})
     r2 = client.post("/spine/quotes/Q-flow-001/state",
                       json=q2.to_persisted_dict(),
                       headers={"X-Spine-Actor": "operator",
                                "X-Spine-Note": "priced at 35% markup"})
     assert r2.status_code == 200
 
-    q3 = q2.model_copy(update={"status": QuoteStatus.FINALIZED})
+    q3 = Quote.model_validate(r2.get_json()).model_copy(
+        update={"status": QuoteStatus.FINALIZED})
     r3 = client.post("/spine/quotes/Q-flow-001/state",
                       json=q3.to_persisted_dict(),
                       headers={"X-Spine-Actor": "operator"})
@@ -304,7 +315,8 @@ def test_multiple_posts_append_to_event_log(client, db_path):
     assert snap_r.status_code == 200, snap_r.json
     assert snap_r.json["snapshot_id"].startswith("snap_Q-flow-001_")
 
-    q4 = q3.model_copy(update={"status": QuoteStatus.SENT})
+    q4 = Quote.model_validate(r3.get_json()).model_copy(
+        update={"status": QuoteStatus.SENT})
     r4 = client.post("/spine/quotes/Q-flow-001/state",
                       json=q4.to_persisted_dict(),
                       headers={"X-Spine-Actor": "operator",
@@ -465,23 +477,38 @@ def test_send_with_diverged_state_rejected(client):
 
 
 def test_send_after_resnapshot_succeeds(client):
-    """Operator edits, re-snapshots, sends. The flow is allowed."""
+    """Operator edits, re-snapshots, sends. The flow is allowed.
+
+    Each POST body is rebuilt from the SERVER's returned state (the real
+    editor's `saveResult.body` round-trip) so the server-stamped
+    quote_seq / quote_year identity rides through to the send POST. A
+    body rebuilt from a stale in-memory object would carry
+    quote_seq=None and trip the snapshot-divergence gate on identity
+    fields the operator never edited — a divergence the editor cannot
+    actually produce.
+    """
     q = _ok_quote("Q-resnap", status=QuoteStatus.PARSED)
-    client.post("/spine/quotes/Q-resnap/state", json=q.to_persisted_dict())
-    p = q.model_copy(update={"status": QuoteStatus.PRICED})
-    client.post("/spine/quotes/Q-resnap/state", json=p.to_persisted_dict())
-    f = p.model_copy(update={"status": QuoteStatus.FINALIZED})
-    client.post("/spine/quotes/Q-resnap/state", json=f.to_persisted_dict())
+    r0 = client.post("/spine/quotes/Q-resnap/state", json=q.to_persisted_dict())
+    p = Quote.model_validate(r0.get_json()).model_copy(
+        update={"status": QuoteStatus.PRICED})
+    rp = client.post("/spine/quotes/Q-resnap/state", json=p.to_persisted_dict())
+    f = Quote.model_validate(rp.get_json()).model_copy(
+        update={"status": QuoteStatus.FINALIZED})
+    rf = client.post("/spine/quotes/Q-resnap/state", json=f.to_persisted_dict())
     client.post("/spine/quotes/Q-resnap/snapshot")
 
-    # Edit and re-snapshot.
-    new_li = f.line_items[0].model_copy(update={"unit_price_cents": 80_000})
-    edited = f.model_copy(update={"line_items": [new_li, *f.line_items[1:]]})
-    client.post("/spine/quotes/Q-resnap/state", json=edited.to_persisted_dict())
+    # Edit and re-snapshot — edited state built from the server response.
+    f_server = Quote.model_validate(rf.get_json())
+    new_li = f_server.line_items[0].model_copy(update={"unit_price_cents": 80_000})
+    edited = f_server.model_copy(
+        update={"line_items": [new_li, *f_server.line_items[1:]]})
+    re_ = client.post("/spine/quotes/Q-resnap/state",
+                      json=edited.to_persisted_dict())
     r2 = client.post("/spine/quotes/Q-resnap/snapshot")
     assert r2.status_code == 200
 
-    sent = edited.model_copy(update={"status": QuoteStatus.SENT})
+    sent = Quote.model_validate(re_.get_json()).model_copy(
+        update={"status": QuoteStatus.SENT})
     rs = client.post("/spine/quotes/Q-resnap/state",
                       json=sent.to_persisted_dict())
     assert rs.status_code == 200

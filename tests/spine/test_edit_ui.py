@@ -110,9 +110,14 @@ def test_edit_page_renders_quote_id_in_title(client_with_seeded):
     text = r.data.decode("utf-8")
     # Internal quote_id still present (URLs / debug surfaces / data attrs)
     assert "Q-edit-001" in text
-    # And the buyer-facing R{yy}Q#### appears in the title.
+    # And the buyer-facing R{yy}Q#### appears in the title. The seq is
+    # NOT zero-padded — display_number is `R{yy}Q{seq}` with seq rendered
+    # as a bare integer (SPINE_CHARTER invariant #4 / model.py
+    # display_number docstring: "NO zero-padding ... R26Q1 through
+    # R26Q9999+"). A first-write quote in an isolated test DB gets seq=1
+    # → R26Q1, so the assertion must accept 1+ digits, not exactly 4.
     import re
-    assert re.search(r"<title>Spine — R\d{2}Q\d{4}</title>", text)
+    assert re.search(r"<title>Spine — R\d{2}Q\d+</title>", text)
 
 
 def test_edit_page_404_for_missing_quote(client_with_seeded):
@@ -302,9 +307,10 @@ def test_index_page_renders_seeded_quote(client_with_seeded):
     assert r.status_code == 200
     assert r.mimetype == "text/html"
     text = r.data.decode("utf-8")
-    # Display number shows.
+    # Display number shows. Seq is NOT zero-padded (SPINE_CHARTER
+    # invariant #4 — `R{yy}Q{seq}`, e.g. R26Q1), so accept 1+ digits.
     import re
-    assert re.search(r"R\d{2}Q\d{4}", text)
+    assert re.search(r"R\d{2}Q\d+", text)
     # Internal id is the click target.
     assert 'href="/spine/quotes/Q-edit-001/edit"' in text
     # Heading is correct.
