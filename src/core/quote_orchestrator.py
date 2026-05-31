@@ -542,6 +542,47 @@ class QuoteOrchestrator:
 
     # ── Agency resolution ──
 
+    @staticmethod
+    def _signals_cchcs(rfq_data: dict) -> bool:
+        """True iff the orchestrator's resolution signals identify CCHCS.
+
+        J1-5-pre: uses the Spine-aligned request_classifier patterns
+        (AGENCY_KEYWORDS regex + INSTITUTION_TO_AGENCY prefix map), which are
+        independent of DEFAULT_AGENCY_CONFIGS["cchcs"] and therefore survive
+        J1-5's deletion of that key. Returns True only when a CCHCS-specific
+        signal matches — never a generic fallback.
+        """
+        import re
+        from src.core.request_classifier import (
+            AGENCY_KEYWORDS,
+            INSTITUTION_TO_AGENCY,
+        )
+
+        # Fast path: an explicit agency field already says CCHCS.
+        for field in ("agency", "agency_name"):
+            if (rfq_data.get(field) or "").strip().upper() in ("CCHCS", "CCHCS-ACQ"):
+                return True
+
+        # Institution-code prefix map (e.g. "CSP-SAC" → SAC → cchcs).
+        inst = (rfq_data.get("institution") or "").strip().upper()
+        if inst:
+            for code, agency in INSTITUTION_TO_AGENCY.items():
+                if agency == "cchcs" and re.search(rf"\b{re.escape(code)}\b", inst):
+                    return True
+
+        # Keyword/email-domain regexes against the combined free-text signals.
+        blob = " ".join(
+            str(rfq_data.get(k) or "")
+            for k in (
+                "requestor_email", "email_sender", "institution",
+                "ship_to", "delivery_location", "email_subject",
+            )
+        )
+        for pattern, agency in AGENCY_KEYWORDS:
+            if agency == "cchcs" and re.search(pattern, blob, re.IGNORECASE):
+                return True
+        return False
+
     def _resolve_agency(self, quote: Quote, request: QuoteRequest, result: OrchestratorResult) -> None:
         """Fill quote.header.agency_key if blank, using agency_config matchers.
 
@@ -566,6 +607,24 @@ class QuoteOrchestrator:
 
         if not any(str(v).strip() for v in rfq_data.values()):
             result.warnings.append("agency: no source signals to classify against")
+            return
+
+        # CCHCS short-circuit (J1-5-pre): resolve CCHCS WITHOUT match_agency so
+        # the orchestrator no longer depends on DEFAULT_AGENCY_CONFIGS["cchcs"]
+        # (deleted in J1-5). With the config key popped, match_agency falls all
+        # CCHCS signals (cdcr.ca.gov / cchcs.ca.gov / CSP-* / STATE PRISON) to
+        # "other" — the Duffey OtherUnknown regression PR #1157 emergency-
+        # restored the key to fix. The repoint detects CCHCS via the Spine-
+        # aligned request_classifier patterns (AGENCY_KEYWORDS +
+        # INSTITUTION_TO_AGENCY), which are key-independent, then short-circuits.
+        # request_classifier ALREADY classifies CCHCS at ingest (LAW 6), so a
+        # properly-ingested CCHCS quote usually arrives with agency_key already
+        # "cchcs" and never reaches _resolve_agency (line-552 guard). This block
+        # covers the unclassified-at-ingest residual without re-introducing the
+        # deleted-key dependency.
+        if self._signals_cchcs(rfq_data):
+            quote.header.agency_key = "cchcs"
+            log.info("orchestrator: resolved agency=cchcs (CCHCS short-circuit, request_classifier)")
             return
 
         try:

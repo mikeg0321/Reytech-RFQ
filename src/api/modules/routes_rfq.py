@@ -3072,7 +3072,17 @@ def _api_create_draft_locked(rid):
     # Resolve agency Gmail label → labelId (best-effort; absence is silent)
     label_ids = []
     try:
-        _ak, _ = match_agency(r)
+        # CCHCS short-circuit (J1-5-pre): resolve the agency key WITHOUT
+        # match_agency so the Gmail-label path no longer depends on
+        # DEFAULT_AGENCY_CONFIGS["cchcs"] (deleted in J1-5). Same detection
+        # pattern as the J1-5b form-set readers. Without this, popping the key
+        # makes match_agency fall to "other" → agency_label_name("other")==None
+        # → CCHCS drafts silently lose their "CCHCS" Gmail label.
+        _agency_raw = (r.get("agency") or r.get("agency_key") or "").upper()
+        if _agency_raw in ("CCHCS", "CCHCS-ACQ"):
+            _ak = "cchcs"
+        else:
+            _ak, _ = match_agency(r)
         label_name = agency_label_name(_ak or "")
         if label_name:
             service = gmail_api.get_send_service()
