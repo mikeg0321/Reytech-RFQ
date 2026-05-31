@@ -1402,44 +1402,25 @@ def make_spine_blueprint(
                 ),
             }), 409
 
-        # ── Inspector gate ────────────────────────────────────────
-        # Job #1 §0 acceptance: every send through the 3-quote gate
-        # must carry a clean InspectorReport. Run it here before the
-        # operator gets the Gmail compose URL — a non-clean report
-        # blocks 409 with the full report attached so the UI can
-        # show the operator exactly what to fix.
-        #
-        # The gate runs only when an EmailContract is bound. Legacy
-        # quotes that predate the contract substrate keep working
-        # (envelope is marked `inspector_skipped` so the operator knows
-        # the math-reconcile wasn't run); CCHCS quotes in Job #1 always
-        # ingest through the contract path (LAW 6) and so always gate.
+        # ── Contract lookup (shared by both gates below) ─────────────
+        # Load once; both the attachment-disposition gate and the
+        # Inspector gate need it. A missing contract means a legacy
+        # quote — both gates skip in that case (same guard condition).
         try:
             contract_for_inspector = find_contract_for_quote(db_path, quote_id)
         except Exception:
             contract_for_inspector = None
-        inspector_report = None
-        inspector_skipped_reason: str | None = None
-        if contract_for_inspector is None:
-            inspector_skipped_reason = (
-                "no EmailContract bound — Inspector math-reconcile skipped"
-            )
-        else:
-            from src.spine.inspector import reconcile_quote_to_package
-
-            inspector_report = reconcile_quote_to_package(
-                quote, contract_for_inspector)
-            if not inspector_report.ok:
-                return jsonify({
-                    "error": "inspector_blocked",
-                    "detail": (
-                        f"Inspector report has {inspector_report.blocking_count} "
-                        f"blocking issue(s); resolve before send."
-                    ),
-                    "report": inspector_report.model_dump(),
-                }), 409
 
         # ── Attachment-disposition gate (LAW 6 "Teeth") ───────────────
+        # LAW 6 makes ingest completeness "the hardest rule" and the
+        # email contract "the engine." Attachment-coverage is logically
+        # prior to math-reconcile: you cannot trust the Inspector's
+        # arithmetic on a quote whose attachments were never fully parsed
+        # (the 2026-05-28 Coleman 10842771 incident is the proof — the
+        # distribution list was present but mis-parsed, so the math was
+        # wrong at the source). Running this gate first ensures the
+        # Inspector only ever sees a complete contract.
+        #
         # Every attachment in attachment_refs must have a recorded
         # AttachmentDisposition, AND every parsed disposition whose
         # cross_references list is non-empty must have
@@ -1448,7 +1429,7 @@ def make_spine_blueprint(
         # attachment was not accounted for.
         #
         # The gate runs only when an EmailContract is bound (same
-        # condition as the Inspector gate above).
+        # condition as the Inspector gate below).
         if contract_for_inspector is not None:
             _contract = contract_for_inspector
             _refs = list(_contract.attachment_refs)
@@ -1486,6 +1467,39 @@ def make_spine_blueprint(
                         "attachments before send-prep is allowed."
                     ),
                     "unresolved_refs": _unresolved,
+                }), 409
+
+        # ── Inspector gate ────────────────────────────────────────
+        # Job #1 §0 acceptance: every send through the 3-quote gate
+        # must carry a clean InspectorReport. Run it here before the
+        # operator gets the Gmail compose URL — a non-clean report
+        # blocks 409 with the full report attached so the UI can
+        # show the operator exactly what to fix.
+        #
+        # The gate runs only when an EmailContract is bound. Legacy
+        # quotes that predate the contract substrate keep working
+        # (envelope is marked `inspector_skipped` so the operator knows
+        # the math-reconcile wasn't run); CCHCS quotes in Job #1 always
+        # ingest through the contract path (LAW 6) and so always gate.
+        inspector_report = None
+        inspector_skipped_reason: str | None = None
+        if contract_for_inspector is None:
+            inspector_skipped_reason = (
+                "no EmailContract bound — Inspector math-reconcile skipped"
+            )
+        else:
+            from src.spine.inspector import reconcile_quote_to_package
+
+            inspector_report = reconcile_quote_to_package(
+                quote, contract_for_inspector)
+            if not inspector_report.ok:
+                return jsonify({
+                    "error": "inspector_blocked",
+                    "detail": (
+                        f"Inspector report has {inspector_report.blocking_count} "
+                        f"blocking issue(s); resolve before send."
+                    ),
+                    "report": inspector_report.model_dump(),
                 }), 409
 
         # Build the envelope. Subject and body are deterministic from

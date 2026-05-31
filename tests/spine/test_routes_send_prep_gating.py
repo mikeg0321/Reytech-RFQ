@@ -16,6 +16,7 @@ from flask.testing import FlaskClient
 
 from src.api.modules.routes_spine import make_spine_blueprint
 from src.spine import (
+    AttachmentDisposition,
     ContractLineItem,
     EmailContract,
     LineItem,
@@ -153,8 +154,30 @@ def test_send_prep_envelope_includes_format_b_form_attachments(client, db_path):
 def test_send_prep_blocked_by_inspector_on_missing_form_template(client, db_path):
     """contract.required_forms declares 703b+704b+bidpkg but only the
     703B template is supplied — coverage failures block send-prep
-    with the full report attached."""
-    bad_contract = _contract_b(attachment_refs=(_T703B,))  # only 703B
+    with the full report attached.
+
+    The contract gives the 703B attachment a recorded disposition so the
+    attachment-disposition gate passes and the Inspector gate is reached.
+    The test proves that Inspector-only failures (missing rendered forms)
+    still surface as inspector_blocked.
+    """
+    bad_contract = EmailContract(
+        contract_id="contract_Q-sp_b",
+        rfq_id="Q-sp",
+        agency="CCHCS",
+        facility="SAC",
+        solicitation_number="10848901",
+        buyer_name="Grace Pfost",
+        buyer_email="grace.pfost@cdcr.ca.gov",
+        buyer_phone="(916) 555-0142",
+        line_items=[ContractLineItem(line_no=1, description="Test Item",
+                                     qty=5, uom="EA")],
+        attachment_refs=[_T703B],          # only 703B — no 704b/bidpkg
+        attachment_dispositions=[
+            AttachmentDisposition(ref=_T703B, status="parsed"),
+        ],
+        response_packaging="separate_pdfs",
+    )
     _seed_b(client, db_path, contract=bad_contract)
     r = _send_prep(client)
     assert r.status_code == 409
