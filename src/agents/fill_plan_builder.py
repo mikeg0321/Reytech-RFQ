@@ -323,19 +323,51 @@ def _resolve_agency(quote_data: dict, quote_id: str = "") -> tuple:
     if _agency_raw in ("CCHCS", "CCHCS-ACQ"):
         _rid = quote_id or quote_data.get("id") or quote_data.get("rfq_id") or ""
         try:
-            from src.spine_bridge import synthesize_cchcs_email_contract, NotCchcsError
+            from src.spine_bridge import (
+                synthesize_cchcs_email_contract,
+                NotCchcsError,
+                get_cchcs_required_forms,
+            )
             from src.spine_bridge.shadow_ingest import _make_tax_resolver
             _spine_c = synthesize_cchcs_email_contract(
                 rfq_row=quote_data, rfq_id=_rid,
                 tax_resolver=_make_tax_resolver(),
             )
+            _forms = list(_spine_c.required_forms)
+            log.info(
+                "_resolve_agency %s: J1-2 CCHCS form set from spine_contract "
+                "(%d forms): %s",
+                _rid, len(_forms), ", ".join(sorted(_forms)),
+            )
             return ("cchcs", {
                 "name": "CCHCS / CDCR",
-                "required_forms": list(_spine_c.required_forms),
+                "required_forms": _forms,
             })
+        except NotCchcsError as _nce:
+            # Non-CCHCS RFQ — correct and expected; fall through to match_agency
+            # below without noise.
+            log.debug("_resolve_agency %s: not CCHCS (%s), using match_agency", _rid, _nce)
         except Exception as _e:
-            log.debug("_resolve_agency CCHCS spine synthesis failed, using legacy: %s", _e)
-            # fall through to match_agency below
+            # J1-5a: synthesis failed for a confirmed CCHCS RFQ (tax outage or
+            # empty items).  Log at WARNING — this is NOT a silent degradation.
+            # Still resolve the form set via get_cchcs_required_forms() which
+            # does NOT need tax or valid line items.
+            log.warning(
+                "_resolve_agency %s: J1-5a CCHCS synthesis failed (tax outage "
+                "or empty items) — using form-set fallback, NOT legacy config. "
+                "Error: %s",
+                _rid, _e,
+            )
+            _fallback_forms = get_cchcs_required_forms(quote_data)
+            log.info(
+                "_resolve_agency %s: J1-2 CCHCS form set from "
+                "spine_forms_fallback (%d forms): %s",
+                _rid, len(_fallback_forms), ", ".join(sorted(_fallback_forms)),
+            )
+            return ("cchcs", {
+                "name": "CCHCS / CDCR",
+                "required_forms": _fallback_forms,
+            })
     try:
         from src.core.agency_config import match_agency
         return match_agency(quote_data)

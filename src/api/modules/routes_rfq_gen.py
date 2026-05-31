@@ -1965,30 +1965,56 @@ def generate_rfq_package(rid):
             # match_agency path (unchanged).  DEFAULT_AGENCY_CONFIGS["cchcs"]
             # is NOT read on the CCHCS path after this block.
             _spine_contract = None
+            _cchcs_forms_fallback = None  # J1-5a: set when synthesis fails for CCHCS
             try:
-                from src.spine_bridge import synthesize_cchcs_email_contract, NotCchcsError
+                from src.spine_bridge import (
+                    synthesize_cchcs_email_contract,
+                    NotCchcsError,
+                    get_cchcs_required_forms,
+                )
                 from src.spine_bridge.shadow_ingest import _make_tax_resolver
                 _spine_contract = synthesize_cchcs_email_contract(
                     rfq_row=r, rfq_id=rid,
                     tax_resolver=_make_tax_resolver(),
                 )
             except NotCchcsError:
-                pass  # non-CCHCS — fall through to match_agency below
+                pass  # non-CCHCS — fall through to match_agency below (correct/quiet)
             except Exception as _sce:
-                log.debug(
-                    "GENERATE %s: J1-2 Spine contract synthesis failed, "
-                    "falling back to legacy agency config: %s",
-                    rid, _sce,
-                )
+                # J1-5a: synthesis failed for a CCHCS RFQ (tax outage or
+                # empty items).  Log at WARNING so the fallback is visible in
+                # prod logs — this is NOT a silent degradation.  Still resolve
+                # the CCHCS form set via get_cchcs_required_forms(), which does
+                # NOT need a working tax resolver or valid line items.
+                _agency_raw_for_log = (r.get("agency") or r.get("agency_key") or "")
+                if str(_agency_raw_for_log).strip().upper() in ("CCHCS", "CCHCS-ACQ"):
+                    log.warning(
+                        "GENERATE %s: J1-5a CCHCS synthesis failed (tax outage "
+                        "or empty items) — using form-set fallback, NOT legacy "
+                        "config. Error: %s",
+                        rid, _sce,
+                    )
+                    _cchcs_forms_fallback = get_cchcs_required_forms(r)
+                else:
+                    log.debug(
+                        "GENERATE %s: J1-2 Spine contract synthesis failed "
+                        "(non-CCHCS path), falling back to match_agency: %s",
+                        rid, _sce,
+                    )
                 _spine_contract = None
 
-            if _spine_contract is not None:
+            if _spine_contract is not None or _cchcs_forms_fallback is not None:
+                # Use full contract forms if synthesis succeeded, otherwise
+                # use the tax/items-independent fallback (J1-5a).
+                _spine_forms_base = (
+                    list(_spine_contract.required_forms)
+                    if _spine_contract is not None
+                    else list(_cchcs_forms_fallback)
+                )
                 # Expand 703 variants: the rev-aware filter below (near
                 # `_present_703`) narrows to the buyer's attached revision;
                 # it needs all three in the raw list to pick from.
                 # This mirrors what DEFAULT_AGENCY_CONFIGS["cchcs"] did —
                 # no behaviour change, different (authoritative) source.
-                _spine_forms_base = list(_spine_contract.required_forms)
                 _703_variants = {"703a", "703b", "703c"}
                 if _703_variants & set(_spine_forms_base):
                     # At least one 703 is declared; ensure all three so
@@ -2003,6 +2029,16 @@ def generate_rfq_package(rid):
                     "name": "CCHCS / CDCR",
                     "required_forms": list(_req_forms_raw),
                 }
+                _forms_source = (
+                    "spine_contract" if _spine_contract is not None
+                    else "spine_forms_fallback"
+                )
+                log.info(
+                    "GENERATE %s: J1-2 CCHCS form set resolved from %s "
+                    "(%d forms): %s",
+                    rid, _forms_source, len(_req_forms_raw),
+                    ", ".join(sorted(_req_forms_raw)),
+                )
                 t.step(
                     f"J1-2: CCHCS form set from Spine contract "
                     f"({len(_req_forms_raw)} forms): "

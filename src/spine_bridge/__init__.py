@@ -18,6 +18,7 @@ from src.spine_bridge.ingest import (
     IngestResult,
     NotCchcsError,
     TaxResolver,
+    get_cchcs_required_forms,
     ingest_email_contract,
     synthesize_cchcs_email_contract,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "IngestResult",
     "NotCchcsError",
     "TaxResolver",
+    "get_cchcs_required_forms",
     "ingest_email_contract",
     "synthesize_cchcs_email_contract",
     "OracleLineSuggestion",

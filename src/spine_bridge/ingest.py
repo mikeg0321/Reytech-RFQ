@@ -536,6 +536,45 @@ def _build_email_contract(
 # ──────────────────────────────────────────────────────────────────────
 
 
+def get_cchcs_required_forms(rfq_row: dict) -> list[str]:
+    """Return the CCHCS required form list from a legacy RFQ row.
+
+    J1-5a: this is the FORM-SET-ONLY resolver — it does NOT need a
+    working tax resolver or valid line items, so it is resilient to both
+    failure cases that blocked J1-5:
+      (a) CDTFA tax resolver returns None (transient outage), and
+      (b) empty / blank-description line_items (Pydantic ValidationError).
+
+    The form set does not depend on tax rate or line items; it depends
+    only on the buyer's solicitation metadata (which 703 revision, etc.).
+    At generate time, this is read from ``rfq_row.get("required_forms")``
+    if present and all codes are recognized, falling back to the canonical
+    CCHCS default set.
+
+    Callers use this when ``synthesize_cchcs_email_contract`` raises for
+    a *known-CCHCS* RFQ (tax outage or empty items) so they can still
+    emit the correct CCHCS form set rather than silently falling back to
+    the legacy ``DEFAULT_AGENCY_CONFIGS["cchcs"]`` path (which J1-5 will
+    delete).
+
+    Args:
+        rfq_row: The legacy RFQ dict from ``load_rfqs()[rfq_id]``.
+
+    Returns:
+        List of validated form codes for CCHCS (at least the four
+        canonical defaults).
+    """
+    from src.spine.email_contract import ALL_FORM_CODES, CCHCS_DEFAULT_REQUIRED_FORMS
+    raw = rfq_row.get("required_forms")
+    if (
+        isinstance(raw, list)
+        and raw
+        and all(isinstance(f, str) and f in ALL_FORM_CODES for f in raw)
+    ):
+        return list(raw)
+    return list(CCHCS_DEFAULT_REQUIRED_FORMS)
+
+
 class NotCchcsError(ValueError):
     """Raised by synthesize_cchcs_email_contract when the RFQ row is not
     a CCHCS quote.
