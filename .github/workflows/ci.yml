@@ -59,8 +59,12 @@ jobs:
             echo "→ workflow_dispatch: full CI"
           fi
 
-          # PRs with full-ci label get full CI
-          if echo "$LABELS" | grep -q '"name":"full-ci"'; then
+          # PRs with full-ci label get full CI.
+          # NOTE: toJson(labels) is pretty-printed ("name": "full-ci" with a
+          # space after the colon), so match the label name tolerant of
+          # whitespace rather than the old compact '"name":"full-ci"' which
+          # never matched and silently dropped the label.
+          if echo "$LABELS" | grep -Eq '"name":[[:space:]]*"full-ci"'; then
             RUN_FULL="true"
             echo "→ full-ci label present: full CI"
           fi
