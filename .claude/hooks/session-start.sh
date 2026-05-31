@@ -13,12 +13,24 @@
 # session's default `python`, so `python -m pytest tests/...` Just Works.
 # Container state is cached after the hook completes, so the slow first run
 # (full pip install) only happens once per environment.
+#
+# Runs ASYNC: the session starts immediately while the venv builds in the
+# background, so you are not blocked on the first (uncached) pip install.
+# Trade-off — a race window exists: a command issued in the first ~seconds of
+# a *fresh* container may run before deps finish installing (or before
+# CLAUDE_ENV_FILE's PATH export is applied), and would hit "No module named
+# flask". Cached resumes (~2.4s) are effectively race-free. If you'd rather
+# trade startup latency for a hard guarantee, drop the async line below to
+# make it synchronous again.
 set -euo pipefail
 
 # Web-only. Local sessions already have the developer's own environment.
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
+
+# Async: emit the directive first, then keep working in the background.
+echo '{"async": true, "asyncTimeout": 300000}'
 
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
