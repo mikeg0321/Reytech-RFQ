@@ -1960,10 +1960,95 @@ def generate_rfq_package(rid):
         
         # ── Match agency FIRST — determines which forms to generate ──
         try:
-            from src.core.agency_config import match_agency
-            _agency_key, _agency_cfg = match_agency(r)
-            _req_forms_raw = list(_agency_cfg.get("required_forms", []))
-            _opt_forms = set(_agency_cfg.get("optional_forms", []))
+            # J1-2: CCHCS RFQs read their form set from the Spine contract.
+            # Non-CCHCS and synthesis failures fall through to the legacy
+            # match_agency path (unchanged).  DEFAULT_AGENCY_CONFIGS["cchcs"]
+            # is NOT read on the CCHCS path after this block.
+            _spine_contract = None
+            _cchcs_forms_fallback = None  # J1-5a: set when synthesis fails for CCHCS
+            try:
+                from src.spine_bridge import (
+                    synthesize_cchcs_email_contract,
+                    NotCchcsError,
+                    get_cchcs_required_forms,
+                )
+                from src.spine_bridge.shadow_ingest import _make_tax_resolver
+                _spine_contract = synthesize_cchcs_email_contract(
+                    rfq_row=r, rfq_id=rid,
+                    tax_resolver=_make_tax_resolver(),
+                )
+            except NotCchcsError:
+                pass  # non-CCHCS — fall through to match_agency below (correct/quiet)
+            except Exception as _sce:
+                # J1-5a: synthesis failed for a CCHCS RFQ (tax outage or
+                # empty items).  Log at WARNING so the fallback is visible in
+                # prod logs — this is NOT a silent degradation.  Still resolve
+                # the CCHCS form set via get_cchcs_required_forms(), which does
+                # NOT need a working tax resolver or valid line items.
+                _agency_raw_for_log = (r.get("agency") or r.get("agency_key") or "")
+                if str(_agency_raw_for_log).strip().upper() in ("CCHCS", "CCHCS-ACQ"):
+                    log.warning(
+                        "GENERATE %s: J1-5a CCHCS synthesis failed (tax outage "
+                        "or empty items) — using form-set fallback, NOT legacy "
+                        "config. Error: %s",
+                        rid, _sce,
+                    )
+                    _cchcs_forms_fallback = get_cchcs_required_forms(r)
+                else:
+                    log.debug(
+                        "GENERATE %s: J1-2 Spine contract synthesis failed "
+                        "(non-CCHCS path), falling back to match_agency: %s",
+                        rid, _sce,
+                    )
+                _spine_contract = None
+
+            if _spine_contract is not None or _cchcs_forms_fallback is not None:
+                # Use full contract forms if synthesis succeeded, otherwise
+                # use the tax/items-independent fallback (J1-5a).
+                _spine_forms_base = (
+                    list(_spine_contract.required_forms)
+                    if _spine_contract is not None
+                    else list(_cchcs_forms_fallback)
+                )
+                # Expand 703 variants: the rev-aware filter below (near
+                # `_present_703`) narrows to the buyer's attached revision;
+                # it needs all three in the raw list to pick from.
+                # This mirrors what DEFAULT_AGENCY_CONFIGS["cchcs"] did —
+                # no behaviour change, different (authoritative) source.
+                _703_variants = {"703a", "703b", "703c"}
+                if _703_variants & set(_spine_forms_base):
+                    # At least one 703 is declared; ensure all three so
+                    # the rev-aware filter can select the right revision.
+                    for _v703 in ("703a", "703b", "703c"):
+                        if _v703 not in _spine_forms_base:
+                            _spine_forms_base.append(_v703)
+                _req_forms_raw = _spine_forms_base
+                _opt_forms = set()   # Spine contract v1 carries no optional_forms
+                _agency_key = "cchcs"
+                _agency_cfg = {
+                    "name": "CCHCS / CDCR",
+                    "required_forms": list(_req_forms_raw),
+                }
+                _forms_source = (
+                    "spine_contract" if _spine_contract is not None
+                    else "spine_forms_fallback"
+                )
+                log.info(
+                    "GENERATE %s: J1-2 CCHCS form set resolved from %s "
+                    "(%d forms): %s",
+                    rid, _forms_source, len(_req_forms_raw),
+                    ", ".join(sorted(_req_forms_raw)),
+                )
+                t.step(
+                    f"J1-2: CCHCS form set from Spine contract "
+                    f"({len(_req_forms_raw)} forms): "
+                    f"{', '.join(sorted(_req_forms_raw))}"
+                )
+            else:
+                from src.core.agency_config import match_agency
+                _agency_key, _agency_cfg = match_agency(r)
+                _req_forms_raw = list(_agency_cfg.get("required_forms", []))
+                _opt_forms = set(_agency_cfg.get("optional_forms", []))
             # Narrow by classifier shape + uploaded templates: an LPA /
             # generic / email-only RFQ from a packet-agency must not require
             # 703B/704B/bidpkg the buyer never sent. Unknown shape falls back
@@ -2777,20 +2862,32 @@ def generate_rfq_package(rid):
                 t.step("Drug-Free STD 21 generated")
             except Exception as e:
                 t.warn("Drug-Free failed", error=str(e))
-        # GenAI 708 (a.k.a. AMS 708 (same form), two id-spaces: the catalog/
-        # email-detection/std1000-swap use "ams708", the generator + template
-        # use "genai_708". form_registry maps ams708 -> fill_genai_708. Fire on
-        # EITHER so an ams708 required-forms entry is never silently dropped.)
-        if _include("genai_708") or _include("ams708"):
-            _genai_tmpl = os.path.join(DATA_DIR, "templates", "genai_708_blank.pdf")
-            if os.path.exists(_genai_tmpl):
-                try:
-                    from src.forms.reytech_filler_v4 import fill_genai_708
-                    fill_genai_708(_genai_tmpl, r, CONFIG, f"{out_dir}/{sol}_GenAI708_Reytech.pdf")
+        # GenAI 708 (a.k.a. AMS 708 — same form, two id-spaces: the catalog/
+        # email-detection/std1000-swap use "ams708", the generator/filler use
+        # "genai_708"). Fire on EITHER so an ams708 entry is never dropped.
+        # The 708 lives INSIDE the bid package (fill_bid_package fills it), so
+        # only emit a STANDALONE copy when the bid package is NOT included —
+        # mirroring the sellers_permit / calrecycle74 guard. Otherwise it would
+        # double-emit. The standalone is derived from the bid-package template
+        # (no separate blank exists); on failure we surface a visible error so
+        # an ams708 request is never SILENTLY dropped.
+        if (_include("genai_708") or _include("ams708")) and not _bidpkg_included:
+            try:
+                from src.forms.fill_ams708 import fill_ams708_standalone
+                _708_out = f"{out_dir}/{sol}_GenAI708_Reytech.pdf"
+                if fill_ams708_standalone(r, CONFIG, _708_out):
                     output_files.append(f"{sol}_GenAI708_Reytech.pdf")
-                    t.step("GenAI 708 filled")
-                except Exception as e:
-                    errors.append(f"GenAI 708: {e}")
+                    t.step("AMS 708 filled (standalone)")
+                else:
+                    errors.append(
+                        "AMS 708 required standalone but could not be rendered "
+                        "(source template missing) — include the bid package, "
+                        "which carries the 708."
+                    )
+            except Exception as e:
+                errors.append(f"GenAI 708: {e}")
+        elif (_include("genai_708") or _include("ams708")) and _bidpkg_included:
+            t.step("AMS 708 skipped — already inside bid package")
 
         # STD 205 from template (prefer over ReportLab version)
         if _include("std205"):
@@ -3676,118 +3773,6 @@ def generate_rfq_package(rid):
         log.debug('suppressed in _form_sort_key: %s', _e)
 
     return redirect(f"/rfq/{rid}/review-package")
-
-
-@bp.route("/rfq/<rid>/generate", methods=["POST"])
-@auth_required
-@safe_page
-def generate(rid):
-    _bad = _validate_rid(rid)
-    if _bad: return _bad
-    log.info("Generate bid package for RFQ %s", rid)
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r: return redirect("/")
-    
-    # Update pricing from form
-    for i, item in enumerate(r["line_items"]):
-        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit"), ("markup", "markup_pct")]:
-            v = request.form.get(f"{field}_{i}")
-            if v:
-                try: item[key] = float(v)
-                except Exception as e:
-
-                    log.debug("Suppressed: %s", e)
-
-    # Orchestrator observer (flag-gated, default off) — see PR-1/PR-2 notes
-    # on `run_legacy_package`. Logs-only here because this route doesn't
-    # maintain a Trace instance.
-    try:
-        from src.core.quote_orchestrator import QuoteOrchestrator as _QO
-        _obs = _QO(persist_audit=False).run_legacy_package(
-            rid, dict(request.form), target_stage="qa_pass",
-        )
-        if _obs.blockers:
-            log.info("orchestrator observer blockers for %s: %s", rid, _obs.blockers)
-        if _obs.ok and _obs.quote is not None:
-            log.info("orchestrator observer advanced %s to %s (%d profiles)",
-                     rid, _obs.final_stage, len(_obs.profiles_used))
-    except Exception as _oe:
-        log.debug("orchestrator observer suppressed in generate(): %s", _oe)
-
-    r["sign_date"] = get_pst_date()
-    sol = r["solicitation_number"]
-    out = os.path.join(OUTPUT_DIR, sol)
-    os.makedirs(out, exist_ok=True)
-    
-    try:
-        t = r.get("templates", {})
-        output_files = []
-        
-        if "703b" in t and os.path.exists(t["703b"]):
-            fill_703b(t["703b"], r, CONFIG, f"{out}/{sol}_703B_Reytech.pdf")
-            output_files.append(f"{sol}_703B_Reytech.pdf")
-        
-        # Phase 0: preserve manual-submitted 704B (see docs/DESIGN_704_REBUILD.md)
-        _manual_704b = r.get("manual_704b")
-        _manual_704b_path = f"{out}/{sol}_704B_Reytech.pdf"
-        if _manual_704b and os.path.exists(_manual_704b_path):
-            output_files.append(f"{sol}_704B_Reytech.pdf")
-        elif "704b" in t and os.path.exists(t["704b"]):
-            fill_704b(t["704b"], r, CONFIG, f"{out}/{sol}_704B_Reytech.pdf")
-            output_files.append(f"{sol}_704B_Reytech.pdf")
-        
-        if "bidpkg" in t and os.path.exists(t["bidpkg"]):
-            fill_bid_package(t["bidpkg"], r, CONFIG, f"{out}/{sol}_BidPackage_Reytech.pdf")
-            output_files.append(f"{sol}_BidPackage_Reytech.pdf")
-        
-        if not output_files:
-            flash("No template PDFs found — upload the original RFQ PDFs first", "error")
-            return redirect(f"/rfq/{rid}")
-        
-        _transition_status(r, "generated", actor="system", notes="Bid package filled")
-
-        # Notify: package ready to review
-        try:
-            from src.agents.notify_agent import notify_package_ready
-            notify_package_ready(r, {})
-        except Exception as _e:
-            log.debug('suppressed in generate: %s', _e)
-
-        r["output_files"] = output_files
-        r["generated_at"] = datetime.now().isoformat()
-        
-        # Note which forms are missing
-        missing = []
-        if "703b" not in t: missing.append("703B")
-        if "704b" not in t: missing.append("704B")
-        if "bidpkg" not in t: missing.append("Bid Package")
-        
-        # Create draft email
-        sender = EmailSender(CONFIG.get("email", {}))
-        output_paths = [f"{out}/{f}" for f in r["output_files"]]
-        r["draft_email"] = sender.create_draft_email(r, output_paths)
-        
-        # Save SCPRS prices
-        save_prices_from_rfq(r)
-
-        from src.api.dashboard import _save_single_rfq
-        _save_single_rfq(rid, r)
-        try:
-            from src.core.dal import update_rfq_status as _dal_ur
-            _dal_ur(rid, "generated")
-        except Exception as _e:
-            log.debug('suppressed in generate: %s', _e)
-        msg = f"Generated {len(output_files)} form(s) for #{sol}"
-        if missing:
-            msg += f" — missing: {', '.join(missing)}"
-        else:
-            msg += " — draft email ready"
-        flash(msg, "success" if not missing else "info")
-    except Exception as e:
-        flash(f"Error: {e}", "error")
-    
-    return redirect(f"/rfq/{rid}")
 
 
 @bp.route("/rfq/<rid>/generate-quote")

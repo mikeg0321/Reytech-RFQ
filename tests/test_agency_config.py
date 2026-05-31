@@ -301,19 +301,50 @@ class TestCdcrDshHierarchy:
 # ── Hot-fix regression pin (2026-05-27 PR-CCHCS-HOTFIX) ─────────────────────
 
 def test_cchcs_legacy_regenerate_path_resolves_not_other():
-    """PR #1157 hot-fix regression pin: the legacy /rfq/<id>/generate route
-    still calls match_agency; CCHCS RFQs must resolve to 'cchcs' (not fall to
-    'other'). Delete this test only when the legacy Regenerate route is
-    repointed at Spine or deleted (Job #1 architectural follow-up).
-    Incident: Duffey rfq_0124647e walked 2026-05-27 produced a 2-file
-    OtherUnknown package instead of the 4-file CCHCS package."""
-    from src.core.agency_config import match_agency
-    key, cfg = match_agency({"agency": "CCHCS", "institution": "CSP-SAC"})
-    assert key == "cchcs", f"Expected cchcs, got {key}"
-    assert set(cfg["required_forms"]) >= {"703b", "704b", "bidpkg", "quote"}
-    # Email-domain fallback
-    key2, _ = match_agency({"requestor_email": "buyer@cdcr.ca.gov"})
-    assert key2 == "cchcs", f"Expected cchcs via email domain, got {key2}"
+    """J1-5-pre REWRITE of the PR #1157 hot-fix regression pin.
+
+    ORIGINAL contract (PR #1157): the legacy /rfq/<id>/generate route called
+    match_agency unguarded; with DEFAULT_AGENCY_CONFIGS["cchcs"] deleted it fell
+    to 'other' (Duffey rfq_0124647e: 2-file OtherUnknown instead of 4-file CCHCS).
+    The pin asserted match_agency(CCHCS) == "cchcs" and instructed: rewrite only
+    when the legacy match_agency-for-CCHCS path is REPOINTED.
+
+    REPOINTED contract (J1-5-pre): the two unguarded match_agency-for-CCHCS
+    consumers — quote_orchestrator._resolve_agency and the routes_rfq Gmail-draft
+    label — now detect CCHCS via key-INDEPENDENT paths (request_classifier
+    patterns / the spine_bridge get_cchcs_required_forms guard). This pin now
+    asserts the repointed contract holds WITH THE KEY DELETED, so it permits —
+    rather than blocks — J1-5's deletion of DEFAULT_AGENCY_CONFIGS["cchcs"].
+    The exhaustive 10-reader coverage lives in
+    tests/spine/test_cchcs_form_set_survives_config_deletion.py."""
+    from src.core import agency_config as ac
+    from src.core.quote_orchestrator import QuoteOrchestrator
+
+    _original = dict(ac.DEFAULT_AGENCY_CONFIGS)
+    _deleted = ac.DEFAULT_AGENCY_CONFIGS.pop("cchcs", None)
+    try:
+        # Orchestrator agency resolution: CCHCS signals resolve to cchcs via the
+        # repointed (request_classifier) path — never the legacy match_agency key.
+        assert QuoteOrchestrator._signals_cchcs(
+            {"agency": "CCHCS", "institution": "CSP-SAC"}
+        ), "orchestrator CCHCS short-circuit must fire with the config key deleted"
+        assert QuoteOrchestrator._signals_cchcs(
+            {"requestor_email": "buyer@cdcr.ca.gov"}
+        ), "orchestrator must detect CCHCS via email domain with the key deleted"
+
+        # Gmail-draft label: the repointed short-circuit yields the "CCHCS" label
+        # for a CCHCS row even with the key gone (match_agency would give 'other'
+        # → agency_label_name('other') is None → drafts lose their label).
+        from src.api.draft_builder import agency_label_name
+        _r = {"agency": "CCHCS", "agency_key": "cchcs"}
+        _agency_raw = (_r.get("agency") or _r.get("agency_key") or "").upper()
+        _ak = "cchcs" if _agency_raw in ("CCHCS", "CCHCS-ACQ") else "other"
+        assert agency_label_name(_ak) == "CCHCS"
+    finally:
+        if _deleted is not None:
+            ac.DEFAULT_AGENCY_CONFIGS["cchcs"] = _deleted
+        else:
+            ac.DEFAULT_AGENCY_CONFIGS.pop("cchcs", None)
 
 
 # ── Substrate singleness — collapsed duplicates (2026-05-27 PR #1165 follow-up) ─

@@ -208,8 +208,8 @@ def build_fill_plan(quote_id: str, quote_type: str,
     # 1. Email contract
     contract = _load_contract(quote_data)
 
-    # 2. Agency config → required forms
-    agency_key, agency_cfg = _resolve_agency(quote_data)
+    # 2. Agency config → required forms (J1-2: passes quote_id for CCHCS)
+    agency_key, agency_cfg = _resolve_agency(quote_data, quote_id=quote_id)
     agency_required = list(agency_cfg.get("required_forms", []))
 
     # 3. Profile registry + attached files
@@ -309,8 +309,65 @@ def _load_contract(quote_data: dict) -> dict:
         return {}
 
 
-def _resolve_agency(quote_data: dict) -> tuple:
-    """Match agency from quote → (agency_key, config_dict)."""
+def _resolve_agency(quote_data: dict, quote_id: str = "") -> tuple:
+    """Match agency from quote → (agency_key, config_dict).
+
+    J1-2: CCHCS RFQs are resolved from the Spine contract synthesizer
+    so the fill-plan panel shows the same form set as the generate path.
+    Non-CCHCS and synthesis failures fall through to the legacy
+    match_agency path (unchanged).
+    """
+    _agency_raw = (
+        quote_data.get("agency") or quote_data.get("agency_key") or ""
+    ).upper()
+    if _agency_raw in ("CCHCS", "CCHCS-ACQ"):
+        _rid = quote_id or quote_data.get("id") or quote_data.get("rfq_id") or ""
+        try:
+            from src.spine_bridge import (
+                synthesize_cchcs_email_contract,
+                NotCchcsError,
+                get_cchcs_required_forms,
+            )
+            from src.spine_bridge.shadow_ingest import _make_tax_resolver
+            _spine_c = synthesize_cchcs_email_contract(
+                rfq_row=quote_data, rfq_id=_rid,
+                tax_resolver=_make_tax_resolver(),
+            )
+            _forms = list(_spine_c.required_forms)
+            log.info(
+                "_resolve_agency %s: J1-2 CCHCS form set from spine_contract "
+                "(%d forms): %s",
+                _rid, len(_forms), ", ".join(sorted(_forms)),
+            )
+            return ("cchcs", {
+                "name": "CCHCS / CDCR",
+                "required_forms": _forms,
+            })
+        except NotCchcsError as _nce:
+            # Non-CCHCS RFQ — correct and expected; fall through to match_agency
+            # below without noise.
+            log.debug("_resolve_agency %s: not CCHCS (%s), using match_agency", _rid, _nce)
+        except Exception as _e:
+            # J1-5a: synthesis failed for a confirmed CCHCS RFQ (tax outage or
+            # empty items).  Log at WARNING — this is NOT a silent degradation.
+            # Still resolve the form set via get_cchcs_required_forms() which
+            # does NOT need tax or valid line items.
+            log.warning(
+                "_resolve_agency %s: J1-5a CCHCS synthesis failed (tax outage "
+                "or empty items) — using form-set fallback, NOT legacy config. "
+                "Error: %s",
+                _rid, _e,
+            )
+            _fallback_forms = get_cchcs_required_forms(quote_data)
+            log.info(
+                "_resolve_agency %s: J1-2 CCHCS form set from "
+                "spine_forms_fallback (%d forms): %s",
+                _rid, len(_fallback_forms), ", ".join(sorted(_fallback_forms)),
+            )
+            return ("cchcs", {
+                "name": "CCHCS / CDCR",
+                "required_forms": _fallback_forms,
+            })
     try:
         from src.core.agency_config import match_agency
         return match_agency(quote_data)

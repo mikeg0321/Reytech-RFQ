@@ -911,7 +911,37 @@ def generate_quote(
     # ── Setup ──────────────────────────────────────────────────────────────────
     if not agency:
         agency = _detect_agency(quote_data)
-    cfg = AGENCY_CONFIGS.get(agency, AGENCY_CONFIGS["DEFAULT"])
+    # J1-4 repoint: AGENCY_CONFIGS["CCHCS"] was deleted (PR-Job1-A).  For
+    # CCHCS quotes, source the canonical bill-to from the Spine-native
+    # constants module instead of falling back to DEFAULT (which carries an
+    # empty bill_to_name, producing a "Bill to: " block with no name).
+    # All other fields (show_bill_to, show_permit, default_tax, default_terms)
+    # were identical to the other agency entries — reconstruct them inline
+    # so no new substrate is created (§0 LAW 4 scope discipline).
+    if agency == "CCHCS":
+        try:
+            from src.spine.agency_constants import cchcs_bill_to_tuple
+            _bt_name, _bt_email, _bt_addr_lines = cchcs_bill_to_tuple()
+            # Reconstruct the bill_to_lines that the old AGENCY_CONFIGS entry
+            # carried: address lines first, then the AP email as last line.
+            _bt_lines = list(_bt_addr_lines) + [_bt_email]
+            cfg = {
+                "full_name": "California Correctional Health Care Services",
+                "show_bill_to": True,
+                "show_permit": True,
+                "bill_to_name": _bt_name,
+                "bill_to_lines": _bt_lines,
+                "default_tax": 0.0725,
+                "default_terms": "Net 45",
+            }
+        except Exception as _cchcs_cfg_err:
+            log.warning(
+                "J1-4: CCHCS Spine bill-to lookup failed, using DEFAULT: %s",
+                _cchcs_cfg_err,
+            )
+            cfg = AGENCY_CONFIGS["DEFAULT"]
+    else:
+        cfg = AGENCY_CONFIGS.get(agency, AGENCY_CONFIGS["DEFAULT"])
 
     _allocated_number = False
     if not quote_number:

@@ -22,8 +22,11 @@ from dataclasses import FrozenInstanceError, fields, is_dataclass
 import pytest
 
 from src.spine.agency_constants import (
+    CALVET_CANONICAL_BILL_TO,
     CCHCS_CANONICAL_BILL_TO,
+    CalVetCanonicalBillTo,
     CchcsCanonicalBillTo,
+    calvet_bill_to_tuple,
     cchcs_bill_to_tuple,
 )
 
@@ -105,6 +108,85 @@ def test_cchcs_bill_to_tuple_address_is_tuple_of_strings():
     seam joins them with '\\n' to produce the single-string
     `bill_to_address` the Spine model holds."""
     _, _, address_lines = cchcs_bill_to_tuple()
+    assert isinstance(address_lines, tuple)
+    assert all(isinstance(line, str) for line in address_lines)
+    assert len(address_lines) >= 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# CalVet — §0 Job #2 (J2-1). Pin the Spine-native CalVet canonical
+# bill-to (CDVA central Accounts Payable). Values sourced byte-for-byte
+# from `src/forms/quote_generator.py::AGENCY_CONFIGS["CalVet"]` so future
+# drift breaks loudly — the CalVet bill-to ships on every CalVet quote.
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_calvet_canonical_bill_to_name_is_cdva():
+    """The bill-to name is the full California Department of Veterans
+    Affairs string — CalVet bills to its own central AP, not a parent
+    department (contrast CCHCS → CDCR)."""
+    assert (
+        CALVET_CANONICAL_BILL_TO.name
+        == "California Department of Veterans Affairs"
+    )
+
+
+def test_calvet_canonical_bill_to_email_is_cdva_ap_inbox():
+    """The CDVA Accounts Payable inbox — required on the Reytech Quote
+    PDF for CalVet. Hoisted out of the legacy first bill_to_line."""
+    assert CALVET_CANONICAL_BILL_TO.email == "APinvoices@calvet.ca.gov"
+
+
+def test_calvet_canonical_bill_to_address_lines_are_cdva_o_street():
+    """3-line CDVA Accounts Payable address — must match legacy
+    AGENCY_CONFIGS["CalVet"]["bill_to_lines"] byte-for-byte (minus the
+    email line which is carried in .email). Note the literal escaped
+    double-quotes around the "O" Street name."""
+    assert CALVET_CANONICAL_BILL_TO.address_lines == (
+        "1227 \"O\" Street, Room 403",
+        "Sacramento, CA 95814",
+        "United States",
+    )
+
+
+def test_calvet_canonical_bill_to_is_frozen_dataclass():
+    """Instances must be immutable — §0 LAW 6 invariant. Frozen=True is
+    enforced at construction; this test pins it so a future refactor that
+    drops frozen= breaks loudly."""
+    assert is_dataclass(CalVetCanonicalBillTo)
+    with pytest.raises(FrozenInstanceError):
+        CALVET_CANONICAL_BILL_TO.name = "tampered"  # type: ignore[misc]
+
+
+def test_calvet_canonical_bill_to_shape_pinned():
+    """Exactly three fields: name, email, address_lines — identical shape
+    to CchcsCanonicalBillTo so the shared ingest seam treats both the
+    same way."""
+    field_names = {f.name for f in fields(CalVetCanonicalBillTo)}
+    assert field_names == {"name", "email", "address_lines"}
+
+
+def test_calvet_address_lines_is_a_tuple_not_a_list():
+    """A frozen dataclass with a list default is hashability-broken and
+    mutable in practice; we declared tuple intentionally. Pin it."""
+    assert isinstance(CALVET_CANONICAL_BILL_TO.address_lines, tuple)
+
+
+def test_calvet_bill_to_tuple_returns_three_part_shape():
+    """`calvet_bill_to_tuple()` is the seam `synthesize_calvet_email_contract`
+    (J2-3) will use — it must return (name, email, address_lines) in that
+    order, mirroring `cchcs_bill_to_tuple()`."""
+    name, email, address_lines = calvet_bill_to_tuple()
+    assert name == CALVET_CANONICAL_BILL_TO.name
+    assert email == CALVET_CANONICAL_BILL_TO.email
+    assert address_lines == CALVET_CANONICAL_BILL_TO.address_lines
+
+
+def test_calvet_bill_to_tuple_address_is_tuple_of_strings():
+    """The 3rd element is a tuple of address line strings — the ingest
+    seam joins them with '\\n' to produce the single-string
+    `bill_to_address` the Spine model holds."""
+    _, _, address_lines = calvet_bill_to_tuple()
     assert isinstance(address_lines, tuple)
     assert all(isinstance(line, str) for line in address_lines)
     assert len(address_lines) >= 1

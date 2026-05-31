@@ -604,23 +604,53 @@ def classify_request(
         result.agency = "other"
 
     # ── Resolve required_forms from agency_config ──
+    # J1-5b reader 5: CCHCS form set sourced from Spine helper so the
+    # classifier's required_forms field (which get_forms_required() reads
+    # as the PRIMARY source) is correct after DEFAULT_AGENCY_CONFIGS["cchcs"]
+    # is deleted. filter_required_forms_by_shape is still applied to the
+    # Spine-sourced set so shape narrowing works for all CCHCS shapes.
+    # Non-CCHCS agencies use the unchanged DEFAULT_AGENCY_CONFIGS path.
     try:
-        from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
-        cfg = DEFAULT_AGENCY_CONFIGS.get(result.agency, {})
-        result.agency_name = cfg.get("name", "")
-        raw_required = list(cfg.get("required_forms", []))
-        # Narrow by classifier shape: an LPA / generic / email-only RFQ from a
-        # packet-agency must not require 703B/704B/bidpkg that the buyer never
-        # sent. See BUYER_TEMPLATE_FORMS + _SHAPE_BUYER_TEMPLATE_REQUIREMENTS.
-        result.required_forms = filter_required_forms_by_shape(
-            raw_required, result.shape
-        )
-        result.optional_forms = list(cfg.get("optional_forms", []))
-        if len(result.required_forms) != len(raw_required):
-            _dropped = set(raw_required) - set(result.required_forms)
-            result.reasons.append(
-                f"required_forms: dropped {sorted(_dropped)} — not applicable to shape={result.shape}"
+        if result.agency == "cchcs":
+            from src.spine_bridge import get_cchcs_required_forms
+            result.agency_name = "CCHCS / CDCR"
+            # Pass minimal row so get_cchcs_required_forms returns
+            # CCHCS_DEFAULT_REQUIRED_FORMS (the 4-form canonical set).
+            # The classifier hasn't yet loaded a full rfq_row, so we
+            # synthesize one — this is correct: the classifier's job is
+            # to emit the form set that applies to a CCHCS shape, and
+            # the 4-form default is the right answer when no persisted
+            # required_forms override is available.
+            raw_required = get_cchcs_required_forms({"agency": "CCHCS"})
+            result.required_forms = filter_required_forms_by_shape(
+                raw_required, result.shape
             )
+            result.optional_forms = [
+                "dvbe843", "bidder_decl", "calrecycle74",
+                "sellers_permit", "std204", "std1000", "ams708",
+            ]
+            if len(result.required_forms) != len(raw_required):
+                _dropped = set(raw_required) - set(result.required_forms)
+                result.reasons.append(
+                    f"required_forms: dropped {sorted(_dropped)} — not applicable to shape={result.shape}"
+                )
+        else:
+            from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
+            cfg = DEFAULT_AGENCY_CONFIGS.get(result.agency, {})
+            result.agency_name = cfg.get("name", "")
+            raw_required = list(cfg.get("required_forms", []))
+            # Narrow by classifier shape: an LPA / generic / email-only RFQ from a
+            # packet-agency must not require 703B/704B/bidpkg that the buyer never
+            # sent. See BUYER_TEMPLATE_FORMS + _SHAPE_BUYER_TEMPLATE_REQUIREMENTS.
+            result.required_forms = filter_required_forms_by_shape(
+                raw_required, result.shape
+            )
+            result.optional_forms = list(cfg.get("optional_forms", []))
+            if len(result.required_forms) != len(raw_required):
+                _dropped = set(raw_required) - set(result.required_forms)
+                result.reasons.append(
+                    f"required_forms: dropped {sorted(_dropped)} — not applicable to shape={result.shape}"
+                )
     except Exception as e:
         log.debug("agency_config lookup failed: %s", e)
 

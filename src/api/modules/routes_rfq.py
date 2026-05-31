@@ -2619,22 +2619,35 @@ def detail(rid):
 
     log.info("RFQ detail render: rid=%s, line_items=%d", rid, len(_items_list))
 
-    # Pass agency required_forms so checkboxes default correctly
+    # Pass agency required_forms so checkboxes default correctly.
+    # J1-5b reader 1: CCHCS form set sourced from Spine helper so the
+    # checkbox defaults survive DEFAULT_AGENCY_CONFIGS["cchcs"] deletion.
     _agency_req = set()
     _agency_key = "other"
     _agency_name = "Unknown"
     _agency_matched_by = ""
     try:
-        from src.core.agency_config import match_agency
-        _ak, _ac = match_agency(r)
-        _agency_key = _ak
-        _agency_name = _ac.get("name", _ak)
-        _agency_matched_by = _ac.get("matched_by", "")
-        _agency_req = set(_ac.get("required_forms", []))
-        # Store matched agency on RFQ for persistence
-        if _ak != "other" and r.get("agency_key") != _ak:
-            r["agency_key"] = _ak
-            r["agency_name_resolved"] = _agency_name
+        _r_agency_raw = (r.get("agency") or r.get("agency_key") or "").upper()
+        if _r_agency_raw in ("CCHCS", "CCHCS-ACQ"):
+            # CCHCS: form set from Spine helper — immune to config-key deletion.
+            from src.spine_bridge import get_cchcs_required_forms
+            _agency_key = "cchcs"
+            _agency_name = "CCHCS / CDCR"
+            _agency_req = set(get_cchcs_required_forms(r))
+            if r.get("agency_key") != _agency_key:
+                r["agency_key"] = _agency_key
+                r["agency_name_resolved"] = _agency_name
+        else:
+            from src.core.agency_config import match_agency
+            _ak, _ac = match_agency(r)
+            _agency_key = _ak
+            _agency_name = _ac.get("name", _ak)
+            _agency_matched_by = _ac.get("matched_by", "")
+            _agency_req = set(_ac.get("required_forms", []))
+            # Store matched agency on RFQ for persistence
+            if _ak != "other" and r.get("agency_key") != _ak:
+                r["agency_key"] = _ak
+                r["agency_name_resolved"] = _agency_name
     except Exception as _e:
         log.debug('suppressed in detail: %s', _e)
 
@@ -2744,17 +2757,31 @@ def review_package(rid):
         if output_files:
             try:
                 from src.core.dal import create_package_manifest
-                from src.core.agency_config import match_agency
                 from src.forms.package_form_classifier import classify_package_filename
-                _ak, _ac = match_agency(r)
+                # J1-5b reader 2 (HIGH STAKES — manifest backfill): CCHCS form
+                # set sourced from Spine helper so the compliance gate sees the
+                # correct 4-6 form required set, not the "other" 3-form set that
+                # match_agency returns after DEFAULT_AGENCY_CONFIGS["cchcs"] is
+                # deleted.
+                _r2_agency_raw = (r.get("agency") or r.get("agency_key") or "").upper()
+                if _r2_agency_raw in ("CCHCS", "CCHCS-ACQ"):
+                    from src.spine_bridge import get_cchcs_required_forms
+                    _ak = "cchcs"
+                    _agency_name_r2 = "CCHCS / CDCR"
+                    _required_forms_r2 = get_cchcs_required_forms(r)
+                else:
+                    from src.core.agency_config import match_agency
+                    _ak, _ac = match_agency(r)
+                    _agency_name_r2 = _ac.get("name", "")
+                    _required_forms_r2 = _ac.get("required_forms", [])
                 _gen_forms = [
                     {"form_id": classify_package_filename(_of), "filename": _of}
                     for _of in output_files
                 ]
 
                 _mid = create_package_manifest(
-                    rfq_id=rid, agency_key=_ak, agency_name=_ac.get("name", ""),
-                    required_forms=_ac.get("required_forms", []),
+                    rfq_id=rid, agency_key=_ak, agency_name=_agency_name_r2,
+                    required_forms=_required_forms_r2,
                     generated_forms=_gen_forms,
                     quote_number=r.get("reytech_quote_number", ""),
                     quote_total=sum(float(i.get("price_per_unit",0))*int(float(i.get("qty",1))) for i in r.get("line_items", r.get("items", [])) if i.get("price_per_unit")),
@@ -2808,11 +2835,25 @@ def review_package(rid):
     # See src/api/review_alignment.py for the rules.
     try:
         from src.api.review_alignment import compute_review_alignment
-        from src.core.agency_config import match_agency
-        try:
-            _ak2, _ac2 = match_agency(r)
-        except Exception:
-            _ak2, _ac2 = "", {}
+        # J1-5b reader 3: CCHCS form set for alignment rollup sourced from
+        # Spine helper. compute_review_alignment reads agency_cfg.required_forms
+        # and agency_cfg.name — provide the correct CCHCS values so the
+        # checklist and rollup banner show the real form set after config deletion.
+        _r3_agency_raw = (r.get("agency") or r.get("agency_key") or "").upper()
+        if _r3_agency_raw in ("CCHCS", "CCHCS-ACQ"):
+            from src.spine_bridge import get_cchcs_required_forms
+            _ak2 = "cchcs"
+            _ac2 = {
+                "required_forms": get_cchcs_required_forms(r),
+                "name": "CCHCS / CDCR",
+                "primary_response_form": "704b",
+            }
+        else:
+            from src.core.agency_config import match_agency
+            try:
+                _ak2, _ac2 = match_agency(r)
+            except Exception:
+                _ak2, _ac2 = "", {}
         _output_dir = os.path.join(DATA_DIR, "output", sol) if sol else None
         # PR-AV13: source_items reads the audit snapshot written at ingest
         # (or re-parse) by ingest_pipeline._snapshot_buyer_source_items.
@@ -3031,7 +3072,17 @@ def _api_create_draft_locked(rid):
     # Resolve agency Gmail label → labelId (best-effort; absence is silent)
     label_ids = []
     try:
-        _ak, _ = match_agency(r)
+        # CCHCS short-circuit (J1-5-pre): resolve the agency key WITHOUT
+        # match_agency so the Gmail-label path no longer depends on
+        # DEFAULT_AGENCY_CONFIGS["cchcs"] (deleted in J1-5). Same detection
+        # pattern as the J1-5b form-set readers. Without this, popping the key
+        # makes match_agency fall to "other" → agency_label_name("other")==None
+        # → CCHCS drafts silently lose their "CCHCS" Gmail label.
+        _agency_raw = (r.get("agency") or r.get("agency_key") or "").upper()
+        if _agency_raw in ("CCHCS", "CCHCS-ACQ"):
+            _ak = "cchcs"
+        else:
+            _ak, _ = match_agency(r)
         label_name = agency_label_name(_ak or "")
         if label_name:
             service = gmail_api.get_send_service()

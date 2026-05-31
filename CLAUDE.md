@@ -197,19 +197,195 @@ revision; 703C is the IT-RFQ variant.)
   the CalVet/DSH/DGS migrations: the 8 legacy writers and the shared
   files `data_layer.py` / `quote_generator.py` survive Job #1. (The
   Architect's 2026-05-21 Job #1 plan established this — do not re-litigate.)
+  **Bundled into that same deferred wave (amended 2026-05-31, LAW 7 —
+  Architect+Closer trace across J1-5a/J1-5b/J1-5-pre): the deletion of
+  `DEFAULT_AGENCY_CONFIGS["cchcs"]` (`src/core/agency_config.py`) AND the
+  repoint of the four residual CCHCS consumers of the shared
+  `match_agency()` classifier — `agency_quote_profile.py` (pricing
+  markup, via `pricing_oracle_v2.py`), `orders_link_orphans.py`,
+  `routes_v1.py`, `forms_drift_monitor.py` — plus the ~8 classification
+  pins in `tests/test_agency_config.py`. The deletion commit lands in
+  `git log` when that wave ships. Rationale in the re-scoped bullet
+  below.**
 - The `AGENCY_CONFIGS["CCHCS"]` entry (`src/forms/quote_generator.py`)
-  and the `"cchcs"` entry (`src/core/agency_config.py`) DELETED — commit
-  in `git log`. (There is no literal "CCHCS branch" in
-  `src/core/quote_contract.py`; that file is agency-agnostic — the
+  DELETED — **already satisfied** (removed in #1156; J1-4 / #1273
+  repointed the legacy `generate_quote()` CCHCS bill-to to
+  `src/spine/agency_constants.py`). (There is no literal "CCHCS branch"
+  in `src/core/quote_contract.py`; that file is agency-agnostic — the
   original wording was corrected by the 2026-05-21 plan.)
+- **The `"cchcs"` entry in `src/core/agency_config.py` — RE-ASSIGNED
+  from Job #1 to the deferred classifier-retirement wave (amended
+  2026-05-31, LAW 7 — Architect+Closer trace across
+  J1-5a/J1-5b/J1-5-pre).** The 2026-05-21 plan assumed this key was a
+  CCHCS-local quote config that J1-5 could delete once the form-set
+  readers were repointed. The live tree proved otherwise:
+  `DEFAULT_AGENCY_CONFIGS["cchcs"]` is the **data for the shared,
+  multi-agency legacy classifier `agency_config.match_agency()`** — the
+  same classifier CalVet/DSH/DGS still use. The CCHCS **quote path is
+  already key-independent** (proven by the forcing test below), so
+  deleting the key converges nothing on the quote path; it only breaks
+  CCHCS *classification* in four residual **non-quote-write** consumers
+  (`agency_quote_profile.py` pricing-markup via `pricing_oracle_v2.py`,
+  `orders_link_orphans.py`, `routes_v1.py`, `forms_drift_monitor.py`)
+  and the ~8 `tests/test_agency_config.py` classification pins. Retiring
+  `match_agency` for CCHCS is the **same shared-substrate work** the
+  CalVet/DSH/DGS wave must do for its own agencies; doing it CCHCS-only
+  now is a throwaway repoint of a substrate that is about to be retired
+  wholesale. So the key deletion rides the numeric ratchet already
+  deferred to that wave (bullet above) — **same convergence, same
+  schedule, not a new deferral.** **Teeth (this is a scheduled
+  re-assignment, NOT the LAW 2 "never-delete" disease — a docs-only
+  promise would not satisfy this):** the forcing test
+  `tests/spine/test_cchcs_form_set_survives_config_deletion.py` pops the
+  key in-test and asserts every CCHCS **quote-path** reader — including
+  the orchestrator and Gmail-label consumers repointed in J1-5-pre
+  (#1279) — still yields the full `[703b,704b,bidpkg,quote]` set with the
+  key gone. The quote path therefore carries **zero deletion debt**; the
+  residual classifier consumers and the literal key deletion are the
+  recorded, `git log`-enforced acceptance of the deferred wave (bullet
+  above).
 - Legacy CCHCS quote/package routes DELETED — commit in `git log`.
-- The retired `src/spine/agency_forms/` renderers DELETED (already
-  retired per `SPINE_CHARTER.md` "Sanctioned Boundary" — just remove them).
+- The retired CCHCS adapter shims under `src/spine/agency_forms/`
+  (the `cchcs_*.py` files) DELETED. **Correction (2026-05-30, LAW 7 —
+  Architect+Closer trace of Job #1):** the earlier wording — "the
+  retired `src/spine/agency_forms/` renderers DELETED … just remove
+  them" — was factually wrong about the tree and would have deleted
+  LIVE code. The directory's remaining modules (`std_204.py`,
+  `dvbe_843.py`, `darfur.py`, `calrecycle_74.py`, `std_1000.py`,
+  `cuf.py`, `_identity.py`, `_template_resolver.py`, and `FORM_REGISTRY`
+  in `__init__.py`) are LOAD-BEARING — imported by
+  `src/spine/forms_render.py` and consumed by `routes_spine.py`'s
+  per-form route surface — and are NOT deleted in Job #1. The only
+  retired set was the `cchcs_*.py` adapter shims, which were ALREADY
+  removed (they now point at `forms_render.py`; see
+  `agency_forms/__init__.py`). This acceptance item is therefore
+  **already satisfied** and requires no further deletion — do NOT
+  "just remove" the directory.
 - 3 consecutive CCHCS quotes shipped through the Spine — covering BOTH
   formats — each with a clean Inspector report (walkthrough + math
-  reconcile).
+  reconcile). **DONE (2026-05-31).** 3 CCHCS quotes rendered through the
+  Spine (`synthesize_cchcs_email_contract`, not legacy `match_agency`):
+  Format A Non-Cloud packet (CHCF, $6,458.25) + Format B standalone set
+  (CSP-SAC $713.04; PVSP $1,111.36), plus a 703C-variant render via the
+  buyer-attachment / `SPINE_703C_TEMPLATE_PATH` resolver. Inspector
+  SIGNED OFF both gates on the complete co-located set — real-Chrome
+  walkthrough (every PDF rendered; Reytech Quote shows non-blank CDCR
+  Accounts Payable bill-to + visible Subtotal/Tax/Total) AND independent
+  math reconcile (tax verified against `tax_resolver`, 8.97% Coalinga
+  city rate; no silent-zero-tax, cost basis sane). **Honest carryover
+  (tracked, not blocking):** the 703C render *path* is proven, but the
+  test fixture was 703B-bodied, so a true 703C-bodied template artifact
+  is rendered only when a real buyer 703C arrives (or a 703C blank is
+  added to fixtures) — verify on the next real CCHCS 703C solicitation.
 
-Only when ALL are true does CalVet begin. Same pattern. Same gate.
+**JOB #1 — CLOSED (2026-05-31).** All acceptance items above are MET:
+the CCHCS quote path reads its form set + bill-to from the Spine with
+ZERO `src/core/` imports on the quote path (#1268 J1-1+J1-2, #1273 J1-4,
+#1271 J1-5a, #1272 J1-5b, #1279 J1-5-pre — all merged); the dead legacy
+`/rfq/<id>/generate` route is deleted (#1273); the `cchcs_*.py` shims
+were already removed; and J1-7 is signed off (above). The literal
+`DEFAULT_AGENCY_CONFIGS["cchcs"]` deletion + the residual `match_agency`
+classifier consumers were re-assigned to the CalVet/DSH/DGS
+classifier-retirement wave (#1280, LAW 7) — with the forcing test as
+teeth (quote path carries zero deletion debt).
+
+**CalVet now begins. Same pattern. Same gate.** CalVet carries the
+convergence DELIVERABLE that Job #1 deferred: the numeric LAW 3 ratchet
+(writers 9→8, substrates 3→2) AND the shared-classifier retirement —
+`DEFAULT_AGENCY_CONFIGS["cchcs"]` deletion + repoint of the 4 residual
+CCHCS `match_agency` consumers (`agency_quote_profile`,
+`orders_link_orphans`, `routes_v1`, `forms_drift_monitor`) — land as
+deletion commits in this wave. That substrate drop is exactly what the
+2026-06-20 pack checkpoint below measures: the den collapsed this
+session (worktrees 7→1; merged/dead branches pruned) so the
+tracked-directory count has dropped, and the substrate count drops when
+this wave ships its deletions.
+
+### Job #2 — CalVet migration, with deletion  (owner: Architect | due 2026-07-09)
+
+Make the Spine the ONLY CalVet quote path, then delete the legacy one.
+Same pattern as Job #1, same gate. CalVet is the California Department of
+Veterans Affairs (the eight Veterans Homes; facilities canonical in
+`src/core/facility_registry.py`).
+
+**CalVet has ONE response format** — a standalone compliance-form set
+(no AMS 703/704, no bid package): `quote, calrecycle74, bidder_decl,
+dvbe843, darfur_act, cv012_cuf, std204, std205, std1000, sellers_permit`
+(`DEFAULT_AGENCY_CONFIGS["calvet"]`). Barstow (`calvet_barstow`) adds
+`barstow_cuf` and resolves the 8.75% BARSTOW jurisdiction. Which set
+applies is declared by the email contract (LAW 6) — never guessed.
+
+**Grounding correction (verified 2026-05-31, Architect filler-fidelity
+pass — pre-J2-0, artifacts in the PR):** the legacy config labels
+`cv012_cuf` as `primary_response_form`, but `cv012_cuf` is a CUF
+**attestation** — it carries ZERO line items, ZERO pricing, no
+subtotal/tax/total. The CalVet **line-item carrier and math-reconcile
+artifact is the Reytech Quote** (`render_quote_pdf`, `FORM_REGISTRY['quote']`),
+exactly as it was for CCHCS at J1-7. The J2-7 math gate therefore targets
+the **Reytech Quote** (Σext = subtotal; tax = subtotal × facility rate;
+total = subtotal + tax) — NOT cv012. cv012's gate is "attestation fields
++ solicitation# + the 6 CUF radios fill," not a math gate.
+
+**Spine head start (verified rendering today):** 7 forms already render
+clean through `FORM_REGISTRY` — `quote`, `std_204`, `std_1000`,
+`dvbe_843`, `darfur`, `calrecycle_74`, plus `cuf` (attestation). The 3
+forms with NO Spine FormCode/adapter yet — `bidder_decl`, `std_205`,
+`sellers_permit` (+ `barstow_cuf` for Barstow) — render today via their
+legacy fillers and are the new-adapter scope for J2-2 (`bidder_decl` and
+`sellers_permit` trivial; `std_205` and `barstow_cuf` need the
+path-based temp-file bridge that the `calrecycle_74` adapter already
+uses).
+
+**Acceptance — all required:**
+- 0 imports from `src/core/` in the CalVet quote path (extend
+  `test_no_legacy_imports` to cover the CalVet routes).
+- CalVet ingest synthesizes a complete `EmailContract` at ingest
+  (`synthesize_calvet_email_contract`, mirroring CCHCS) that resolves
+  every LAW 6 answer — required forms (incl. the Barstow split), due
+  date, solicitation #, buyer + per-facility ship-to, line items, and
+  the correct facility tax jurisdiction — proven by a forcing test. The
+  CCHCS-only ingest gate is widened to admit CalVet.
+- CalVet renders the full standalone set through the agency-agnostic
+  `/spine/quotes/<id>/package` route from `contract.required_forms`,
+  with J2-2's three new adapters registered in `FORM_REGISTRY`.
+- A survives-config-deletion forcing test for CalVet (mirror
+  `test_cchcs_form_set_survives_config_deletion.py`): pop
+  `calvet`/`calvet_barstow` in-test, assert the CalVet quote path still
+  yields the full form set.
+- Legacy CalVet quote reachability removed — CalVet no longer routes
+  through the shared legacy `/rfq/<id>/generate-package` →
+  `match_agency()` path; commit visible in `git log`.
+- **The deferred convergence DELIVERABLE lands in this wave as real
+  `git log` deletions:** `DEFAULT_AGENCY_CONFIGS["cchcs"]` AND
+  `["calvet"]`/`["calvet_barstow"]` deleted; the 4 residual
+  `match_agency` consumers (`agency_quote_profile`, `orders_link_orphans`,
+  `routes_v1`, `forms_drift_monitor`) repointed for BOTH cchcs+calvet;
+  the ~8 `tests/test_agency_config.py` classification pins rewritten to
+  the survives-deletion contract (never loosened).
+- **The numeric LAW 3 ratchet (writers 9→8, substrates 3→2) drops only
+  by the count the deletions actually PROVE.** Honest scope (Architect,
+  2026-05-31): the shared `data_layer`/`quote_generator` writers and
+  `quote_contract.py` survive until the LAST of CalVet/DSH/DGS leaves
+  the legacy route, so writers 9→8 / substrates 3→2 may legitimately
+  carry into DSH. Do NOT game `convergence_baseline.json` — it ratchets
+  DOWN only on an accompanying deletion commit; any re-assignment of the
+  numeric drop to DSH is a §0 PR (LAW 7), exactly like the CCHCS-key
+  re-assignment (#1280).
+- 3 consecutive CalVet quotes shipped through the Spine — including ≥1
+  Barstow (two-CUF + 8.75% jurisdiction) — each with a clean Inspector
+  report (Chrome walkthrough + math reconcile against the Reytech Quote).
+
+**Open verification carryovers (from the 2026-05-31 grounding pass, to
+close inside J2):** (a) live-CDTFA tax validation could not be exercised
+offline (Yountville fell to the 7.75% fallback table; rate value
+correct) — confirm `validated=True` on a real networked CalVet quote at
+J2-7; (b) `bidder_decl` live template = 34 fields vs fixture 36 — pin
+the J2-2 adapter test against the LIVE `data/templates` template and
+have the Inspector eyeball placement at J2-7.
+
+**First ticket: J2-0 (this PR)** — add this acceptance block to §0
+(LAW 7) + re-measure the baseline. No Implementer is dispatched until
+J2-0 merges.
 
 ### Pack checkpoint — 2026-06-20
 

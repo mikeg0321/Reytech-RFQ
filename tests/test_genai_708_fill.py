@@ -84,3 +84,46 @@ def test_genai_708_uses_real_field_names_not_guesses():
     assert "NoGenAI" not in vd
     assert '"Company Name"' not in vd
     assert '"Vendor Name"' not in vd
+
+
+def test_ams708_standalone_derives_from_bidpkg(tmp_path):
+    """The standalone AMS 708 is derived from the bid-package template
+    (no separate blank exists): fill the full template, keep only the 708
+    page(s). Values must SURVIVE the page removal — `append()`+`del` keeps
+    the AcroForm /Fields, unlike `add_page`."""
+    os.environ.setdefault("DASH_USER", "x"); os.environ.setdefault("DASH_PASS", "x")
+    from pypdf import PdfReader
+    from src.forms.fill_ams708 import fill_ams708_standalone, ams708_template_available
+
+    assert ams708_template_available()
+    out = str(tmp_path / "708_standalone.pdf")
+    ok = fill_ams708_standalone(
+        {"solicitation_number": "10843276", "sign_date": "05/30/2026"},
+        CONFIG, out,
+    )
+    assert ok is True and os.path.exists(out)
+
+    reader = PdfReader(out)
+    # only the 708 page(s) — not the whole 16-page package
+    assert 0 < len(reader.pages) < 16
+    flds = reader.get_fields() or {}
+
+    def v(k):
+        f = flds.get(k)
+        return None if f is None else f.get("/V")
+
+    assert v("708_Text1") == "10843276"
+    assert "Reytech" in str(v("708_Text3"))
+    assert str(v("708_Check Box2")) == "/Yes", "No-GenAI box must be checked"
+    assert v("708_Text16") == "05/30/2026"
+
+
+def test_ams708_standalone_no_template_returns_false(tmp_path, monkeypatch):
+    """Never raises when the source template is absent — returns False so the
+    generator can surface the gap (not crash, not silently succeed)."""
+    import src.forms.fill_ams708 as m
+    monkeypatch.setattr(m, "_bidpkg_template_path",
+                        lambda: str(tmp_path / "does_not_exist.pdf"))
+    out = str(tmp_path / "out.pdf")
+    assert m.fill_ams708_standalone({"solicitation_number": "X"}, CONFIG, out) is False
+    assert not os.path.exists(out)

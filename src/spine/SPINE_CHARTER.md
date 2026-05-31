@@ -285,6 +285,8 @@ discipline that governs every other Spine seam.
 
 > Added 2026-05-27 (Job #1 prerequisite, ticket PR-Job1-A0). Architect
 > approval recorded in the PR introducing the module per §0 LAW 4.
+> CalVet bill-to added 2026-05-31 (Job #2, ticket J2-1, Architect-
+> authorized).
 
 `src/spine/agency_constants.py` holds the canonical agency-level
 constants the Spine ingest needs to satisfy §0 LAW 6 ("the
@@ -301,12 +303,18 @@ violation. Promoting the constants FIRST (this module) keeps LAW 6
 intact across the deletion.
 
 Scope (LAW 1 / LAW 4 discipline): this module carries ONLY the
-constants the Spine ingest needs. It is NOT a generic "agency
-registry" / "config substrate" / fourth substrate — those would
-require Architect AND Closer sign-off (LAW 4). Today it carries the
-CCHCS canonical bill-to; CDCR / CalVet / DSH / DGS continue to read
-from the legacy table until their own migration tickets follow the
-same pattern.
+per-agency canonical bill-to constants the Spine ingest needs. It is
+NOT a generic "agency registry" / "config substrate" / fourth
+substrate — those would require Architect AND Closer sign-off (LAW 4).
+An agency's bill-to is added here ONLY by its own migration ticket,
+sourced byte-for-byte from the legacy
+`quote_generator.AGENCY_CONFIGS` entry (cited at the entry). Today it
+carries the CCHCS bill-to (Job #1, CDCR Accounts Payable) and the
+CalVet bill-to (Job #2 J2-1, CDVA central Accounts Payable —
+`California Department of Veterans Affairs`, `APinvoices@calvet.ca.gov`,
+1227 "O" Street, Room 403, Sacramento, CA 95814). CDCR / DSH / DGS
+continue to read from the legacy table until their own migration
+tickets follow the same pattern.
 
 Pinning: `tests/spine/test_agency_constants.py` pins the byte-for-byte
 values and the frozen-dataclass shape so future drift breaks loudly.
