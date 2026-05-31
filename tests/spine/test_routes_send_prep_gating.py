@@ -92,6 +92,13 @@ def _contract_b(quote_id="Q-sp", sol="10848901",
         line_items=[ContractLineItem(line_no=1, description="Test Item",
                                       qty=5, uom="EA")],
         attachment_refs=list(attachment_refs),
+        # Every declared attachment is accounted for (parsed) so the
+        # LAW-6 disposition gate passes and the happy path reaches the
+        # Inspector gate / 200 envelope.
+        attachment_dispositions=[
+            AttachmentDisposition(ref=r, status="parsed")
+            for r in attachment_refs
+        ],
         response_packaging="separate_pdfs",
     )
 
@@ -214,6 +221,9 @@ def test_send_prep_envelope_packet_for_single_pdf_format(client, db_path):
         line_items=[ContractLineItem(line_no=1, description="Handheld Scanner",
                                       qty=15, uom="EA")],
         attachment_refs=[_TPACKET],
+        attachment_dispositions=[
+            AttachmentDisposition(ref=_TPACKET, status="parsed"),
+        ],
         response_packaging="single_pdf",
     )
     _seed_b(client, db_path, quote=q_parsed, contract=c)
