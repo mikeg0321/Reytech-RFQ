@@ -1,9 +1,11 @@
 """Forcing-function test: CCHCS form set survives DEFAULT_AGENCY_CONFIGS["cchcs"] deletion.
 
-J1-5b ticket — the "heart of the ticket."
+J1-5b ticket — the "heart of the ticket."  Extended in J1-5-pre with readers
+#9 (quote_orchestrator._resolve_agency) and #10 (routes_rfq Gmail-draft label),
+the two live match_agency-for-CCHCS consumers J1-5b missed.
 
-For every one of the 8 repointed readers (the 7 added in J1-5b + the generate
-path J1-5a hardened), this test:
+For every one of the 10 repointed readers (the 7 added in J1-5b + the generate
+path J1-5a hardened + the 2 J1-5-pre consumers), this test:
   1. Monkeypatches away DEFAULT_AGENCY_CONFIGS["cchcs"] (simulates J1-5 deletion).
   2. Drives a CCHCS-shaped row through the reader's form-set logic.
   3. Asserts the result contains the real CCHCS form set (has 704b, bidpkg, quote,
@@ -16,9 +18,13 @@ work independent of the key, making J1-5's deletion safe.
 Negative test: force match_agency to return "other" for CCHCS, verify that the
 CCHCS branch intercepts BEFORE any form-set consumer sees "other".
 
-TODO (J1-5c): extend with a DB-row migration assertion once the rfqs.json /
-DB rows have their agency_key column backfilled to "cchcs". The in-memory
-monkeypatch here covers the config-key deletion half; the DB-row half is J1-5c.
+J1-5c (RESOLVED — folded into the J1-5 capstone, not a separate ticket): the
+`agency_package_configs` DB row is severed by deleting the dict key alone
+(`load_agency_configs` applies a row only `if key in configs`), and a forward
+migration `_migrate_drop_legacy_cchcs_package_config()` evicts any stale prod
+row. No DB-row backfill of `agency_key` is required for the CCHCS form set —
+the readers detect CCHCS from the row's own `agency`/`agency_key` value, not
+from a config-derived key.
 """
 from __future__ import annotations
 
@@ -533,6 +539,165 @@ class TestReader7BidPackagePageTrim:
     def test_reader7_non_cchcs_uses_match_agency(self):
         called, replaced = self._run_bidpkg_trim_block(_calvet_rfq())
         assert called, "Non-CCHCS should use match_agency"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Reader 9 — quote_orchestrator._resolve_agency (J1-5-pre)
+# The orchestrator resolves agency_key, NOT a form set. With the config key
+# popped, match_agency(CCHCS) returns "other" — the Duffey OtherUnknown
+# regression. The CCHCS short-circuit must set agency_key="cchcs" first.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestReader9OrchestratorResolveAgency:
+    """quote_orchestrator._resolve_agency CCHCS short-circuit (J1-5-pre reader 9).
+
+    The orchestrator resolves agency_key from email/institution SIGNALS (it
+    only runs when agency_key is blank — the line-552 guard). The repoint
+    detects CCHCS via request_classifier's key-independent patterns
+    (AGENCY_KEYWORDS + INSTITUTION_TO_AGENCY), NOT via match_agency, so the
+    Duffey OtherUnknown regression cannot recur once the config key is gone.
+    """
+
+    def _orch_rfq_data(self, **signals) -> dict:
+        """Mirror the rfq_data shape _resolve_agency builds (agency_key blank)."""
+        base = {
+            "agency": "",
+            "agency_name": "",
+            "requestor_email": "",
+            "email_sender": "",
+            "institution": "",
+            "delivery_location": "",
+            "ship_to": "",
+            "solicitation_number": "",
+            "email_subject": "",
+        }
+        base.update(signals)
+        return base
+
+    def test_reader9_signals_cchcs_via_email_domain(self):
+        from src.core.quote_orchestrator import QuoteOrchestrator
+        with _cchcs_key_deleted():
+            assert QuoteOrchestrator._signals_cchcs(
+                self._orch_rfq_data(requestor_email="buyer@cdcr.ca.gov")
+            )
+            assert QuoteOrchestrator._signals_cchcs(
+                self._orch_rfq_data(requestor_email="buyer@cchcs.ca.gov")
+            )
+
+    def test_reader9_signals_cchcs_via_institution_code(self):
+        from src.core.quote_orchestrator import QuoteOrchestrator
+        with _cchcs_key_deleted():
+            assert QuoteOrchestrator._signals_cchcs(
+                self._orch_rfq_data(institution="CSP-SAC")
+            )
+
+    def test_reader9_signals_cchcs_via_subject_keyword(self):
+        from src.core.quote_orchestrator import QuoteOrchestrator
+        with _cchcs_key_deleted():
+            assert QuoteOrchestrator._signals_cchcs(
+                self._orch_rfq_data(email_subject="RFQ for CA STATE PRISON Corcoran")
+            )
+
+    def test_reader9_signals_cchcs_via_explicit_agency_field(self):
+        from src.core.quote_orchestrator import QuoteOrchestrator
+        with _cchcs_key_deleted():
+            assert QuoteOrchestrator._signals_cchcs(self._orch_rfq_data(agency="CCHCS"))
+
+    def test_reader9_non_cchcs_signals_false(self):
+        from src.core.quote_orchestrator import QuoteOrchestrator
+        with _cchcs_key_deleted():
+            assert not QuoteOrchestrator._signals_cchcs(
+                self._orch_rfq_data(requestor_email="buyer@calvet.ca.gov",
+                                    institution="Yountville")
+            )
+
+    def test_reader9_real_orchestrator_resolves_cchcs_with_key_deleted(self):
+        """End-to-end: drive the REAL QuoteOrchestrator._resolve_agency with the
+        config key actually popped, on a realistic CCHCS quote (blank agency_key,
+        cdcr.ca.gov requestor + CSP institution), and confirm it resolves
+        agency_key='cchcs' without falling to 'other'."""
+        from src.core.quote_orchestrator import QuoteOrchestrator, QuoteRequest, OrchestratorResult
+        from src.core import quote_model as qm
+        orch = QuoteOrchestrator(persist_audit=False)
+        quote = qm.Quote()
+        quote.header.agency_key = ""
+        quote.header.institution_key = "CSP-SAC"
+        quote.buyer.requestor_email = "buyer@cdcr.ca.gov"
+        req = QuoteRequest(buyer_email_text="CCHCS solicitation PREQ 10847262")
+        result = OrchestratorResult()
+        with _cchcs_key_deleted():
+            orch._resolve_agency(quote, req, result)
+        assert quote.header.agency_key == "cchcs", (
+            f"orchestrator resolved {quote.header.agency_key!r} with key deleted "
+            f"— expected 'cchcs' (Duffey OtherUnknown regression)"
+        )
+
+    def test_reader9_real_orchestrator_non_cchcs_unaffected(self):
+        """A non-CCHCS quote must NOT be hijacked by the CCHCS short-circuit."""
+        from src.core.quote_orchestrator import QuoteOrchestrator, QuoteRequest, OrchestratorResult
+        from src.core import quote_model as qm
+        orch = QuoteOrchestrator(persist_audit=False)
+        quote = qm.Quote()
+        quote.header.agency_key = ""
+        quote.buyer.requestor_email = "buyer@calvet.ca.gov"
+        req = QuoteRequest(buyer_email_text="Veterans Home of California Yountville")
+        result = OrchestratorResult()
+        orch._resolve_agency(quote, req, result)
+        assert quote.header.agency_key != "cchcs", (
+            "CalVet quote incorrectly resolved to cchcs by the short-circuit"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Reader 10 — routes_rfq Gmail-draft label resolution (J1-5-pre)
+# Resolves the agency Gmail label name. With the config key popped,
+# match_agency(CCHCS)="other" → agency_label_name("other")=None → CCHCS drafts
+# silently lose their "CCHCS" label. The short-circuit sets _ak="cchcs" first.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestReader10GmailDraftLabel:
+    """routes_rfq Gmail-draft label CCHCS short-circuit (J1-5-pre reader 10)."""
+
+    def _run_label_block(self, r: dict) -> tuple[bool, str, "str | None"]:
+        """Replicate the J1-5-pre Gmail-label CCHCS short-circuit in isolation.
+
+        Returns (match_agency_called, resolved_ak, resolved_label_name).
+        """
+        from src.api.draft_builder import agency_label_name
+        match_agency_called = False
+
+        def _fake_match_agency(data):
+            nonlocal match_agency_called
+            match_agency_called = True
+            return ("other", {"name": "Other / Unknown",
+                              "required_forms": list(_OTHER_FORMS)})
+
+        _agency_raw = (r.get("agency") or r.get("agency_key") or "").upper()
+        if _agency_raw in ("CCHCS", "CCHCS-ACQ"):
+            _ak = "cchcs"
+        else:
+            _ak, _ = _fake_match_agency(r)
+        label_name = agency_label_name(_ak or "")
+        return match_agency_called, _ak, label_name
+
+    def test_reader10_cchcs_label_survives_deletion(self):
+        with _cchcs_key_deleted():
+            called, ak, label = self._run_label_block(_cchcs_rfq())
+        assert not called, "match_agency was called for CCHCS — short-circuit failed"
+        assert ak == "cchcs", f"Expected cchcs, got {ak!r}"
+        assert label == "CCHCS", (
+            f"Expected Gmail label 'CCHCS', got {label!r} — drafts would lose "
+            f"their label (agency_label_name('other') is None)"
+        )
+
+    def test_reader10_non_cchcs_uses_match_agency(self):
+        called, ak, label = self._run_label_block(_calvet_rfq())
+        assert called, "Non-CCHCS should fall through to match_agency"
+
+    def test_reader10_key_present_baseline(self):
+        called, ak, label = self._run_label_block(_cchcs_rfq())
+        assert ak == "cchcs"
+        assert label == "CCHCS"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
