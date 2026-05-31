@@ -76,6 +76,9 @@ data/*.migrated
 !.claude/WORKSTREAMS.md
 !.claude/agents/
 !.claude/agents/**
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
 
 # ── GitHub (ignore IDE config, keep workflows) ─────────────────────────────
 .github/*
