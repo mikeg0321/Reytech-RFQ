@@ -37,7 +37,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -116,6 +116,24 @@ class AttachmentDisposition(BaseModel):
             "parsed dispositions. The send-gate blocks on False."
         ),
     )
+
+    @model_validator(mode="after")
+    def _reason_required_for_non_rfq(self) -> "AttachmentDisposition":
+        """LAW 6: a classified_non_rfq disposition MUST carry a reason.
+
+        LAW 6 states every non-RFQ classification must have "a recorded
+        reason". This validator enforces that at construction time so the
+        gap can never silently pass the send-gate or appear in a contract.
+        A ``parsed`` disposition may leave ``reason`` empty.
+        """
+        if self.status == "classified_non_rfq" and not (
+            self.reason and self.reason.strip()
+        ):
+            raise ValueError(
+                "AttachmentDisposition with status='classified_non_rfq' "
+                "must provide a non-empty reason (LAW 6 requirement)."
+            )
+        return self
 
 
 # ──────────────────────────────────────────────────────────────────────

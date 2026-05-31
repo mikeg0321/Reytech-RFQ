@@ -104,23 +104,59 @@ class TestAttachmentDispositionModel:
         assert d.cross_references == []
         assert d.cross_refs_resolved is True
 
-    def test_disposition_classified_non_rfq_requires_no_reason_field(self):
-        """classified_non_rfq is valid without a reason (reason is optional
-        though strongly encouraged). The model allows it."""
-        d = AttachmentDisposition(
-            ref="logo.png",
-            status="classified_non_rfq",
-        )
-        assert d.status == "classified_non_rfq"
-        assert d.reason is None
+    def test_disposition_classified_non_rfq_requires_reason(self):
+        """classified_non_rfq WITHOUT a reason is now REJECTED (LAW 6).
+
+        LAW 6 requires every non-RFQ classification to carry "a recorded
+        reason." The model_validator on AttachmentDisposition enforces this
+        at construction time — a reasonless classified_non_rfq disposition
+        must raise ValidationError so the gap can never silently pass the
+        send-gate or appear in a persisted contract.
+
+        This test was previously named
+        ``test_disposition_classified_non_rfq_requires_no_reason_field``
+        and asserted the opposite (that reason=None was accepted). It was
+        flipped when the model_validator was added.
+        """
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="classified_non_rfq"):
+            AttachmentDisposition(
+                ref="logo.png",
+                status="classified_non_rfq",
+                # reason intentionally omitted -- must be rejected
+            )
+
+    def test_disposition_classified_non_rfq_empty_reason_rejected(self):
+        """Whitespace-only reason is also rejected (LAW 6)."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="classified_non_rfq"):
+            AttachmentDisposition(
+                ref="logo.png",
+                status="classified_non_rfq",
+                reason="   ",  # whitespace-only -- treated as empty
+            )
 
     def test_disposition_classified_non_rfq_with_reason(self):
+        """classified_non_rfq WITH a real reason constructs successfully."""
         d = _make_disp(
             "cover_page.pdf",
             status="classified_non_rfq",
-            reason="Blank cover page — no bid-requirement content.",
+            reason="Blank cover page -- no bid-requirement content.",
         )
-        assert d.reason == "Blank cover page — no bid-requirement content."
+        assert d.status == "classified_non_rfq"
+        assert d.reason == "Blank cover page -- no bid-requirement content."
+
+    def test_disposition_parsed_no_reason_still_allowed(self):
+        """parsed disposition does NOT require a reason (LAW 6 only
+        mandates a reason for classified_non_rfq). This test guards
+        against regressions that would break the parsed path."""
+        d = AttachmentDisposition(
+            ref="forms/704b.pdf",
+            status="parsed",
+            # reason intentionally omitted -- must still succeed
+        )
+        assert d.status == "parsed"
+        assert d.reason is None
 
     def test_disposition_parsed_with_cross_references(self):
         d = _make_disp(
