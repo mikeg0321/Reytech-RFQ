@@ -6085,14 +6085,33 @@ _ROUTE_MODULES = [
     "routes_notifications",        # 2026-05-26 PR-C: grouped /notifications view + /api/notifications/grouped
 ]
 
+_FAILED_ROUTE_MODULES: list[tuple[str, str]] = []
 for _mod in _ROUTE_MODULES:
     try:
         _load_route_module(_mod)
     except Exception as _e:
         log.error(f"Failed to load route module {_mod}: {_e}")
         import traceback; traceback.print_exc()
+        _FAILED_ROUTE_MODULES.append((_mod, f"{type(_e).__name__}: {_e}"))
 
 log.info(f"Dashboard: {len(_ROUTE_MODULES)} route modules loaded, {len([r for r in bp.deferred_functions])} deferred fns")
+
+# Never drop route modules silently (creepy-crawler O6, 2026-05-30). A module
+# that fails to load takes its whole route surface with it — and the per-module
+# ERROR above scrolls past in a noisy boot. Five modules use PEP-701 f-strings
+# (backslash inside an f-string expression) which only parse on Python >= 3.12;
+# on an older interpreter they SyntaxError and vanish here with no test failure.
+# Escalate to a single CRITICAL summary so a wrong-runtime deploy screams.
+if _FAILED_ROUTE_MODULES:
+    import sys as _sys
+    _names = ", ".join(name for name, _ in _FAILED_ROUTE_MODULES)
+    log.critical(
+        "ROUTE MODULES DROPPED: %d of %d failed to load (%s). Running Python "
+        "%d.%d — this app requires >= 3.12 (PEP-701 f-strings). Their entire "
+        "route surface is MISSING from this process.",
+        len(_FAILED_ROUTE_MODULES), len(_ROUTE_MODULES), _names,
+        _sys.version_info.major, _sys.version_info.minor,
+    )
 
 
 def _audit_route_module_registration():
