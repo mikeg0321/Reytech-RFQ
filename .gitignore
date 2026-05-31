@@ -47,6 +47,7 @@ data/audit_log.json
 data/item_id_cache.json
 data/leads.json
 data/lead_history.json
+data/gmail_health.json
 
 # ── SQLite DBs live on Railway volume, not in git ────────────────────────────
 data/reytech.db
