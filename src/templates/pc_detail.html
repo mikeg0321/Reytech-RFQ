@@ -764,7 +764,7 @@
        <button class="btn" onclick="previewPcPdf()" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:14px;padding:8px 18px">Preview 704</button>
        <button class="btn" onclick="sendPcQuote()" style="background:#21262d;color:var(--r-accent);border:1px solid #30363d;font-size:14px;padding:8px 18px">Send Quote</button>
       {% else %}
-       <button class="btn" onclick="runAutoPrice(this)" id="saveBtn" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Find Prices</button>
+       <button class="btn" onclick="runAutoPrice()" id="saveBtn" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Find Prices</button>
        <button class="btn" onclick="savePrices(this)" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:14px;padding:8px 18px">Save & Generate</button>
        <button class="btn" onclick="previewPcPdf()" style="background:rgba(16,185,129,.15);color:var(--r-accent);border:1px solid rgba(16,185,129,.3);font-size:14px;padding:8px 18px">Preview</button>
       {% endif %}
@@ -3776,112 +3776,6 @@
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
     var _catalogCount={{ catalog_count|default(0)|tojson }};
-
-    /* ═══ 🧠 AUTO-PRICE: Smart per-item pricing from catalog intelligence ═══ */
-    function runAutoPrice(btn) {
-     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Analyzing...';
-     showMsg('🧠 Running pricing intelligence on '+_catalogCount+' catalog products...','warn');
-
-     fetch('/api/pricecheck/'+_pcid+'/auto-price',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:'{}'
-     }).then(r=>r.json()).then(d=>{
-      btn.disabled=false;btn.textContent=origText;
-      if(!d.ok){showMsg('❌ '+d.error,'err');return;}
-
-      let applied=0;
-      (d.results||[]).forEach(r=>{
-       if(!r.recommended) return;
-       const idx=r.idx;
-       const costEl=document.querySelector('[name=cost_'+idx+']');
-       const priceEl=document.querySelector('[name=price_'+idx+']');
-       const descEl=document.querySelector('[name=desc_'+idx+']');
-
-       // Apply recommended price
-       if(priceEl && r.recommended>0){
-        priceEl.value=Number(r.recommended).toFixed(2);
-        priceEl.style.background='#1a0d2e';
-        setTimeout(()=>{priceEl.style.background='';},2000);
-       }
-       // Apply cost if we have one and field is empty
-       if(costEl && r.cost>0 && !parseFloat(costEl.value)){
-        costEl.value=Number(r.cost).toFixed(2);
-        costEl.style.background='#0d2818';
-        setTimeout(()=>{costEl.style.background='';},2000);
-       }
-
-       // Apply MFG# if available and field is empty
-       var mfgEl=document.querySelector('[name=itemnum_'+idx+']');
-       if(mfgEl && !mfgEl.value && (r.mfg_number || r.part_number || r.sku)){
-        mfgEl.value=r.mfg_number || r.part_number || r.sku || '';
-       }
-
-       // Update Sources column (8th td, 0-indexed) — works on re-runs
-       var row=document.querySelector('tr[data-row="'+idx+'"]');
-       if(row){
-        var srcCell=row.querySelectorAll('td')[6];
-        if(srcCell){
-         var srcHtml='';
-         if(r.matched && r.catalog_name){
-          srcHtml+='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span> ';
-         }
-         if(r.cost>0){
-          srcHtml+='<span style="background:rgba(16,185,129,.12);color:var(--r-accent);padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Oracle</span>';
-         }
-         if(srcHtml) srcCell.innerHTML=srcHtml;
-        }
-       }
-
-       // Show collapsed Oracle pricing summary
-       if(descEl){
-        var oldBadge=descEl.parentElement.querySelector('.price-badge');
-        if(oldBadge)oldBadge.remove();
-        var winColor=r.win_probability>=70?'#3fb950':r.win_probability>=50?'#d29922':'#f85149';
-        var badge=document.createElement('div');
-        badge.className='price-badge';
-        badge.style.cssText='font-size:13px;margin-bottom:3px';
-        var oDetailId='_oracledetail_'+idx;
-        var costVal=r.cost?'$'+Number(r.cost).toFixed(2):'—';
-        // Collapsed: one clean line
-        var oSummary='<div style="display:flex;align-items:center;gap:6px">'
-         +'<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-size:12px">Oracle</span>'
-         +'<span style="color:var(--r-accent);font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">'+costVal+'</span>'
-         +'<span style="color:'+winColor+';font-size:12px">'+Math.round(r.win_probability)+'% win</span>'
-         +'<a href="#" onclick="var d=document.getElementById(\''+oDetailId+'\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';return false" style="color:#484f58;font-size:11px;text-decoration:none">details</a>'
-         +'</div>';
-        // Expanded: full details
-        var oDetails='<div id="'+oDetailId+'" style="display:none;padding:4px 0 2px 8px;border-left:2px solid #d2a8ff44;margin:3px 0;font-size:12px;color:#8b949e">';
-        oDetails+='<div>Recommended: <span style="color:#d2a8ff">$'+Number(r.recommended).toFixed(2)+'</span></div>';
-        if(r.reasoning&&r.reasoning.length)oDetails+='<div>'+escHtml(r.reasoning[0])+'</div>';
-        if(r.aggressive)oDetails+='<div>Aggressive: <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcPC();return false" style="color:#f0883e">$'+r.aggressive.toFixed(2)+'</a></div>';
-        if(r.safe)oDetails+='<div>Safe: <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcPC();return false" style="color:#3fb950">$'+r.safe.toFixed(2)+'</a></div>';
-        oDetails+='</div>';
-        badge.innerHTML=oSummary+oDetails;
-        descEl.parentElement.insertBefore(badge,descEl);
-       }
-
-       recalcRow(idx);
-       applied++;
-      });
-      recalcPC();
-      // Show skipped items so user knows what still needs manual pricing
-      var skipped=[];
-      (d.results||[]).forEach(function(r){
-       if(!r.recommended){
-        var de=document.querySelector('[name=desc_'+r.idx+']');
-        var dn=de?(de.value||'').substring(0,40):'item '+r.idx;
-        if(dn) skipped.push('#'+(r.idx+1)+' '+dn);
-       }
-      });
-      var msg='🧠 Auto-Price: Applied to '+applied+'/'+d.total+' items ('+d.matched+' catalog matches)';
-      if(skipped.length) msg+='<br><span style="color:#d29922;font-size:13px">Skipped: '+skipped.slice(0,5).join(', ')+(skipped.length>5?' +'+( skipped.length-5)+' more':'')+'</span>';
-      showMsg(msg,'ok');
-     }).catch(e=>{
-      btn.disabled=false;btn.textContent=origText;
-      showMsg('❌ Auto-price failed: '+e.message,'err');
-     });
-    }
 
     /* ═══ AUTO-MATCH ON PAGE LOAD ═══ */
     (function autoMatchOnLoad(){

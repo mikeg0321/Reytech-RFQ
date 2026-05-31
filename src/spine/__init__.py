@@ -20,6 +20,7 @@ __all__ = [
     # Email contract — the master ingestion record
     "EmailContract",
     "ContractLineItem",
+    "AttachmentDisposition",
     "ContractDelta",
     "contract_vs_quote",
     "FormCode",
@@ -98,6 +99,7 @@ from src.spine.model import (
 from src.spine.email_contract import (
     EmailContract,
     ContractLineItem,
+    AttachmentDisposition,
     FormCode,
     ALL_FORM_CODES,
     CCHCS_DEFAULT_REQUIRED_FORMS,

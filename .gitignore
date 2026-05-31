@@ -73,11 +73,18 @@ data/growth_report.xlsx
 # ── Migration artifacts ──────────────────────────────────────────────────────
 data/*.migrated
 
+# ── Walkthrough / theme screenshots (local verification artifacts) ──────────
+.inspector_shots/
+.theme_shots/
+
 # ── Claude Code (ignore settings, keep shared coordination files) ───────────
 .claude/*
 !.claude/WORKSTREAMS.md
 !.claude/agents/
 !.claude/agents/**
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
 
 # ── GitHub (ignore IDE config, keep workflows) ─────────────────────────────
 .github/*

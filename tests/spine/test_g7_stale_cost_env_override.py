@@ -18,7 +18,10 @@ Tests pin:
 from __future__ import annotations
 
 import importlib
+import os
 from datetime import datetime, timezone, timedelta
+
+import pytest
 
 
 def _reload_model():
@@ -26,6 +29,49 @@ def _reload_model():
     import src.spine.model as m
     importlib.reload(m)
     return m
+
+
+@pytest.fixture(autouse=True)
+def _restore_model_namespace_after_reload():
+    """Quarantine the importlib.reload() pollution this file inflicts.
+
+    Every test here calls `importlib.reload(src.spine.model)` to re-run
+    the module-level `COST_VALIDATION_FRESHNESS_DAYS` env read. reload()
+    rebuilds the module's classes IN PLACE — so after this file runs,
+    `src.spine.model.Quote` / `LineItem` / `QuoteStatus` /
+    `SpineValidationError` are BRAND-NEW class objects, distinct from
+    the ones every other test module captured at its own import time.
+    The mismatch breaks `pytest.raises(SpineValidationError)` and
+    enum-identity transition checks in any test that runs AFTER this
+    file in the same process — the cross-test ordering pollution that
+    only surfaced under the full-suite run, never in isolation.
+
+    Fix: snapshot the module's public attribute objects before the test,
+    and after the test (a) clear the env override and reload once more so
+    the constant returns to its 30-day default, then (b) re-bind the
+    ORIGINAL class objects back onto the live module so every other
+    test's captured references stay valid. This makes the reload
+    strictly local to this file.
+    """
+    import src.spine.model as m
+
+    # Snapshot the original public objects (the ones other modules hold).
+    saved = {k: getattr(m, k) for k in dir(m) if not k.startswith("__")}
+    saved_env = os.environ.get("COST_STALENESS_FINALIZE_DAYS")
+    try:
+        yield
+    finally:
+        # 1. Restore the env to its pre-test value so the final reload
+        #    rebuilds COST_VALIDATION_FRESHNESS_DAYS at the real default.
+        if saved_env is None:
+            os.environ.pop("COST_STALENESS_FINALIZE_DAYS", None)
+        else:
+            os.environ["COST_STALENESS_FINALIZE_DAYS"] = saved_env
+        importlib.reload(m)
+        # 2. Re-bind the ORIGINAL class objects onto the live module so
+        #    references captured by other test modules remain identical.
+        for k, v in saved.items():
+            setattr(m, k, v)
 
 
 def test_unset_env_defaults_to_30(monkeypatch):

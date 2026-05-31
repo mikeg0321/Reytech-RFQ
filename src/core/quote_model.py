@@ -304,14 +304,19 @@ class Quote(BaseModel):
         """
         for item in self.line_items:
             if item.line_no == line_no:
-                # 3x sanity check against reference prices
+                # 3x sanity check against reference prices — delegated to the
+                # canonical cost_guard helper (src/core/pricing_math.py, O5).
                 ref = max(item.scprs_price, item.catalog_cost, item.amazon_price)
-                if ref > 0 and unit_cost > ref * 3:
+                from src.core.pricing_math import cost_guard as _cost_guard
+                _capped, _guard_reason = _cost_guard(
+                    unit_cost, ref_price=ref, source="catalog/scprs"
+                )
+                if _guard_reason:
                     log.warning(
-                        "3x sanity: line %d cost $%.2f > 3x ref $%.2f — capping",
-                        line_no, unit_cost, ref,
+                        "3x sanity: line %d — %s",
+                        line_no, _guard_reason,
                     )
-                    unit_cost = ref  # Cap to reference (CLAUDE.md: auto-correct to ref)
+                    unit_cost = Decimal(str(_capped))
 
                 item.unit_cost = unit_cost
                 if bid_price is not None and unit_cost > 0:

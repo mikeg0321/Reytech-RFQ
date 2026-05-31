@@ -4,14 +4,14 @@
 {% block head_extra %}
 <style>
   .spine-page { max-width: 1800px; margin: 18px auto; padding: 0 16px; font-size: 14px; }
-  .spine-header { display:flex; gap:24px; align-items:flex-start; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #d0d7de; }
-  .spine-header h1 { margin:0; font-size:20px; font-weight:600; }
-  .spine-header .meta { color:#57606a; font-size:13px; margin-top:4px; }
+  .spine-header { display:flex; gap:24px; align-items:flex-start; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--r-border); }
+  .spine-header h1 { margin:0; font-size:20px; font-weight:600; color:var(--r-text); }
+  .spine-header .meta { color:var(--r-text-muted); font-size:13px; margin-top:4px; }
   .spine-status-pill { display:inline-block; padding:2px 10px; border-radius:12px; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
-  .spine-status-parsed { background:#fff8c5; color:#7c5e10; }
-  .spine-status-priced { background:#dbeafe; color:#1d4ed8; }
-  .spine-status-finalized { background:#dcfce7; color:#166534; }
-  .spine-status-sent { background:#e0e0e0; color:#444; }
+  .spine-status-parsed { background:var(--r-warn-soft); color:var(--r-warn); }
+  .spine-status-priced { background:rgba(59,130,246,.15); color:#60a5fa; }
+  .spine-status-finalized { background:var(--r-accent-soft); color:var(--r-accent); }
+  .spine-status-sent { background:rgba(156,163,175,.12); color:var(--r-text-muted); }
 
   /* Two-pane layout: form on the left, live PDF preview on the right.
      The right pane is the operator's "what the buyer will see" mirror —
@@ -31,21 +31,22 @@
   @media (max-width: 1480px) { .spine-2pane { grid-template-columns: 1fr; } }
   .spine-pane-form { min-width:0; }
   .spine-pane-preview { position:sticky; top:14px; height: calc(100vh - 40px); display:flex; flex-direction:column; gap:8px; }
-  .spine-pane-preview .preview-header { display:flex; align-items:center; gap:10px; font-size:12px; color:#57606a; padding-bottom:6px; border-bottom:1px solid #eaeef2; }
-  .spine-pane-preview .preview-header strong { color:#222; font-size:13px; }
-  .spine-pane-preview iframe { flex:1; min-height:600px; border:1px solid #d0d7de; border-radius:6px; background:#fff; }
-  .spine-pane-preview .preview-empty { flex:1; display:flex; align-items:center; justify-content:center; border:1px dashed #d0d7de; border-radius:6px; color:#999; font-size:13px; padding:20px; text-align:center; }
+  .spine-pane-preview .preview-header { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--r-text-muted); padding-bottom:6px; border-bottom:1px solid var(--r-border); }
+  .spine-pane-preview .preview-header strong { color:var(--r-text); font-size:13px; }
+  .spine-pane-preview iframe { flex:1; min-height:600px; border:1px solid var(--r-border); border-radius:6px; background:#fff; }
+  .spine-pane-preview .preview-empty { flex:1; display:flex; align-items:center; justify-content:center; border:1px dashed var(--r-border); border-radius:6px; color:var(--r-text-dim); font-size:13px; padding:20px; text-align:center; }
 
   .spine-kpi { display:flex; gap:14px; flex-wrap:wrap; }
-  .spine-kpi .kpi-cell { background:#f6f8fa; padding:8px 14px; border-radius:6px; border:1px solid #d0d7de; min-width:120px; }
-  .spine-kpi .kpi-cell .lbl { display:block; font-size:11px; color:#57606a; text-transform:uppercase; letter-spacing:.04em; }
-  .spine-kpi .kpi-cell .val { display:block; font-size:18px; font-weight:600; margin-top:2px; }
+  .spine-kpi .kpi-cell { background:var(--r-surface-2); padding:8px 14px; border-radius:6px; border:1px solid var(--r-border); min-width:120px; }
+  .spine-kpi .kpi-cell .lbl { display:block; font-size:11px; color:var(--r-text-muted); text-transform:uppercase; letter-spacing:.04em; }
+  .spine-kpi .kpi-cell .val { display:block; font-size:18px; font-weight:600; margin-top:2px; color:var(--r-text); }
   .spine-li-table { width:100%; border-collapse:collapse; margin:14px 0 18px; font-size:13px; }
-  .spine-li-table th { background:#222; color:#fff; padding:8px 10px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
-  .spine-li-table td { padding:8px 10px; border-bottom:1px solid #eaeef2; vertical-align:top; }
-  .spine-li-table tr:nth-child(even) td { background:#fafbfc; }
-  .spine-li-table input[type="number"], .spine-li-table input[type="text"], .spine-li-table input[type="url"], .spine-li-table select { width:100%; min-width:0; padding:4px 6px; border:1px solid #d0d7de; border-radius:4px; font-size:13px; box-sizing:border-box; font-family:inherit; }
-  .spine-li-table input:focus, .spine-li-table select:focus { outline:2px solid #0969da; outline-offset:-1px; border-color:#0969da; }
+  .spine-li-table th { background:var(--r-surface); color:var(--r-text-muted); padding:8px 10px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--r-border); }
+  .spine-li-table td { padding:8px 10px; border-bottom:1px solid var(--r-border-soft); vertical-align:top; color:var(--r-text); }
+  .spine-li-table tr:nth-child(even) td { background:var(--r-surface); }
+  .spine-li-table input[type="number"], .spine-li-table input[type="text"], .spine-li-table input[type="url"], .spine-li-table select { width:100%; min-width:0; padding:4px 6px; border:1px solid var(--r-border); border-radius:4px; font-size:13px; box-sizing:border-box; font-family:inherit; background:var(--r-surface-2); color:var(--r-text); }
+  .spine-li-table select option { background:var(--r-surface-2); color:var(--r-text); }
+  .spine-li-table input:focus, .spine-li-table select:focus { outline:2px solid var(--r-accent); outline-offset:-1px; border-color:var(--r-accent); }
   /* Kill native number-input spinner arrows. They eat ~16px of input
      width that we can't afford in a 10-column table and add visual
      noise. Operator types the number; the substrate validates. */
@@ -58,7 +59,7 @@
      positions that keep buyer-facing columns clustered together.
      Per Mike 2026-05-16: # → Qty → UOM → Description → MFG# (ITEM
      NUMBER) → Cost → Unit Price → Markup → Extension → ↗ → URL. */
-  .spine-li-table .col-num { width:30px; text-align:center; color:#57606a; }
+  .spine-li-table .col-num { width:30px; text-align:center; color:var(--r-text-muted); }
   .spine-li-table .col-qty { width:64px; }
   .spine-li-table .col-qty input { text-align:right; }
   .spine-li-table .col-uom { width:72px; }
@@ -67,81 +68,82 @@
   .spine-li-table .col-mfg input { font-size:12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .spine-li-table .col-cost, .spine-li-table .col-price { width:95px; }
   .spine-li-table .col-cost input, .spine-li-table .col-price input { text-align:right; }
-  .spine-li-table .col-markup, .spine-li-table .col-ext { width:84px; text-align:right; color:#57606a; }
+  .spine-li-table .col-markup, .spine-li-table .col-ext { width:84px; text-align:right; color:var(--r-text-muted); }
   /* URL goes to the far right — operator can collapse this column
      visually by not focusing it; substrate enforcement still fires
      on missing source for cost ≥ $100. The arrow icon sits just LEFT
      of the URL input so one click confirms the source price online. */
   .spine-li-table .col-src-arrow { width:28px; text-align:center; padding:8px 2px; }
-  .spine-li-table .col-src-arrow a { text-decoration:none; color:#0969da; font-size:16px; opacity:0.7; }
+  .spine-li-table .col-src-arrow a { text-decoration:none; color:var(--r-accent); font-size:16px; opacity:0.7; }
   .spine-li-table .col-src-arrow a:hover { opacity:1; }
-  .spine-li-table .col-src-arrow a.disabled { color:#999; cursor:default; pointer-events:none; opacity:0.35; }
+  .spine-li-table .col-src-arrow a.disabled { color:var(--r-text-dim); cursor:default; pointer-events:none; opacity:0.35; }
   .spine-li-table .col-src { min-width:200px; width:auto; }
   .spine-li-table .col-src input { font-size:11px; }
   .spine-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px; }
-  .spine-actions button { padding:8px 18px; border:1px solid #d0d7de; background:#fff; border-radius:6px; cursor:pointer; font-weight:600; font-size:13px; }
-  .spine-actions button.primary { background:#1f883d; color:#fff; border-color:#1f883d; }
-  .spine-actions button.primary:hover { background:#1a7233; }
-  .spine-actions button:hover { background:#f6f8fa; }
+  .spine-actions button { padding:8px 18px; border:1px solid var(--r-border); background:var(--r-surface-2); color:var(--r-text); border-radius:6px; cursor:pointer; font-weight:600; font-size:13px; }
+  .spine-actions button.primary { background:var(--r-accent); color:#fff; border-color:var(--r-accent); }
+  .spine-actions button.primary:hover { background:#0ea574; border-color:#0ea574; }
+  .spine-actions button:hover { background:var(--r-surface); border-color:var(--r-text-dim); }
   .spine-actions button:disabled { opacity:0.45; cursor:not-allowed; }
-  .spine-status-buttons button.status-btn { background:#0969da; color:#fff; border-color:#0969da; }
-  .spine-status-buttons button.status-btn:hover { background:#0860c4; }
-  .spine-actions button.snapshot-btn { background:#7c3aed; color:#fff; border-color:#7c3aed; }
-  .spine-actions button.snapshot-btn:hover { background:#6d28d9; }
+  .spine-status-buttons button.status-btn { background:rgba(59,130,246,.2); color:#60a5fa; border-color:rgba(59,130,246,.4); }
+  .spine-status-buttons button.status-btn:hover { background:rgba(59,130,246,.3); }
+  .spine-actions button.snapshot-btn { background:rgba(124,58,237,.25); color:#a78bfa; border-color:rgba(124,58,237,.45); }
+  .spine-actions button.snapshot-btn:hover { background:rgba(124,58,237,.35); }
   .spine-result { margin-top:14px; padding:10px 14px; border-radius:6px; font-size:13px; display:none; }
-  .spine-result.ok { background:#dcfce7; color:#166534; border:1px solid #86efac; display:block; }
-  .spine-result.err { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; display:block; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
-  .spine-footer-note { color:#57606a; font-size:11px; margin-top:18px; padding-top:10px; border-top:1px dashed #d0d7de; }
+  .spine-result.ok { background:var(--r-accent-soft); color:var(--r-accent); border:1px solid var(--r-accent-edge); display:block; }
+  .spine-result.err { background:var(--r-bad-soft); color:var(--r-bad); border:1px solid rgba(239,68,68,.35); display:block; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+  .spine-footer-note { color:var(--r-text-muted); font-size:11px; margin-top:18px; padding-top:10px; border-top:1px dashed var(--r-border); }
 
   /* Send-prep panel — appears when status >= finalized AND there's a
      snapshot. Operator types recipient, clicks Prepare, gets Gmail
      compose URL + PDF download. The Spine doesn't call Gmail itself
      (charter), just produces a ready-to-send envelope. */
-  .spine-send-panel { margin: 16px 0; padding: 14px 16px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; font-size: 13px; }
-  .spine-send-panel h4 { margin: 0 0 10px; font-size: 14px; color: #1f2937; }
+  .spine-send-panel { margin: 16px 0; padding: 14px 16px; border: 1px solid var(--r-border); border-radius: 6px; background: var(--r-surface); font-size: 13px; }
+  .spine-send-panel h4 { margin: 0 0 10px; font-size: 14px; color: var(--r-text); }
   .spine-send-panel .send-grid { display: grid; grid-template-columns: 80px 1fr 80px 1fr; gap: 8px; align-items: center; }
-  .spine-send-panel label { font-size: 11px; color: #57606a; text-transform: uppercase; letter-spacing: .04em; }
-  .spine-send-panel input { padding: 5px 8px; border: 1px solid #d0d7de; border-radius: 4px; font-size: 13px; font-family: inherit; }
+  .spine-send-panel label { font-size: 11px; color: var(--r-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .spine-send-panel input { padding: 5px 8px; border: 1px solid var(--r-border); border-radius: 4px; font-size: 13px; font-family: inherit; background: var(--r-surface-2); color: var(--r-text); }
   .spine-send-panel .actions { margin-top: 12px; display: flex; gap: 10px; align-items: center; }
-  .spine-send-panel button { padding: 7px 14px; background: #1f883d; color: #fff; border: 0; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 13px; }
-  .spine-send-panel button:hover { background: #1a7233; }
+  .spine-send-panel button { padding: 7px 14px; background: var(--r-accent); color: #fff; border: 0; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 13px; }
+  .spine-send-panel button:hover { background: #0ea574; }
   .spine-send-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
-  .spine-send-envelope { margin-top: 12px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #86efac; border-radius: 5px; font-size: 12px; display: none; }
+  .spine-send-envelope { margin-top: 12px; padding: 10px 14px; background: var(--r-accent-soft); border: 1px solid var(--r-accent-edge); border-radius: 5px; font-size: 12px; display: none; color: var(--r-text); }
   .spine-send-envelope.shown { display: block; }
-  .spine-send-envelope a { display: inline-block; padding: 4px 10px; margin-right: 8px; background: #1f883d; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 600; }
-  .spine-send-envelope a:hover { background: #1a7233; }
-  .spine-send-envelope code { background: #d1fae5; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+  .spine-send-envelope.spine-send-envelope-err { background: var(--r-bad-soft); border-color: rgba(239,68,68,.35); color: var(--r-bad); }
+  .spine-send-envelope a { display: inline-block; padding: 4px 10px; margin-right: 8px; background: var(--r-accent); color: #fff; text-decoration: none; border-radius: 4px; font-weight: 600; }
+  .spine-send-envelope a:hover { background: #0ea574; }
+  .spine-send-envelope code { background: rgba(16,185,129,.18); color: var(--r-text); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
 
   /* Snapshot lock banner — visible when status=sent so the operator
      knows: this quote ships these exact bytes, no further edits. */
-  .spine-lock-banner { margin: 10px 0 14px; padding: 12px 16px; background:#f3f0ff; border:1px solid #ddd6fe; border-left:4px solid #7c3aed; border-radius:6px; font-size:13px; color:#4c1d95; }
-  .spine-lock-banner strong { color:#4c1d95; }
-  .spine-lock-banner code { background:#ede9fe; padding:1px 6px; border-radius:3px; font-size:12px; }
+  .spine-lock-banner { margin: 10px 0 14px; padding: 12px 16px; background:rgba(124,58,237,.12); border:1px solid rgba(124,58,237,.3); border-left:4px solid #a78bfa; border-radius:6px; font-size:13px; color:#c4b5fd; }
+  .spine-lock-banner strong { color:#c4b5fd; }
+  .spine-lock-banner code { background:rgba(124,58,237,.2); color:#c4b5fd; padding:1px 6px; border-radius:3px; font-size:12px; }
 
   /* Oracle panel — collapsible per-row suggestions below the form.
      Oracle SUGGESTS, operator DECIDES. Click-to-accept fills inputs
      but never writes substrate directly; Save is still the only
      writer. See project_spine_oracle_wiring_plan_2026_05_15.md. */
-  .spine-oracle-panel { margin: 16px 0; border: 1px solid #d0d7de; border-radius: 6px; background: #fafbfc; padding: 12px 16px; font-size: 13px; }
+  .spine-oracle-panel { margin: 16px 0; border: 1px solid var(--r-border); border-radius: 6px; background: var(--r-surface); padding: 12px 16px; font-size: 13px; }
   .spine-oracle-panel .panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .spine-oracle-panel .panel-header strong { color: #1f2937; }
-  .spine-oracle-panel .panel-header .oracle-version { color: #6b7280; font-size: 11px; }
+  .spine-oracle-panel .panel-header strong { color: var(--r-text); }
+  .spine-oracle-panel .panel-header .oracle-version { color: var(--r-text-dim); font-size: 11px; }
   .spine-oracle-panel .panel-header button { padding: 4px 10px; font-size: 12px; }
-  .spine-oracle-row { display: grid; grid-template-columns: 60px 1fr 1fr 1fr; gap: 10px; align-items: start; padding: 8px; border-top: 1px solid #eaeef2; font-size: 12px; }
-  .spine-oracle-row .line-label { font-weight: 600; color: #57606a; padding-top: 2px; }
-  .spine-oracle-suggestion { background: #fff; border: 1px solid #d0d7de; border-radius: 4px; padding: 6px 8px; }
-  .spine-oracle-suggestion .lbl { display: block; color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
-  .spine-oracle-suggestion .val { display: block; font-weight: 600; color: #1f2937; font-size: 13px; margin: 1px 0; }
-  .spine-oracle-suggestion .basis { display: block; color: #6b7280; font-size: 11px; }
-  .spine-oracle-suggestion button.accept-chip { margin-top: 4px; padding: 2px 8px; background: #1f883d; color: #fff; border: 0; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: 600; }
-  .spine-oracle-suggestion button.accept-chip:hover { background: #1a7233; }
-  .spine-oracle-suggestion button.accept-chip:disabled { opacity: 0.4; cursor: not-allowed; background: #6b7280; }
-  .conf-high { color: #166534; }
-  .conf-medium { color: #92400e; }
-  .conf-low { color: #991b1b; }
-  .freshness-stale { color: #991b1b; font-weight: 600; }
-  .competitor-undercut { color: #166534; font-weight: 600; }
-  .competitor-above { color: #991b1b; font-weight: 600; }
+  .spine-oracle-row { display: grid; grid-template-columns: 60px 1fr 1fr 1fr; gap: 10px; align-items: start; padding: 8px; border-top: 1px solid var(--r-border-soft); font-size: 12px; }
+  .spine-oracle-row .line-label { font-weight: 600; color: var(--r-text-muted); padding-top: 2px; }
+  .spine-oracle-suggestion { background: var(--r-surface-2); border: 1px solid var(--r-border); border-radius: 4px; padding: 6px 8px; }
+  .spine-oracle-suggestion .lbl { display: block; color: var(--r-text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+  .spine-oracle-suggestion .val { display: block; font-weight: 600; color: var(--r-text); font-size: 13px; margin: 1px 0; }
+  .spine-oracle-suggestion .basis { display: block; color: var(--r-text-muted); font-size: 11px; }
+  .spine-oracle-suggestion button.accept-chip { margin-top: 4px; padding: 2px 8px; background: var(--r-accent); color: #fff; border: 0; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: 600; }
+  .spine-oracle-suggestion button.accept-chip:hover { background: #0ea574; }
+  .spine-oracle-suggestion button.accept-chip:disabled { opacity: 0.4; cursor: not-allowed; background: var(--r-text-dim); }
+  .conf-high { color: var(--r-accent); }
+  .conf-medium { color: var(--r-warn); }
+  .conf-low { color: var(--r-bad); }
+  .freshness-stale { color: var(--r-bad); font-weight: 600; }
+  .competitor-undercut { color: var(--r-accent); font-weight: 600; }
+  .competitor-above { color: var(--r-bad); font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -149,7 +151,7 @@
 <div class="spine-page" data-spine-quote-id="{{ quote.quote_id }}" data-spine-status="{{ quote.status }}" data-spine-updated-at="{{ quote.updated_at }}">
   <div class="spine-header">
     <div style="flex:1">
-      <h1>Spine Quote — {{ quote.display_number or quote.quote_id }}{% if quote.display_number %} <span style="font-size:0.55em;color:#999;font-weight:normal">({{ quote.quote_id }})</span>{% endif %}</h1>
+      <h1>Spine Quote — {{ quote.display_number or quote.quote_id }}{% if quote.display_number %} <span style="font-size:0.55em;color:var(--r-text-dim);font-weight:normal">({{ quote.quote_id }})</span>{% endif %}</h1>
       <div class="meta">
         <span class="spine-status-pill spine-status-{{ quote.status }}">{{ quote.status }}</span>
         &nbsp; Agency: <strong>{{ quote.agency }}</strong>
@@ -158,9 +160,9 @@
       </div>
       {% if ship_to_address %}
       <div class="meta" style="margin-top:4px">
-        🚚 Ship-to: <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#333">{{ ship_to_address }}</span>
+        🚚 Ship-to: <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--r-text)">{{ ship_to_address }}</span>
         {% if ship_to_facility and ship_to_facility != quote.facility %}
-          <span style="color:#888">({{ ship_to_facility }})</span>
+          <span style="color:var(--r-text-muted)">({{ ship_to_facility }})</span>
         {% endif %}
       </div>
       {% endif %}
@@ -176,9 +178,9 @@
     {% else %}
       <strong>Latest snapshot:</strong> <code>{{ latest_snap.snapshot_id }}</code> · sha256 <code>{{ latest_snap.sha256[:16] }}…</code> · {{ latest_snap.created_at }}
       {% if snap_matches_current %}
-        &nbsp;<span style="color:#166534">✓ matches current state — ready to ship</span>
+        &nbsp;<span style="color:var(--r-accent)">✓ matches current state — ready to ship</span>
       {% else %}
-        &nbsp;<span style="color:#991b1b">⚠ current state has diverged — re-snapshot before send</span>
+        &nbsp;<span style="color:var(--r-bad)">⚠ current state has diverged — re-snapshot before send</span>
       {% endif %}
     {% endif %}
   </div>
@@ -222,7 +224,7 @@
         Tax (<span data-kpi="tax-rate">{{ tax_rate_pct }}</span>%)
         {% if cdtfa_verify_url %}
           <a href="{{ cdtfa_verify_url }}" target="_blank" rel="noopener noreferrer"
-             style="font-size:10px;color:#0969da;text-decoration:none;margin-left:4px"
+             style="font-size:10px;color:var(--r-accent);text-decoration:none;margin-left:4px"
              title="{% if ship_to_address %}Resolved by CDTFA for {{ ship_to_address }}. Click to verify.{% else %}Open CDTFA lookup{% endif %}">
             🔍 verify
           </a>
@@ -387,7 +389,7 @@
       </span>
     </div>
 
-    <div class="spine-actions-help" style="margin-top:6px;font-size:12px;color:#57606a">
+    <div class="spine-actions-help" style="margin-top:6px;font-size:12px;color:var(--r-text-muted)">
       💡 <strong>Save</strong> commits your edits and reloads (totals
       recompute from typed values). <strong>Mark Priced / Finalized / Sent</strong>
       auto-saves first, then transitions — one click is enough.
@@ -411,7 +413,7 @@
     </div>
     <div class="actions">
       <button type="button" id="spine-send-prep-btn">Prepare Email</button>
-      <span style="color:#57606a;font-size:11px">
+      <span style="color:var(--r-text-muted);font-size:11px">
         Spine builds the Gmail draft URL + downloads the locked PDF.
         You attach the PDF and click Send in Gmail.
       </span>
@@ -430,15 +432,15 @@
       <strong>🔮 Pricing Oracle</strong>
       <span class="oracle-version" id="spine-oracle-version"></span>
       <button type="button" id="spine-oracle-refresh">🔄 Refresh suggestions</button>
-      <span style="margin-left:auto;color:#6b7280;font-size:11px">
+      <span style="margin-left:auto;color:var(--r-text-dim);font-size:11px">
         Oracle suggests; you decide. Clicking ✓ fills the input; Save is the only writer.
       </span>
     </div>
     <div id="spine-oracle-rows">
-      <div style="color:#6b7280;padding:8px">Loading…</div>
+      <div style="color:var(--r-text-dim);padding:8px">Loading…</div>
     </div>
   </div>
-  <p style="margin: 8px 0; font-size: 12px; color: #57606a;">
+  <p style="margin: 8px 0; font-size: 12px; color: var(--r-text-muted);">
     <a href="#" id="spine-oracle-toggle">🔮 Show Pricing Oracle suggestions</a>
   </p>
   {% endif %}
@@ -683,9 +685,9 @@
       const to = document.getElementById('spine-send-to').value.trim();
       const cc = document.getElementById('spine-send-cc').value.trim();
       if (!to) {
-        sendEnvelopeEl.className = 'spine-send-envelope shown';
-        sendEnvelopeEl.style.background = '#fee2e2';
-        sendEnvelopeEl.style.borderColor = '#fca5a5';
+        sendEnvelopeEl.className = 'spine-send-envelope shown spine-send-envelope-err';
+        sendEnvelopeEl.style.background = '';
+        sendEnvelopeEl.style.borderColor = '';
         sendEnvelopeEl.textContent = 'TO is required.';
         return;
       }
@@ -705,8 +707,9 @@
         );
         const body = await resp.json();
         if (resp.status !== 200) {
-          sendEnvelopeEl.style.background = '#fee2e2';
-          sendEnvelopeEl.style.borderColor = '#fca5a5';
+          sendEnvelopeEl.className = 'spine-send-envelope shown spine-send-envelope-err';
+          sendEnvelopeEl.style.background = '';
+          sendEnvelopeEl.style.borderColor = '';
           sendEnvelopeEl.innerHTML = '<strong>Send-prep failed: HTTP ' + resp.status +
             '</strong><br>' + (body.detail || body.error || '');
           btn.disabled = false;
@@ -729,8 +732,9 @@
         window.open(body.gmail_compose_url, '_blank', 'noopener');
         btn.disabled = false;
       } catch (e) {
-        sendEnvelopeEl.style.background = '#fee2e2';
-        sendEnvelopeEl.style.borderColor = '#fca5a5';
+        sendEnvelopeEl.className = 'spine-send-envelope shown spine-send-envelope-err';
+        sendEnvelopeEl.style.background = '';
+        sendEnvelopeEl.style.borderColor = '';
         sendEnvelopeEl.textContent = 'Network error: ' + e.message;
         btn.disabled = false;
       }
@@ -835,11 +839,11 @@
   }
 
   async function loadOracleSuggestions() {
-    oracleRows.innerHTML = '<div style="color:#6b7280;padding:8px">Loading…</div>';
+    oracleRows.innerHTML = '<div style="color:var(--r-text-dim);padding:8px">Loading…</div>';
     try {
       const resp = await fetch('/spine/quotes/' + encodeURIComponent(quoteId) + '/oracle-suggestions');
       if (!resp.ok) {
-        oracleRows.innerHTML = '<div style="color:#991b1b;padding:8px">Oracle load failed: HTTP ' + resp.status + '</div>';
+        oracleRows.innerHTML = '<div style="color:var(--r-bad);padding:8px">Oracle load failed: HTTP ' + resp.status + '</div>';
         return;
       }
       const body = await resp.json();
@@ -847,7 +851,7 @@
       oracleRows.innerHTML = '';
       body.lines.forEach(function(s){ oracleRows.appendChild(renderOracleSuggestion(s)); });
     } catch (e) {
-      oracleRows.innerHTML = '<div style="color:#991b1b;padding:8px">Oracle error: ' + e.message + '</div>';
+      oracleRows.innerHTML = '<div style="color:var(--r-bad);padding:8px">Oracle error: ' + e.message + '</div>';
     }
   }
 

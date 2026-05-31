@@ -3,40 +3,40 @@
 
 {% block head_extra %}
 <style>
-  .spine-index { padding: 20px 32px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  .spine-index h1 { font-size: 22px; margin: 0 0 6px; }
-  .spine-index .sub { color: #666; margin: 0 0 14px; font-size: 13px; }
+  .spine-index { padding: 20px 32px; }
+  .spine-index h1 { font-size: 22px; margin: 0 0 6px; color: var(--r-text); }
+  .spine-index .sub { color: var(--r-text-muted); margin: 0 0 14px; font-size: 13px; }
   .spine-index table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .spine-index th, .spine-index td {
-    text-align: left; padding: 8px 10px; border-bottom: 1px solid #e6e6e6;
-    vertical-align: top; white-space: nowrap;
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--r-border);
+    vertical-align: top; white-space: nowrap; color: var(--r-text);
   }
-  .spine-index th { background: #f7f7f7; font-weight: 600; }
-  .spine-index tr:hover { background: #fafafa; }
+  .spine-index th { background: var(--r-surface); font-weight: 600; color: var(--r-text-muted); }
+  .spine-index tr:hover td { background: var(--r-surface); }
   .spine-index .pill {
     display: inline-block; padding: 1px 7px; border-radius: 9px;
     font-size: 11px; font-weight: 600; text-transform: uppercase;
   }
-  .spine-index .pill.parsed    { background: #fff4d6; color: #7a5500; }
-  .spine-index .pill.priced    { background: #d8ebff; color: #114b85; }
-  .spine-index .pill.finalized { background: #e0f7e0; color: #1e6a1e; }
-  .spine-index .pill.sent      { background: #e0e0e0; color: #555; }
+  .spine-index .pill.parsed    { background: var(--r-warn-soft); color: var(--r-warn); }
+  .spine-index .pill.priced    { background: rgba(59,130,246,.15); color: #60a5fa; }
+  .spine-index .pill.finalized { background: var(--r-accent-soft); color: var(--r-accent); }
+  .spine-index .pill.sent      { background: rgba(156,163,175,.12); color: var(--r-text-muted); }
   .spine-index .display-num { font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-weight: 600; color: #114b85; }
+    font-weight: 600; color: var(--r-accent); }
   .spine-index .quote-id { font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    color: #888; font-size: 11px; }
+    color: var(--r-text-dim); font-size: 11px; }
   .spine-index .link-badge {
     display: inline-block; padding: 1px 6px; border-radius: 4px;
-    background: #f0e8ff; color: #4a2e8e; font-size: 11px; font-weight: 600;
+    background: rgba(124,58,237,.18); color: #a78bfa; font-size: 11px; font-weight: 600;
   }
   .spine-index .empty {
-    padding: 40px; text-align: center; color: #888; font-size: 14px;
-    background: #fafafa; border-radius: 8px;
+    padding: 40px; text-align: center; color: var(--r-text-muted); font-size: 14px;
+    background: var(--r-surface); border-radius: 8px; border: 1px solid var(--r-border);
   }
   .spine-index a.edit-link { color: inherit; text-decoration: none; }
   .spine-index a.edit-link:hover { text-decoration: underline; }
-  .spine-index .toolbar { margin-bottom: 8px; font-size: 12px; color: #888; }
-  .spine-index .toolbar a { color: #114b85; margin-left: 12px; }
+  .spine-index .toolbar { margin-bottom: 8px; font-size: 12px; color: var(--r-text-muted); }
+  .spine-index .toolbar a { color: var(--r-accent); margin-left: 12px; }
 </style>
 {% endblock %}
 
@@ -90,10 +90,10 @@
               <a class="link-badge" href="/spine/quotes/{{ q.linked_to }}/edit"
                  title="confidence {{ q.link_confidence }}">→ {{ q.linked_to[:14] }}…</a>
             {% else %}
-              <span style="color:#bbb">—</span>
+              <span style="color:var(--r-text-dim)">—</span>
             {% endif %}
           </td>
-          <td><span style="color:#888;font-size:11px">{{ q.updated_at[:19] if q.updated_at else '' }}</span></td>
+          <td><span style="color:var(--r-text-dim);font-size:11px">{{ q.updated_at[:19] if q.updated_at else '' }}</span></td>
         </tr>
         {% endfor %}
       </tbody>

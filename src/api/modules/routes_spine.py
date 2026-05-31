@@ -611,6 +611,152 @@ def make_spine_blueprint(
     def get_bidpkg_pdf(quote_id: str):
         return _serve_cchcs_form(quote_id, "bidpkg")
 
+    # ─── Standalone-form renderer — FORM_REGISTRY direct dispatch ─────
+    #
+    # Six Pillar-4 forms (std_204, dvbe_843, darfur, calrecycle_74,
+    # cuf, std_1000) are registered in FORM_REGISTRY but had no HTTP
+    # route. The /package endpoint iterated per_form_routes and returned
+    # HTTP 500 `no_http_route` for any quote whose contract listed one of
+    # them. These six forms are vendor-identity / cert forms — they do
+    # not require the buyer's template PDFs and do not dispatch through
+    # _serve_cchcs_form. Instead they are served by calling the renderer
+    # in FORM_REGISTRY directly with the Spine Quote + EmailContract.
+
+    def _serve_agency_form(quote_id: str, form_code: str):
+        """Render + stream one standalone agency form via FORM_REGISTRY.
+
+        Used for cert / vendor-identity forms (std_204, dvbe_843, darfur,
+        calrecycle_74, cuf, std_1000) that do NOT require a buyer-supplied
+        template PDF. The renderer is called with (quote, identity=None,
+        today=None, flatten=flatten_requested, contract=contract); it
+        derives identity from the env and raises SpineFormFillError when
+        its PDF template is missing. Honors ?flatten=1 and ?inline=0 the
+        same way every other /forms/*/pdf route does.
+        """
+        from src.spine.agency_forms import FORM_REGISTRY
+
+        renderer = FORM_REGISTRY.get(form_code)
+        if renderer is None:
+            return jsonify({
+                "error": "renderer_missing",
+                "detail": f"no renderer registered for {form_code!r}",
+            }), 409
+
+        try:
+            quote = read_quote(db_path, quote_id)
+        except Exception as e:
+            log.exception("spine.forms.%s: load failed for %s", form_code, quote_id)
+            return jsonify({"error": "load_failed", "detail": str(e)}), 500
+        if quote is None:
+            return jsonify({"error": "not_found", "quote_id": quote_id}), 404
+
+        try:
+            contract = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            log.exception(
+                "spine.forms.%s: contract lookup failed for %s", form_code, quote_id
+            )
+            contract = None
+
+        inline = request.args.get("inline", "1") != "0"
+        flatten_requested = request.args.get("flatten", "0") == "1"
+
+        try:
+            # Render editable; flattening is done once below via
+            # flatten_pdf_bytes (the same single flatten path every other
+            # /forms/*/pdf route uses) — don't also flatten in the renderer.
+            pdf_bytes = renderer(
+                quote,
+                None,
+                today=None,
+                flatten=False,
+                contract=contract,
+            )
+        except Exception as e:
+            log.exception(
+                "spine.forms.%s: render failed for %s", form_code, quote_id
+            )
+            return jsonify({"error": "render_failed", "detail": str(e)}), 500
+
+        if flatten_requested:
+            from src.spine.flatten import flatten_pdf_bytes
+            pdf_bytes = flatten_pdf_bytes(pdf_bytes)
+
+        fname = f"cchcs_{form_code}_{quote_id}.pdf"
+        disposition = (
+            f'inline; filename="{fname}"' if inline
+            else f'attachment; filename="{fname}"'
+        )
+        return Response(
+            pdf_bytes,
+            mimetype="application/pdf",
+            headers={
+                "Content-Disposition": disposition,
+                "X-Spine-Form-Code": form_code,
+                "X-Spine-Flattened": "1" if flatten_requested else "0",
+            },
+        )
+
+    # ─── GET /spine/quotes/<quote_id>/forms/std_204/pdf ───────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/std_204/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_std_204_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "std_204")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/dvbe_843/pdf ──────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/dvbe_843/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_dvbe_843_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "dvbe_843")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/darfur/pdf ────────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/darfur/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_darfur_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "darfur")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/calrecycle_74/pdf ─────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/calrecycle_74/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_calrecycle_74_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "calrecycle_74")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/cuf/pdf ───────────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/cuf/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_cuf_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "cuf")
+
+    # ─── GET /spine/quotes/<quote_id>/forms/std_1000/pdf ─────────────
+
+    @spine_bp.route(
+        "/spine/quotes/<quote_id>/forms/std_1000/pdf",
+        methods=["GET"],
+    )
+    @_wrap
+    def get_std_1000_pdf(quote_id: str):
+        return _serve_agency_form(quote_id, "std_1000")
+
     # ─── GET /spine/quotes/<quote_id>/inspector ───────────────────────
     #
     # The Inspector gate's JSON report — math + identity + coverage +
@@ -929,11 +1075,22 @@ def make_spine_blueprint(
 
         # Build per-form URLs. The Quote PDF uses the existing /pdf route
         # (not /forms/quote/pdf — predates the agency-forms pattern).
+        # 703c and 704c alias to their 703b/704b routes (the format-aware
+        # _serve_cchcs_form handler already reads the contract's actual
+        # packaging to decide which variant to fill).
         per_form_routes = {
-            "quote":  f"/spine/quotes/{quote_id}/pdf",
-            "703b":   f"/spine/quotes/{quote_id}/forms/703b/pdf",
-            "704b":   f"/spine/quotes/{quote_id}/forms/704b/pdf",
-            "bidpkg": f"/spine/quotes/{quote_id}/forms/bidpkg/pdf",
+            "quote":         f"/spine/quotes/{quote_id}/pdf",
+            "703b":          f"/spine/quotes/{quote_id}/forms/703b/pdf",
+            "703c":          f"/spine/quotes/{quote_id}/forms/703b/pdf",
+            "704b":          f"/spine/quotes/{quote_id}/forms/704b/pdf",
+            "704c":          f"/spine/quotes/{quote_id}/forms/704b/pdf",
+            "bidpkg":        f"/spine/quotes/{quote_id}/forms/bidpkg/pdf",
+            "std_204":       f"/spine/quotes/{quote_id}/forms/std_204/pdf",
+            "dvbe_843":      f"/spine/quotes/{quote_id}/forms/dvbe_843/pdf",
+            "darfur":        f"/spine/quotes/{quote_id}/forms/darfur/pdf",
+            "calrecycle_74": f"/spine/quotes/{quote_id}/forms/calrecycle_74/pdf",
+            "cuf":           f"/spine/quotes/{quote_id}/forms/cuf/pdf",
+            "std_1000":      f"/spine/quotes/{quote_id}/forms/std_1000/pdf",
         }
 
         files = []
@@ -1402,6 +1559,73 @@ def make_spine_blueprint(
                 ),
             }), 409
 
+        # ── Contract lookup (shared by both gates below) ─────────────
+        # Load once; both the attachment-disposition gate and the
+        # Inspector gate need it. A missing contract means a legacy
+        # quote — both gates skip in that case (same guard condition).
+        try:
+            contract_for_inspector = find_contract_for_quote(db_path, quote_id)
+        except Exception:
+            contract_for_inspector = None
+
+        # ── Attachment-disposition gate (LAW 6 "Teeth") ───────────────
+        # LAW 6 makes ingest completeness "the hardest rule" and the
+        # email contract "the engine." Attachment-coverage is logically
+        # prior to math-reconcile: you cannot trust the Inspector's
+        # arithmetic on a quote whose attachments were never fully parsed
+        # (the 2026-05-28 Coleman 10842771 incident is the proof — the
+        # distribution list was present but mis-parsed, so the math was
+        # wrong at the source). Running this gate first ensures the
+        # Inspector only ever sees a complete contract.
+        #
+        # Every attachment in attachment_refs must have a recorded
+        # AttachmentDisposition, AND every parsed disposition whose
+        # cross_references list is non-empty must have
+        # cross_refs_resolved=True.  Either failure → 409 with
+        # diagnostic detail so the operator knows exactly which
+        # attachment was not accounted for.
+        #
+        # The gate runs only when an EmailContract is bound (same
+        # condition as the Inspector gate below).
+        if contract_for_inspector is not None:
+            _contract = contract_for_inspector
+            _refs = list(_contract.attachment_refs)
+            _disps = list(_contract.attachment_dispositions)
+            _disposed_refs = {d.ref for d in _disps}
+
+            # (a) Any attachment_ref with no matching disposition?
+            _unaccounted = [r for r in _refs if r not in _disposed_refs]
+            if _unaccounted:
+                return jsonify({
+                    "error": "disposition_missing",
+                    "detail": (
+                        f"{len(_unaccounted)} attachment(s) in the contract "
+                        "have no recorded disposition. Ingest must classify "
+                        "every attachment as 'parsed' or 'classified_non_rfq' "
+                        "before send-prep is allowed."
+                    ),
+                    "unaccounted_refs": _unaccounted,
+                }), 409
+
+            # (b) Any parsed disposition with an unresolved cross-reference?
+            _unresolved = [
+                d.ref for d in _disps
+                if d.status == "parsed"
+                and d.cross_references
+                and not d.cross_refs_resolved
+            ]
+            if _unresolved:
+                return jsonify({
+                    "error": "cross_reference_unresolved",
+                    "detail": (
+                        f"{len(_unresolved)} parsed attachment(s) carry "
+                        "cross-references to targets that were never parsed. "
+                        "Ingest must locate and parse all cross-referenced "
+                        "attachments before send-prep is allowed."
+                    ),
+                    "unresolved_refs": _unresolved,
+                }), 409
+
         # ── Inspector gate ────────────────────────────────────────
         # Job #1 §0 acceptance: every send through the 3-quote gate
         # must carry a clean InspectorReport. Run it here before the
@@ -1414,10 +1638,6 @@ def make_spine_blueprint(
         # (envelope is marked `inspector_skipped` so the operator knows
         # the math-reconcile wasn't run); CCHCS quotes in Job #1 always
         # ingest through the contract path (LAW 6) and so always gate.
-        try:
-            contract_for_inspector = find_contract_for_quote(db_path, quote_id)
-        except Exception:
-            contract_for_inspector = None
         inspector_report = None
         inspector_skipped_reason: str | None = None
         if contract_for_inspector is None:

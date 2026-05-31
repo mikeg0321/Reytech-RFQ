@@ -59,8 +59,12 @@ jobs:
             echo "→ workflow_dispatch: full CI"
           fi
 
-          # PRs with full-ci label get full CI
-          if echo "$LABELS" | grep -q '"name":"full-ci"'; then
+          # PRs with full-ci label get full CI.
+          # NOTE: toJson(labels) is pretty-printed ("name": "full-ci" with a
+          # space after the colon), so match the label name tolerant of
+          # whitespace rather than the old compact '"name":"full-ci"' which
+          # never matched and silently dropped the label.
+          if echo "$LABELS" | grep -Eq '"name":[[:space:]]*"full-ci"'; then
             RUN_FULL="true"
             echo "→ full-ci label present: full CI"
           fi
@@ -98,6 +102,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+
+      - name: Python version floor (>=3.12)
+        run: |
+          python -c "
+          import sys
+          vi = sys.version_info
+          if vi < (3, 12):
+              print(f'FAIL: Python >=3.12 required, got {vi.major}.{vi.minor}.{vi.micro}')
+              sys.exit(1)
+          print(f'OK: Python {vi.major}.{vi.minor}.{vi.micro} >= 3.12')
+          "
 
       - name: Syntax check (all Python files)
         run: |
