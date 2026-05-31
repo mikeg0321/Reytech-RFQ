@@ -78,6 +78,46 @@ ALL_FORM_CODES: tuple[str, ...] = get_args(FormCode)
 # fixtures passing and codifies what the buyer has been asking for.
 CCHCS_DEFAULT_REQUIRED_FORMS: list[str] = ["703b", "704b", "bidpkg", "quote"]
 
+# ──────────────────────────────────────────────────────────────────────
+# CalVet canonical response sets — J2-3 (Job #2).
+# ──────────────────────────────────────────────────────────────────────
+# The CalVet standalone compliance-form set (no AMS 703/704, no bid
+# package). These are the EMPIRICAL CalVet response sets, encoded here in
+# the Spine so the CalVet quote path does NOT re-read
+# DEFAULT_AGENCY_CONFIGS["calvet"] at runtime (J2 acceptance: 0 src/core
+# imports on the CalVet quote path). They are the Spine analogue of
+# CCHCS_DEFAULT_REQUIRED_FORMS.
+#
+# Codes use the canonical Spine FormCode spelling. NOTE (J2-3 / J2-2
+# cross-ticket dependency): `bidder_decl`, `std_205`, `sellers_permit`,
+# and `barstow_cuf` are NOT yet members of the `FormCode` Literal — J2-2
+# adds them in a separate worktree. Until that lands, the synthesizer
+# emits into the EmailContract only the subset already valid in
+# `ALL_FORM_CODES` (see `calvet_required_forms(...)` partitioning in
+# src/spine_bridge/ingest.py). These constants are the FULL canonical
+# truth the J2 forcing test asserts against; the contract's
+# `required_forms` carries the Literal-valid subset until J2-2 widens it.
+CALVET_DEFAULT_REQUIRED_FORMS: list[str] = [
+    "quote",          # Reytech Quote — the line-item carrier + math artifact
+    "calrecycle_74",  # CalRecycle 74 EPP form
+    "bidder_decl",    # Bidder Declaration (J2-2 FormCode)
+    "dvbe_843",       # CA DVBE 843 declaration
+    "darfur",         # Darfur Act certification
+    "cuf",            # CV 012 Commercially Useful Function attestation
+    "std_204",        # CA STD 204 Payee Data Record
+    "std_205",        # CA STD 205 supplement (J2-2 FormCode)
+    "std_1000",       # CA STD 1000 GenAI disclosure
+    "sellers_permit", # CA seller's permit (J2-2 FormCode)
+]
+
+# Barstow adds the facility-specific CUF (barstow_cuf) on top of the
+# standard CalVet set — BOTH CUF forms are required at Barstow.
+CALVET_BARSTOW_REQUIRED_FORMS: list[str] = [
+    "quote", "calrecycle_74", "bidder_decl", "dvbe_843", "darfur",
+    "cuf", "barstow_cuf",  # both CUF forms at Barstow
+    "std_204", "std_205", "std_1000", "sellers_permit",
+]
+
 
 # ──────────────────────────────────────────────────────────────────────
 # ContractLineItem — what the buyer described per line
