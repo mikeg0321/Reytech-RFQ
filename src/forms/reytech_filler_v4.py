@@ -3837,13 +3837,23 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     # reference table, OBS 1600 footnotes, GenAI defs, VSDS instruction,
     # blank pages) ignore this set — they're pure reference, not
     # form-replacements.
-    try:
-        from src.core.agency_config import match_agency as _match_agency
-        _agency_key, _agency_cfg = _match_agency(rfq_data)
-        _required = set(_agency_cfg.get("required_forms", []))
-    except Exception as _ae:
-        log.debug("agency match for bidpkg page-trim failed: %s", _ae)
-        _agency_key, _required = "other", set()
+    #
+    # J1-2: CCHCS never has bidder_decl or darfur_act — the intersection
+    # is always empty for CCHCS regardless of config source.  Skip the
+    # match_agency call (which would read DEFAULT_AGENCY_CONFIGS["cchcs"])
+    # for CCHCS; only non-CCHCS agencies use the legacy path.
+    _agency_raw = (rfq_data.get("agency") or rfq_data.get("agency_key") or "").upper()
+    if _agency_raw in ("CCHCS", "CCHCS-ACQ"):
+        _agency_key = "cchcs"
+        _required = set()   # CCHCS: no bidder_decl / darfur_act standalone
+    else:
+        try:
+            from src.core.agency_config import match_agency as _match_agency
+            _agency_key, _agency_cfg = _match_agency(rfq_data)
+            _required = set(_agency_cfg.get("required_forms", []))
+        except Exception as _ae:
+            log.debug("agency match for bidpkg page-trim failed: %s", _ae)
+            _agency_key, _required = "other", set()
     _bidpkg_replaced = frozenset({"bidder_decl", "darfur_act"} & _required)
     print(f"  BidPkg agency={_agency_key} required_standalones={sorted(_bidpkg_replaced) or 'none'}")
 

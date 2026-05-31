@@ -1960,10 +1960,59 @@ def generate_rfq_package(rid):
         
         # ── Match agency FIRST — determines which forms to generate ──
         try:
-            from src.core.agency_config import match_agency
-            _agency_key, _agency_cfg = match_agency(r)
-            _req_forms_raw = list(_agency_cfg.get("required_forms", []))
-            _opt_forms = set(_agency_cfg.get("optional_forms", []))
+            # J1-2: CCHCS RFQs read their form set from the Spine contract.
+            # Non-CCHCS and synthesis failures fall through to the legacy
+            # match_agency path (unchanged).  DEFAULT_AGENCY_CONFIGS["cchcs"]
+            # is NOT read on the CCHCS path after this block.
+            _spine_contract = None
+            try:
+                from src.spine_bridge import synthesize_cchcs_email_contract, NotCchcsError
+                from src.spine_bridge.shadow_ingest import _make_tax_resolver
+                _spine_contract = synthesize_cchcs_email_contract(
+                    rfq_row=r, rfq_id=rid,
+                    tax_resolver=_make_tax_resolver(),
+                )
+            except NotCchcsError:
+                pass  # non-CCHCS — fall through to match_agency below
+            except Exception as _sce:
+                log.debug(
+                    "GENERATE %s: J1-2 Spine contract synthesis failed, "
+                    "falling back to legacy agency config: %s",
+                    rid, _sce,
+                )
+                _spine_contract = None
+
+            if _spine_contract is not None:
+                # Expand 703 variants: the rev-aware filter below (near
+                # `_present_703`) narrows to the buyer's attached revision;
+                # it needs all three in the raw list to pick from.
+                # This mirrors what DEFAULT_AGENCY_CONFIGS["cchcs"] did —
+                # no behaviour change, different (authoritative) source.
+                _spine_forms_base = list(_spine_contract.required_forms)
+                _703_variants = {"703a", "703b", "703c"}
+                if _703_variants & set(_spine_forms_base):
+                    # At least one 703 is declared; ensure all three so
+                    # the rev-aware filter can select the right revision.
+                    for _v703 in ("703a", "703b", "703c"):
+                        if _v703 not in _spine_forms_base:
+                            _spine_forms_base.append(_v703)
+                _req_forms_raw = _spine_forms_base
+                _opt_forms = set()   # Spine contract v1 carries no optional_forms
+                _agency_key = "cchcs"
+                _agency_cfg = {
+                    "name": "CCHCS / CDCR",
+                    "required_forms": list(_req_forms_raw),
+                }
+                t.step(
+                    f"J1-2: CCHCS form set from Spine contract "
+                    f"({len(_req_forms_raw)} forms): "
+                    f"{', '.join(sorted(_req_forms_raw))}"
+                )
+            else:
+                from src.core.agency_config import match_agency
+                _agency_key, _agency_cfg = match_agency(r)
+                _req_forms_raw = list(_agency_cfg.get("required_forms", []))
+                _opt_forms = set(_agency_cfg.get("optional_forms", []))
             # Narrow by classifier shape + uploaded templates: an LPA /
             # generic / email-only RFQ from a packet-agency must not require
             # 703B/704B/bidpkg the buyer never sent. Unknown shape falls back
