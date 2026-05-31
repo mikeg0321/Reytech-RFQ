@@ -203,8 +203,22 @@ revision; 703C is the IT-RFQ variant.)
   `src/core/quote_contract.py`; that file is agency-agnostic — the
   original wording was corrected by the 2026-05-21 plan.)
 - Legacy CCHCS quote/package routes DELETED — commit in `git log`.
-- The retired `src/spine/agency_forms/` renderers DELETED (already
-  retired per `SPINE_CHARTER.md` "Sanctioned Boundary" — just remove them).
+- The retired CCHCS adapter shims under `src/spine/agency_forms/`
+  (the `cchcs_*.py` files) DELETED. **Correction (2026-05-30, LAW 7 —
+  Architect+Closer trace of Job #1):** the earlier wording — "the
+  retired `src/spine/agency_forms/` renderers DELETED … just remove
+  them" — was factually wrong about the tree and would have deleted
+  LIVE code. The directory's remaining modules (`std_204.py`,
+  `dvbe_843.py`, `darfur.py`, `calrecycle_74.py`, `std_1000.py`,
+  `cuf.py`, `_identity.py`, `_template_resolver.py`, and `FORM_REGISTRY`
+  in `__init__.py`) are LOAD-BEARING — imported by
+  `src/spine/forms_render.py` and consumed by `routes_spine.py`'s
+  per-form route surface — and are NOT deleted in Job #1. The only
+  retired set was the `cchcs_*.py` adapter shims, which were ALREADY
+  removed (they now point at `forms_render.py`; see
+  `agency_forms/__init__.py`). This acceptance item is therefore
+  **already satisfied** and requires no further deletion — do NOT
+  "just remove" the directory.
 - 3 consecutive CCHCS quotes shipped through the Spine — covering BOTH
   formats — each with a clean Inspector report (walkthrough + math
   reconcile).
