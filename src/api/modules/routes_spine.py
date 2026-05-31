@@ -662,11 +662,14 @@ def make_spine_blueprint(
         flatten_requested = request.args.get("flatten", "0") == "1"
 
         try:
+            # Render editable; flattening is done once below via
+            # flatten_pdf_bytes (the same single flatten path every other
+            # /forms/*/pdf route uses) — don't also flatten in the renderer.
             pdf_bytes = renderer(
                 quote,
                 None,
                 today=None,
-                flatten=flatten_requested,
+                flatten=False,
                 contract=contract,
             )
         except Exception as e:
