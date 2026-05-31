@@ -146,11 +146,14 @@ def test_swap_handles_non_list_input(monkeypatch):
 # ── Standalone filler stub ────────────────────────────────────────
 
 
-def test_fill_ams708_standalone_skips_when_template_missing(tmp_path, caplog):
-    """The blank template isn't checked into the repo yet. The filler
-    must skip gracefully (return False, log WARN) rather than raise."""
+def test_fill_ams708_standalone_skips_when_template_missing(tmp_path, caplog, monkeypatch):
+    """The standalone 708 is derived from the CDCR bid-package template. When
+    that source is absent, the filler must skip gracefully (return False, log
+    WARN) rather than raise — so the generator can surface the gap."""
     import logging
-    from src.forms.fill_ams708 import fill_ams708_standalone
+    import src.forms.fill_ams708 as m
+    monkeypatch.setattr(m, "_bidpkg_template_path",
+                        lambda: str(tmp_path / "no_such_template.pdf"))
     out = tmp_path / "ams708_test.pdf"
     rfq = {"solicitation_number": "R26Q41", "sign_date": "2026-05-12"}
     config = {
@@ -162,20 +165,18 @@ def test_fill_ams708_standalone_skips_when_template_missing(tmp_path, caplog):
         }
     }
     with caplog.at_level(logging.WARNING, logger="reytech.fill_ams708"):
-        ok = fill_ams708_standalone(rfq, config, str(out))
+        ok = m.fill_ams708_standalone(rfq, config, str(out))
     assert ok is False
     assert not out.exists(), "filler must NOT write a file when template missing"
-    # Confirm the operator-visible warning is in the log
     msgs = [r.message for r in caplog.records]
-    assert any("blank template not present" in m for m in msgs), (
+    assert any("source template not present" in m for m in msgs), (
         f"expected template-missing warning, got: {msgs!r}"
     )
 
 
-def test_ams708_template_available_returns_false_today():
-    """Pin: until the operator drops the blank into
-    data/templates/ams_708_blank.pdf, this helper returns False.
-    When the template lands, this test will start failing and be
-    updated to assert True alongside the real filler tests."""
+def test_ams708_template_available_now_that_source_lands():
+    """The 708 is derived from the bid-package template, which IS in the repo.
+    (Superseded the old `_returns_false_today` pin once the derive-from-bidpkg
+    filler shipped — the standalone blank approach was abandoned.)"""
     from src.forms.fill_ams708 import ams708_template_available
-    assert ams708_template_available() is False
+    assert ams708_template_available() is True
