@@ -72,8 +72,9 @@ data/growth_report.xlsx
 # ── Migration artifacts ──────────────────────────────────────────────────────
 data/*.migrated
 
-# ── Inspector walkthrough screenshots (local verification artifacts) ─────────
+# ── Walkthrough / theme screenshots (local verification artifacts) ──────────
 .inspector_shots/
+.theme_shots/
 
 # ── Claude Code (ignore settings, keep shared coordination files) ───────────
 .claude/*
