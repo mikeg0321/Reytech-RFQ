@@ -263,9 +263,43 @@ revision; 703C is the IT-RFQ variant.)
   "just remove" the directory.
 - 3 consecutive CCHCS quotes shipped through the Spine — covering BOTH
   formats — each with a clean Inspector report (walkthrough + math
-  reconcile).
+  reconcile). **DONE (2026-05-31).** 3 CCHCS quotes rendered through the
+  Spine (`synthesize_cchcs_email_contract`, not legacy `match_agency`):
+  Format A Non-Cloud packet (CHCF, $6,458.25) + Format B standalone set
+  (CSP-SAC $713.04; PVSP $1,111.36), plus a 703C-variant render via the
+  buyer-attachment / `SPINE_703C_TEMPLATE_PATH` resolver. Inspector
+  SIGNED OFF both gates on the complete co-located set — real-Chrome
+  walkthrough (every PDF rendered; Reytech Quote shows non-blank CDCR
+  Accounts Payable bill-to + visible Subtotal/Tax/Total) AND independent
+  math reconcile (tax verified against `tax_resolver`, 8.97% Coalinga
+  city rate; no silent-zero-tax, cost basis sane). **Honest carryover
+  (tracked, not blocking):** the 703C render *path* is proven, but the
+  test fixture was 703B-bodied, so a true 703C-bodied template artifact
+  is rendered only when a real buyer 703C arrives (or a 703C blank is
+  added to fixtures) — verify on the next real CCHCS 703C solicitation.
 
-Only when ALL are true does CalVet begin. Same pattern. Same gate.
+**JOB #1 — CLOSED (2026-05-31).** All acceptance items above are MET:
+the CCHCS quote path reads its form set + bill-to from the Spine with
+ZERO `src/core/` imports on the quote path (#1268 J1-1+J1-2, #1273 J1-4,
+#1271 J1-5a, #1272 J1-5b, #1279 J1-5-pre — all merged); the dead legacy
+`/rfq/<id>/generate` route is deleted (#1273); the `cchcs_*.py` shims
+were already removed; and J1-7 is signed off (above). The literal
+`DEFAULT_AGENCY_CONFIGS["cchcs"]` deletion + the residual `match_agency`
+classifier consumers were re-assigned to the CalVet/DSH/DGS
+classifier-retirement wave (#1280, LAW 7) — with the forcing test as
+teeth (quote path carries zero deletion debt).
+
+**CalVet now begins. Same pattern. Same gate.** CalVet carries the
+convergence DELIVERABLE that Job #1 deferred: the numeric LAW 3 ratchet
+(writers 9→8, substrates 3→2) AND the shared-classifier retirement —
+`DEFAULT_AGENCY_CONFIGS["cchcs"]` deletion + repoint of the 4 residual
+CCHCS `match_agency` consumers (`agency_quote_profile`,
+`orders_link_orphans`, `routes_v1`, `forms_drift_monitor`) — land as
+deletion commits in this wave. That substrate drop is exactly what the
+2026-06-20 pack checkpoint below measures: the den collapsed this
+session (worktrees 7→1; merged/dead branches pruned) so the
+tracked-directory count has dropped, and the substrate count drops when
+this wave ships its deletions.
 
 ### Pack checkpoint — 2026-06-20
 
